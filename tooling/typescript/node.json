@@ -1,0 +1,4 @@
+{
+  "extends": "./base.json",
+  "compilerOptions": { "types": ["node"], "outDir": "dist", "declaration": true, "sourceMap": true }
+}

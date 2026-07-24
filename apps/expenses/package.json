@@ -1,0 +1,29 @@
+{
+  "name": "@weldall/expenses",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "pnpm with-env tsx src/index.ts",
+    "start": "pnpm with-env node dist/index.js",
+    "with-env": "dotenv -e ../../.env --",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.11",
+    "@weldall/oauth": "workspace:*",
+    "hono": "^4.12.7",
+    "jose": "^6.2.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@weldall/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "tsx": "^4.21.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

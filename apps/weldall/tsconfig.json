@@ -1,0 +1,5 @@
+{
+  "extends": "@weldall/tsconfig/next.json",
+  "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } },
+  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"]
+}

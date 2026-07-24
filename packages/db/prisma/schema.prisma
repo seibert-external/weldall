@@ -1,0 +1,318 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URL")
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+}
+
+model Scope {
+  id          String            @id @default(cuid())
+  key         String            @unique
+  description String
+  isSystem    Boolean           @default(false)
+  version     Int               @default(1)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   String
+  updatedBy   String
+  grants      EmailScopeGrant[]
+
+  @@index([updatedAt])
+}
+
+model EmailScopeAssignment {
+  id              String            @id @default(cuid())
+  normalizedEmail String            @unique
+  version         Int               @default(1)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  createdBy       String
+  updatedBy       String
+  grants          EmailScopeGrant[]
+
+  @@index([updatedAt])
+}
+
+model EmailScopeGrant {
+  id           String               @id @default(cuid())
+  assignmentId String
+  scopeId      String
+  createdAt    DateTime             @default(now())
+  createdBy    String
+  assignment   EmailScopeAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  scope        Scope                @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, scopeId])
+  @@index([scopeId])
+}
+
+model Skill {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  title          String
+  content        String
+  requiredScopes String[] @default([])
+  hidden         Boolean  @default(false)
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  @@index([updatedAt])
+}
+
+model CliSettings {
+  id        String   @id @default("default")
+  appendix  String   @default("")
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+  updatedBy String
+}
+
+model AdminAuditEvent {
+  id            String   @id @default(cuid())
+  schemaVersion Int      @default(1)
+  eventType     String
+  occurredAt    DateTime @default(now())
+  actorId       String
+  actorEmail    String?
+  requestId     String
+  subjectType   String
+  subjectId     String
+  outcome       String
+  metadata      Json
+  createdAt     DateTime @default(now())
+
+  @@index([occurredAt])
+  @@index([eventType, occurredAt])
+  @@index([actorId, occurredAt])
+  @@index([subjectType, subjectId, occurredAt])
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  issuer                String
+  providerAccountId     String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([issuer, providerAccountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model Jwks {
+  id         String    @id
+  publicKey  String
+  privateKey String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+}
+
+model OauthClient {
+  id                               String   @id
+  clientId                         String   @unique
+  clientSecret                     String?
+  disabled                         Boolean  @default(false)
+  skipConsent                      Boolean?
+  enableEndSession                 Boolean?
+  subjectType                      String?
+  scopes                           String[] @default([])
+  userId                           String?
+  name                             String?
+  uri                              String?
+  icon                             String?
+  contacts                         String[] @default([])
+  tos                              String?
+  policy                           String?
+  softwareId                       String?
+  softwareVersion                  String?
+  softwareStatement                String?
+  redirectUris                     String[]
+  postLogoutRedirectUris           String[] @default([])
+  backchannelLogoutUri             String?
+  backchannelLogoutSessionRequired Boolean?
+  tokenEndpointAuthMethod          String?
+  jwks                             String?
+  jwksUri                          String?
+  grantTypes                       String[] @default([])
+  responseTypes                    String[] @default([])
+  public                           Boolean?
+  type                             String?
+  requirePKCE                      Boolean?
+  dpopBoundAccessTokens            Boolean  @default(false)
+  referenceId                      String?
+  metadata                         Json?
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model OauthResource {
+  id                            String   @id
+  identifier                    String   @unique
+  name                          String
+  accessTokenTtl                Int?
+  refreshTokenTtl               Int?
+  signingAlgorithm              String?
+  signingKeyId                  String?
+  allowedScopes                 String[] @default([])
+  customClaims                  Json?
+  dpopBoundAccessTokensRequired Boolean  @default(false)
+  disabled                      Boolean  @default(false)
+  policyVersion                 Int      @default(1)
+  metadata                      Json?
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+}
+
+model OauthClientResource {
+  id         String   @id
+  clientId   String
+  resourceId String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([clientId])
+  @@index([resourceId])
+}
+
+model OauthRefreshToken {
+  id                      String    @id
+  token                   String    @unique
+  clientId                String
+  sessionId               String?
+  userId                  String
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]  @default([])
+  requestedUserInfoClaims String[]  @default([])
+  expiresAt               DateTime
+  createdAt               DateTime  @default(now())
+  revoked                 DateTime?
+  rotatedAt               DateTime?
+  rotationReplayResponse  String?
+  rotationReplayExpiresAt DateTime?
+  authTime                DateTime?
+  confirmation            Json?
+  scopes                  String[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+}
+
+model OauthAccessToken {
+  id                      String    @id
+  token                   String    @unique
+  clientId                String
+  sessionId               String?
+  userId                  String?
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]  @default([])
+  requestedUserInfoClaims String[]  @default([])
+  refreshId               String?
+  expiresAt               DateTime
+  createdAt               DateTime  @default(now())
+  revoked                 DateTime?
+  confirmation            Json?
+  scopes                  String[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@index([refreshId])
+}
+
+model OauthConsent {
+  id                      String   @id
+  clientId                String
+  userId                  String?
+  referenceId             String?
+  resources               String[] @default([])
+  requestedUserInfoClaims String[] @default([])
+  scopes                  String[]
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([userId])
+}
+
+model OauthClientAssertion {
+  id        String   @id
+  expiresAt DateTime
+}
+
+model OAuthDeviceRefreshBinding {
+  id              String    @id @default(cuid())
+  tokenHash       String    @unique
+  familyId        String
+  clientId        String
+  userId          String
+  dpopJkt         String
+  expiresAt       DateTime
+  rotatedAt       DateTime?
+  revokedAt       DateTime?
+  replacementHash String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([familyId])
+  @@index([userId, clientId])
+}

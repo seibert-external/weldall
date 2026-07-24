@@ -1,0 +1,36 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 3896e50f99997176d2f99c934d52701cf076d11b..9b7783f8b0d18410303b62a6ffdf28bec4c72757 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -13,10 +13,12 @@ import { BetterAuthError } from "@better-auth/core/error";
+ import { parseSetCookieHeader } from "better-auth/cookies";
+ import { mergeSchema } from "better-auth/db";
+ import { DPOP_SIGNING_ALGORITHMS, PRIVATE_KEY_JWT_SIGNING_ALGORITHMS } from "@better-auth/core/oauth2";
+-import { createDpopReplayStore, enforceDpopBinding, generateCodeChallenge, getConfirmationJkt, getDpopJktFromPayload, getJwks, isDpopBindingError, isDpopProofError, parseAccessTokenAuthorization, stripAccessTokenAuthorizationScheme, verifyDpopProof } from "better-auth/oauth2";
++import { createInMemoryDpopReplayStore, enforceDpopBinding, generateCodeChallenge, getConfirmationJkt, getDpopJktFromPayload, getJwks, isDpopBindingError, isDpopProofError, parseAccessTokenAuthorization, stripAccessTokenAuthorizationScheme, verifyDpopProof } from "better-auth/oauth2";
+ import { SignJWT, base64url, compactVerify, createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from "jose";
+ import { resolveSigningKey, signJWT, toExpJWT } from "better-auth/plugins";
+ import { SafeUrlSchema } from "@better-auth/core/utils/redirect-uri";
++// Weldall prototype policy: one process-local replay store shared by all native grant requests.
++const weldallDpopReplayStore = createInMemoryDpopReplayStore();
+ //#region src/authentication-context.ts
+ const RESERVED_ID_TOKEN_CLAIMS = /* @__PURE__ */ new Set([
+ 	"iss",
+@@ -1326,7 +1328,7 @@ async function userInfoEndpoint(ctx, opts) {
+ 			url: getEndpointUrl(ctx, "/oauth2/userinfo"),
+ 			proofMaxAgeSeconds: opts.dpop?.proofMaxAgeSeconds,
+ 			signingAlgorithms: opts.dpop?.signingAlgorithms,
+-			replayStore: createDpopReplayStore(ctx.context.internalAdapter)
++			replayStore: weldallDpopReplayStore
+ 		});
+ 	} catch (error) {
+ 		if (isDpopBindingError(error)) throw new APIError("UNAUTHORIZED", {
+@@ -1769,7 +1771,7 @@ async function resolveDpopTokenBinding(ctx, opts, params) {
+ 			expectedJkt,
+ 			proofMaxAgeSeconds: opts.dpop?.proofMaxAgeSeconds,
+ 			signingAlgorithms: opts.dpop?.signingAlgorithms,
+-			replayStore: createDpopReplayStore(ctx.context.internalAdapter)
++			replayStore: weldallDpopReplayStore
+ 		})).jkt };
+ 	} catch (error) {
+ 		if (isDpopProofError(error)) throwInvalidDpopProof(error.message);

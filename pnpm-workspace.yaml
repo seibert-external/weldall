@@ -1,0 +1,45 @@
+packages:
+  - apps/*
+  - packages/*
+  - tooling/*
+
+catalog:
+  "@types/node": ^22.20.1
+  prettier: ^3.8.2
+  typescript: ^5.9.3
+  vitest: ^4.0.18
+  zod: ^4.3.6
+
+minimumReleaseAgeExclude:
+  - "@better-auth/core@1.7.0-rc.2"
+  - "@better-auth/drizzle-adapter@1.7.0-rc.2"
+  - "@better-auth/kysely-adapter@1.7.0-rc.2"
+  - "@better-auth/memory-adapter@1.7.0-rc.2"
+  - "@better-auth/mongo-adapter@1.7.0-rc.2"
+  - "@better-auth/oauth-provider@1.7.0-rc.2"
+  - "@better-auth/prisma-adapter@1.7.0-rc.2"
+  - "@better-auth/telemetry@1.7.0-rc.2"
+  - better-auth@1.7.0-rc.2
+
+allowBuilds:
+  "@napi-rs/keyring": true
+  "@prisma/client": true
+  "@prisma/engines": true
+  esbuild: true
+  prisma: true
+  sharp: true
+
+onlyBuiltDependencies:
+  - "@napi-rs/keyring"
+  - "@prisma/client"
+  - "@prisma/engines"
+  - esbuild
+  - prisma
+  - sharp
+
+patchedDependencies:
+  "@astryxdesign/core@0.1.4": patches/@astryxdesign__core@0.1.4.patch
+  "@better-auth/oauth-provider@1.7.0-rc.2": patches/@better-auth__oauth-provider@1.7.0-rc.2.patch
+
+overrides:
+  '@weldall/cli': link:apps/cli

@@ -1,0 +1,15 @@
+{
+	local_certs
+}
+
+weldall.seibert.localdev {
+	reverse_proxy localhost:3000
+}
+
+expenses.seibert.localdev {
+	reverse_proxy localhost:3001
+}
+
+dev-idp.seibert.localdev {
+	reverse_proxy localhost:3002
+}

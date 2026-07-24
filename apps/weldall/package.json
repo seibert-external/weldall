@@ -1,0 +1,49 @@
+{
+  "name": "@weldall/weldall",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "admin:bootstrap": "pnpm with-env tsx src/scripts/bootstrap-admin.ts",
+    "build": "pnpm with-env next build",
+    "dev": "pnpm with-env next dev -p 3000",
+    "start": "pnpm with-env next start -p 3000",
+    "with-env": "dotenv -e ../../.env --",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm with-env vitest run --fileParallelism=false"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "0.1.4",
+    "@astryxdesign/theme-neutral": "0.1.4",
+    "@better-auth/oauth-provider": "1.7.0-rc.2",
+    "@gsap/react": "^2.1.2",
+    "@weldall/db": "workspace:*",
+    "@weldall/oauth": "workspace:*",
+    "@prisma/client": "6.19.3",
+    "@tanstack/react-form": "^1.33.2",
+    "@tanstack/react-query": "^5.90.21",
+    "@tanstack/react-table": "^8.21.3",
+    "@trpc/client": "11.18.0",
+    "@trpc/server": "11.18.0",
+    "@trpc/tanstack-react-query": "11.18.0",
+    "better-auth": "1.7.0-rc.2",
+    "gsap": "^3.15.0",
+    "jose": "^6.2.2",
+    "next": "^16.2.1",
+    "nuqs": "^2.9.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@weldall/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

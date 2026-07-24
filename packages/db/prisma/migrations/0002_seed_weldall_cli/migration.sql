@@ -1,0 +1,36 @@
+-- The native CLI is a fixed first-party public client. It has no client secret.
+INSERT INTO "OauthClient" (
+  "id",
+  "clientId",
+  "disabled",
+  "skipConsent",
+  "scopes",
+  "name",
+  "redirectUris",
+  "tokenEndpointAuthMethod",
+  "grantTypes",
+  "responseTypes",
+  "public",
+  "type",
+  "requirePKCE",
+  "dpopBoundAccessTokens",
+  "createdAt",
+  "updatedAt"
+) VALUES (
+  'weldall-cli',
+  'weldall-cli',
+  false,
+  true,
+  ARRAY['openid', 'offline_access', 'weldall:scopes']::TEXT[],
+  'Weldall CLI',
+  ARRAY['http://127.0.0.1/callback']::TEXT[],
+  'none',
+  ARRAY['authorization_code', 'refresh_token']::TEXT[],
+  ARRAY['code']::TEXT[],
+  true,
+  'native',
+  true,
+  true,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+);

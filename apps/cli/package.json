@@ -1,0 +1,31 @@
+{
+  "name": "@weldall/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "weldall": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "dev": "tsx src/index.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "release": "node scripts/release.mjs"
+  },
+  "dependencies": {
+    "@weldall/oauth": "workspace:*",
+    "@napi-rs/keyring": "1.3.0",
+    "gunshi": "^0.37.1",
+    "jose": "^6.2.2",
+    "log-update": "^8.0.0"
+  },
+  "devDependencies": {
+    "@weldall/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "tsx": "^4.21.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,67 @@
+diff --git a/dist/astryx.css b/dist/astryx.css
+index cfbc1673f8d9f9dbde74e93755ff7902f68b3089..881c09d605ee863d4d867642b69c0106bcef6253 100644
+--- a/dist/astryx.css
++++ b/dist/astryx.css
+@@ -1,34 +1,35 @@
+ /* Astryx Pre-compiled StyleX CSS — all components */
+ /* Auto-generated. Do not edit manually. */
+ 
++@property --x---_avatar-group-overlap { syntax: "*"; inherits: false;}
++@property --x---_tab-indicator-bottom { syntax: "*"; inherits: false;}
++@property --x---container-max-height { syntax: "*"; inherits: false;}
++@property --x---layout-content-width { syntax: "*"; inherits: false;}
++@property --x-126w13d { syntax: "*"; inherits: false;}
++@property --x-4drmnv { syntax: "*"; inherits: false;}
++@property --x-animationDelay { syntax: "*"; inherits: false;}
++@property --x-borderWidth { syntax: "*"; inherits: false;}
++@property --x-bottom { syntax: "*"; inherits: false;}
++@property --x-counterReset { syntax: "*"; inherits: false;}
++@property --x-fontSize { syntax: "*"; inherits: false;}
++@property --x-gap { syntax: "*"; inherits: false;}
++@property --x-gridAutoRows { syntax: "*"; inherits: false;}
++@property --x-gridTemplateColumns { syntax: "*"; inherits: false;}
++@property --x-height { syntax: "*"; inherits: false;}
++@property --x-left { syntax: "*"; inherits: false;}
++@property --x-marginInline { syntax: "*"; inherits: false;}
++@property --x-maxHeight { syntax: "*"; inherits: false;}
++@property --x-maxWidth { syntax: "*"; inherits: false;}
++@property --x-minHeight { syntax: "*"; inherits: false;}
++@property --x-minWidth { syntax: "*"; inherits: false;}
++@property --x-paddingInlineStart { syntax: "*"; inherits: false;}
++@property --x-right { syntax: "*"; inherits: false;}
++@property --x-top { syntax: "*"; inherits: false;}
++@property --x-transform { syntax: "*"; inherits: false;}
++@property --x-WebkitLineClamp { syntax: "*"; inherits: false;}
++@property --x-width { syntax: "*"; inherits: false;}
++
+ @layer astryx-base {
+-  @property --x---_avatar-group-overlap { syntax: "*"; inherits: false;}
+-  @property --x---_tab-indicator-bottom { syntax: "*"; inherits: false;}
+-  @property --x---container-max-height { syntax: "*"; inherits: false;}
+-  @property --x---layout-content-width { syntax: "*"; inherits: false;}
+-  @property --x-126w13d { syntax: "*"; inherits: false;}
+-  @property --x-4drmnv { syntax: "*"; inherits: false;}
+-  @property --x-animationDelay { syntax: "*"; inherits: false;}
+-  @property --x-borderWidth { syntax: "*"; inherits: false;}
+-  @property --x-bottom { syntax: "*"; inherits: false;}
+-  @property --x-counterReset { syntax: "*"; inherits: false;}
+-  @property --x-fontSize { syntax: "*"; inherits: false;}
+-  @property --x-gap { syntax: "*"; inherits: false;}
+-  @property --x-gridAutoRows { syntax: "*"; inherits: false;}
+-  @property --x-gridTemplateColumns { syntax: "*"; inherits: false;}
+-  @property --x-height { syntax: "*"; inherits: false;}
+-  @property --x-left { syntax: "*"; inherits: false;}
+-  @property --x-marginInline { syntax: "*"; inherits: false;}
+-  @property --x-maxHeight { syntax: "*"; inherits: false;}
+-  @property --x-maxWidth { syntax: "*"; inherits: false;}
+-  @property --x-minHeight { syntax: "*"; inherits: false;}
+-  @property --x-minWidth { syntax: "*"; inherits: false;}
+-  @property --x-paddingInlineStart { syntax: "*"; inherits: false;}
+-  @property --x-right { syntax: "*"; inherits: false;}
+-  @property --x-top { syntax: "*"; inherits: false;}
+-  @property --x-transform { syntax: "*"; inherits: false;}
+-  @property --x-WebkitLineClamp { syntax: "*"; inherits: false;}
+-  @property --x-width { syntax: "*"; inherits: false;}
+   @keyframes x188b6p3-B{from{color:inherit;}to{color:transparent;}}
+   @keyframes x13kz0yu-B{0%, 100%{opacity:1;}50%{opacity:.5;}}
+   @keyframes x18re5ia-B{from{opacity:0;}to{opacity:1;}}

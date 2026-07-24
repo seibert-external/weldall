@@ -1,0 +1,37 @@
+{
+  "name": "weldall-prototype",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "packageManager": "pnpm@11.15.1",
+  "scripts": {
+    "admin:bootstrap": "pnpm --filter @weldall/weldall admin:bootstrap",
+    "build": "turbo run build",
+    "build:dev": "turbo run build --filter=!@weldall/weldall",
+    "cli:link": "pnpm --filter @weldall/cli build && ln -sf \"$PWD/apps/cli/dist/index.js\" \"$(dirname \"$(command -v node)\")/weldall\"",
+    "dev": "turbo run dev --filter=@weldall/weldall --filter=@weldall/expenses --filter=@weldall/dev-idp",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,json,css}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js}\" \"tooling/**/*.{ts,js,json}\" \"*.{json,yaml,yml}\" \"*.md\"",
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,json,css}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js}\" \"tooling/**/*.{ts,js,json}\" \"*.{json,yaml,yml}\" \"*.md\"",
+    "lint": "eslint apps packages scripts && turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "bash scripts/test-e2e.sh",
+    "db:generate": "pnpm --filter @weldall/db generate",
+    "db:migrate:deploy": "pnpm --filter @weldall/db migrate:deploy",
+    "secrets:generate": "tsx scripts/generate-env.ts"
+  },
+  "devDependencies": {
+    "@weldall/eslint-config": "workspace:*",
+    "@weldall/prettier-config": "workspace:*",
+    "dotenv-cli": "^10.0.0",
+    "eslint": "^9.39.5",
+    "jose": "^6.2.4",
+    "prettier": "catalog:",
+    "tsx": "^4.21.0",
+    "turbo": "^2.8.12",
+    "typescript": "catalog:"
+  },
+  "prettier": "@weldall/prettier-config"
+}

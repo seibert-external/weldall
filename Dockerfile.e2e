@@ -1,0 +1,24 @@
+FROM node:24-bookworm-slim AS app
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates openssl \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack enable
+WORKDIR /workspace
+
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/postgres pnpm db:generate \
+  && pnpm --filter @weldall/oauth build \
+  && pnpm --filter @weldall/db build \
+  && pnpm --filter @weldall/cli build \
+  && pnpm --filter @weldall/expenses build \
+  && pnpm --filter @weldall/dev-idp build
+
+FROM app AS e2e
+RUN pnpm --filter @weldall/e2e exec playwright install --with-deps chromium \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends libnss3-tools \
+  && rm -rf /var/lib/apt/lists/*

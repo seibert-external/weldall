@@ -1,0 +1,213 @@
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+      target: app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -euc
+      - |
+        pnpm exec tsx scripts/generate-e2e-env.ts /run/e2e
+        . /run/e2e/database/env.sh
+        pnpm --dir packages/db exec prisma migrate deploy --schema prisma/schema.prisma
+        pnpm exec tsx apps/weldall/src/scripts/bootstrap-admin.ts --email alice@example.com
+        touch /run/e2e/database/ready
+        exec tail -f /dev/null
+    volumes:
+      - e2e-database:/run/e2e/database
+      - e2e-weldall:/run/e2e/weldall
+      - e2e-expenses:/run/e2e/expenses
+      - e2e-dev-idp:/run/e2e/dev-idp
+    healthcheck:
+      test: ["CMD", "test", "-f", "/run/e2e/database/ready"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  dev-idp:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+      target: app
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -euc
+      - |
+        . /run/e2e/env.sh
+        exec node apps/dev-idp/dist/index.js
+    volumes:
+      - e2e-dev-idp:/run/e2e:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  expenses:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+      target: app
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -euc
+      - |
+        . /run/e2e/env.sh
+        exec node apps/expenses/dist/index.js
+    volumes:
+      - e2e-expenses:/run/e2e:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/.well-known/oauth-authorization-server').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  weldall:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+      target: app
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+      dev-idp:
+        condition: service_healthy
+      trust:
+        condition: service_healthy
+    environment:
+      NODE_EXTRA_CA_CERTS: /trust/root.crt
+    command:
+      - /bin/bash
+      - -euc
+      - |
+        . /run/e2e/env.sh
+        exec pnpm --dir apps/weldall exec next dev --webpack -p 3000
+    volumes:
+      - e2e-weldall:/run/e2e:ro
+      - e2e-trust:/trust:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  caddy:
+    image: caddy:2.10-alpine
+    volumes:
+      - ./e2e/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        aliases:
+          - weldall.seibert.localdev
+          - expenses.seibert.localdev
+          - dev-idp.seibert.localdev
+
+  trust:
+    image: alpine:3.22
+    depends_on:
+      caddy:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -euc
+      - |
+        until test -f /caddy-data/caddy/pki/authorities/local/root.crt; do sleep 0.1; done
+        cp /caddy-data/caddy/pki/authorities/local/root.crt /trust/root.crt
+        chmod 0444 /trust/root.crt
+        touch /trust/ready
+        exec tail -f /dev/null
+    volumes:
+      - caddy-data:/caddy-data:ro
+      - e2e-trust:/trust
+    healthcheck:
+      test: ["CMD", "test", "-f", "/trust/ready"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+      target: e2e
+    init: true
+    network_mode: "service:weldall"
+    depends_on:
+      weldall:
+        condition: service_healthy
+      expenses:
+        condition: service_healthy
+      dev-idp:
+        condition: service_healthy
+      trust:
+        condition: service_healthy
+    environment:
+      NODE_EXTRA_CA_CERTS: /trust/root.crt
+      WELDALL_E2E_WORKSPACE: /workspace
+      PLAYWRIGHT_ARTIFACTS_DIR: /artifacts
+    command:
+      - /bin/bash
+      - -euc
+      - |
+        install -m 0644 /trust/root.crt /usr/local/share/ca-certificates/weldall-e2e.crt
+        update-ca-certificates >/dev/null
+        mkdir -p "$$HOME/.pki/nssdb"
+        certutil -N -d "sql:$$HOME/.pki/nssdb" --empty-password
+        certutil -A -d "sql:$$HOME/.pki/nssdb" -n weldall-e2e -t "C,," -i /trust/root.crt
+        exec pnpm --dir apps/e2e test:e2e
+    volumes:
+      - e2e-trust:/trust:ro
+      - ./apps/e2e/test-results:/artifacts
+
+volumes:
+  e2e-database:
+  e2e-weldall:
+  e2e-expenses:
+  e2e-dev-idp:
+  caddy-data:
+  caddy-config:
+  e2e-trust:

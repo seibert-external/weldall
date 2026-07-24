@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.next/
+.turbo/
+coverage/
+apps/e2e/test-results/
+.env
+.env.local
+*.log
+.DS_Store
+.pi-subagents/
+packages/db/src/generated/

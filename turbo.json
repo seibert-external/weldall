@@ -1,0 +1,36 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "globalEnv": [
+    "POSTGRES_URL",
+    "BETTER_AUTH_SECRET",
+    "OAUTH_PROXY_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "WELDALL_DEPLOYMENT_MODE",
+    "ENABLE_DEV_LOGIN",
+    "DEV_IDP_ISSUER",
+    "DEV_IDP_CLIENT_ID",
+    "DEV_IDP_CLIENT_SECRET",
+    "DEV_IDP_REDIRECT_URI",
+    "DEV_IDP_SIGNING_PRIVATE_JWK",
+    "DEV_IDP_SIGNING_PUBLIC_JWK",
+    "DEV_IDP_SIGNING_KID",
+    "DEV_IDP_USERS_JSON",
+    "WELDALL_SIGNING_PRIVATE_JWK",
+    "WELDALL_SIGNING_PUBLIC_JWK",
+    "WELDALL_SIGNING_KID",
+    "EXPENSES_SIGNING_PRIVATE_JWK",
+    "EXPENSES_SIGNING_PUBLIC_JWK",
+    "EXPENSES_SIGNING_KID"
+  ],
+  "globalPassThroughEnv": ["NODE_ENV", "NODE_USE_SYSTEM_CA", "CI"],
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**", "!.next/cache/**"] },
+    "lint": { "dependsOn": ["^build"] },
+    "typecheck": { "dependsOn": ["^build"] },
+    "test": { "dependsOn": ["^build"], "outputs": [] },
+    "dev": { "dependsOn": ["^build"], "cache": false, "persistent": true },
+    "generate": { "cache": false },
+    "migrate:deploy": { "cache": false }
+  }
+}
