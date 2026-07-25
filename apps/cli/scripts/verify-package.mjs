@@ -29,6 +29,7 @@ for (const specifier of Object.values(packageJson.dependencies ?? {}))
 assert.match(bundle, /^#!\/usr\/bin\/env -S node --use-system-ca\n/);
 assert.match(bundle, /import\("@napi-rs\/keyring"\)/);
 assert.doesNotMatch(bundle, /@weldall\/oauth/);
+assert.doesNotMatch(bundle, /(?:from|import\()\s*["']@weldall\/sdk/);
 assert.doesNotMatch(bundle, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 await access(join(root, "dist", "index.js"), constants.X_OK);
 

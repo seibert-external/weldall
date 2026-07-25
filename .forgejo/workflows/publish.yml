@@ -1,0 +1,95 @@
+name: Publish releases
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .releases/*.json
+
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
+
+jobs:
+  verify-and-publish:
+    runs-on: docker
+    env:
+      FORGEJO_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Check out immutable release commit
+        uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: https://data.forgejo.org/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.15.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.15.1 --activate
+
+      - name: Verify release commit has no pending intents
+        run: |
+          test "$(pnpm change status)" = "No pending changes." || {
+            echo "Release commit still contains pending change intents; refresh the release PR" >&2
+            exit 1
+          }
+
+      - name: Select incomplete immutable releases
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          test -n "$RELEASE_BOT_TOKEN" || {
+            echo "The protected RELEASE_BOT_TOKEN secret is not configured" >&2
+            exit 1
+          }
+          node scripts/release/select-release-manifests.mjs .release-manifests.txt
+
+      - name: Install and verify without credentials
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm secrets:generate > .env
+          pnpm db:generate
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm release:test
+          pnpm build:dev
+
+      - name: Build exact release tarballs without credentials
+        env:
+          RELEASE_MANIFEST_FILE: .release-manifests.txt
+        run: node scripts/release/prepare-release-plan.mjs .release-artifacts .release-plan.json
+
+      - name: Run release-gating Docker and Playwright E2E tests
+        env:
+          KEEP_E2E_ARTIFACTS: "1"
+        run: bash scripts/test-e2e.sh
+
+      - name: Publish prepared tarballs to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || {
+            echo "The protected NPM_TOKEN secret is not configured" >&2
+            exit 1
+          }
+          node scripts/release/publish-packages.mjs .release-plan.json
+
+      - name: Create immutable Forgejo tags and releases
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          test -n "$RELEASE_BOT_TOKEN" || {
+            echo "The protected RELEASE_BOT_TOKEN secret is not configured" >&2
+            exit 1
+          }
+          node scripts/release/create-forgejo-releases.mjs .release-plan.json

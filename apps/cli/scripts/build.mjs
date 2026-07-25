@@ -5,7 +5,7 @@ import { build } from "esbuild";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const output = join(root, "dist", "index.js");
-const oauthCliEntry = fileURLToPath(new URL("../../../packages/oauth/src/cli.ts", import.meta.url));
+const sdkEntry = fileURLToPath(new URL("../../../packages/sdk/src/index.ts", import.meta.url));
 const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 
 await rm(join(root, "dist"), { recursive: true, force: true });
@@ -21,7 +21,7 @@ await build({
     {
       name: "weldall-package-inputs",
       setup(build) {
-        build.onResolve({ filter: /^@weldall\/oauth\/cli$/ }, () => ({ path: oauthCliEntry }));
+        build.onResolve({ filter: /^@weldall\/sdk$/ }, () => ({ path: sdkEntry }));
         build.onResolve({ filter: /^\.\.\/package\.json$/ }, () => ({
           path: "package-version",
           namespace: "weldall",

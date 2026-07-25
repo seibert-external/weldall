@@ -89,15 +89,15 @@ pnpm change @weldall/ci --bump patch --summary "Describe the user-visible change
 pnpm change status
 ```
 
-To prepare a release, review `pnpm version -r --dry-run`, apply it with `pnpm release:version`, run
-`pnpm install`, and commit the generated versions, changelogs, ledger, and lockfile. Tag that exact
-commit as `ci-v<version>`, for example `ci-v0.2.0`. The Forgejo workflow verifies that the tag matches
-this package's version and publishes it to npm with public access.
+After the change reaches `main`, Forgejo opens or updates the shared `release/pnpm` PR using pnpm's
+native `version -r` flow. Merging that reviewed PR triggers the non-cancellable publish workflow,
+which rebuilds and verifies the immutable release commit, publishes the prepared CLI tarball, and
+creates the matching `ci-v<version>` tag and Forgejo release. Interrupted runs are safely rerunnable.
 
-Before the first tag, create the `@weldall` npm scope and add a granular npm access token as the
-protected Forgejo Actions secret `NPM_TOKEN`. Restrict it to read/write access for `@weldall/ci`,
-enable bypass-2FA for unattended publication, set an expiry, and assign an owner for rotation.
-Protect `ci-v*` tags so untrusted changes cannot access the publish credential.
+Before the first release, create the `@weldall` npm scope and configure the protected Forgejo secrets
+`NPM_TOKEN` and `RELEASE_BOT_TOKEN` plus the `RELEASE_BOT_USER` repository variable as documented in
+the root README. Restrict the npm token to `@weldall/ci` and `@weldall/sdk`, and protect `ci-v*` tags
+so only the release bot can create them.
 
 The older standalone executable builder remains available for local testing with Bun:
 

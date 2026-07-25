@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: docker
+    env:
+      FORGEJO_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Check out repository
+        uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: https://data.forgejo.org/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.15.0
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.15.1 --activate
+          pnpm --version
+
+      - name: Install dependencies without credentials
+        run: pnpm install --frozen-lockfile
+
+      - name: Require change intents for publishable packages
+        if: forgejo.event_name == 'pull_request'
+        env:
+          CHANGE_BASE_SHA: ${{ forgejo.event.pull_request.base.sha }}
+          CHANGE_RELEASE_PR: ${{ forgejo.head_ref == 'release/pnpm' && forgejo.event.pull_request.head.repo.full_name == forgejo.repository }}
+        run: |
+          node scripts/release/check-release-manifests.mjs
+          node scripts/release/check-change-intents.mjs
+
+      - name: Generate hermetic test configuration
+        run: pnpm secrets:generate > .env
+
+      - name: Generate database client
+        run: pnpm db:generate
+
+      - name: Verify source
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm release:test
+
+      - name: Build distributable workspaces
+        run: pnpm build:dev
+
+      - name: Verify publishable tarballs
+        run: |
+          pnpm --filter @weldall/sdk pack:check
+          pnpm --filter @weldall/ci pack:check
+
+  e2e:
+    if: forgejo.event_name == 'push' || forgejo.event.pull_request.head.repo.full_name == forgejo.repository
+    runs-on: docker
+    needs: verify
+    env:
+      FORGEJO_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Check out repository
+        uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Run Docker and Playwright E2E tests
+        env:
+          KEEP_E2E_ARTIFACTS: "1"
+        run: bash scripts/test-e2e.sh

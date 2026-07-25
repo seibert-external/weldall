@@ -49,16 +49,54 @@ User policy and the downstream resource registry are database-backed. `/resource
 
 `weldall request` resolves the complete target URL against the live registry before token exchange. Origins must match exactly and paths match on segment boundaries; query strings are allowed. The CLI never follows redirects and refuses unregistered, ambiguous, or disabled targets before sending a downstream token or request body. Human-readable `weldall scopes` output contains only service names and granted scopes; `--json` exposes the technical registry contract.
 
-## Change intents and CLI releases
+## Change intents, CI, and releases
 
-This workspace uses pnpm 11's native change intents. Release-affecting pull requests run
-`pnpm change` at the repository root and commit the generated `.changeset/*.md` file. Use
-`pnpm change status` (or `pnpm changes:status`) to review the pending workspace release plan. A
-`none` intent can record that a change deliberately requires no package release.
+This workspace uses pnpm 11's native change intents. Pull requests that change `packages/sdk/**` or
+`apps/cli/**` must commit a matching intent, including an explicit `none` intent when no package
+release is required:
 
-Prepare versions with `pnpm version -r --dry-run`, then `pnpm release:version` and `pnpm install`.
-Commit the resulting package versions, repository changelogs, `.changeset/ledger.yaml`, and lockfile.
-The CLI has its own protected tag-based Forgejo workflow. SDK release automation is intentionally separate and is not part of this change; the SDK package and tarball are nevertheless publish-ready.
+```sh
+pnpm change
+# or non-interactively
+pnpm change --bump patch --summary "Describe the change" @weldall/sdk
+pnpm change --bump none --summary "Tests only" @weldall/sdk
+pnpm change status
+```
+
+Forgejo runs the following native release flow without `changesets/action`:
+
+1. `.forgejo/workflows/ci.yml` validates intents, formatting, linting, types, tests, workspace builds,
+   packed CLI/SDK artifacts, fresh framework consumers, and Docker/Playwright E2E.
+2. After a merge to `main`, `.forgejo/workflows/release-pr.yml` regenerates the single
+   `release/pnpm` branch with `pnpm version -r`, changelogs, the change-intent ledger, lockfile, and
+   an immutable `.releases/*.json` manifest, then opens or updates a release PR through the Forgejo
+   API.
+3. Merging that release PR triggers the non-cancellable `.forgejo/workflows/publish.yml`. It rebuilds
+   and packs the exact first-parent commit that introduced the manifest, verifies tarball integrity,
+   reruns CI and E2E, and publishes missing npm versions in SDK-before-CLI order.
+4. Successful publishes create `sdk-v<version>` or `ci-v<version>` tags and matching Forgejo
+   releases at that immutable release commit. Workflow reruns verify npm integrity before recovering
+   a partial publish.
+
+Repository configuration required before enabling releases:
+
+- `NPM_TOKEN`: protected granular npm token restricted to `@weldall/sdk` and `@weldall/ci`, with
+  CI 2FA bypass and a short expiry.
+- `RELEASE_BOT_TOKEN`: protected Forgejo token with `write:repository`; its non-interactive user
+  needs repository write access, permission to update `release/pnpm`, and permission to create the
+  protected `sdk-v*` and `ci-v*` tags and releases.
+- `RELEASE_BOT_USER`: repository variable containing that Forgejo bot's username for the final
+  credential-scoped Git push.
+- Protect `main`, require the CI `verify` and `e2e` jobs, require pull requests to be up to date
+  with `main` before merge, and prevent humans from pushing to `release/pnpm`.
+- The `docker` runner must be disposable and isolated and expose a dedicated Docker daemon. Do not
+  run fork pull requests automatically on a persistent Docker-capable runner; require maintainer
+  approval or disable fork workflows.
+
+Checkout credentials are never persisted, package installation/builds run without npm or release-bot
+secrets, and npm/Forgejo credentials are injected into separate final steps only. npm trusted
+publishing does not currently support Forgejo, so publishing uses `NPM_TOKEN`. Package
+existence checks plus idempotent tag/release creation make recovery a normal workflow rerun.
 
 ## Validation
 

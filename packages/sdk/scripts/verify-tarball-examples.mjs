@@ -71,7 +71,7 @@ try {
       join(target, "pnpm-workspace.yaml"),
       "allowBuilds:\n  esbuild: true\n  sharp: true\nonlyBuiltDependencies:\n  - esbuild\n  - sharp\n",
     );
-    execFileSync("pnpm", ["install", "--offline", "--no-frozen-lockfile"], {
+    execFileSync("pnpm", ["install", "--prefer-offline", "--no-frozen-lockfile"], {
       cwd: target,
       stdio: "inherit",
     });

@@ -1,0 +1,104 @@
+name: Release PR
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+jobs:
+  update-release-pr:
+    runs-on: docker
+    env:
+      FORGEJO_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Check out repository
+        uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: https://data.forgejo.org/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.15.0
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.15.1 --activate
+
+      - name: Install dependencies without credentials
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate release commit
+        env:
+          RELEASE_BRANCH: release/pnpm
+          RELEASE_PLAN_FILE: /tmp/weldall-release-plan.txt
+          RELEASE_VERSION_SNAPSHOT: /tmp/weldall-release-versions.json
+        run: |
+          pnpm change status | tee "$RELEASE_PLAN_FILE"
+          if test "$(cat "$RELEASE_PLAN_FILE")" = "No pending changes."; then
+            echo "No pending change intents; no release PR is needed."
+            exit 0
+          fi
+
+          git config user.name "weldall-release-bot"
+          git config user.email "release-bot@weldall.dev"
+          git checkout -B "$RELEASE_BRANCH" "$FORGEJO_SHA"
+
+          node scripts/release/release-manifest.mjs snapshot "$RELEASE_VERSION_SNAPSHOT"
+          pnpm version -r
+          node scripts/release/release-manifest.mjs create "$RELEASE_VERSION_SNAPSHOT"
+          pnpm install --lockfile-only
+
+          git add -A
+          test -n "$(git status --short)" || {
+            echo "pnpm reported a release plan but produced no version changes" >&2
+            exit 1
+          }
+          git commit -m "chore(release): version packages"
+
+      - name: Push release branch and open release PR
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          RELEASE_BOT_USER: ${{ vars.RELEASE_BOT_USER }}
+          RELEASE_BRANCH: release/pnpm
+          RELEASE_BASE: main
+          RELEASE_PLAN_FILE: /tmp/weldall-release-plan.txt
+        run: |
+          test -n "$RELEASE_BOT_TOKEN" || {
+            echo "The protected RELEASE_BOT_TOKEN secret is not configured" >&2
+            exit 1
+          }
+          test -n "$RELEASE_BOT_USER" || {
+            echo "The RELEASE_BOT_USER repository variable is not configured" >&2
+            exit 1
+          }
+          if test ! -f "$RELEASE_PLAN_FILE" || test "$(cat "$RELEASE_PLAN_FILE")" = "No pending changes."; then
+            exit 0
+          fi
+
+          askpass="$(mktemp)"
+          trap 'rm -f "$askpass"' EXIT
+          cat >"$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "$RELEASE_BOT_USER" ;;
+            *Password*) printf '%s\n' "$RELEASE_BOT_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+
+          remote="${FORGEJO_SERVER_URL%/}/${FORGEJO_REPOSITORY}.git"
+          remote_sha="$(GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git ls-remote "$remote" "refs/heads/$RELEASE_BRANCH" | awk '{print $1}')"
+          GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null push \
+            --force-with-lease="refs/heads/$RELEASE_BRANCH:$remote_sha" \
+            "$remote" "HEAD:refs/heads/$RELEASE_BRANCH"
+
+          node scripts/release/open-release-pr.mjs
