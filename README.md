@@ -35,7 +35,7 @@ weldall request --method DELETE --scope expenses:delete --scope expenses:write h
 weldall logout
 ```
 
-For `pnpm --filter @weldall/cli dev ...` or direct `node apps/cli/dist/index.js ...` invocations, set `NODE_USE_SYSTEM_CA=1`; the linked `weldall` bin already starts Node with `--use-system-ca`.
+For `pnpm --filter @weldall/ci dev ...` or direct `node apps/cli/dist/index.js ...` invocations, set `NODE_USE_SYSTEM_CA=1`; the linked `weldall` bin already starts Node with `--use-system-ca`.
 
 Run the hermetic browser/CLI suite with `pnpm test:e2e`. Docker Compose creates fresh signing keys and secrets, PostgreSQL, the Development IdP, Caddy, Chromium, Weldall, and Expenses, then removes containers and volumes after the run.
 
@@ -48,6 +48,18 @@ There is no DPoP nonce. Proof and one-time-grant replay state is bounded and pro
 User policy and the downstream resource registry are database-backed. `/resources` manages immutable resource keys and identifiers, authorization-server origins, downstream client IDs, trusted request prefixes, supported global scopes, and enabled state. `/scopes` manages immutable global scope keys and descriptions; `/assignments` independently replaces normalized email-to-scope sets. `/skills` contains the agent-facing Skill Registry. Resource changes never create or remove user grants, use optimistic locking, and are audited. Scope deletion is blocked while a skill or resource references the scope. `weldall:administer` is a protected system scope, and all admin reads and mutations run through authenticated tRPC procedures with shared authorization and request-origin middleware.
 
 `weldall request` resolves the complete target URL against the live registry before token exchange. Origins must match exactly and paths match on segment boundaries; query strings are allowed. The CLI never follows redirects and refuses unregistered, ambiguous, or disabled targets before sending a downstream token or request body. Human-readable `weldall scopes` output contains only service names and granted scopes; `--json` exposes the technical registry contract.
+
+## Change intents and CLI releases
+
+This workspace uses pnpm 11's native change intents. Release-affecting pull requests run
+`pnpm change` at the repository root and commit the generated `.changeset/*.md` file. Use
+`pnpm change status` (or `pnpm changes:status`) to review the pending workspace release plan. A
+`none` intent can record that a change deliberately requires no package release.
+
+Prepare versions with `pnpm version -r --dry-run`, then `pnpm release:version` and `pnpm install`.
+Commit the resulting package versions, repository changelogs, `.changeset/ledger.yaml`, and lockfile.
+Only `@weldall/ci` is published to npm; a protected `ci-v<version>` tag triggers the Forgejo workflow.
+The tag must match `apps/cli/package.json` exactly.
 
 ## Validation
 

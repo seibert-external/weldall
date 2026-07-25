@@ -2,6 +2,18 @@
 
 A macOS CLI for Weldall's DPoP-bound OAuth flow.
 
+## Installation
+
+Node.js 22.15 or newer is required. Install the public package globally:
+
+```sh
+npm install --global @weldall/ci
+weldall --version
+```
+
+The npm package supports macOS only. npm installs the matching native Keychain binding for the
+current Mac; no local compiler, Bun installation, or standalone release binary is required.
+
 ## Configuration
 
 The CLI resolves its Weldall issuer in this order:
@@ -62,26 +74,33 @@ ANSI colors are only emitted to an interactive terminal and respect `NO_COLOR`. 
 
 ```sh
 pnpm --dir apps/cli exec tsx src/index.ts --help
-pnpm --filter @weldall/cli typecheck
-pnpm --filter @weldall/cli test
-pnpm --filter @weldall/cli build
+pnpm --filter @weldall/ci typecheck
+pnpm --filter @weldall/ci test
+pnpm --filter @weldall/ci build
+pnpm --filter @weldall/ci pack:check
 ```
 
-## Local release
+## Releasing
 
-Bun is required to create standalone macOS executables:
+Release-affecting pull requests commit a pnpm change intent from the repository root:
 
 ```sh
-pnpm --filter @weldall/cli release
+pnpm change @weldall/ci --bump patch --summary "Describe the user-visible change"
+pnpm change status
 ```
 
-Artifacts for macOS arm64 and x64, compressed archives, and `SHA256SUMS` are written to
-`apps/cli/dist/release/`. Executables receive an ad-hoc signature by default. Set
-`WELDALL_CODESIGN_IDENTITY` to a macOS signing identity when producing distributable builds.
+To prepare a release, review `pnpm version -r --dry-run`, apply it with `pnpm release:version`, run
+`pnpm install`, and commit the generated versions, changelogs, ledger, and lockfile. Tag that exact
+commit as `ci-v<version>`, for example `ci-v0.2.0`. The Forgejo workflow verifies that the tag matches
+this package's version and publishes it to npm with public access.
 
-Install or remove an extracted executable with:
+Before the first tag, create the `@weldall` npm scope and add a granular npm access token as the
+protected Forgejo Actions secret `NPM_TOKEN`. Restrict it to read/write access for `@weldall/ci`,
+enable bypass-2FA for unattended publication, set an expiry, and assign an owner for rotation.
+Protect `ci-v*` tags so untrusted changes cannot access the publish credential.
+
+The older standalone executable builder remains available for local testing with Bun:
 
 ```sh
-install -m 0755 weldall /usr/local/bin/weldall
-rm /usr/local/bin/weldall
+pnpm --filter @weldall/ci release
 ```

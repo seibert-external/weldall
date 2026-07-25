@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { safeEqual } from "@weldall/oauth";
+import { safeEqual } from "@weldall/oauth/cli";
 
 export interface LoopbackCallback {
   redirectUri: string;

@@ -16,7 +16,7 @@ import {
   generateEs256KeyPair,
   isSha256JwkThumbprint,
   parseScope,
-} from "@weldall/oauth";
+} from "@weldall/oauth/cli";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import type { StoredCredentials } from "../storage/keychain.js";

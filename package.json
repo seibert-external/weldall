@@ -10,17 +10,19 @@
     "admin:bootstrap": "pnpm --filter @weldall/weldall admin:bootstrap",
     "build": "turbo run build",
     "build:dev": "turbo run build --filter=!@weldall/weldall",
-    "cli:link": "pnpm --filter @weldall/cli build && ln -sf \"$PWD/apps/cli/dist/index.js\" \"$(dirname \"$(command -v node)\")/weldall\"",
+    "cli:link": "pnpm --filter @weldall/ci build && ln -sf \"$PWD/apps/cli/dist/index.js\" \"$(dirname \"$(command -v node)\")/weldall\"",
     "dev": "turbo run dev --filter=@weldall/weldall --filter=@weldall/expenses --filter=@weldall/dev-idp",
-    "format": "prettier --write \"apps/**/*.{ts,tsx,json,css}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js}\" \"tooling/**/*.{ts,js,json}\" \"*.{json,yaml,yml}\" \"*.md\"",
-    "format:check": "prettier --check \"apps/**/*.{ts,tsx,json,css}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js}\" \"tooling/**/*.{ts,js,json}\" \"*.{json,yaml,yml}\" \"*.md\"",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,js,mjs,json,css}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js}\" \"tooling/**/*.{ts,js,json}\" \".forgejo/**/*.{yaml,yml}\" \".changeset/**/*.md\" \"*.{json,yaml,yml}\" \"!pnpm-lock.yaml\" \"*.md\"",
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,js,mjs,json,css}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js}\" \"tooling/**/*.{ts,js,json}\" \".forgejo/**/*.{yaml,yml}\" \".changeset/**/*.md\" \"*.{json,yaml,yml}\" \"!pnpm-lock.yaml\" \"*.md\"",
     "lint": "eslint apps packages scripts && turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "bash scripts/test-e2e.sh",
     "db:generate": "pnpm --filter @weldall/db generate",
     "db:migrate:deploy": "pnpm --filter @weldall/db migrate:deploy",
-    "secrets:generate": "tsx scripts/generate-env.ts"
+    "secrets:generate": "tsx scripts/generate-env.ts",
+    "changes:status": "pnpm change status",
+    "release:version": "pnpm version -r"
   },
   "devDependencies": {
     "@weldall/eslint-config": "workspace:*",

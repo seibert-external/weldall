@@ -1,29 +1,46 @@
 {
-  "name": "@weldall/cli",
+  "name": "@weldall/ci",
   "version": "0.1.0",
-  "private": true,
+  "description": "Secure macOS CLI for accessing Weldall-managed APIs",
   "type": "module",
+  "os": [
+    "darwin"
+  ],
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "files": [
+    "dist/index.js",
+    "README.md"
+  ],
   "bin": {
     "weldall": "dist/index.js"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "build": "node scripts/build.mjs",
     "dev": "tsx src/index.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "pack:check": "node scripts/verify-package.mjs",
+    "prepack": "pnpm build",
     "release": "node scripts/release.mjs"
   },
   "dependencies": {
-    "@weldall/oauth": "workspace:*",
     "@napi-rs/keyring": "1.3.0",
     "gunshi": "^0.37.1",
     "jose": "^6.2.2",
     "log-update": "^8.0.0"
   },
   "devDependencies": {
+    "@weldall/oauth": "workspace:*",
     "@weldall/tsconfig": "workspace:*",
     "@types/node": "catalog:",
+    "esbuild": "^0.28.1",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
     "vitest": "catalog:"

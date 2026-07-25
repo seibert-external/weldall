@@ -3,6 +3,10 @@ packages:
   - packages/*
   - tooling/*
 
+versioning:
+  changelog:
+    storage: repository
+
 catalog:
   "@types/node": ^22.20.1
   prettier: ^3.8.2
@@ -40,6 +44,3 @@ onlyBuiltDependencies:
 patchedDependencies:
   "@astryxdesign/core@0.1.4": patches/@astryxdesign__core@0.1.4.patch
   "@better-auth/oauth-provider@1.7.0-rc.2": patches/@better-auth__oauth-provider@1.7.0-rc.2.patch
-
-overrides:
-  '@weldall/cli': link:apps/cli

@@ -11,7 +11,7 @@ import {
   REFRESH_TOKEN_TYPE,
   TOKEN_EXCHANGE_GRANT,
   type ResourceRegistryEntry,
-} from "@weldall/oauth";
+} from "@weldall/oauth/cli";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { isRecord, successfulResponse } from "../http.js";

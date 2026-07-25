@@ -1,4 +1,4 @@
-import { createDpopProof } from "@weldall/oauth";
+import { createDpopProof } from "@weldall/oauth/cli";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { isRecord, successfulResponse } from "../http.js";

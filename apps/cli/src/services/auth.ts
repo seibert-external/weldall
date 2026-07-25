@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { createDpopProof, WELDALL_CLIENT_ID } from "@weldall/oauth";
+import { createDpopProof, WELDALL_CLIENT_ID } from "@weldall/oauth/cli";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { isRecord, successfulResponse } from "../http.js";
