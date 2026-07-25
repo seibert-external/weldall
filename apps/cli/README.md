@@ -47,8 +47,11 @@ which Weldall host is active, and what that account is allowed to do. `weldall s
 as `expenses:read` while still showing the exact scope needed by scripts and API requests.
 
 `weldall request` accepts an absolute HTTPS URL, explicit repeatable `--scope` values, an optional
-`--method`, additional headers, and raw or JSON request bodies. Weldall obtains the matching resource
-token and adds the DPoP authorization headers. `weldall skills` and `weldall skills show` expose administrator-managed
+`--method`, additional headers, and raw or JSON request bodies. Before token exchange, the CLI requires
+the exact origin and path segments to match one active Resource Registry prefix, then checks supported
+and granted scopes. It never follows redirects. Unregistered or ambiguous targets receive neither a
+token nor request data. Weldall then obtains the matching resource token and adds the DPoP authorization
+headers. `weldall skills` and `weldall skills show` expose administrator-managed
 Markdown instructions for agents.
 
 Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. The branded line and

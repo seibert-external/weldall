@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { explainScope } from "../src/commands.js";
+import { explainScope, printPermissions } from "../src/commands.js";
 import { printError, terminalDocument, terminalText } from "../src/output.js";
 
 describe("friendly scope descriptions", () => {
@@ -16,6 +16,30 @@ describe("friendly scope descriptions", () => {
 
   it("keeps unknown permissions understandable without guessing", () => {
     expect(explainScope("documents:publish")).toBe("publish permission");
+  });
+});
+
+describe("friendly resource output", () => {
+  it("shows names and grants without technical registry URLs", () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    printPermissions([
+      {
+        key: "expenses",
+        name: "Expenses",
+        resourceIdentifier: "https://expenses.example/api",
+        authorizationServer: "https://expenses.example",
+        downstreamClientId: "private-client-shape",
+        requestPrefixes: ["https://expenses.example/api"],
+        supportedScopes: ["expenses:read"],
+        grantedScopes: ["expenses:read"],
+      },
+    ]);
+    const text = output.mock.calls.flat().join("\n");
+    expect(text).toContain("Expenses");
+    expect(text).toContain("expenses:read");
+    expect(text).not.toContain("https://");
+    expect(text).not.toContain("private-client-shape");
+    output.mockRestore();
   });
 });
 

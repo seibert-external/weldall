@@ -8,6 +8,7 @@ import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { TRPCReactProvider } from "@/trpc/react";
+import { QueuedOperationToast } from "./_components/use-operation-toast";
 
 type ThemeMode = "light" | "dark";
 interface ThemeModeValue {
@@ -52,7 +53,8 @@ export function Providers({ children }: { children: ReactNode }) {
       <ThemeModeContext value={{ mode, toggleMode }}>
         <Theme theme={neutralTheme} mode={mode}>
           <LinkProvider component={Link}>
-            <LayerProvider>
+            <LayerProvider toast={{ position: "topEnd", maxVisible: 4 }}>
+              <QueuedOperationToast />
               <TRPCReactProvider>{children}</TRPCReactProvider>
             </LayerProvider>
           </LinkProvider>

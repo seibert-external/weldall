@@ -15,6 +15,7 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { useOperationToast } from "../../_components/use-operation-toast";
 
 export function SkillDetail({ skillId }: { skillId: string | null }) {
   const trpc = useTRPC();
@@ -27,8 +28,19 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
     enabled: !isNew,
   });
   const scopeOptionsQuery = useQuery(trpc.admin.scopes.options.queryOptions());
-  const createMutation = useMutation(trpc.admin.skills.create.mutationOptions());
-  const updateMutation = useMutation(trpc.admin.skills.update.mutationOptions());
+  const operationToast = useOperationToast();
+  const createMutation = useMutation(
+    trpc.admin.skills.create.mutationOptions({
+      onSuccess: () => operationToast.success("Skill created", "skill-save"),
+      onError: (error) => operationToast.error("Could not create skill", error, "skill-save"),
+    }),
+  );
+  const updateMutation = useMutation(
+    trpc.admin.skills.update.mutationOptions({
+      onSuccess: () => operationToast.success("Skill saved", "skill-save"),
+      onError: (error) => operationToast.error("Could not save skill", error, "skill-save"),
+    }),
+  );
   const mutation = isNew ? createMutation : updateMutation;
   const form = useForm({
     defaultValues: {
@@ -116,14 +128,6 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
           </Text>
         </div>
 
-        {mutation.error ? (
-          <Banner
-            container="card"
-            status="error"
-            title="Could not save skill"
-            description={mutation.error.message}
-          />
-        ) : null}
         {scopeOptionsQuery.error ? (
           <Banner
             container="card"

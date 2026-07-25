@@ -12,13 +12,32 @@ import {
 } from "@astryxdesign/core/SideNav";
 import { authClient } from "@/lib/auth-client";
 import { useThemeMode } from "../providers";
+import { queueOperationSuccess, useOperationToast } from "./use-operation-toast";
 
 export function AdminFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { mode, toggleMode } = useThemeMode();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const operationToast = useOperationToast();
   const selected = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const logOut = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      const result = await authClient.signOut();
+      if (result.error) {
+        operationToast.error("Could not log out", result.error, "auth-logout");
+        setIsLoggingOut(false);
+        return;
+      }
+      queueOperationSuccess("Logged out", "auth-logout");
+      window.location.assign("/login");
+    } catch (error) {
+      operationToast.error("Could not log out", error, "auth-logout");
+      setIsLoggingOut(false);
+    }
+  };
 
   return (
     <AppShell
@@ -49,11 +68,7 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                   label="Log out"
                   icon={LogoutIcon}
                   isDisabled={isLoggingOut}
-                  onClick={() => {
-                    if (isLoggingOut) return;
-                    setIsLoggingOut(true);
-                    void authClient.signOut().finally(() => window.location.assign("/login"));
-                  }}
+                  onClick={() => void logOut()}
                 />
               </SideNavSection>
             }
@@ -64,6 +79,12 @@ export function AdminFrame({ children }: { children: ReactNode }) {
             </div>
             <SideNavSection title="Administration" isHeaderHidden>
               <SideNavItem label="CLI" href="/cli" icon={CliIcon} isSelected={selected("/cli")} />
+              <SideNavItem
+                label="Resources"
+                href="/resources"
+                icon={ResourceIcon}
+                isSelected={selected("/resources")}
+              />
               <SideNavItem
                 label="Scopes"
                 href="/scopes"
@@ -125,6 +146,16 @@ function CliIcon(props: IconProps) {
     <IconBase {...props}>
       <path d="M4 5h16v14H4z" />
       <path d="m7 9 3 3-3 3M12 15h5" />
+    </IconBase>
+  );
+}
+
+function ResourceIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="7" cy="7" r="3" />
+      <circle cx="17" cy="17" r="3" />
+      <path d="m9 9 6 6M14 6h4v4M6 14v4h4" />
     </IconBase>
   );
 }

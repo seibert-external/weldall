@@ -1,9 +1,5 @@
 import { Hono, type Context } from "hono";
 import {
-  DOWNSTREAM_CLIENT_ID,
-  EXPENSES_ISSUER,
-  EXPENSES_RESOURCE,
-  EXPENSES_TOKEN_ENDPOINT,
   JWT_DPOP_DRAFT,
   JWT_DPOP_GRANT,
   OAuthError,
@@ -18,6 +14,10 @@ import {
 import { getEnv } from "./env.js";
 export const createApp = async () => {
   const env = await getEnv();
+  const issuer = env.downstreamIssuer;
+  const resourceIdentifier = env.downstreamResourceIdentifier;
+  const clientId = env.downstreamClientId;
+  const tokenEndpoint = `${issuer}/oauth/token`;
   const proofReplay = new ReplayStore();
   const jagReplay = new ReplayStore(10_000, {
     code: "invalid_grant",
@@ -27,9 +27,9 @@ export const createApp = async () => {
   app.onError((e) => oauthErrorResponse(e));
   app.get("/.well-known/oauth-authorization-server", (c) =>
     c.json({
-      issuer: EXPENSES_ISSUER,
-      token_endpoint: EXPENSES_TOKEN_ENDPOINT,
-      jwks_uri: `${EXPENSES_ISSUER}/.well-known/jwks.json`,
+      issuer,
+      token_endpoint: tokenEndpoint,
+      jwks_uri: `${issuer}/.well-known/jwks.json`,
       grant_types_supported: [JWT_DPOP_GRANT],
       dpop_signing_alg_values_supported: ["ES256"],
       "urn:weldall:jwt-dpop-draft": JWT_DPOP_DRAFT,
@@ -37,9 +37,9 @@ export const createApp = async () => {
   );
   const protectedResourceMetadata = (c: Context) =>
     c.json({
-      resource: EXPENSES_RESOURCE,
-      authorization_servers: [EXPENSES_ISSUER],
-      scopes_supported: ["expenses:read", "expenses:create", "expenses:delete", "expenses:write"],
+      resource: resourceIdentifier,
+      authorization_servers: [issuer],
+      scopes_supported: env.downstreamScopes,
       bearer_methods_supported: ["header"],
       dpop_signing_alg_values_supported: ["ES256"],
     });
@@ -58,28 +58,28 @@ export const createApp = async () => {
       throw new OAuthError("unsupported_grant_type");
     const jag = await verifyIdJag(form.assertion, {
       issuer: WELDALL_ISSUER,
-      audience: EXPENSES_ISSUER,
-      resource: EXPENSES_RESOURCE,
-      clientId: DOWNSTREAM_CLIENT_ID,
+      audience: issuer,
+      resource: resourceIdentifier,
+      clientId,
       kid: env.WELDALL_SIGNING_KID,
       publicJwk: env.weldallPublicJwk,
-      allowedScopes: ["expenses:read", "expenses:create", "expenses:delete", "expenses:write"],
+      allowedScopes: env.downstreamScopes,
     });
     const proof = c.req.header("dpop");
     if (!proof) throw new OAuthError("invalid_dpop_proof");
     await verifyStrictDpop(proof, {
       method: "POST",
-      url: EXPENSES_TOKEN_ENDPOINT,
+      url: tokenEndpoint,
       replay: proofReplay,
       expectedJkt: jag.cnf.jkt,
     });
     jagReplay.consume(jag.jti, (jag.exp + 6) * 1000);
     const scopes = jag.scope.split(" ");
     const token = await issueAccessToken({
-      issuer: EXPENSES_ISSUER,
+      issuer,
       subject: jag.sub,
-      resource: EXPENSES_RESOURCE,
-      clientId: DOWNSTREAM_CLIENT_ID,
+      resource: resourceIdentifier,
+      clientId,
       scopes,
       jkt: jag.cnf.jkt,
       kid: env.EXPENSES_SIGNING_KID,
@@ -92,12 +92,12 @@ export const createApp = async () => {
   });
   const protect = (scopes: string[]) =>
     dpopResource({
-      issuer: EXPENSES_ISSUER,
-      resource: EXPENSES_RESOURCE,
-      publicOrigin: EXPENSES_ISSUER,
+      issuer,
+      resource: resourceIdentifier,
+      publicOrigin: issuer,
       kid: env.EXPENSES_SIGNING_KID,
       publicJwk: env.expensesPublicJwk,
-      clientId: DOWNSTREAM_CLIENT_ID,
+      clientId,
       requiredScopes: scopes,
       replay: proofReplay,
     });

@@ -29,6 +29,7 @@ import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { AssignmentDto, ScopeDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { useOperationToast } from "../../_components/use-operation-toast";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["email", "updatedAt"]), [
@@ -288,7 +289,18 @@ function AssignmentDialog({
 }) {
   const trpc = useTRPC();
   const formId = useId();
-  const mutation = useMutation(trpc.admin.assignments.replace.mutationOptions());
+  const operationToast = useOperationToast();
+  const mutation = useMutation(
+    trpc.admin.assignments.replace.mutationOptions({
+      onSuccess: () =>
+        operationToast.success(
+          assignment ? "Assignment saved" : "Assignment created",
+          "assignment-save",
+        ),
+      onError: (error) =>
+        operationToast.error("Could not save assignment", error, "assignment-save"),
+    }),
+  );
   const form = useForm({
     defaultValues: {
       email: assignment?.email ?? "",
@@ -329,14 +341,6 @@ function AssignmentDialog({
                 void form.handleSubmit();
               }}
             >
-              {mutation.error ? (
-                <Banner
-                  container="card"
-                  status="error"
-                  title="Could not save assignment"
-                  description={mutation.error.message}
-                />
-              ) : null}
               <FormLayout>
                 <form.Field
                   name="email"
@@ -454,9 +458,15 @@ function DeleteAssignmentDialog({
   onDeleted: () => Promise<void>;
 }) {
   const trpc = useTRPC();
+  const operationToast = useOperationToast();
   const mutation = useMutation(
     trpc.admin.assignments.delete.mutationOptions({
-      onSuccess: () => void onDeleted(),
+      onSuccess: () => {
+        operationToast.success("Assignment deleted", "assignment-delete");
+        void onDeleted();
+      },
+      onError: (error) =>
+        operationToast.error("Could not delete assignment", error, "assignment-delete"),
     }),
   );
   const removesAdmin = assignment?.scopes.includes("weldall:administer") ?? false;
@@ -464,11 +474,9 @@ function DeleteAssignmentDialog({
     <AlertDialog
       actionLabel="Delete assignment"
       description={
-        mutation.error
-          ? mutation.error.message
-          : assignment
-            ? `Remove all scopes from ${assignment.email}?${removesAdmin ? " This also removes administrator access and is rejected for the final administrator." : ""}`
-            : "Delete this assignment?"
+        assignment
+          ? `Remove all scopes from ${assignment.email}?${removesAdmin ? " This also removes administrator access and is rejected for the final administrator." : ""}`
+          : "Delete this assignment?"
       }
       isActionLoading={mutation.isPending}
       isOpen={Boolean(assignment)}

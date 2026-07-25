@@ -1,9 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db, type OAuthDeviceRefreshBinding } from "@weldall/db";
 import {
-  DOWNSTREAM_CLIENT_ID,
-  EXPENSES_ISSUER,
-  EXPENSES_RESOURCE,
   ID_JAG_TOKEN_TYPE,
   WELDALL_CLIENT_ID,
   WELDALL_ISSUER,
@@ -21,7 +18,7 @@ import {
   verifyStrictDpop,
 } from "@weldall/oauth";
 import { auth } from "../auth/auth";
-import { grantsFor } from "../policy/resources";
+import { exchangePolicyFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
 
 const hash = (value: string) => createHash("sha256").update(value, "ascii").digest("base64url");
@@ -89,12 +86,12 @@ async function validateBoundProof(
 async function exchange(request: Request, form: FormData) {
   if (
     requiredString(form, "requested_token_type") !== ID_JAG_TOKEN_TYPE ||
-    requiredString(form, "audience") !== EXPENSES_ISSUER ||
-    requiredString(form, "resource") !== EXPENSES_RESOURCE ||
     requiredString(form, "subject_token_type") !== REFRESH_TOKEN_TYPE ||
     requiredString(form, "client_id") !== WELDALL_CLIENT_ID
   )
     throw new OAuthError("invalid_target");
+  const audience = requiredString(form, "audience");
+  const resourceIdentifier = requiredString(form, "resource");
   const subject = requiredString(form, "subject_token");
   const tokenHash = hash(subject);
   const [binding, providerToken] = await Promise.all([
@@ -121,19 +118,27 @@ async function exchange(request: Request, form: FormData) {
   await validateBoundProof(request, binding);
   const user = await db.user.findUnique({ where: { id: binding.userId } });
   if (!user?.emailVerified) throw new OAuthError("invalid_grant");
-  const allowed =
-    (await grantsFor(user.email)).find((grant) => grant.resource === EXPENSES_RESOURCE)?.scopes ??
-    [];
+  const policy = await exchangePolicyFor({
+    email: user.email,
+    resourceIdentifier,
+    authorizationServer: audience,
+  });
+  if (!policy) throw new OAuthError("invalid_target");
   const scopes = [...new Set(requiredString(form, "scope").split(" ").filter(Boolean))].sort();
-  if (!scopes.length || scopes.some((scope) => !allowed.includes(scope)))
+  if (
+    !scopes.length ||
+    scopes.some(
+      (scope) => !policy.supportedScopes.includes(scope) || !policy.grantedScopes.includes(scope),
+    )
+  )
     throw new OAuthError("invalid_scope");
   const signingKey = await getWeldallSigningKey();
   const accessToken = await issueIdJag({
     issuer: WELDALL_ISSUER,
     subject: user.id,
-    audience: EXPENSES_ISSUER,
-    clientId: DOWNSTREAM_CLIENT_ID,
-    resource: EXPENSES_RESOURCE,
+    audience: policy.authorizationServer,
+    clientId: policy.downstreamClientId,
+    resource: policy.resourceIdentifier,
     scopes,
     jkt: binding.dpopJkt,
     kid: signingKey.kid,

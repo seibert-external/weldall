@@ -4,15 +4,18 @@ import { db } from "@weldall/db";
 import {
   assertAdminCanBeRemoved,
   countVerifiedAdminEmails,
+  createResource,
   createScope,
   createSkill,
   deleteScope,
   deleteSkill,
   getAssignmentByEmail,
   getCliSettings,
+  getResource,
   listSkills,
   replaceAssignment,
   updateCliSettings,
+  updateResource,
   updateSkill,
   type AdminActor,
 } from "../src/server/admin/service.js";
@@ -33,6 +36,25 @@ const secondaryActor: AdminActor = {
   id: secondaryUserId,
   email: secondaryEmail,
   requestId: `${runId}-secondary-request`,
+};
+type ResourceInput = Parameters<typeof createResource>[0];
+const resourceInput = (
+  suffix: string,
+  scopeId: string,
+  overrides: Partial<ResourceInput> = {},
+): ResourceInput => {
+  const origin = `https://${namespace}-${suffix}.example`;
+  return {
+    key: `${namespace}-${suffix}`,
+    name: `Resource ${suffix}`,
+    resourceIdentifier: `${origin}/resource`,
+    authorizationServer: origin,
+    downstreamClientId: `client-${suffix}`,
+    enabled: true,
+    scopeIds: [scopeId],
+    requestPrefixes: [`${origin}/api`],
+    ...overrides,
+  };
 };
 
 beforeAll(async () => {
@@ -75,6 +97,7 @@ afterAll(async () => {
   await db.emailScopeAssignment.deleteMany({
     where: { normalizedEmail: { contains: runId } },
   });
+  await db.downstreamResource.deleteMany({ where: { key: { startsWith: namespace } } });
   await db.scope.deleteMany({ where: { key: { startsWith: namespace } } });
   await db.skill.deleteMany({ where: { slug: { startsWith: namespace } } });
   await db.adminAuditEvent.deleteMany({
@@ -204,6 +227,231 @@ describe("admin scope service", () => {
         },
       }),
     ).resolves.toBeGreaterThanOrEqual(2);
+  });
+
+  it("creates, validates, versions, audits, and disables downstream resources without grants", async () => {
+    const sharedScope = await createScope(
+      { key: `${namespace}:shared`, description: "Shared resource scope." },
+      primaryActor,
+    );
+    const adminScope = await db.scope.findUniqueOrThrow({ where: { key: "weldall:administer" } });
+    const origin = `https://${namespace}.example`;
+    const grantCountBefore = await db.emailScopeGrant.count();
+    const resource = await createResource(
+      {
+        key: `${namespace}-resource`,
+        name: "Admin test resource",
+        resourceIdentifier: `${origin}/resource`,
+        authorizationServer: origin,
+        downstreamClientId: "admin-test-client",
+        enabled: true,
+        scopeIds: [sharedScope.id],
+        requestPrefixes: [`${origin}/api/`, `${origin}/api/events`],
+      },
+      primaryActor,
+    );
+    expect(resource).toMatchObject({
+      enabled: true,
+      version: 1,
+      scopeKeys: [sharedScope.key],
+      requestPrefixes: [`${origin}/api`, `${origin}/api/events`],
+    });
+    await expect(db.emailScopeGrant.count()).resolves.toBe(grantCountBefore);
+
+    await expect(
+      createResource(
+        {
+          key: `${namespace}-overlap`,
+          name: "Overlapping resource",
+          resourceIdentifier: `${origin}/other-resource`,
+          authorizationServer: "https://other.example",
+          downstreamClientId: "other-client",
+          enabled: true,
+          scopeIds: [sharedScope.id],
+          requestPrefixes: [`${origin}/api/v2`],
+        },
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      createResource(
+        {
+          key: `${namespace}-system`,
+          name: "System scope resource",
+          resourceIdentifier: "https://system.example/resource",
+          authorizationServer: "https://system.example",
+          downstreamClientId: "system-client",
+          enabled: true,
+          scopeIds: [adminScope.id],
+          requestPrefixes: ["https://system.example/api"],
+        },
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
+    await expect(
+      createResource(
+        {
+          key: `${namespace}-unknown`,
+          name: "Unknown scope resource",
+          resourceIdentifier: "https://unknown.example/resource",
+          authorizationServer: "https://unknown.example",
+          downstreamClientId: "unknown-client",
+          enabled: true,
+          scopeIds: ["missing-scope-id"],
+          requestPrefixes: ["https://unknown.example/api"],
+        },
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_SCOPE" });
+    await expect(
+      deleteScope({ id: sharedScope.id, expectedVersion: sharedScope.version }, primaryActor),
+    ).rejects.toThrow("supported by resource");
+
+    const disabled = await updateResource(
+      {
+        id: resource.id,
+        name: resource.name,
+        authorizationServer: resource.authorizationServer,
+        downstreamClientId: resource.downstreamClientId,
+        enabled: false,
+        scopeIds: resource.scopeIds,
+        requestPrefixes: resource.requestPrefixes,
+        expectedVersion: resource.version,
+      },
+      primaryActor,
+    );
+    expect(disabled).toMatchObject({ enabled: false, version: 2 });
+    await expect(
+      updateResource(
+        {
+          id: resource.id,
+          name: "Stale update",
+          authorizationServer: resource.authorizationServer,
+          downstreamClientId: resource.downstreamClientId,
+          enabled: true,
+          scopeIds: resource.scopeIds,
+          requestPrefixes: resource.requestPrefixes,
+          expectedVersion: resource.version,
+        },
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(getResource(resource.id)).resolves.toMatchObject({ enabled: false, version: 2 });
+    await expect(
+      db.adminAuditEvent.findMany({
+        where: { subjectId: resource.id },
+        orderBy: { occurredAt: "asc" },
+        select: { eventType: true, metadata: true },
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: "resource.created" }),
+        expect.objectContaining({ eventType: "resource.updated" }),
+        expect.objectContaining({ eventType: "resource.disabled" }),
+      ]),
+    );
+  });
+
+  it("rejects duplicate resource identities and normalized request prefixes", async () => {
+    const scope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+    const resource = await createResource(resourceInput("identity", scope.id), primaryActor);
+
+    await expect(
+      createResource(resourceInput("duplicate-key", scope.id, { key: resource.key }), primaryActor),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      createResource(
+        resourceInput("duplicate-identifier", scope.id, {
+          resourceIdentifier: resource.resourceIdentifier,
+        }),
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const duplicateOrigin = `https://${namespace}-duplicate-prefix.example`;
+    await expect(
+      createResource(
+        resourceInput("duplicate-prefix", scope.id, {
+          requestPrefixes: [`${duplicateOrigin}/api/`, `${duplicateOrigin}/api`],
+        }),
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_RESOURCE" });
+    await expect(
+      createResource(
+        resourceInput("encoded-prefix", scope.id, {
+          requestPrefixes: [`https://${namespace}-encoded.example/%61pi`],
+        }),
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_RESOURCE" });
+  });
+
+  it("lets only one concurrent resource update commit for an expected version", async () => {
+    const scope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+    const resource = await createResource(
+      resourceInput("concurrent-update", scope.id),
+      primaryActor,
+    );
+    const update = (name: string) =>
+      updateResource(
+        {
+          id: resource.id,
+          name,
+          authorizationServer: resource.authorizationServer,
+          downstreamClientId: resource.downstreamClientId,
+          enabled: resource.enabled,
+          scopeIds: resource.scopeIds,
+          requestPrefixes: resource.requestPrefixes,
+          expectedVersion: resource.version,
+        },
+        primaryActor,
+      );
+
+    const results = await Promise.allSettled([update("Concurrent A"), update("Concurrent B")]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    await expect(getResource(resource.id)).resolves.toMatchObject({
+      version: resource.version + 1,
+    });
+  });
+
+  it("serializes concurrent create and update prefix conflicts", async () => {
+    const scope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+    const createPrefix = `https://${namespace}-create-race.example/api`;
+    const creates = await Promise.allSettled([
+      createResource(
+        resourceInput("create-race-a", scope.id, { requestPrefixes: [createPrefix] }),
+        primaryActor,
+      ),
+      createResource(
+        resourceInput("create-race-b", scope.id, { requestPrefixes: [createPrefix] }),
+        primaryActor,
+      ),
+    ]);
+    expect(creates.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(creates.filter((result) => result.status === "rejected")).toHaveLength(1);
+
+    const left = await createResource(resourceInput("update-race-a", scope.id), primaryActor);
+    const right = await createResource(resourceInput("update-race-b", scope.id), primaryActor);
+    const updatePrefix = `https://${namespace}-update-race.example/api`;
+    const update = (resource: Awaited<ReturnType<typeof createResource>>) =>
+      updateResource(
+        {
+          id: resource.id,
+          name: resource.name,
+          authorizationServer: resource.authorizationServer,
+          downstreamClientId: resource.downstreamClientId,
+          enabled: resource.enabled,
+          scopeIds: resource.scopeIds,
+          requestPrefixes: [updatePrefix],
+          expectedVersion: resource.version,
+        },
+        primaryActor,
+      );
+    const updates = await Promise.allSettled([update(left), update(right)]);
+    expect(updates.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(updates.filter((result) => result.status === "rejected")).toHaveLength(1);
   });
 
   it("updates the CLI appendix with optimistic locking and an audit event", async () => {

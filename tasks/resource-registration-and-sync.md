@@ -2,7 +2,7 @@
 
 ## Status
 
-Geplant. Dieses Dokument ersetzt den bisherigen Vorschlag mit statischen YAML-Dateien und einem späteren `weldall up`.
+Implementiert. Dieses Dokument ersetzt den bisherigen Vorschlag mit statischen YAML-Dateien und einem späteren `weldall up`.
 
 ## Entscheidung
 

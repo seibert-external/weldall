@@ -398,15 +398,19 @@ Die Antwort ist gleichzeitig die Resource Registry der CLI:
 ```json
 [
   {
-    "name": "expenses",
+    "key": "expenses",
+    "name": "Expenses",
+    "resourceIdentifier": "https://expenses.seibert.localdev/api",
     "authorizationServer": "https://expenses.seibert.localdev",
-    "resource": "https://expenses.seibert.localdev/api",
-    "scopes": ["expenses:read", "expenses:create", "expenses:delete", "expenses:write"]
+    "downstreamClientId": "weldall-cli-at-expenses",
+    "requestPrefixes": ["https://expenses.seibert.localdev/api"],
+    "supportedScopes": ["expenses:create", "expenses:delete", "expenses:read", "expenses:write"],
+    "grantedScopes": ["expenses:create", "expenses:delete", "expenses:read", "expenses:write"]
   }
 ]
 ```
 
-Die Scopes stammen aus den versionierten Datenbank-Assignments. Weldall schneidet den globalen Katalog gegen die statisch unterstützten Expenses-Scopes; interne Scopes wie `weldall:administer` werden nie an Expenses ausgegeben.
+Resource-Definitionen, Präfixe und unterstützte Scopes stammen aus der Downstream-Registry in PostgreSQL. `grantedScopes` wird unabhängig davon ausschließlich aus den versionierten Benutzer-Assignments abgeleitet. Jede aktive Resource wird ausgegeben; System-Scopes wie `weldall:administer` können keiner Downstream-Resource zugeordnet werden.
 
 ## 6. `weldall request`
 
@@ -421,14 +425,15 @@ Die CLI führt dabei vier Schritte aus:
 
 ```text
 1. Weldall Access Token erneuern und Scope-/Resource-Registry laden
-2. Resource anhand der expliziten Scopes auswählen und bei Weldall einen ID-JAG anfordern
-3. ID-JAG beim Expenses AS gegen einen Access Token tauschen
-4. Die vollständige HTTPS-URL direkt mit einem dafür gebundenen DPoP-Proof aufrufen
+2. Ziel-URL anhand von Origin und Pfadsegmenten genau einer Resource zuordnen
+3. Unterstützte und gewährte Scopes prüfen und bei Weldall einen ID-JAG anfordern
+4. ID-JAG beim registrierten AS gegen einen Access Token tauschen
+5. Die vollständige HTTPS-URL direkt mit einem dafür gebundenen DPoP-Proof aufrufen
 ```
 
 ### 6.1 Schritt 1: Refresh und Registry
 
-`weldall request` verwendet denselben Refresh- und `GET /api/me/scopes`-Ablauf wie `weldall scopes`. Dadurch arbeitet es mit dem neuesten rotierenden Refresh Token und wählt anhand der expliziten Scopes genau eine Resource-Autorisierung. Die Ziel-URL stammt direkt aus dem CLI-Aufruf und wird nicht aus einem Endpunktkatalog zusammengesetzt.
+`weldall request` verwendet denselben Refresh- und `GET /api/me/scopes`-Ablauf wie `weldall scopes`. Die Ziel-URL stammt direkt aus dem CLI-Aufruf und wird nicht aus einem Endpunktkatalog zusammengesetzt. Vor jedem Token Exchange muss sie aber anhand des exakten Origins und einer Pfadsegment-Grenze genau einem registrierten Präfix entsprechen. Erst danach prüft die CLI unterstützte und gewährte Scopes. Redirects werden nicht verfolgt.
 
 ### 6.2 Schritt 2: ID-JAG bei Weldall anfordern
 
@@ -457,8 +462,8 @@ Weldall prüft:
 - Refresh Token aktiv, unrotiert und nicht widerrufen,
 - Better-Auth- und Sidecar-Datensatz stimmen überein,
 - User, Public Client und Device-Key-Bindung,
-- Ziel-Audience und Resource sind exakt Expenses,
-- angeforderte Scopes sind durch die statische Policy erlaubt,
+- Ziel-Audience und Resource wählen exakt dieselbe aktive DB-Resource,
+- angeforderte Scopes werden von dieser Resource unterstützt und sind dem User gewährt,
 - DPoP-Proof ist gültig und noch nicht verwendet.
 
 Antwort gemäß Token Exchange:
@@ -744,7 +749,7 @@ GET /.well-known/oauth-protected-resource/api
 GET /.well-known/jwks.json
 ```
 
-Die CLI verwendet im aktuellen Prototyp die von `GET /api/me/scopes` gelieferte statische Resource Registry. Die Well-Known-Endpunkte dokumentieren und veröffentlichen trotzdem Issuer, Token Endpoint, Resource und JWKS.
+Die CLI verwendet die bei jedem Request aus PostgreSQL erzeugte Registry von `GET /api/me/scopes`. Für Downstream-Services findet keine Discovery statt; der Token Endpoint ist vertraglich `<authorizationServer>/oauth/token`. Die Well-Known-Endpunkte der Demo dokumentieren trotzdem Issuer, Resource und JWKS.
 
 ## 10. Persistenz und Lebensdauer
 

@@ -67,6 +67,7 @@ caddy run --config Caddyfile
 Danach sollten diese URLs erreichbar sein:
 
 - `https://weldall.seibert.localdev/scopes`
+- `https://weldall.seibert.localdev/resources`
 - `https://weldall.seibert.localdev/assignments`
 - `https://expenses.seibert.localdev/.well-known/oauth-authorization-server`
 - `https://dev-idp.seibert.localdev/.well-known/openid-configuration`
@@ -84,7 +85,7 @@ Anschließend kannst du die gewährten Scopes prüfen:
 
 ```bash
 weldall scopes
-weldall scopes --resource expenses
+weldall scopes --json
 ```
 
 ## 6. Expenses API testen
@@ -133,11 +134,13 @@ pnpm test:e2e
 ```
 
 Die Suite erzeugt alle Signing-Keys und Secrets für jeden Lauf neu, installiert
-Caddys Test-CA für Node und Chromium, bootstrapped den Administrator, vergibt die
-Test-Scopes über die Admin-UI und prüft anschließend Scope Discovery,
-DPoP-Request, Logout, Metadaten sowie nicht autorisierte Requests. Console- und Text-Artefakte werden automatisch auf OAuth-Codes, Tokens,
-JWTs und private Schlüssel geprüft. Traces und Screenshots sind für den
-Authentifizierungsflow deaktiviert; Testartefakte werden standardmäßig entfernt.
+Caddys Test-CA für Node und Chromium, bootstrapped den Administrator und pflegt
+Scopes sowie Resources über die Admin-UI. Sie prüft die technische und
+freundliche Registry-Ausgabe, GET/POST/DELETE, eine zweite Resource mit
+geteiltem globalen Scope, Pfadgrenzen, fremde Hosts, Redirect-Ablehnung,
+Deaktivierung, Logout, Metadaten und nicht autorisierte Requests. Traces und
+Screenshots sind für den Authentifizierungsflow deaktiviert; Testartefakte werden
+standardmäßig entfernt.
 Für eine lokale Fehleranalyse können sie bewusst mit
 `KEEP_E2E_ARTIFACTS=1 pnpm test:e2e` behalten werden. Container, Volumes,
 Datenbank, Keys und Tokens werden anschließend entfernt.

@@ -49,22 +49,22 @@ export const explainScope = (scope: string) => {
   );
 };
 
-const printPermissions = (grants: ResourceGrant[]) => {
+export const printPermissions = (grants: ResourceGrant[]) => {
   console.log(bold("You can do the following:"));
-  if (grants.length === 0 || grants.every((grant) => grant.scopes.length === 0)) {
+  if (grants.length === 0 || grants.every((grant) => grant.grantedScopes.length === 0)) {
     console.log("  No API permissions are currently assigned to your account.");
     console.log(`  ${dim("Ask your Weldall administrator for the access you need.")}`);
     return;
   }
   for (const grant of grants) {
     console.log();
-    console.log(`${bold(terminalText(grant.name))} ${dim(`(${terminalText(grant.resource)})`)}`);
-    if (grant.scopes.length === 0) {
+    console.log(bold(terminalText(grant.name)));
+    if (grant.grantedScopes.length === 0) {
       console.log(`  ${dim("No permissions assigned.")}`);
       continue;
     }
-    const width = Math.max(...grant.scopes.map((scope) => explainScope(scope).length));
-    for (const scope of grant.scopes)
+    const width = Math.max(...grant.grantedScopes.map((scope) => explainScope(scope).length));
+    for (const scope of grant.grantedScopes)
       console.log(
         `  ${checkmark()} ${explainScope(scope).padEnd(width)}  ${dim(terminalText(scope))}`,
       );
@@ -148,29 +148,18 @@ export const whoamiCommand = define({
 export const scopesCommand = define({
   name: "scopes",
   description: "Explain what the signed-in account is allowed to do",
-  args: {
-    resource: {
-      type: "string",
-      short: "r",
-      description: "Only show one service, for example `expenses`",
-    },
-    json: jsonArgument,
-  },
-  examples: "weldall scopes\nweldall scopes --resource expenses\nweldall scopes --json",
+  args: { json: jsonArgument },
+  examples: "weldall scopes\nweldall scopes --json",
   run: async (context) => {
-    const grants = await listScopes(await resolveWeldallConfig(), context.values.resource);
+    const grants = await listScopes(await resolveWeldallConfig());
     if (context.values.json) {
       jsonOutput(grants);
       return;
     }
     if (!process.stdout.isTTY) {
       for (const grant of grants)
-        for (const scope of grant.scopes)
-          console.log(
-            context.values.resource
-              ? terminalText(scope)
-              : `${terminalText(grant.name)}\t${terminalText(scope)}`,
-          );
+        for (const scope of grant.grantedScopes)
+          console.log(`${terminalText(grant.name)}\t${terminalText(scope)}`);
       return;
     }
     printPermissions(grants);

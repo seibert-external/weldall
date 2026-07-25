@@ -30,6 +30,7 @@ model Scope {
   createdBy   String
   updatedBy   String
   grants      EmailScopeGrant[]
+  resources   ResourceScope[]
 
   @@index([updatedAt])
 }
@@ -84,6 +85,48 @@ model CliSettings {
   updatedAt DateTime @updatedAt
   createdBy String
   updatedBy String
+}
+
+model DownstreamResource {
+  id                  String                  @id @default(cuid())
+  key                 String                  @unique
+  name                String
+  resourceIdentifier  String                  @unique
+  authorizationServer String
+  downstreamClientId  String
+  enabled             Boolean                 @default(true)
+  version             Int                     @default(1)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  createdBy           String
+  updatedBy           String
+  scopes              ResourceScope[]
+  requestPrefixes     ResourceRequestPrefix[]
+
+  @@index([name])
+  @@index([updatedAt])
+  @@index([enabled])
+}
+
+model ResourceScope {
+  resourceId String
+  scopeId    String
+  resource   DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  scope      Scope              @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([resourceId, scopeId])
+  @@index([scopeId])
+}
+
+model ResourceRequestPrefix {
+  id         String             @id @default(cuid())
+  resourceId String
+  urlPrefix  String             @unique
+  createdAt  DateTime           @default(now())
+  createdBy  String
+  resource   DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId])
 }
 
 model AdminAuditEvent {

@@ -2,9 +2,15 @@ import {
   createDpopProof,
   ID_JAG_TOKEN_TYPE,
   JWT_DPOP_GRANT,
+  normalizeAuthorizationServer,
+  normalizeRequestPrefix,
+  normalizeRequestTarget,
+  normalizeResourceIdentifier,
+  resolveResourceForTarget,
   WELDALL_CLIENT_ID,
   REFRESH_TOKEN_TYPE,
   TOKEN_EXCHANGE_GRANT,
+  type ResourceRegistryEntry,
 } from "@weldall/oauth";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
@@ -13,30 +19,50 @@ import { validateIdJagResponse } from "../oauth/session.js";
 import { withLock } from "../storage/lock.js";
 import { withAccess, type AccessSession } from "./auth.js";
 
-export interface ResourceGrant {
-  name: string;
-  authorizationServer: string;
-  resource: string;
-  downstreamClientId: string;
-  scopes: string[];
-}
+export type ResourceGrant = ResourceRegistryEntry;
 
-const parseRegistry = (value: unknown): ResourceGrant[] => {
+const stringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+export const parseRegistry = (value: unknown): ResourceRegistryEntry[] => {
   if (
     !Array.isArray(value) ||
     value.some(
-      (grant) =>
-        !isRecord(grant) ||
-        typeof grant.name !== "string" ||
-        typeof grant.authorizationServer !== "string" ||
-        typeof grant.resource !== "string" ||
-        typeof grant.downstreamClientId !== "string" ||
-        !Array.isArray(grant.scopes) ||
-        grant.scopes.some((scope) => typeof scope !== "string"),
+      (resource) =>
+        !isRecord(resource) ||
+        typeof resource.key !== "string" ||
+        typeof resource.name !== "string" ||
+        typeof resource.resourceIdentifier !== "string" ||
+        typeof resource.authorizationServer !== "string" ||
+        typeof resource.downstreamClientId !== "string" ||
+        !stringArray(resource.requestPrefixes) ||
+        !stringArray(resource.supportedScopes) ||
+        !stringArray(resource.grantedScopes),
     )
-  )
+  ) {
     throw new CliError("Weldall returned an invalid resource registry");
-  return value as ResourceGrant[];
+  }
+  const resources = value as ResourceRegistryEntry[];
+  try {
+    for (const resource of resources) {
+      if (!resource.key || !resource.name || !resource.downstreamClientId) throw new TypeError();
+      if (normalizeResourceIdentifier(resource.resourceIdentifier) !== resource.resourceIdentifier)
+        throw new TypeError();
+      if (
+        normalizeAuthorizationServer(resource.authorizationServer) !== resource.authorizationServer
+      )
+        throw new TypeError();
+      if (
+        !resource.requestPrefixes.length ||
+        resource.requestPrefixes.some((prefix) => normalizeRequestPrefix(prefix) !== prefix) ||
+        resource.grantedScopes.some((scope) => !resource.supportedScopes.includes(scope))
+      )
+        throw new TypeError();
+    }
+  } catch (error) {
+    throw new CliError("Weldall returned an unsafe resource registry", { cause: error });
+  }
+  return resources;
 };
 
 const registry = async (config: WeldallConfig, session: AccessSession) => {
@@ -61,50 +87,9 @@ const registry = async (config: WeldallConfig, session: AccessSession) => {
   );
 };
 
-export async function listScopes(config: WeldallConfig, resource?: string) {
-  return withLock(() =>
-    withAccess(config, async (session) => {
-      const grants = await registry(config, session);
-      const filtered = resource ? grants.filter((grant) => grant.name === resource) : grants;
-      if (resource && filtered.length === 0)
-        throw new CliError(`No resource named ${JSON.stringify(resource)} is granted`);
-      return filtered;
-    }),
-  );
+export async function listScopes(config: WeldallConfig) {
+  return withLock(() => withAccess(config, (session) => registry(config, session)));
 }
-
-const safeHttpsOrigin = (value: string, label: string) => {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch (error) {
-    throw new CliError(`Weldall returned an invalid ${label}`, { cause: error });
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.pathname !== "/" ||
-    url.search ||
-    url.hash
-  ) {
-    throw new CliError(`Weldall returned an unsafe ${label}`);
-  }
-  return url;
-};
-
-const targetUrl = (value: string) => {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch (error) {
-    throw new CliError("Request URL must be an absolute HTTPS URL", { cause: error });
-  }
-  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
-    throw new CliError("Request URL must be HTTPS and must not contain credentials or a fragment");
-  }
-  return url;
-};
 
 export async function resourceRequest(
   config: WeldallConfig,
@@ -119,25 +104,36 @@ export async function resourceRequest(
 ) {
   return withLock(() =>
     withAccess(config, async (session) => {
-      const target = targetUrl(input.url);
-      const grants = await registry(config, session);
-      const requestedScopes = [...new Set(input.scopes)].sort();
-      const candidates = grants.filter((candidate) =>
-        requestedScopes.every((scope) => candidate.scopes.includes(scope)),
-      );
-      if (candidates.length === 0) {
-        throw new CliError("The requested scopes are not granted for one resource");
+      let target: URL;
+      try {
+        target = normalizeRequestTarget(input.url);
+      } catch (error) {
+        throw new CliError(
+          "Request URL must be HTTPS and must not contain credentials or a fragment",
+          { cause: error },
+        );
       }
-      if (candidates.length > 1) {
-        throw new CliError("The requested scopes match multiple resources", {
-          hint: "Use resource-specific scope names so Weldall can select one authorization server.",
+      const resources = await registry(config, session);
+      const candidates = resolveResourceForTarget(resources, target);
+      if (candidates.length === 0) {
+        throw new CliError(`No registered resource accepts ${target.toString()}`, {
+          hint: "Use a URL documented by an available Weldall skill.",
         });
       }
-      const grant = candidates[0]!;
-      const authorizationServer = safeHttpsOrigin(
-        grant.authorizationServer,
-        "resource authorization server",
-      );
+      if (candidates.length > 1) {
+        throw new CliError(`Multiple registered resources accept ${target.toString()}`);
+      }
+      const resource = candidates[0]!;
+      const requestedScopes = [...new Set(input.scopes)].sort();
+      if (
+        !requestedScopes.length ||
+        requestedScopes.some((scope) => !resource.supportedScopes.includes(scope))
+      ) {
+        throw new CliError(`The requested scopes are not supported by ${resource.name}`);
+      }
+      if (requestedScopes.some((scope) => !resource.grantedScopes.includes(scope))) {
+        throw new CliError(`The requested scopes are not granted for ${resource.name}`);
+      }
 
       const proof = await createDpopProof({
         ...session.credentials,
@@ -151,8 +147,8 @@ export async function resourceRequest(
           body: new URLSearchParams({
             grant_type: TOKEN_EXCHANGE_GRANT,
             requested_token_type: ID_JAG_TOKEN_TYPE,
-            audience: grant.authorizationServer,
-            resource: grant.resource,
+            audience: resource.authorizationServer,
+            resource: resource.resourceIdentifier,
             scope: requestedScopes.join(" "),
             subject_token: session.credentials.refreshToken,
             subject_token_type: REFRESH_TOKEN_TYPE,
@@ -168,14 +164,14 @@ export async function resourceRequest(
         exchange,
         session.credentials.publicJwk,
         {
-          authorizationServer: grant.authorizationServer,
-          resource: grant.resource,
-          clientId: grant.downstreamClientId,
+          authorizationServer: resource.authorizationServer,
+          resource: resource.resourceIdentifier,
+          clientId: resource.downstreamClientId,
           scopes: requestedScopes,
         },
       );
 
-      const downstreamTokenEndpoint = new URL("/oauth/token", authorizationServer).toString();
+      const downstreamTokenEndpoint = `${resource.authorizationServer}/oauth/token`;
       const downstreamProof = await createDpopProof({
         ...session.credentials,
         method: "POST",

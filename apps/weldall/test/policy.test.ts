@@ -5,7 +5,7 @@ import { generateEs256KeyPair, issueIdJag, verifyIdJag } from "@weldall/oauth";
 import { importJWK, jwtVerify } from "jose";
 import { normalizeEmail, parseScopeKey } from "../src/server/admin/service.js";
 import { signWeldallJwt } from "../src/server/oauth/jwt.js";
-import { grantsFor } from "../src/server/policy/resources.js";
+import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/resources.js";
 
 describe("Weldall signing identity", () => {
   it("uses the same env ES256 key for OAuth JWTs and ID-JAGs", async () => {
@@ -55,13 +55,31 @@ describe("Weldall signing identity", () => {
 });
 
 describe("database-backed policy", () => {
-  it("normalizes identities and emits only scopes supported by a downstream resource", async () => {
+  it("emits every active resource and derives granted scopes independently from assignments", async () => {
     const id = randomUUID();
     const email = ` Policy-${id}@Example.com `;
     const [readScope, adminScope] = await Promise.all([
       db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } }),
       db.scope.findUniqueOrThrow({ where: { key: "weldall:administer" } }),
     ]);
+    const resource = await db.downstreamResource.create({
+      data: {
+        key: `shared-${id}`,
+        name: "Shared scope test",
+        resourceIdentifier: `https://shared-${id}.example/api`,
+        authorizationServer: `https://shared-${id}.example`,
+        downstreamClientId: "shared-test-client",
+        createdBy: "policy-test",
+        updatedBy: "policy-test",
+        requestPrefixes: {
+          create: {
+            urlPrefix: `https://shared-${id}.example/api`,
+            createdBy: "policy-test",
+          },
+        },
+        scopes: { create: { scopeId: readScope.id } },
+      },
+    });
     const assignment = await db.emailScopeAssignment.create({
       data: {
         normalizedEmail: normalizeEmail(email),
@@ -77,12 +95,44 @@ describe("database-backed policy", () => {
       },
     });
     try {
-      await expect(grantsFor(email)).resolves.toEqual([
-        expect.objectContaining({ name: "expenses", scopes: ["expenses:read"] }),
-      ]);
-      await expect(grantsFor(`unknown-${id}@example.com`)).resolves.toEqual([]);
+      const registry = await resourceRegistryFor(email);
+      expect(registry).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: "expenses",
+            supportedScopes: expect.arrayContaining(["expenses:read"]),
+            grantedScopes: ["expenses:read"],
+          }),
+          expect.objectContaining({
+            key: resource.key,
+            supportedScopes: ["expenses:read"],
+            grantedScopes: ["expenses:read"],
+          }),
+        ]),
+      );
+      const policy = await exchangePolicyFor({
+        email,
+        resourceIdentifier: resource.resourceIdentifier,
+        authorizationServer: resource.authorizationServer,
+      });
+      expect(policy).toMatchObject({
+        supportedScopes: ["expenses:read"],
+        grantedScopes: ["expenses:read"],
+      });
+      await expect(
+        exchangePolicyFor({
+          email,
+          resourceIdentifier: resource.resourceIdentifier,
+          authorizationServer: "https://mismatched.example",
+        }),
+      ).resolves.toBeNull();
+
+      const unknownRegistry = await resourceRegistryFor(`unknown-${id}@example.com`);
+      expect(unknownRegistry.length).toBeGreaterThanOrEqual(2);
+      expect(unknownRegistry.every((entry) => entry.grantedScopes.length === 0)).toBe(true);
     } finally {
       await db.emailScopeAssignment.delete({ where: { id: assignment.id } });
+      await db.downstreamResource.delete({ where: { id: resource.id } });
     }
   });
 

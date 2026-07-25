@@ -3,20 +3,24 @@ import { WELDALL_ISSUER } from "@weldall/oauth";
 import { z } from "zod";
 import {
   AdminDomainError,
+  createResource,
   createScope,
   createSkill,
   deleteAssignment,
   deleteScope,
   deleteSkill,
   getCliSettings,
+  getResource,
   getSkill,
   listAssignments,
+  listResources,
   listScopeOptions,
   listScopes,
   listSkills,
   replaceAssignment,
   requireAdminUser,
   updateCliSettings,
+  updateResource,
   updateScope,
   updateSkill,
   type AdminActor,
@@ -69,6 +73,55 @@ export const appRouter = trpc.router({
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() => updateCliSettings(input, ctx.adminActor)),
         ),
+    }),
+    resources: trpc.router({
+      list: adminProcedure
+        .input(
+          z
+            .object({
+              ...pageInput,
+              sort: z
+                .enum(["name.asc", "name.desc", "updatedAt.asc", "updatedAt.desc"])
+                .default("name.asc"),
+            })
+            .strict(),
+        )
+        .query(({ input }) => mapDomainErrors(() => listResources(input))),
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getResource(input.id))),
+      create: adminProcedure
+        .input(
+          z
+            .object({
+              key: z.string().max(120),
+              name: z.string().max(200),
+              resourceIdentifier: z.string().max(2_000),
+              authorizationServer: z.string().max(2_000),
+              downstreamClientId: z.string().max(200),
+              enabled: z.boolean(),
+              scopeIds: z.array(z.string().min(1).max(191)).max(100),
+              requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) => mapDomainErrors(() => createResource(input, ctx.adminActor))),
+      update: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              name: z.string().max(200),
+              authorizationServer: z.string().max(2_000),
+              downstreamClientId: z.string().max(200),
+              enabled: z.boolean(),
+              scopeIds: z.array(z.string().min(1).max(191)).max(100),
+              requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) => mapDomainErrors(() => updateResource(input, ctx.adminActor))),
     }),
     scopes: trpc.router({
       list: adminProcedure

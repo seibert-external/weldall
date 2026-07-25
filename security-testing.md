@@ -27,6 +27,7 @@ Weldall's upstream login handling.
 | JWT-DPoP grant and one-time ID-JAG use                     | JWT-DPoP draft-01       | Expenses integration tests and Docker E2E request              |
 | Refresh rotation and family revocation                     | OAuth security BCP      | Weldall token-exchange tests                                   |
 | Authorization-server metadata                              | RFC 8414                | Expenses and Docker E2E metadata tests                         |
+| Registered URL origin and path-boundary enforcement        | Weldall security policy | URL unit matrix, CLI fetch-order tests and Docker E2E          |
 
 ## Negative cases currently covered
 
@@ -46,6 +47,8 @@ Weldall's upstream login handling.
 - Stolen refresh token with another DPoP key, refresh-token reuse and family revocation
 - Idempotent unknown/already-revoked token revocation and duplicate revocation hints
 - Unauthenticated and Bearer-style Expenses API requests
+- Unregistered origins, `/api-attacker`, ambiguous prefixes, disabled resources and redirects
+- Resource/scope mismatch, unsupported scopes and grants shared across registered resources
 
 ## Security findings with regression coverage
 
@@ -57,6 +60,7 @@ Weldall's upstream login handling.
 | Medium   | Duplicate security-sensitive OAuth parameters had ambiguous handling | Weldall, Expenses, loopback and Development IdP reject duplicates           |
 | Medium   | Malformed compact DPoP could escape as a generic parser error        | DPoP parser failures are normalized to `invalid_dpop_proof`                 |
 | Medium   | Revocation exposed unknown/already-revoked token state               | RFC 7009-style revocation is idempotent for both cases                      |
+| High     | Scope-only resource selection allowed token and body exfiltration    | CLI resolves the target against registered origins and path segments first  |
 
 ## Remaining production limitations
 
@@ -71,9 +75,8 @@ DPoP nonce support, fuzzing, mutation testing, restart/chaos behavior and proxy
 request-smuggling coverage remain open. The CLI's file credential adapter is
 available only when both its explicit E2E path and `NODE_ENV=test` are set, but it
 is still compiled into the CLI and must not be enabled in a production launch.
-Playwright tracing and screenshots are disabled for the authentication flow; the
-console/JUnit scanner is a regression guard, not proof that every possible secret
-encoding is detected.
+Playwright tracing and screenshots are disabled for the authentication flow.
+E2E artifacts must be treated as sensitive and are deleted by default.
 
 ID-JAG and JWT-DPoP are pinned drafts, not stable RFCs; upgrades require updating
 this matrix and the interoperability fixtures. No finite suite proves the absence

@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db, Prisma } from "@weldall/db";
+import {
+  normalizeAuthorizationServer,
+  normalizeRequestPrefix,
+  normalizeResourceIdentifier,
+  requestPrefixesOverlap,
+} from "@weldall/oauth";
 import { z } from "zod";
 
 export const ADMIN_SCOPE_KEY = "weldall:administer";
@@ -7,13 +13,19 @@ export const MAX_ASSIGNMENT_SCOPES = 100;
 export const MAX_PAGE_SIZE = 100;
 
 const scopeKeyPattern = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
+const resourceKeyPattern = /^[a-z0-9._-]+$/;
 const emailSchema = z.string().email().max(320);
+const resourceInclude = {
+  scopes: { include: { scope: { select: { id: true, key: true } } } },
+  requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
+} as const;
 
 export type AdminErrorCode =
   | "CONFLICT"
   | "FORBIDDEN"
   | "INVALID_CLI_SETTINGS"
   | "INVALID_EMAIL"
+  | "INVALID_RESOURCE"
   | "INVALID_SCOPE"
   | "INVALID_SKILL"
   | "LAST_ADMIN"
@@ -72,6 +84,22 @@ export interface SkillDto {
 export interface CliSettingsDto {
   appendix: string;
   version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResourceDto {
+  id: string;
+  key: string;
+  name: string;
+  resourceIdentifier: string;
+  authorizationServer: string;
+  downstreamClientId: string;
+  enabled: boolean;
+  version: number;
+  scopeIds: string[];
+  scopeKeys: string[];
+  requestPrefixes: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -182,6 +210,203 @@ export async function updateCliSettings(
   });
 }
 
+export async function listResources(input: {
+  page: number;
+  pageSize: number;
+  q?: string | undefined;
+  sort?: "name.asc" | "name.desc" | "updatedAt.asc" | "updatedAt.desc" | undefined;
+}): Promise<{ items: ResourceDto[]; total: number }> {
+  const page = positiveInteger(input.page, 1);
+  const pageSize = Math.min(positiveInteger(input.pageSize, 20), MAX_PAGE_SIZE);
+  const q = input.q?.trim();
+  const where: Prisma.DownstreamResourceWhereInput = q
+    ? {
+        OR: [
+          { key: { contains: q, mode: "insensitive" } },
+          { name: { contains: q, mode: "insensitive" } },
+          { resourceIdentifier: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {};
+  const orderBy: Prisma.DownstreamResourceOrderByWithRelationInput[] =
+    input.sort === "name.desc"
+      ? [{ name: "desc" }, { key: "asc" }]
+      : input.sort === "updatedAt.asc"
+        ? [{ updatedAt: "asc" }, { key: "asc" }]
+        : input.sort === "updatedAt.desc"
+          ? [{ updatedAt: "desc" }, { key: "asc" }]
+          : [{ name: "asc" }, { key: "asc" }];
+  const [items, total] = await Promise.all([
+    db.downstreamResource.findMany({
+      where,
+      orderBy,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: resourceInclude,
+    }),
+    db.downstreamResource.count({ where }),
+  ]);
+  return { items: items.map(serializeResource), total };
+}
+
+export async function getResource(id: string): Promise<ResourceDto> {
+  const resource = await db.downstreamResource.findUnique({
+    where: { id },
+    include: resourceInclude,
+  });
+  if (!resource) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
+  return serializeResource(resource);
+}
+
+export async function createResource(
+  input: {
+    key: string;
+    name: string;
+    resourceIdentifier: string;
+    authorizationServer: string;
+    downstreamClientId: string;
+    enabled: boolean;
+    scopeIds: string[];
+    requestPrefixes: string[];
+  },
+  actor: AdminActor,
+): Promise<ResourceDto> {
+  const parsed = parseResourceInput(input);
+  try {
+    return await db.$transaction(
+      async (tx) => {
+        await lockResourceChanges(tx);
+        const scopes = await validateResourceScopes(tx, parsed.scopeIds);
+        await assertNoCrossResourcePrefixOverlap(tx, parsed.requestPrefixes);
+        const resource = await tx.downstreamResource.create({
+          data: {
+            key: parsed.key,
+            name: parsed.name,
+            resourceIdentifier: parsed.resourceIdentifier,
+            authorizationServer: parsed.authorizationServer,
+            downstreamClientId: parsed.downstreamClientId,
+            enabled: parsed.enabled,
+            createdBy: actor.id,
+            updatedBy: actor.id,
+            scopes: { create: scopes.map((scope) => ({ scopeId: scope.id })) },
+            requestPrefixes: {
+              create: parsed.requestPrefixes.map((urlPrefix) => ({
+                urlPrefix,
+                createdBy: actor.id,
+              })),
+            },
+          },
+          include: resourceInclude,
+        });
+        await writeResourceAudit(tx, actor, "resource.created", null, resource);
+        return serializeResource(resource);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (isPrismaError(error, "P2002") || isPrismaError(error, "P2034")) {
+      throw new AdminDomainError("CONFLICT", "The resource conflicts with another resource.");
+    }
+    throw error;
+  }
+}
+
+export async function updateResource(
+  input: {
+    id: string;
+    name: string;
+    authorizationServer: string;
+    downstreamClientId: string;
+    enabled: boolean;
+    scopeIds: string[];
+    requestPrefixes: string[];
+    expectedVersion: number;
+  },
+  actor: AdminActor,
+): Promise<ResourceDto> {
+  const parsed = parseResourceInput(
+    { ...input, key: "placeholder", resourceIdentifier: "https://placeholder.invalid" },
+    false,
+  );
+  try {
+    return await db.$transaction(
+      async (tx) => {
+        await lockResourceChanges(tx);
+        const current = await tx.downstreamResource.findUnique({
+          where: { id: input.id },
+          include: resourceInclude,
+        });
+        if (!current) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
+        assertVersion(current.version, input.expectedVersion);
+        const scopes = await validateResourceScopes(tx, parsed.scopeIds);
+        await assertNoCrossResourcePrefixOverlap(tx, parsed.requestPrefixes, current.id);
+        const before = current;
+        const unchanged =
+          current.name === parsed.name &&
+          current.authorizationServer === parsed.authorizationServer &&
+          current.downstreamClientId === parsed.downstreamClientId &&
+          current.enabled === parsed.enabled &&
+          sameStrings(current.scopes.map(({ scope }) => scope.id).sort(), parsed.scopeIds) &&
+          sameStrings(
+            current.requestPrefixes.map(({ urlPrefix }) => urlPrefix).sort(),
+            parsed.requestPrefixes,
+          );
+        if (unchanged) return serializeResource(current);
+
+        await tx.resourceScope.deleteMany({ where: { resourceId: current.id } });
+        if (scopes.length) {
+          await tx.resourceScope.createMany({
+            data: scopes.map((scope) => ({ resourceId: current.id, scopeId: scope.id })),
+          });
+        }
+        await tx.resourceRequestPrefix.deleteMany({ where: { resourceId: current.id } });
+        await tx.resourceRequestPrefix.createMany({
+          data: parsed.requestPrefixes.map((urlPrefix) => ({
+            resourceId: current.id,
+            urlPrefix,
+            createdBy: actor.id,
+          })),
+        });
+        const updatedCount = await tx.downstreamResource.updateMany({
+          where: { id: current.id, version: input.expectedVersion },
+          data: {
+            name: parsed.name,
+            authorizationServer: parsed.authorizationServer,
+            downstreamClientId: parsed.downstreamClientId,
+            enabled: parsed.enabled,
+            version: { increment: 1 },
+            updatedBy: actor.id,
+          },
+        });
+        if (updatedCount.count !== 1) {
+          throw new AdminDomainError("CONFLICT", "The resource changed. Reload and try again.");
+        }
+        const updated = await tx.downstreamResource.findUniqueOrThrow({
+          where: { id: current.id },
+          include: resourceInclude,
+        });
+        await writeResourceAudit(tx, actor, "resource.updated", before, updated);
+        if (before.enabled !== updated.enabled) {
+          await writeResourceAudit(
+            tx,
+            actor,
+            updated.enabled ? "resource.enabled" : "resource.disabled",
+            before,
+            updated,
+          );
+        }
+        return serializeResource(updated);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (isPrismaError(error, "P2002") || isPrismaError(error, "P2034")) {
+      throw new AdminDomainError("CONFLICT", "The resource conflicts with another resource.");
+    }
+    throw error;
+  }
+}
+
 export async function listScopes(input: {
   page: number;
   pageSize: number;
@@ -231,7 +456,6 @@ export async function listScopeOptions(): Promise<
   return db.scope.findMany({
     orderBy: { key: "asc" },
     select: { id: true, key: true, description: true, isSystem: true },
-    take: 1_000,
   });
 }
 
@@ -310,6 +534,7 @@ export async function deleteScope(
 ): Promise<{ id: string; affectedAssignments: number }> {
   return db.$transaction(async (tx) => {
     await lockSkillScopeChanges(tx);
+    await lockResourceChanges(tx);
     const current = await tx.scope.findUnique({
       where: { id: input.id },
       include: {
@@ -335,6 +560,16 @@ export async function deleteScope(
       throw new AdminDomainError(
         "CONFLICT",
         `Scope ${current.key} is required by skill ${referencedBySkill.slug}. Update that skill first.`,
+      );
+    }
+    const referencedByResource = await tx.resourceScope.findFirst({
+      where: { scopeId: current.id },
+      include: { resource: { select: { key: true } } },
+    });
+    if (referencedByResource) {
+      throw new AdminDomainError(
+        "CONFLICT",
+        `Scope ${current.key} is supported by resource ${referencedByResource.resource.key}. Update that resource first.`,
       );
     }
 
@@ -902,6 +1137,189 @@ async function writeAudit(
       subjectId: event.subjectId,
       outcome: "success",
       metadata: event.metadata,
+    },
+  });
+}
+
+function parseResourceInput(
+  input: {
+    key: string;
+    name: string;
+    resourceIdentifier: string;
+    authorizationServer: string;
+    downstreamClientId: string;
+    enabled: boolean;
+    scopeIds: string[];
+    requestPrefixes: string[];
+  },
+  validateImmutable = true,
+) {
+  const key = input.key.trim();
+  const name = input.name.trim();
+  const downstreamClientId = input.downstreamClientId.trim();
+  if (validateImmutable && (key.length > 120 || !resourceKeyPattern.test(key))) {
+    throw new AdminDomainError(
+      "INVALID_RESOURCE",
+      "Resource keys must use lowercase letters, numbers, dots, dashes, or underscores.",
+    );
+  }
+  if (name.length < 1 || name.length > 200) {
+    throw new AdminDomainError(
+      "INVALID_RESOURCE",
+      "Resource names must contain 1 to 200 characters.",
+    );
+  }
+  if (downstreamClientId.length < 1 || downstreamClientId.length > 200) {
+    throw new AdminDomainError(
+      "INVALID_RESOURCE",
+      "Downstream client IDs must contain 1 to 200 characters.",
+    );
+  }
+  let resourceIdentifier = input.resourceIdentifier;
+  let authorizationServer: string;
+  let requestPrefixes: string[];
+  try {
+    resourceIdentifier = validateImmutable
+      ? normalizeResourceIdentifier(input.resourceIdentifier)
+      : input.resourceIdentifier;
+    authorizationServer = normalizeAuthorizationServer(input.authorizationServer);
+    const normalizedPrefixes = input.requestPrefixes.map(normalizeRequestPrefix);
+    if (new Set(normalizedPrefixes).size !== normalizedPrefixes.length) {
+      throw new TypeError("Request prefixes must be unique after normalization");
+    }
+    requestPrefixes = normalizedPrefixes.sort((left, right) => left.localeCompare(right));
+  } catch (error) {
+    throw new AdminDomainError(
+      "INVALID_RESOURCE",
+      error instanceof Error ? error.message : "Invalid resource URL.",
+    );
+  }
+  if (!requestPrefixes.length || requestPrefixes.length > 100) {
+    throw new AdminDomainError(
+      "INVALID_RESOURCE",
+      "A resource must have between 1 and 100 request prefixes.",
+    );
+  }
+  return {
+    key,
+    name,
+    resourceIdentifier,
+    authorizationServer,
+    downstreamClientId,
+    enabled: input.enabled,
+    scopeIds: sortedUnique(input.scopeIds),
+    requestPrefixes,
+  };
+}
+
+async function validateResourceScopes(tx: Prisma.TransactionClient, scopeIds: string[]) {
+  if (scopeIds.length > 100) {
+    throw new AdminDomainError("INVALID_RESOURCE", "A resource may support at most 100 scopes.");
+  }
+  const scopes = scopeIds.length
+    ? await tx.scope.findMany({ where: { id: { in: scopeIds } } })
+    : [];
+  if (scopes.length !== scopeIds.length) {
+    const known = new Set(scopes.map(({ id }) => id));
+    throw new AdminDomainError("INVALID_SCOPE", "One or more scopes do not exist.", {
+      unknownScopeIds: scopeIds.filter((id) => !known.has(id)),
+    });
+  }
+  const system = scopes.find((scope) => scope.isSystem);
+  if (system) {
+    throw new AdminDomainError(
+      "SYSTEM_SCOPE",
+      `System scope ${system.key} cannot be assigned to a downstream resource.`,
+    );
+  }
+  return scopes;
+}
+
+async function assertNoCrossResourcePrefixOverlap(
+  tx: Prisma.TransactionClient,
+  requestPrefixes: string[],
+  resourceId?: string,
+) {
+  const existing = await tx.resourceRequestPrefix.findMany({
+    ...(resourceId ? { where: { resourceId: { not: resourceId } } } : {}),
+    include: { resource: { select: { key: true } } },
+  });
+  for (const requestPrefix of requestPrefixes) {
+    const conflict = existing.find((candidate) =>
+      requestPrefixesOverlap(requestPrefix, candidate.urlPrefix),
+    );
+    if (conflict) {
+      throw new AdminDomainError(
+        "CONFLICT",
+        `Request prefix ${requestPrefix} overlaps resource ${conflict.resource.key}.`,
+      );
+    }
+  }
+}
+
+async function lockResourceChanges(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(49350618)`;
+}
+
+function serializeResource(resource: {
+  id: string;
+  key: string;
+  name: string;
+  resourceIdentifier: string;
+  authorizationServer: string;
+  downstreamClientId: string;
+  enabled: boolean;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  scopes: { scope: { id: string; key: string } }[];
+  requestPrefixes: { urlPrefix: string }[];
+}): ResourceDto {
+  return {
+    id: resource.id,
+    key: resource.key,
+    name: resource.name,
+    resourceIdentifier: resource.resourceIdentifier,
+    authorizationServer: resource.authorizationServer,
+    downstreamClientId: resource.downstreamClientId,
+    enabled: resource.enabled,
+    version: resource.version,
+    scopeIds: sortedUnique(resource.scopes.map(({ scope }) => scope.id)),
+    scopeKeys: sortedUnique(resource.scopes.map(({ scope }) => scope.key)),
+    requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
+    createdAt: resource.createdAt.toISOString(),
+    updatedAt: resource.updatedAt.toISOString(),
+  };
+}
+
+async function writeResourceAudit(
+  tx: Prisma.TransactionClient,
+  actor: AdminActor,
+  eventType: "resource.created" | "resource.updated" | "resource.enabled" | "resource.disabled",
+  before: Parameters<typeof serializeResource>[0] | null,
+  after: Parameters<typeof serializeResource>[0],
+) {
+  const snapshot = (resource: Parameters<typeof serializeResource>[0]) => ({
+    key: resource.key,
+    resourceIdentifier: resource.resourceIdentifier,
+    authorizationServer: resource.authorizationServer,
+    downstreamClientId: resource.downstreamClientId,
+    scopeKeys: sortedUnique(resource.scopes.map(({ scope }) => scope.key)),
+    requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
+    enabled: resource.enabled,
+    version: resource.version,
+  });
+  await writeAudit(tx, actor, {
+    eventType,
+    subjectType: "downstream_resource",
+    subjectId: after.id,
+    metadata: {
+      resourceId: after.id,
+      resourceKey: after.key,
+      versionBefore: before?.version ?? 0,
+      versionAfter: after.version,
+      before: before ? snapshot(before) : null,
+      after: snapshot(after),
     },
   });
 }

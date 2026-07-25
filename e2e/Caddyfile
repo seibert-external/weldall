@@ -10,6 +10,18 @@ expenses.seibert.localdev {
 	reverse_proxy expenses:3001
 }
 
+reports.seibert.localdev {
+	reverse_proxy reports:3001
+}
+
+catcher.seibert.localdev {
+	reverse_proxy catcher:3003
+}
+
+redirect.seibert.localdev {
+	redir https://catcher.seibert.localdev/captured 302
+}
+
 dev-idp.seibert.localdev {
 	reverse_proxy dev-idp:3002
 }

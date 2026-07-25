@@ -98,6 +98,57 @@ services:
       timeout: 3s
       retries: 30
 
+  reports:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+      target: app
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    environment:
+      DOWNSTREAM_ISSUER: https://reports.seibert.localdev
+      DOWNSTREAM_RESOURCE_IDENTIFIER: https://reports.seibert.localdev/api
+      DOWNSTREAM_CLIENT_ID: weldall-cli-at-reports
+      DOWNSTREAM_SCOPES: expenses:read
+    command:
+      - /bin/bash
+      - -euc
+      - |
+        . /run/e2e/env.sh
+        exec node apps/expenses/dist/index.js
+    volumes:
+      - e2e-expenses:/run/e2e:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/.well-known/oauth-authorization-server').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  catcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+      target: app
+    command: ["node", "e2e/catcher.mjs"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3003/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
   weldall:
     build:
       context: .
@@ -144,6 +195,9 @@ services:
         aliases:
           - weldall.seibert.localdev
           - expenses.seibert.localdev
+          - reports.seibert.localdev
+          - catcher.seibert.localdev
+          - redirect.seibert.localdev
           - dev-idp.seibert.localdev
 
   trust:
@@ -180,6 +234,10 @@ services:
       weldall:
         condition: service_healthy
       expenses:
+        condition: service_healthy
+      reports:
+        condition: service_healthy
+      catcher:
         condition: service_healthy
       dev-idp:
         condition: service_healthy

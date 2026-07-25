@@ -10,7 +10,7 @@ rm -rf apps/e2e/test-results
 mkdir -p apps/e2e/test-results
 
 compose=(docker compose -f docker-compose.e2e.yml)
-log_file=$(mktemp "${TMPDIR:-/tmp}/weldall-e2e.XXXXXX.log")
+log_file=$(mktemp "${TMPDIR:-/tmp}/weldall-e2e.XXXXXX")
 chmod 0600 "$log_file"
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans || true

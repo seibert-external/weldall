@@ -684,7 +684,7 @@ calendar   https://calendar.example/oauth    calendar:read
 Mit `--resource` filtert die CLI die Ausgabe nach einer Resource:
 
 ```text
-$ weldall scopes --resource expenses
+$ weldall scopes --json
 
 expenses:read
 ```

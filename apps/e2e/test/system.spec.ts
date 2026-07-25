@@ -63,7 +63,10 @@ test.beforeEach(async () => {
   await Promise.all([rm(credentialsFile, { force: true }), rm(browserUrlFile, { force: true })]);
 });
 
-test("runs login, skill discovery, a DPoP request, and logout end to end", async ({ page }) => {
+test("runs login, skill discovery, a DPoP request, and logout end to end", async ({
+  page,
+  request: apiRequest,
+}) => {
   const login = startCli(["login"]);
   await page.goto(await waitForBrowserUrl());
   await page.getByRole("button", { name: "Development login" }).click();
@@ -86,7 +89,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const whoamiText = await runCli("whoami");
   expect(whoamiText, whoamiText.stderr).toMatchObject({ code: 0 });
   expect(whoamiText.stdout).toContain("Signed in as Alice E2E");
-  expect(whoamiText.stdout).toContain("Email        alice@example.com");
+  expect(whoamiText.stdout).toMatch(/Email\s+alice@example\.com/);
 
   await page.goto("https://weldall.seibert.localdev/scopes");
   await expect(page.getByRole("heading", { name: "Scopes" })).toBeVisible();
@@ -103,6 +106,28 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await temporaryScopeRow.getByRole("button", { name: "Delete" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete scope" }).click();
   await expect(temporaryScopeRow).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Resources" }).click();
+  await expect(page.getByRole("heading", { name: "Resources" })).toBeVisible();
+  await page.getByRole("link", { name: "Create resource" }).click();
+  await page.getByLabel("Resource key").fill("reports");
+  await page.getByLabel("Name").fill("Reports");
+  await page.getByLabel("Resource identifier").fill("https://reports.seibert.localdev/api");
+  await page.getByLabel("Authorization server").fill("https://reports.seibert.localdev");
+  await page.getByLabel("Downstream client ID").fill("weldall-cli-at-reports");
+  await page.getByLabel("Request prefixes").fill("https://reports.seibert.localdev/api");
+  await page.getByRole("button", { name: "Supported scopes" }).click();
+  await page.getByRole("option", { name: "expenses:read" }).click();
+  await page.getByRole("button", { name: "Create resource" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "reports" })).toBeVisible();
+
+  const expensesResourceRow = page.getByRole("row").filter({ hasText: "expenses" });
+  await expensesResourceRow.getByRole("link", { name: "Open" }).click();
+  await page
+    .getByLabel("Request prefixes")
+    .fill("https://expenses.seibert.localdev/api\nhttps://redirect.seibert.localdev/");
+  await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
 
   await page.getByRole("link", { name: "Assignments" }).click();
   await expect(page.getByRole("heading", { name: "Email assignments" })).toBeVisible();
@@ -130,14 +155,27 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("button", { name: "Create skill" }).click();
   await expect(page.getByRole("row").filter({ hasText: "expenses.list" })).toBeVisible();
 
-  const scopes = await runCli("scopes", "--resource", "expenses");
+  const scopes = await runCli("scopes");
   expect(scopes, scopes.stderr).toMatchObject({ code: 0 });
   expect(scopes.stdout.trim().split("\n").sort()).toEqual([
-    "expenses:create",
-    "expenses:delete",
-    "expenses:read",
-    "expenses:write",
+    "Expenses\texpenses:create",
+    "Expenses\texpenses:delete",
+    "Expenses\texpenses:read",
+    "Expenses\texpenses:write",
+    "Reports\texpenses:read",
   ]);
+  const scopesJson = await runCli("scopes", "--json");
+  expect(scopesJson, scopesJson.stderr).toMatchObject({ code: 0 });
+  expect(JSON.parse(scopesJson.stdout)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        key: "expenses",
+        resourceIdentifier: "https://expenses.seibert.localdev/api",
+        requestPrefixes: expect.arrayContaining(["https://expenses.seibert.localdev/api"]),
+      }),
+      expect.objectContaining({ key: "reports", grantedScopes: ["expenses:read"] }),
+    ]),
+  );
 
   const skills = await runCli("skills");
   expect(skills, skills.stderr).toMatchObject({ code: 0 });
@@ -151,13 +189,101 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     "request",
     "--scope",
     "expenses:read",
-    "https://expenses.seibert.localdev/api/expenses",
+    "https://expenses.seibert.localdev/api/expenses?year=2026",
   );
   expect(request, request.stderr).toMatchObject({ code: 0 });
   expect(JSON.parse(request.stdout)).toMatchObject({
     expenses: [{ id: "expense-1" }],
     subject: expect.any(String),
   });
+  const createdExpense = await runCli(
+    "request",
+    "--method",
+    "POST",
+    "--scope",
+    "expenses:create",
+    "--json",
+    '{"description":"Train","amount":24}',
+    "https://expenses.seibert.localdev/api/expenses",
+  );
+  expect(createdExpense, createdExpense.stderr).toMatchObject({ code: 0 });
+  expect(JSON.parse(createdExpense.stdout)).toMatchObject({ description: "Train", amount: 24 });
+  const deletedExpense = await runCli(
+    "request",
+    "--method",
+    "DELETE",
+    "--scope",
+    "expenses:delete",
+    "--scope",
+    "expenses:write",
+    "https://expenses.seibert.localdev/api/expenses/expense-1",
+  );
+  expect(deletedExpense, deletedExpense.stderr).toMatchObject({ code: 0 });
+  expect(JSON.parse(deletedExpense.stdout)).toEqual({ deleted: "expense-1" });
+
+  const reportsRequest = await runCli(
+    "request",
+    "--scope",
+    "expenses:read",
+    "https://reports.seibert.localdev/api/expenses",
+  );
+  expect(reportsRequest, reportsRequest.stderr).toMatchObject({ code: 0 });
+  expect(JSON.parse(reportsRequest.stdout)).toMatchObject({ expenses: [{ id: "expense-1" }] });
+
+  const resetCatcher = async () => {
+    const response = await apiRequest.post("https://catcher.seibert.localdev/_control/reset");
+    expect(response.ok()).toBe(true);
+  };
+  const expectNoCapturedRequests = async () => {
+    const response = await apiRequest.get("https://catcher.seibert.localdev/_control/count");
+    expect(response.ok()).toBe(true);
+    expect(await response.json()).toEqual({ count: 0 });
+  };
+
+  await resetCatcher();
+  const unknownTarget = await runCli(
+    "request",
+    "--scope",
+    "expenses:read",
+    "https://catcher.seibert.localdev/captured",
+  );
+  expect(unknownTarget.code).toBe(1);
+  expect(unknownTarget.stderr).toContain("No registered resource accepts");
+  await expectNoCapturedRequests();
+
+  const pathBoundaryAttack = await runCli(
+    "request",
+    "--scope",
+    "expenses:read",
+    "https://expenses.seibert.localdev/api-attacker",
+  );
+  expect(pathBoundaryAttack.code).toBe(1);
+  expect(pathBoundaryAttack.stderr).toContain("No registered resource accepts");
+
+  await resetCatcher();
+  const redirected = await runCli(
+    "request",
+    "--scope",
+    "expenses:read",
+    "https://redirect.seibert.localdev/redirect",
+  );
+  expect(redirected.code).toBe(1);
+  expect(redirected.stderr).toMatch(/Error: (?:fetch failed|redirect count exceeded)/);
+  await expectNoCapturedRequests();
+
+  await page.goto("https://weldall.seibert.localdev/resources");
+  const reportsRow = page.getByRole("row").filter({ hasText: "reports" });
+  await reportsRow.getByRole("link", { name: "Open" }).click();
+  await page.getByLabel("Enabled").click();
+  await page.getByRole("button", { name: "Save resource" }).click();
+  const disabledRequest = await runCli(
+    "request",
+    "--scope",
+    "expenses:read",
+    "https://reports.seibert.localdev/api/expenses",
+  );
+  expect(disabledRequest.code).toBe(1);
+  expect(disabledRequest.stderr).toContain("No registered resource accepts");
 
   await page.getByRole("link", { name: "CLI", exact: true }).click();
   await expect(page.getByRole("heading", { name: "CLI", exact: true })).toBeVisible();

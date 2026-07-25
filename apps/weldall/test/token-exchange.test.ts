@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DOWNSTREAM_CLIENT_ID,
   EXPENSES_ISSUER,
@@ -17,9 +17,20 @@ import {
   type DpopKeyPair,
 } from "@weldall/oauth";
 
+vi.mock("../src/server/auth/auth.js", () => ({
+  auth: {
+    handler: vi.fn(async () => {
+      throw new Error("Better Auth handler is not used by token-exchange policy tests");
+    }),
+  },
+}));
+
 const userId = "weldall-token-exchange-test-user";
 const email = "token-exchange-test@example.com";
 const refreshToken = "test-refresh-token-never-issued";
+const sharedResource = "https://shared-token-exchange.example/api";
+const sharedIssuer = "https://shared-token-exchange.example";
+const sharedClientId = "weldall-cli-at-shared-test";
 let issuerKey: DpopKeyPair;
 let deviceKey: DpopKeyPair;
 
@@ -59,6 +70,22 @@ beforeAll(async () => {
     },
   });
   const readScope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+  await db.downstreamResource.deleteMany({ where: { key: "token-exchange-shared" } });
+  await db.downstreamResource.create({
+    data: {
+      key: "token-exchange-shared",
+      name: "Shared token exchange test",
+      resourceIdentifier: sharedResource,
+      authorizationServer: sharedIssuer,
+      downstreamClientId: sharedClientId,
+      createdBy: "token-exchange-test",
+      updatedBy: "token-exchange-test",
+      scopes: { create: { scopeId: readScope.id } },
+      requestPrefixes: {
+        create: { urlPrefix: `${sharedIssuer}/api`, createdBy: "token-exchange-test" },
+      },
+    },
+  });
   await db.emailScopeGrant.deleteMany({ where: { assignmentId: assignment.id } });
   await db.emailScopeGrant.create({
     data: {
@@ -113,6 +140,7 @@ afterAll(async () => {
   await db.oAuthDeviceRefreshBinding.deleteMany({ where: { userId } });
   await db.oauthRefreshToken.deleteMany({ where: { userId } });
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: email } });
+  await db.downstreamResource.deleteMany({ where: { key: "token-exchange-shared" } });
   await db.user.deleteMany({ where: { id: userId } });
 });
 
@@ -164,6 +192,83 @@ describe("Weldall token exchange", () => {
         allowedScopes: ["expenses:read"],
       }),
     ).resolves.toMatchObject({ sub: userId, cnf: { jkt: deviceKey.jkt } });
+  });
+
+  it("uses the same global grant for a second registered resource", async () => {
+    const proof = await createDpopProof({
+      ...deviceKey,
+      method: "POST",
+      url: WELDALL_TOKEN_ENDPOINT,
+    });
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    const response = await tokenFacade(
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: sharedIssuer,
+          resource: sharedResource,
+          scope: "expenses:read",
+          subject_token: refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: WELDALL_CLIENT_ID,
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { access_token: string };
+    await expect(
+      verifyIdJag(body.access_token, {
+        issuer: WELDALL_ISSUER,
+        audience: sharedIssuer,
+        resource: sharedResource,
+        clientId: sharedClientId,
+        kid: "weldall-token-exchange-test",
+        publicJwk: issuerKey.publicJwk,
+        allowedScopes: ["expenses:read"],
+      }),
+    ).resolves.toMatchObject({ sub: userId });
+  });
+
+  it("rejects a disabled registered resource immediately", async () => {
+    const { db } = await import("@weldall/db");
+    await db.downstreamResource.update({
+      where: { resourceIdentifier: EXPENSES_RESOURCE },
+      data: { enabled: false },
+    });
+    try {
+      const proof = await createDpopProof({
+        ...deviceKey,
+        method: "POST",
+        url: WELDALL_TOKEN_ENDPOINT,
+      });
+      const { tokenFacade } = await import("../src/server/oauth/facade.js");
+      const response = await tokenFacade(
+        new Request(WELDALL_TOKEN_ENDPOINT, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
+          body: new URLSearchParams({
+            grant_type: TOKEN_EXCHANGE_GRANT,
+            requested_token_type: ID_JAG_TOKEN_TYPE,
+            audience: EXPENSES_ISSUER,
+            resource: EXPENSES_RESOURCE,
+            scope: "expenses:read",
+            subject_token: refreshToken,
+            subject_token_type: REFRESH_TOKEN_TYPE,
+            client_id: WELDALL_CLIENT_ID,
+          }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: "invalid_target" });
+    } finally {
+      await db.downstreamResource.update({
+        where: { resourceIdentifier: EXPENSES_RESOURCE },
+        data: { enabled: true },
+      });
+    }
   });
 
   it("rejects a stolen refresh token presented with another DPoP key", async () => {
@@ -229,6 +334,13 @@ describe("Weldall token exchange", () => {
     const escalation = await makeRequest(base());
     expect(escalation.status).toBe(400);
     await expect(escalation.json()).resolves.toMatchObject({ error: "invalid_scope" });
+
+    const mismatch = base();
+    mismatch.set("scope", "expenses:read");
+    mismatch.set("audience", sharedIssuer);
+    const mismatchResponse = await makeRequest(mismatch);
+    expect(mismatchResponse.status).toBe(400);
+    await expect(mismatchResponse.json()).resolves.toMatchObject({ error: "invalid_target" });
 
     const duplicate = base();
     duplicate.set("scope", "expenses:read");

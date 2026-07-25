@@ -29,6 +29,7 @@ import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { ScopeDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { useOperationToast } from "../../_components/use-operation-toast";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["key", "updatedAt"]), [
@@ -276,8 +277,19 @@ function ScopeDialog({
 }) {
   const trpc = useTRPC();
   const formId = useId();
-  const createMutation = useMutation(trpc.admin.scopes.create.mutationOptions());
-  const updateMutation = useMutation(trpc.admin.scopes.update.mutationOptions());
+  const operationToast = useOperationToast();
+  const createMutation = useMutation(
+    trpc.admin.scopes.create.mutationOptions({
+      onSuccess: () => operationToast.success("Scope created", "scope-save"),
+      onError: (error) => operationToast.error("Could not create scope", error, "scope-save"),
+    }),
+  );
+  const updateMutation = useMutation(
+    trpc.admin.scopes.update.mutationOptions({
+      onSuccess: () => operationToast.success("Scope saved", "scope-save"),
+      onError: (error) => operationToast.error("Could not save scope", error, "scope-save"),
+    }),
+  );
   const mutation = scope ? updateMutation : createMutation;
   const form = useForm({
     defaultValues: {
@@ -330,14 +342,6 @@ function ScopeDialog({
                 void form.handleSubmit();
               }}
             >
-              {mutation.error ? (
-                <Banner
-                  container="card"
-                  status="error"
-                  title="Could not save scope"
-                  description={mutation.error.message}
-                />
-              ) : null}
               <FormLayout>
                 <form.Field
                   name="key"
@@ -420,20 +424,23 @@ function DeleteScopeDialog({
   onDeleted: () => Promise<void>;
 }) {
   const trpc = useTRPC();
+  const operationToast = useOperationToast();
   const mutation = useMutation(
     trpc.admin.scopes.delete.mutationOptions({
-      onSuccess: () => void onDeleted(),
+      onSuccess: () => {
+        operationToast.success("Scope deleted", "scope-delete");
+        void onDeleted();
+      },
+      onError: (error) => operationToast.error("Could not delete scope", error, "scope-delete"),
     }),
   );
   return (
     <AlertDialog
       actionLabel="Delete scope"
       description={
-        mutation.error
-          ? mutation.error.message
-          : scope
-            ? `Delete ${scope.key}? This atomically removes it from ${scope.assignmentCount.toLocaleString()} assignment${scope.assignmentCount === 1 ? "" : "s"}. This cannot be undone.`
-            : "Delete this scope?"
+        scope
+          ? `Delete ${scope.key}? This atomically removes it from ${scope.assignmentCount.toLocaleString()} assignment${scope.assignmentCount === 1 ? "" : "s"}. This cannot be undone.`
+          : "Delete this scope?"
       }
       isActionLoading={mutation.isPending}
       isOpen={Boolean(scope)}

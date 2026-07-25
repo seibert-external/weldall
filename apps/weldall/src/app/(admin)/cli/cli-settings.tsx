@@ -10,13 +10,21 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { useOperationToast } from "../../_components/use-operation-toast";
 
 export function CliSettings() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const formId = useId();
+  const operationToast = useOperationToast();
   const settingsQuery = useQuery(trpc.admin.cli.get.queryOptions());
-  const updateMutation = useMutation(trpc.admin.cli.update.mutationOptions());
+  const updateMutation = useMutation(
+    trpc.admin.cli.update.mutationOptions({
+      onSuccess: () => operationToast.success("CLI settings saved", "cli-settings-save"),
+      onError: (error) =>
+        operationToast.error("Could not save CLI settings", error, "cli-settings-save"),
+    }),
+  );
   const form = useForm({
     defaultValues: { appendix: "" },
     onSubmit: async ({ value }) => {
@@ -70,17 +78,6 @@ export function CliSettings() {
             Shared Markdown for general organization-specific CLI guidance.
           </Text>
         </div>
-
-        {updateMutation.error ? (
-          <Banner
-            container="card"
-            status="error"
-            title="Could not save CLI settings"
-            description={updateMutation.error.message}
-          />
-        ) : updateMutation.isSuccess ? (
-          <Banner container="card" status="success" title="CLI settings saved" />
-        ) : null}
 
         <form
           className="admin-dialog-form"

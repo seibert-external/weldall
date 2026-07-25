@@ -1,8 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -17,27 +16,24 @@ import {
 } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
-import type { SkillDto } from "@/server/admin/service";
+import type { ResourceDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { useOperationToast } from "../../_components/use-operation-toast";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
 
-const sortingParser = createSortingParser(new Set(["title", "updatedAt"]), [
-  { id: "title", desc: false },
+const sortingParser = createSortingParser(new Set(["name", "updatedAt"]), [
+  { id: "name", desc: false },
 ]);
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
 
-export function SkillsTable() {
+export function ResourcesTable() {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const [deletingSkill, setDeletingSkill] = useState<SkillDto | null>(null);
   const [{ q, page, sort: sorting }, setTableQuery] = useQueryStates(
     {
       q: parseAsString.withDefault(""),
@@ -46,47 +42,55 @@ export function SkillsTable() {
     },
     { history: "replace", shallow: true },
   );
-  const skillsQuery = useQuery(
-    trpc.admin.skills.list.queryOptions({
+  const resourcesQuery = useQuery(
+    trpc.admin.resources.list.queryOptions({
       page,
       pageSize: 20,
       q,
-      sort: sortingToSkillSort(sorting),
+      sort: sortingToResourceSort(sorting),
     }),
   );
-  const skills = skillsQuery.data?.items ?? [];
-  const columns = useMemo<ColumnDef<SkillDto>[]>(
+  const resources = resourcesQuery.data?.items ?? [];
+  const columns = useMemo<ColumnDef<ResourceDto>[]>(
     () => [
       {
-        accessorKey: "title",
-        header: "Title",
-        cell: ({ getValue }) => <span className="font-medium">{getValue<string>()}</span>,
+        accessorKey: "name",
+        header: "Name",
+        cell: ({ row, getValue }) => (
+          <div className="grid gap-1">
+            <span className="font-medium">{getValue<string>()}</span>
+            <code className="text-xs">{row.original.key}</code>
+          </div>
+        ),
       },
       {
-        accessorKey: "slug",
-        header: "Skill ID",
+        accessorKey: "resourceIdentifier",
+        header: "Resource identifier",
         enableSorting: false,
         cell: ({ getValue }) => <code className="text-sm">{getValue<string>()}</code>,
       },
       {
-        accessorKey: "requiredScopes",
-        header: "Required scopes",
-        enableSorting: false,
-        cell: ({ getValue }) => {
-          const scopes = getValue<string[]>();
-          return scopes.length ? <code className="text-sm">{scopes.join(", ")}</code> : "None";
-        },
-      },
-      {
-        accessorKey: "hidden",
-        header: "Visibility",
+        accessorKey: "enabled",
+        header: "Status",
         enableSorting: false,
         cell: ({ getValue }) => (
           <Badge
-            label={getValue<boolean>() ? "Hidden without scopes" : "Discoverable"}
-            variant={getValue<boolean>() ? "purple" : "neutral"}
+            label={getValue<boolean>() ? "Enabled" : "Disabled"}
+            variant={getValue<boolean>() ? "neutral" : "purple"}
           />
         ),
+      },
+      {
+        accessorKey: "scopeIds",
+        header: "Scopes",
+        enableSorting: false,
+        cell: ({ getValue }) => getValue<string[]>().length.toLocaleString(),
+      },
+      {
+        accessorKey: "requestPrefixes",
+        header: "Prefixes",
+        enableSorting: false,
+        cell: ({ getValue }) => getValue<string[]>().length.toLocaleString(),
       },
       {
         accessorKey: "updatedAt",
@@ -98,18 +102,12 @@ export function SkillsTable() {
         header: "",
         enableSorting: false,
         cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end">
             <Button
-              href={`/skills/${row.original.id}`}
+              href={`/resources/${row.original.id}`}
               label="Open"
               size="sm"
               variant="secondary"
-            />
-            <Button
-              label="Delete"
-              onClick={() => setDeletingSkill(row.original)}
-              size="sm"
-              variant="destructive"
             />
           </div>
         ),
@@ -118,13 +116,12 @@ export function SkillsTable() {
     [],
   );
   const table = useReactTable({
-    data: skills,
+    data: resources,
     columns,
     state: { sorting },
     manualSorting: true,
     onSortingChange: (updater: Updater<SortingState>) => {
-      const next = resolveUpdater(updater, sorting);
-      void setTableQuery({ sort: next, page: 1 });
+      void setTableQuery({ sort: resolveUpdater(updater, sorting), page: 1 });
     },
     getCoreRowModel: getCoreRowModel(),
   });
@@ -136,27 +133,25 @@ export function SkillsTable() {
           <TextInput
             hasClear
             isLabelHidden
-            label="Find skills"
+            label="Find resources"
             onChange={(value) => void setTableQuery({ q: value || null, page: 1 })}
-            placeholder="Find skills…"
+            placeholder="Find resources…"
             size="lg"
             startIcon="search"
             value={q}
-            width={260}
+            width={280}
           />
-          <Button href="/skills/new" label="Create skill" variant="primary" />
+          <Button href="/resources/new" label="Create resource" variant="primary" />
         </div>
       </HerocrumbsActions>
-
-      {skillsQuery.error ? (
+      {resourcesQuery.error ? (
         <Banner
           container="card"
           status="error"
-          title="Could not load skills"
-          description={skillsQuery.error.message}
+          title="Could not load resources"
+          description={resourcesQuery.error.message}
         />
       ) : null}
-
       <div>
         <TableContext.Provider
           value={{
@@ -168,8 +163,8 @@ export function SkillsTable() {
             verticalAlign: "middle",
           }}
         >
-          <div className="w-full overflow-x-auto" role="group" aria-label="Skills table">
-            <table className="w-full min-w-[860px] border-collapse text-left">
+          <div className="w-full overflow-x-auto" role="group" aria-label="Resources table">
+            <table className="w-full min-w-[980px] border-collapse text-left">
               <TableHeader>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id} isHeaderRow>
@@ -211,19 +206,19 @@ export function SkillsTable() {
                     ))}
                   </TableRow>
                 ))}
-                {!skillsQuery.isPending && table.getRowModel().rows.length === 0 ? (
+                {!resourcesQuery.isPending && table.getRowModel().rows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>
                       <Text color="secondary">
-                        {q ? "No skills match this search." : "No skills have been created."}
+                        {q ? "No resources match this search." : "No resources have been created."}
                       </Text>
                     </TableCell>
                   </TableRow>
                 ) : null}
-                {skillsQuery.isPending ? (
+                {resourcesQuery.isPending ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>
-                      <Text color="secondary">Loading skills…</Text>
+                      <Text color="secondary">Loading resources…</Text>
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -233,74 +228,21 @@ export function SkillsTable() {
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination
-            label="Skill pages"
+            label="Resource pages"
             onChange={(nextPage) => void setTableQuery({ page: nextPage })}
             page={page}
             pageSize={20}
-            totalItems={skillsQuery.data?.total ?? 0}
+            totalItems={resourcesQuery.data?.total ?? 0}
             variant="count"
           />
         </div>
       </div>
-
-      <DeleteSkillDialog
-        skill={deletingSkill}
-        onClose={() => setDeletingSkill(null)}
-        onDeleted={async () => {
-          setDeletingSkill(null);
-          await queryClient.invalidateQueries();
-        }}
-      />
     </>
   );
 }
 
-function DeleteSkillDialog({
-  skill,
-  onClose,
-  onDeleted,
-}: {
-  skill: SkillDto | null;
-  onClose: () => void;
-  onDeleted: () => Promise<void>;
-}) {
-  const trpc = useTRPC();
-  const operationToast = useOperationToast();
-  const mutation = useMutation(
-    trpc.admin.skills.delete.mutationOptions({
-      onSuccess: () => {
-        operationToast.success("Skill deleted", "skill-delete");
-        void onDeleted();
-      },
-      onError: (error) => operationToast.error("Could not delete skill", error, "skill-delete"),
-    }),
-  );
-  return (
-    <AlertDialog
-      actionLabel="Delete skill"
-      description={
-        skill
-          ? `Delete ${skill.title}? Agents will no longer be able to discover it.`
-          : "Delete this skill?"
-      }
-      isActionLoading={mutation.isPending}
-      isOpen={Boolean(skill)}
-      onAction={() => {
-        if (skill) mutation.mutate({ id: skill.id, expectedVersion: skill.version });
-      }}
-      onOpenChange={(open) => {
-        if (!open && !mutation.isPending) {
-          mutation.reset();
-          onClose();
-        }
-      }}
-      title="Delete skill?"
-    />
-  );
-}
-
-function sortingToSkillSort(sorting: SortingState) {
-  const first = sorting[0] ?? { id: "title", desc: false };
+function sortingToResourceSort(sorting: SortingState) {
+  const first = sorting[0] ?? { id: "name", desc: false };
   return `${first.id}.${first.desc ? "desc" : "asc"}` as
-    "title.asc" | "title.desc" | "updatedAt.asc" | "updatedAt.desc";
+    "name.asc" | "name.desc" | "updatedAt.asc" | "updatedAt.desc";
 }
