@@ -19,7 +19,7 @@
     "@better-auth/oauth-provider": "1.7.0-rc.2",
     "@gsap/react": "^2.1.2",
     "@weldall/db": "workspace:*",
-    "@weldall/oauth": "workspace:*",
+    "@weldall/sdk": "workspace:*",
     "@prisma/client": "6.19.3",
     "@tanstack/react-form": "^1.33.2",
     "@tanstack/react-query": "^5.90.21",

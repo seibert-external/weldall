@@ -1,4 +1,4 @@
-import { loadEs256KeyPairFromEnv } from "@weldall/oauth";
+import { loadEs256KeyPairFromEnv } from "@weldall/sdk";
 import type { JWK } from "jose";
 import { z } from "zod";
 

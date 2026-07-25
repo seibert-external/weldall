@@ -78,7 +78,6 @@ export function AdminFrame({ children }: { children: ReactNode }) {
               <SideNavCollapseButton />
             </div>
             <SideNavSection title="Administration" isHeaderHidden>
-              <SideNavItem label="CLI" href="/cli" icon={CliIcon} isSelected={selected("/cli")} />
               <SideNavItem
                 label="Resources"
                 href="/resources"
@@ -103,6 +102,7 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 icon={SkillIcon}
                 isSelected={selected("/skills")}
               />
+              <SideNavItem label="CLI" href="/cli" icon={CliIcon} isSelected={selected("/cli")} />
             </SideNavSection>
           </SideNav>
         </div>

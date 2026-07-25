@@ -1,21 +1,24 @@
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  DOWNSTREAM_CLIENT_ID,
-  EXPENSES_ISSUER,
-  EXPENSES_RESOURCE,
   ID_JAG_TOKEN_TYPE,
-  WELDALL_CLIENT_ID,
-  WELDALL_ISSUER,
-  WELDALL_REVOCATION_ENDPOINT,
-  WELDALL_TOKEN_ENDPOINT,
   REFRESH_TOKEN_TYPE,
   TOKEN_EXCHANGE_GRANT,
   createDpopProof,
   generateEs256KeyPair,
   verifyIdJag,
   type DpopKeyPair,
-} from "@weldall/oauth";
+} from "@weldall/sdk";
+import {
+  WELDALL_CLIENT_ID,
+  WELDALL_ISSUER,
+  WELDALL_REVOCATION_ENDPOINT,
+  WELDALL_TOKEN_ENDPOINT,
+} from "../src/server/oauth/constants.js";
+
+const EXPENSES_ISSUER = "https://expenses.seibert.localdev";
+const EXPENSES_RESOURCE = `${EXPENSES_ISSUER}/api`;
+const DOWNSTREAM_CLIENT_ID = "weldall-cli-at-expenses";
 
 vi.mock("../src/server/auth/auth.js", () => ({
   auth: {

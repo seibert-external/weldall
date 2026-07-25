@@ -31,7 +31,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build shared OAuth package
-        run: pnpm --filter @weldall/oauth build
+        run: pnpm --filter @weldall/sdk build
 
       - name: Verify CLI source
         run: |

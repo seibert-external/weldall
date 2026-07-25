@@ -7,14 +7,14 @@ import {
   normalizeRequestTarget,
   normalizeResourceIdentifier,
   resolveResourceForTarget,
-  WELDALL_CLIENT_ID,
   REFRESH_TOKEN_TYPE,
   TOKEN_EXCHANGE_GRANT,
   type ResourceRegistryEntry,
-} from "@weldall/oauth/cli";
+} from "@weldall/sdk";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { isRecord, successfulResponse } from "../http.js";
+import { WELDALL_CLIENT_ID } from "../oauth/constants.js";
 import { validateIdJagResponse } from "../oauth/session.js";
 import { withLock } from "../storage/lock.js";
 import { withAccess, type AccessSession } from "./auth.js";

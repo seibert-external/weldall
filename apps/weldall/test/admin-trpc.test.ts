@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@weldall/db";
-import { WELDALL_ISSUER } from "@weldall/oauth";
+import { WELDALL_ISSUER } from "../src/server/oauth/constants.js";
 import { ADMIN_SCOPE_KEY } from "../src/server/admin/service.js";
 import type { TrpcContext } from "../src/server/trpc/context.js";
 import { appRouter, assertBrowserRequest } from "../src/server/trpc/router.js";

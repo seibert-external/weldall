@@ -37,7 +37,7 @@
     "log-update": "^8.0.0"
   },
   "devDependencies": {
-    "@weldall/oauth": "workspace:*",
+    "@weldall/sdk": "workspace:*",
     "@weldall/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "esbuild": "^0.28.1",

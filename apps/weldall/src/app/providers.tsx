@@ -53,7 +53,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <ThemeModeContext value={{ mode, toggleMode }}>
         <Theme theme={neutralTheme} mode={mode}>
           <LinkProvider component={Link}>
-            <LayerProvider toast={{ position: "topEnd", maxVisible: 4 }}>
+            <LayerProvider toast={{ position: "bottomEnd", maxVisible: 4 }}>
               <QueuedOperationToast />
               <TRPCReactProvider>{children}</TRPCReactProvider>
             </LayerProvider>

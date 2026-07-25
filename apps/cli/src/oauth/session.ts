@@ -11,13 +11,13 @@ import {
 import {
   ID_JAG_DRAFT,
   ID_JAG_TOKEN_TYPE,
-  WELDALL_CLIENT_ID,
   createDpopProof,
   generateEs256KeyPair,
   isSha256JwkThumbprint,
   parseScope,
-} from "@weldall/oauth/cli";
+} from "@weldall/sdk";
 import type { WeldallConfig } from "../config.js";
+import { WELDALL_CLIENT_ID } from "./constants.js";
 import { CliError } from "../errors.js";
 import type { StoredCredentials } from "../storage/keychain.js";
 

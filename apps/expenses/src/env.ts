@@ -1,18 +1,10 @@
 import { z } from "zod";
-import {
-  DOWNSTREAM_CLIENT_ID,
-  EXPENSES_ISSUER,
-  EXPENSES_RESOURCE,
-  assertPublicP256,
-  loadEs256KeyPairFromEnv,
-  parseJwkEnv,
-} from "@weldall/oauth";
+import { loadEs256KeyPairFromEnv } from "@weldall/sdk";
+import { DOWNSTREAM_CLIENT_ID, EXPENSES_ISSUER, EXPENSES_RESOURCE } from "./constants.js";
 const schema = z.object({
   EXPENSES_SIGNING_PRIVATE_JWK: z.string(),
   EXPENSES_SIGNING_PUBLIC_JWK: z.string(),
   EXPENSES_SIGNING_KID: z.string().min(1),
-  WELDALL_SIGNING_PUBLIC_JWK: z.string(),
-  WELDALL_SIGNING_KID: z.string().min(1),
   DOWNSTREAM_ISSUER: z.string().url().optional(),
   DOWNSTREAM_RESOURCE_IDENTIFIER: z.string().url().optional(),
   DOWNSTREAM_CLIENT_ID: z.string().min(1).optional(),
@@ -26,8 +18,6 @@ export const getEnv = async () => {
     publicName: "EXPENSES_SIGNING_PUBLIC_JWK",
     publicValue: e.EXPENSES_SIGNING_PUBLIC_JWK,
   });
-  const weldallPublicJwk = parseJwkEnv("WELDALL_SIGNING_PUBLIC_JWK", e.WELDALL_SIGNING_PUBLIC_JWK);
-  await assertPublicP256(weldallPublicJwk);
   const issuer = e.DOWNSTREAM_ISSUER ?? EXPENSES_ISSUER;
   return {
     ...e,
@@ -43,6 +33,5 @@ export const getEnv = async () => {
       .filter(Boolean),
     expensesPrivateJwk: expensesKey.privateJwk,
     expensesPublicJwk: expensesKey.publicJwk,
-    weldallPublicJwk,
   };
 };

@@ -3,7 +3,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { genericOAuth, jwt, oAuthProxy } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "@weldall/db";
-import { WELDALL_CLIENT_ID, WELDALL_ISSUER, WELDALL_RESOURCE } from "@weldall/oauth";
+import { WELDALL_CLIENT_ID, WELDALL_ISSUER, WELDALL_RESOURCE } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
 import { resolveLoginProviders } from "./providers";
 const required = (n: string) => {

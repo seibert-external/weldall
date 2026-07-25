@@ -94,20 +94,13 @@ export function ScopesTable() {
         header: "",
         enableSorting: false,
         cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end">
             <Button
               isDisabled={row.original.isSystem}
               label="Edit"
               onClick={() => setEditingScope(row.original)}
               size="sm"
               variant="secondary"
-            />
-            <Button
-              isDisabled={row.original.isSystem}
-              label="Delete"
-              onClick={() => setDeletingScope(row.original)}
-              size="sm"
-              variant="destructive"
             />
           </div>
         ),
@@ -248,6 +241,7 @@ export function ScopesTable() {
           key={editingScope?.id ?? "new"}
           scope={editingScope}
           onClose={() => setEditingScope(undefined)}
+          onDelete={setDeletingScope}
           onSaved={async () => {
             setEditingScope(undefined);
             await queryClient.invalidateQueries();
@@ -259,6 +253,7 @@ export function ScopesTable() {
         onClose={() => setDeletingScope(null)}
         onDeleted={async () => {
           setDeletingScope(null);
+          setEditingScope(undefined);
           await queryClient.invalidateQueries();
         }}
       />
@@ -269,10 +264,12 @@ export function ScopesTable() {
 function ScopeDialog({
   scope,
   onClose,
+  onDelete,
   onSaved,
 }: {
   scope: ScopeDto | null;
   onClose: () => void;
+  onDelete: (scope: ScopeDto) => void;
   onSaved: () => Promise<void>;
 }) {
   const trpc = useTRPC();
@@ -392,7 +389,16 @@ function ScopeDialog({
         }
         footer={
           <LayoutFooter hasDivider>
-            <div className="flex justify-end gap-2">
+            <div className="flex items-center justify-end gap-2">
+              {scope ? (
+                <Button
+                  className="mr-auto"
+                  label="Delete scope"
+                  onClick={() => onDelete(scope)}
+                  type="button"
+                  variant="destructive"
+                />
+              ) : null}
               <Button label="Cancel" onClick={onClose} type="button" variant="secondary" />
               <form.Subscribe selector={(state) => state.canSubmit}>
                 {(canSubmit) => (

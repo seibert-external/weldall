@@ -2,7 +2,7 @@
 
 Public native OAuth CLI → Weldall/Google → database-backed downstream resource registry → ID-JAG draft-04 → JWT-DPoP draft-01 → DB-free APIs. `better-auth` and `@better-auth/oauth-provider` are pinned to `1.7.0-rc.2`. Weldall alone uses PostgreSQL; the demo downstream services have no database.
 
-The same environment-provided Weldall ES256 key signs OAuth access tokens, ID tokens, and ID-JAGs and is published at `/api/oauth/jwks`. Expenses uses its own independent ES256 key. Device keys are generated per installation and stored with the rotating Weldall refresh token in macOS Keychain.
+The same environment-provided Weldall ES256 key signs OAuth access tokens, ID tokens, and ID-JAGs and is published at `/api/oauth/jwks`. Expenses uses its own independent ES256 key through the publishable [`@weldall/sdk`](packages/sdk/README.md), whose root Fetch API and Hono, Next.js, and Astro adapters are demonstrated under `examples/`. Device keys are generated per installation and stored with the rotating Weldall refresh token in macOS Keychain.
 
 ## Setup
 
@@ -58,8 +58,7 @@ This workspace uses pnpm 11's native change intents. Release-affecting pull requ
 
 Prepare versions with `pnpm version -r --dry-run`, then `pnpm release:version` and `pnpm install`.
 Commit the resulting package versions, repository changelogs, `.changeset/ledger.yaml`, and lockfile.
-Only `@weldall/ci` is published to npm; a protected `ci-v<version>` tag triggers the Forgejo workflow.
-The tag must match `apps/cli/package.json` exactly.
+The CLI has its own protected tag-based Forgejo workflow. SDK release automation is intentionally separate and is not part of this change; the SDK package and tarball are nevertheless publish-ready.
 
 ## Validation
 

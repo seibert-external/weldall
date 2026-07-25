@@ -1,0 +1,73 @@
+{
+  "name": "@weldall/sdk",
+  "version": "0.0.0",
+  "description": "Weldall resource-server SDK for Fetch, Hono, Next.js, and Astro",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./hono": {
+      "types": "./dist/hono.d.ts",
+      "default": "./dist/hono.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "default": "./dist/next.js"
+    },
+    "./astro": {
+      "types": "./dist/astro.d.ts",
+      "default": "./dist/astro.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "pack:check": "pnpm build && node scripts/verify-package.mjs && node scripts/verify-tarball-examples.mjs",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "jose": "^6.2.2"
+  },
+  "peerDependencies": {
+    "astro": ">=7 <8",
+    "hono": ">=4 <5",
+    "next": ">=16 <17"
+  },
+  "peerDependenciesMeta": {
+    "astro": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@weldall/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "astro": "^7.0.0",
+    "hono": "^4.12.7",
+    "next": "^16.2.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

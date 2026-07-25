@@ -1,19 +1,21 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { decodeJwt } from "jose";
 import {
-  DOWNSTREAM_CLIENT_ID,
-  EXPENSES_ISSUER,
-  EXPENSES_RESOURCE,
-  EXPENSES_TOKEN_ENDPOINT,
   ID_JAG_DRAFT,
   JWT_DPOP_GRANT,
-  WELDALL_ISSUER,
   createDpopProof,
   generateEs256KeyPair,
   issueIdJag,
   signEs256,
   type DpopKeyPair,
-} from "@weldall/oauth";
+} from "@weldall/sdk";
+import {
+  DOWNSTREAM_CLIENT_ID,
+  EXPENSES_ISSUER,
+  EXPENSES_RESOURCE,
+  EXPENSES_TOKEN_ENDPOINT,
+  WELDALL_ISSUER,
+} from "../src/constants.js";
 
 let weldallKey: DpopKeyPair;
 let expensesKey: DpopKeyPair;
@@ -25,6 +27,18 @@ beforeAll(async () => {
   deviceKey = await generateEs256KeyPair();
   const k = weldallKey,
     e = expensesKey;
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === `${WELDALL_ISSUER}/.well-known/oauth-authorization-server`)
+      return Response.json({
+        issuer: WELDALL_ISSUER,
+        jwks_uri: `${WELDALL_ISSUER}/.well-known/jwks.json`,
+      });
+    if (url === `${WELDALL_ISSUER}/.well-known/jwks.json`)
+      return Response.json({ keys: [{ ...k.publicJwk, kid: "k", alg: "ES256", use: "sig" }] });
+    return new Response(null, { status: 404 });
+  });
   Object.assign(process.env, {
     WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(k.privateJwk),
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(k.publicJwk),

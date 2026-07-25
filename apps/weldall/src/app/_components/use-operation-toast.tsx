@@ -26,6 +26,7 @@ export function useOperationToast() {
         uniqueID,
         collisionBehavior: "overwrite",
       });
+      promoteToastAboveDialog();
     },
     [showToast],
   );
@@ -39,6 +40,7 @@ export function useOperationToast() {
         uniqueID,
         collisionBehavior: "overwrite",
       });
+      promoteToastAboveDialog();
     },
     [showToast],
   );
@@ -72,6 +74,28 @@ export function QueuedOperationToast() {
   }, [success]);
 
   return null;
+}
+
+function promoteToastAboveDialog() {
+  if (!document.querySelector("dialog[open]")) return;
+
+  const viewport = document.querySelector<HTMLElement>('[aria-label="Notifications"][popover]');
+  if (
+    !viewport ||
+    typeof viewport.hidePopover !== "function" ||
+    typeof viewport.showPopover !== "function"
+  ) {
+    return;
+  }
+
+  try {
+    // Native top-layer elements are stacked by insertion order. The toast viewport
+    // mounts before dialogs, so reinsert it when a modal operation shows a toast.
+    if (viewport.matches(":popover-open")) viewport.hidePopover();
+    viewport.showPopover();
+  } catch {
+    // Keep the toast functional in browsers without complete Popover API support.
+  }
 }
 
 function errorMessage(error: unknown): string | undefined {

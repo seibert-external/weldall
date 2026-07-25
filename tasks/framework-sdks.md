@@ -1,8 +1,10 @@
 # Veröffentlichbare Weldall-SDKs für Astro, Next.js und Hono
 
+**Status: Implemented** — `@weldall/sdk` provides the root Fetch core and the `./hono`, `./next`, and `./astro` adapters. Runnable examples live under `examples/`; `apps/expenses` is the reference Hono migration.
+
 ## Problem
 
-Downstream-Anwendungen müssen aktuell OAuth-, ID-JAG-, DPoP-, Token- und Scope-Logik selbst integrieren. Teile davon liegen bereits in `@weldall/oauth`, die vorhandene Hono-Integration ist jedoch eng an interne Details gekoppelt und das Paket ist nicht veröffentlichbar (`private: true`).
+Downstream-Anwendungen mussten OAuth-, ID-JAG-, DPoP-, Token- und Scope-Logik zuvor selbst integrieren. Teile davon lagen im privaten `@weldall/oauth`; die vorhandene Hono-Integration war eng an interne Details gekoppelt.
 
 Für Astro, Next.js und Hono sollen einfach nutzbare, deploybare Libraries entstehen. Die Framework-Pakete sollen möglichst dünne Adapter um eine gemeinsame interne Core-Library sein, damit sicherheitskritische Logik nicht mehrfach implementiert wird.
 
@@ -13,31 +15,34 @@ Anwendungen sollen Weldall mit wenigen Zeilen korrekt anbinden können. Bei jede
 Angestrebte Form:
 
 ```ts
-import { initWeldall } from "@weldall/hono";
+import { initWeldall } from "@weldall/sdk/hono";
 
-const weldall = initWeldall("https://weldall.example.com");
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://expenses.example.com/api",
+  publicOrigin: "https://expenses.example.com",
+  clientId: "weldall-cli-at-expenses",
+  supportedScopes: ["expenses:read"],
+  signingKey,
+  replayStore,
+});
+
+const { protect, getAuth } = weldall;
 ```
 
-Oder mit Destructuring:
-
-```ts
-const { protect, getIdentity } = initWeldall("https://weldall.example.com");
-```
-
-Die endgültigen Namen und Rückgabewerte sind Teil des API-Designs. Wichtig sind eine konsistente API über alle Frameworks und ein verpflichtender Weldall-Host.
+Alle Adapter verwenden dieselben Namen und Rückgabewerte. Weldall-Host, Resource, öffentliche Origin, Client-ID, Scopes, Signing Key und Replay Store sind explizit.
 
 ## Paketstruktur
 
 Vorgeschlagene Aufteilung:
 
 ```text
-@weldall/core     Framework-unabhängige Protokoll- und Sicherheitslogik
-@weldall/hono     Middleware und Context-Helfer für Hono
-@weldall/next     Route-Handler-/Server-Helfer für Next.js
-@weldall/astro    Middleware und Endpoint-Helfer für Astro
+@weldall/sdk         Framework-unabhängige Fetch-, Protokoll- und Sicherheitslogik
+@weldall/sdk/hono    Middleware und Context-Helfer für Hono
+@weldall/sdk/next    Route-Handler-/Server-Helfer für Next.js
+@weldall/sdk/astro   Middleware und Endpoint-Helfer für Astro
 ```
 
-Alternativ kann bestehende Logik aus `@weldall/oauth` nach `@weldall/core` verschoben oder `@weldall/oauth` zur Core-Library weiterentwickelt werden. Es soll nur eine maßgebliche Implementierung für Tokenprüfung, DPoP, Discovery, Scope-Prüfung und OAuth-Fehler geben.
+Alle Entry Points werden als ein Paket veröffentlicht. Es gibt nur eine maßgebliche Implementierung für Tokenprüfung, DPoP, Discovery, Scope-Prüfung und OAuth-Fehler.
 
 Framework-Pakete dürfen die Core-Library verwenden, aber keine Crypto- oder Protokolllogik kopieren.
 
@@ -87,33 +92,32 @@ Anforderungen:
 
 ```ts
 import { Hono } from "hono";
-import { initWeldall } from "@weldall/hono";
+import { initWeldall } from "@weldall/sdk/hono";
 
 const app = new Hono();
-const { protect, getIdentity } = initWeldall("https://weldall.example.com", {
+const { protect, getAuth } = initWeldall("https://weldall.example.com", {
   resource: "https://expenses.example.com",
   publicOrigin: "https://expenses.example.com",
 });
 
 app.get("/expenses", protect({ scopes: ["expenses:read"] }), (c) => {
-  const identity = getIdentity(c);
-  return c.json({ subject: identity.subject });
+  const auth = getAuth(c);
+  return c.json({ subject: auth.identity.subject });
 });
 ```
 
 ### Next.js
 
 ```ts
-import { initWeldall } from "@weldall/next";
+import { initWeldall } from "@weldall/sdk/next";
 
 const { withWeldall } = initWeldall("https://weldall.example.com", {
   resource: "https://expenses.example.com",
   publicOrigin: "https://expenses.example.com",
 });
 
-export const GET = withWeldall(
-  { scopes: ["expenses:read"] },
-  async (_request, auth) => Response.json({ subject: auth.identity.subject }),
+export const GET = withWeldall({ scopes: ["expenses:read"] }, async (_request, auth) =>
+  Response.json({ subject: auth.identity.subject }),
 );
 ```
 
@@ -123,16 +127,14 @@ Die unterstützten Next.js-Runtimes müssen explizit dokumentiert werden. Node.j
 
 ```ts
 import { defineMiddleware } from "astro:middleware";
-import { initWeldall } from "@weldall/astro";
+import { initWeldall } from "@weldall/sdk/astro";
 
 const { protect } = initWeldall("https://weldall.example.com", {
   resource: "https://expenses.example.com",
   publicOrigin: "https://expenses.example.com",
 });
 
-export const onRequest = defineMiddleware(
-  protect({ scopes: ["expenses:read"] }),
-);
+export const onRequest = defineMiddleware(protect({ scopes: ["expenses:read"] }));
 ```
 
 Die Beispiele beschreiben die gewünschte Einfachheit, nicht zwingend die endgültigen Funktionssignaturen.

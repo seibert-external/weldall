@@ -1,5 +1,6 @@
 import { db } from "@weldall/db";
-import { WELDALL_ISSUER, oauthErrorResponse } from "@weldall/oauth";
+import { oauthErrorResponse } from "@weldall/sdk";
+import { WELDALL_ISSUER } from "@/server/oauth/constants";
 import { authenticateCliApiRequest } from "@/server/oauth/cli-api";
 
 const endpoint = `${WELDALL_ISSUER}/api/me/cli`;

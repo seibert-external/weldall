@@ -1,20 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DOWNSTREAM_CLIENT_ID,
-  EXPENSES_ISSUER,
-  EXPENSES_RESOURCE,
   ID_JAG_DRAFT,
   ID_JAG_TOKEN_TYPE,
-  WELDALL_CLIENT_ID,
-  WELDALL_ISSUER,
-  WELDALL_RESOURCE,
   generateEs256KeyPair,
   issueAccessToken,
   issueIdJag,
   signEs256,
   type DpopKeyPair,
-} from "@weldall/oauth";
+} from "@weldall/sdk";
 import type { WeldallConfig } from "../src/config.js";
+import { WELDALL_CLIENT_ID } from "../src/oauth/constants.js";
+
+const WELDALL_ISSUER = "https://weldall.seibert.localdev";
+const WELDALL_RESOURCE = `${WELDALL_ISSUER}/api`;
+const EXPENSES_ISSUER = "https://expenses.seibert.localdev";
+const EXPENSES_RESOURCE = `${EXPENSES_ISSUER}/api`;
+const DOWNSTREAM_CLIENT_ID = "weldall-cli-at-expenses";
 import { loopback } from "../src/oauth/loopback.js";
 import {
   createPkce,

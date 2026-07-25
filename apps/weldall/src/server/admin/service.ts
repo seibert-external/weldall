@@ -5,7 +5,7 @@ import {
   normalizeRequestPrefix,
   normalizeResourceIdentifier,
   requestPrefixesOverlap,
-} from "@weldall/oauth";
+} from "@weldall/sdk";
 import { z } from "zod";
 
 export const ADMIN_SCOPE_KEY = "weldall:administer";

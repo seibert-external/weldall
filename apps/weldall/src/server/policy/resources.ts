@@ -1,5 +1,5 @@
 import { db, Prisma } from "@weldall/db";
-import type { ResourceRegistryEntry } from "@weldall/oauth";
+import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { normalizeEmail } from "../admin/service";
 
 const sortedUnique = (values: string[]) => [...new Set(values)].sort();

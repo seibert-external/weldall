@@ -11,7 +11,7 @@ WORKDIR /workspace
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/postgres pnpm db:generate \
-  && pnpm --filter @weldall/oauth build \
+  && pnpm --filter @weldall/sdk build \
   && pnpm --filter @weldall/db build \
   && pnpm --filter @weldall/ci build \
   && pnpm --filter @weldall/expenses build \

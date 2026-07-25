@@ -1,4 +1,4 @@
-import { WELDALL_ISSUER, WELDALL_RESOURCE } from "@weldall/oauth";
+import { WELDALL_ISSUER, WELDALL_RESOURCE } from "@/server/oauth/constants";
 
 export function GET() {
   return Response.json({

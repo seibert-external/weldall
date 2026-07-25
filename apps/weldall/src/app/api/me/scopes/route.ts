@@ -1,4 +1,5 @@
-import { WELDALL_ISSUER, oauthErrorResponse } from "@weldall/oauth";
+import { oauthErrorResponse } from "@weldall/sdk";
+import { WELDALL_ISSUER } from "@/server/oauth/constants";
 import { authenticateCliApiRequest } from "@/server/oauth/cli-api";
 import { resourceRegistryFor } from "@/server/policy/resources";
 

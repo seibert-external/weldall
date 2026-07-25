@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { generateEs256KeyPair } from "@weldall/sdk";
 import {
   WELDALL_CLIENT_ID,
   WELDALL_ISSUER,
   WELDALL_RESOURCE,
-  generateEs256KeyPair,
-} from "@weldall/oauth";
+} from "../src/server/oauth/constants.js";
 
 describe("Better Auth DPoP replay patch", () => {
   it("uses one process-local replay store at every provider DPoP call site", async () => {

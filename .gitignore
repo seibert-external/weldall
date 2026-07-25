@@ -1,12 +1,14 @@
 node_modules/
 dist/
 .next/
+.astro/
 .turbo/
 coverage/
 apps/e2e/test-results/
 .env
 .env.local
 *.log
+*.tsbuildinfo
 .DS_Store
 .pi-subagents/
 packages/db/src/generated/

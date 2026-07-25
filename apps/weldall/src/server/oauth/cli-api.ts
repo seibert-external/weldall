@@ -1,15 +1,9 @@
 import { db } from "@weldall/db";
-import {
-  WELDALL_ISSUER,
-  WELDALL_RESOURCE,
-  OAuthError,
-  ReplayStore,
-  verifyEs256,
-  verifyStrictDpop,
-} from "@weldall/oauth";
+import { WeldallAuthError, inMemory, verifyEs256, verifyStrictDpop } from "@weldall/sdk";
+import { WELDALL_ISSUER, WELDALL_RESOURCE } from "./constants";
 import { getWeldallSigningKey } from "./jwt";
 
-const replay = new ReplayStore();
+const replay = inMemory({ suppressWarning: true });
 
 export async function authenticateCliApiRequest(
   request: Request,
@@ -18,7 +12,7 @@ export async function authenticateCliApiRequest(
   const authorization = request.headers.get("authorization");
   const proof = request.headers.get("dpop");
   if (!authorization?.startsWith("DPoP ") || authorization.includes(",") || !proof) {
-    throw new OAuthError("invalid_token", "DPoP authorization required", 401);
+    throw new WeldallAuthError("invalid_token", "DPoP authorization required", 401);
   }
   const token = authorization.slice(5);
   const signingKey = await getWeldallSigningKey();
@@ -28,6 +22,8 @@ export async function authenticateCliApiRequest(
     kid: signingKey.kid,
     publicJwk: signingKey.publicJwk,
     typ: "at+jwt",
+    errorCode: "invalid_token",
+    errorStatus: 401,
   });
   const jkt = (payload.cnf as { jkt?: unknown } | undefined)?.jkt;
   const granted = typeof payload.scope === "string" ? payload.scope.split(" ") : [];
@@ -36,7 +32,7 @@ export async function authenticateCliApiRequest(
     typeof jkt !== "string" ||
     !granted.includes(input.requiredScope)
   ) {
-    throw new OAuthError("insufficient_scope", `${input.requiredScope} is required`, 403);
+    throw new WeldallAuthError("insufficient_scope", `${input.requiredScope} is required`, 403);
   }
   try {
     await verifyStrictDpop(proof, {
@@ -47,8 +43,8 @@ export async function authenticateCliApiRequest(
       expectedJkt: jkt,
     });
   } catch (error) {
-    if (error instanceof OAuthError && error.code === "invalid_dpop_proof") {
-      throw new OAuthError(error.code, error.message, 401);
+    if (error instanceof WeldallAuthError && error.code === "invalid_dpop_proof") {
+      throw new WeldallAuthError(error.code, error.message, 401);
     }
     throw error;
   }
@@ -57,7 +53,7 @@ export async function authenticateCliApiRequest(
     select: { id: true, email: true, emailVerified: true },
   });
   if (!user?.emailVerified) {
-    throw new OAuthError("invalid_token", "unknown or unverified subject", 401);
+    throw new WeldallAuthError("invalid_token", "unknown or unverified subject", 401);
   }
   return { id: user.id, email: user.email };
 }

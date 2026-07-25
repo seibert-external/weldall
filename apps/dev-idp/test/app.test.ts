@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose";
-import { generateEs256KeyPair, type DpopKeyPair } from "@weldall/oauth";
+import { generateEs256KeyPair, type DpopKeyPair } from "@weldall/sdk";
 import { createApp } from "../src/app.js";
 import type { DevIdpEnv } from "../src/env.js";
 

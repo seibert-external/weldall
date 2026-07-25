@@ -1,4 +1,4 @@
-import { loadEs256KeyPairFromEnv } from "@weldall/oauth";
+import { loadEs256KeyPairFromEnv } from "@weldall/sdk";
 import { SignJWT, importJWK, type JWK, type JWTPayload } from "jose";
 
 let cachedSource: string | undefined;

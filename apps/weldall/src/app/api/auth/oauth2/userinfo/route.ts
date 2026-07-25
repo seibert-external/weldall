@@ -1,4 +1,4 @@
-import { WELDALL_ISSUER } from "@weldall/oauth";
+import { WELDALL_ISSUER } from "@/server/oauth/constants";
 import { auth } from "@/server/auth/auth";
 
 const endpoint = `${WELDALL_ISSUER}/api/auth/oauth2/userinfo`;

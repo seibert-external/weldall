@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { db } from "@weldall/db";
-import { generateEs256KeyPair, issueIdJag, verifyIdJag } from "@weldall/oauth";
+import { generateEs256KeyPair, issueIdJag, verifyIdJag } from "@weldall/sdk";
 import { importJWK, jwtVerify } from "jose";
 import { normalizeEmail, parseScopeKey } from "../src/server/admin/service.js";
 import { signWeldallJwt } from "../src/server/oauth/jwt.js";

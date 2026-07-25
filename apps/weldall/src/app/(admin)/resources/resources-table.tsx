@@ -31,6 +31,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const visibleScopeCount = 3;
 
 export function ResourcesTable() {
   const trpc = useTRPC();
@@ -81,16 +82,25 @@ export function ResourcesTable() {
         ),
       },
       {
-        accessorKey: "scopeIds",
+        accessorKey: "scopeKeys",
         header: "Scopes",
         enableSorting: false,
-        cell: ({ getValue }) => getValue<string[]>().length.toLocaleString(),
-      },
-      {
-        accessorKey: "requestPrefixes",
-        header: "Prefixes",
-        enableSorting: false,
-        cell: ({ getValue }) => getValue<string[]>().length.toLocaleString(),
+        cell: ({ getValue }) => {
+          const scopes = getValue<string[]>();
+          const visibleScopes = scopes.slice(0, visibleScopeCount);
+          const remainingScopes = scopes.length - visibleScopes.length;
+
+          return scopes.length > 0 ? (
+            <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
+              {visibleScopes.map((scope) => (
+                <Badge key={scope} label={scope} />
+              ))}
+              {remainingScopes > 0 ? <Badge label={`and ${remainingScopes} more`} /> : null}
+            </div>
+          ) : (
+            <Text color="secondary">None</Text>
+          );
+        },
       },
       {
         accessorKey: "updatedAt",
@@ -164,7 +174,7 @@ export function ResourcesTable() {
           }}
         >
           <div className="w-full overflow-x-auto" role="group" aria-label="Resources table">
-            <table className="w-full min-w-[980px] border-collapse text-left">
+            <table className="w-full min-w-[900px] border-collapse text-left">
               <TableHeader>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id} isHeaderRow>

@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  EXPENSES_ISSUER,
-  EXPENSES_RESOURCE,
-  generateEs256KeyPair,
-  type ResourceRegistryEntry,
-} from "@weldall/oauth";
+import { generateEs256KeyPair, type ResourceRegistryEntry } from "@weldall/sdk";
 import type { WeldallConfig } from "../src/config.js";
+
+const EXPENSES_ISSUER = "https://expenses.seibert.localdev";
+const EXPENSES_RESOURCE = `${EXPENSES_ISSUER}/api`;
 
 const state = vi.hoisted(() => ({ session: null as any }));
 vi.mock("../src/services/auth.js", () => ({

@@ -1,5 +1,5 @@
 import { initTRPC, TRPCError } from "@trpc/server";
-import { WELDALL_ISSUER } from "@weldall/oauth";
+import { WELDALL_ISSUER } from "../oauth/constants";
 import { z } from "zod";
 import {
   AdminDomainError,

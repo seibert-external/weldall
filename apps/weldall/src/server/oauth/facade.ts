@@ -2,21 +2,23 @@ import { createHash, randomUUID } from "node:crypto";
 import { db, type OAuthDeviceRefreshBinding } from "@weldall/db";
 import {
   ID_JAG_TOKEN_TYPE,
-  WELDALL_CLIENT_ID,
-  WELDALL_ISSUER,
-  WELDALL_RESOURCE,
-  WELDALL_REVOCATION_ENDPOINT,
-  WELDALL_TOKEN_ENDPOINT,
-  OAuthError,
+  WeldallAuthError,
   REFRESH_TOKEN_TYPE,
-  ReplayStore,
   TOKEN_EXCHANGE_GRANT,
+  inMemory,
   issueIdJag,
   oauthErrorResponse,
   safeEqual,
   verifyEs256,
   verifyStrictDpop,
-} from "@weldall/oauth";
+} from "@weldall/sdk";
+import {
+  WELDALL_CLIENT_ID,
+  WELDALL_ISSUER,
+  WELDALL_RESOURCE,
+  WELDALL_REVOCATION_ENDPOINT,
+  WELDALL_TOKEN_ENDPOINT,
+} from "./constants";
 import { auth } from "../auth/auth";
 import { exchangePolicyFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
@@ -36,7 +38,7 @@ const confirmationJkt = (value: unknown): string | undefined => {
   const jkt = (confirmation as Record<string, unknown>).jkt;
   return typeof jkt === "string" && jkt.length > 0 ? jkt : undefined;
 };
-const replay = new ReplayStore();
+const replay = inMemory({ suppressWarning: true });
 const securityParameters = [
   "grant_type",
   "code",
@@ -56,12 +58,12 @@ const securityParameters = [
 
 function rejectDuplicateParameters(form: FormData): void {
   if (securityParameters.some((name) => form.getAll(name).length > 1))
-    throw new OAuthError("invalid_request", "duplicate OAuth parameter");
+    throw new WeldallAuthError("invalid_request", "duplicate OAuth parameter");
 }
 
 function requiredString(form: FormData, name: string): string {
   const value = form.get(name);
-  if (typeof value !== "string") throw new OAuthError("invalid_request", `missing ${name}`);
+  if (typeof value !== "string") throw new WeldallAuthError("invalid_request", `missing ${name}`);
   return value;
 }
 
@@ -74,7 +76,7 @@ async function validateBoundProof(
   url = WELDALL_TOKEN_ENDPOINT,
 ) {
   const proof = request.headers.get("dpop");
-  if (!proof) throw new OAuthError("invalid_dpop_proof");
+  if (!proof) throw new WeldallAuthError("invalid_dpop_proof");
   return verifyStrictDpop(proof, {
     method: "POST",
     url,
@@ -89,7 +91,7 @@ async function exchange(request: Request, form: FormData) {
     requiredString(form, "subject_token_type") !== REFRESH_TOKEN_TYPE ||
     requiredString(form, "client_id") !== WELDALL_CLIENT_ID
   )
-    throw new OAuthError("invalid_target");
+    throw new WeldallAuthError("invalid_target");
   const audience = requiredString(form, "audience");
   const resourceIdentifier = requiredString(form, "resource");
   const subject = requiredString(form, "subject_token");
@@ -114,16 +116,16 @@ async function exchange(request: Request, form: FormData) {
     typeof providerJkt !== "string" ||
     !safeEqual(providerJkt, binding.dpopJkt)
   )
-    throw new OAuthError("invalid_grant");
+    throw new WeldallAuthError("invalid_grant");
   await validateBoundProof(request, binding);
   const user = await db.user.findUnique({ where: { id: binding.userId } });
-  if (!user?.emailVerified) throw new OAuthError("invalid_grant");
+  if (!user?.emailVerified) throw new WeldallAuthError("invalid_grant");
   const policy = await exchangePolicyFor({
     email: user.email,
     resourceIdentifier,
     authorizationServer: audience,
   });
-  if (!policy) throw new OAuthError("invalid_target");
+  if (!policy) throw new WeldallAuthError("invalid_target");
   const scopes = [...new Set(requiredString(form, "scope").split(" ").filter(Boolean))].sort();
   if (
     !scopes.length ||
@@ -131,7 +133,7 @@ async function exchange(request: Request, form: FormData) {
       (scope) => !policy.supportedScopes.includes(scope) || !policy.grantedScopes.includes(scope),
     )
   )
-    throw new OAuthError("invalid_scope");
+    throw new WeldallAuthError("invalid_scope");
   const signingKey = await getWeldallSigningKey();
   const accessToken = await issueIdJag({
     issuer: WELDALL_ISSUER,
@@ -168,13 +170,13 @@ export async function tokenFacade(request: Request) {
     if (grantType === "refresh_token") {
       previous = await findBinding(requiredString(form, "refresh_token"));
       if (!previous || previous.revokedAt || previous.expiresAt <= new Date())
-        throw new OAuthError("invalid_grant");
+        throw new WeldallAuthError("invalid_grant");
       if (previous.rotatedAt) {
         await db.oAuthDeviceRefreshBinding.updateMany({
           where: { familyId: previous.familyId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        throw new OAuthError("invalid_grant", "refresh token reuse detected");
+        throw new WeldallAuthError("invalid_grant", "refresh token reuse detected");
       }
       verifiedJkt = (await validateBoundProof(request, previous)).jkt;
     }
@@ -203,7 +205,7 @@ export async function tokenFacade(request: Request) {
       token_type?: string;
     };
     if (!data.refresh_token || !data.access_token || data.token_type !== "DPoP")
-      throw new OAuthError("server_error", "invalid provider token response", 500);
+      throw new WeldallAuthError("server_error", "invalid provider token response", 500);
 
     if (!verifiedJkt) verifiedJkt = (await validateBoundProof(request)).jkt;
     const signingKey = await getWeldallSigningKey();
@@ -213,6 +215,8 @@ export async function tokenFacade(request: Request) {
       kid: signingKey.kid,
       publicJwk: signingKey.publicJwk,
       typ: "at+jwt",
+      errorCode: "server_error",
+      errorStatus: 500,
     });
     const audiences =
       typeof payload.aud === "string"
@@ -231,7 +235,7 @@ export async function tokenFacade(request: Request) {
       typeof (payload.cnf as { jkt?: unknown } | undefined)?.jkt !== "string" ||
       !safeEqual((payload.cnf as { jkt: string }).jkt, verifiedJkt)
     )
-      throw new OAuthError("server_error", "provider returned an unbound token", 500);
+      throw new WeldallAuthError("server_error", "provider returned an unbound token", 500);
 
     const tokenHash = hash(data.refresh_token);
     if (previous) {

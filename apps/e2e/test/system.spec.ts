@@ -103,7 +103,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await scopeDialog.getByRole("button", { name: "Create scope" }).click();
   const temporaryScopeRow = page.getByRole("row").filter({ hasText: "e2e:temporary" });
   await expect(temporaryScopeRow).toBeVisible();
-  await temporaryScopeRow.getByRole("button", { name: "Delete" }).click();
+  await temporaryScopeRow.getByRole("button", { name: "Edit" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete scope" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete scope" }).click();
   await expect(temporaryScopeRow).toHaveCount(0);
 
