@@ -1,6 +1,6 @@
 {
   "name": "@weldall/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Weldall resource-server SDK for Fetch, Hono, Next.js, and Astro",
   "license": "Apache-2.0",
   "repository": {
