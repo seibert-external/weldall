@@ -122,7 +122,6 @@ jobs:
 
       - name: Build publishable packages without credentials
         run: |
-          pnpm build:dev
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/ci pack:check
 
