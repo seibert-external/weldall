@@ -7,10 +7,6 @@ on:
     paths:
       - .releases/*.json
 
-concurrency:
-  group: release-publish
-  cancel-in-progress: false
-
 jobs:
   verify-and-publish:
     runs-on: node
