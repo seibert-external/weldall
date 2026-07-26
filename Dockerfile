@@ -18,7 +18,13 @@ RUN pnpm install --frozen-lockfile
 FROM dependencies AS builder
 RUN pnpm --dir packages/db exec prisma generate --schema prisma/schema.prisma \
   && pnpm --filter @weldall/sdk build \
-  && pnpm --filter @weldall/db build
+  && pnpm --filter @weldall/db build \
+  && pnpm --filter @weldall/ci exec esbuild ../weldall/src/scripts/deployment-init.ts \
+    --bundle \
+    --platform=node \
+    --format=esm \
+    --external:@prisma/client \
+    --outfile=/app/deployment-init.mjs
 RUN POSTGRES_URL=postgresql://build:build@127.0.0.1:5432/build \
   BETTER_AUTH_SECRET=build-only-better-auth-secret-at-least-32-characters \
   GOOGLE_CLIENT_ID=build-only-client \
@@ -46,9 +52,12 @@ COPY --from=builder /app/apps/weldall/.next/standalone ./
 COPY --from=builder /app/apps/weldall/.next/static ./apps/weldall/.next/static
 COPY --from=builder /app/apps/weldall/public ./apps/weldall/public
 COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
+COPY --from=builder /app/deployment-init.mjs ./packages/db/deployment-init.mjs
 RUN cd packages/db \
   && npm init -y >/dev/null \
-  && npm install --omit=dev --no-audit --no-fund prisma@6.19.3 >/dev/null
+  && npm install --omit=dev --no-audit --no-fund \
+    prisma@6.19.3 \
+    @prisma/client@6.19.3 >/dev/null
 COPY entrypoint.sh ./entrypoint.sh
 
 USER nextjs

@@ -17,5 +17,6 @@ fi
 
 /app/packages/db/node_modules/.bin/prisma migrate deploy \
   --schema /app/packages/db/prisma/schema.prisma
+node /app/packages/db/deployment-init.mjs
 
 exec node apps/weldall/server.js
