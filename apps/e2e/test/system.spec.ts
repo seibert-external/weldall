@@ -32,7 +32,7 @@ const startCli = (args: string[]) => {
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error(`CLI timed out: weldall ${args.join(" ")}`));
-    }, 120_000);
+    }, 45_000);
     child.once("error", reject);
     child.once("exit", (code) => {
       clearTimeout(timer);
@@ -48,7 +48,7 @@ const runCli = async (...args: string[]) => {
 };
 
 const waitForBrowserUrl = async () => {
-  const deadline = Date.now() + 90_000;
+  const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     try {
       const value = await readFile(browserUrlFile, "utf8");
@@ -157,11 +157,6 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     );
   await page.getByRole("button", { name: "Create skill" }).click();
   await expect(page.getByRole("row").filter({ hasText: "expenses.list" })).toBeVisible();
-
-  const metadataWarmup = await apiRequest.get(
-    "https://weldall.seibert.localdev/.well-known/oauth-authorization-server",
-  );
-  expect(metadataWarmup.ok()).toBe(true);
 
   const scopes = await runCli("scopes");
   expect(scopes, scopes.stderr).toMatchObject({ code: 0 });

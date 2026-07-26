@@ -78,6 +78,10 @@ services:
     depends_on:
       bootstrap:
         condition: service_healthy
+      trust:
+        condition: service_healthy
+    environment:
+      NODE_EXTRA_CA_CERTS: /trust/root.crt
     command:
       - /bin/bash
       - -euc
@@ -86,6 +90,7 @@ services:
         exec node apps/expenses/dist/index.js
     volumes:
       - e2e-expenses:/run/e2e:ro
+      - e2e-trust:/trust:ro
     healthcheck:
       test:
         [
@@ -106,7 +111,10 @@ services:
     depends_on:
       bootstrap:
         condition: service_healthy
+      trust:
+        condition: service_healthy
     environment:
+      NODE_EXTRA_CA_CERTS: /trust/root.crt
       DOWNSTREAM_ISSUER: https://reports.seibert.localdev
       DOWNSTREAM_RESOURCE_IDENTIFIER: https://reports.seibert.localdev/api
       DOWNSTREAM_CLIENT_ID: weldall-cli-at-reports
@@ -119,6 +127,7 @@ services:
         exec node apps/expenses/dist/index.js
     volumes:
       - e2e-expenses:/run/e2e:ro
+      - e2e-trust:/trust:ro
     healthcheck:
       test:
         [
