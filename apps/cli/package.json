@@ -34,8 +34,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "pack:check": "pnpm build && node scripts/verify-package.mjs",
-    "prepack": "pnpm build",
-    "release": "node scripts/release.mjs"
+    "prepack": "pnpm build"
   },
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",

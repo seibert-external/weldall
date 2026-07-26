@@ -64,8 +64,10 @@ need an empty changeset.
 
 GitHub Actions runs one conventional release flow:
 
-1. `.github/workflows/ci.yml` runs formatting, linting, types, tests, builds, package checks, and the
-   Docker/Playwright E2E suite on GitHub-hosted runners.
+1. `.github/workflows/ci.yml` runs formatting, linting, types, tests, builds, package checks on Node
+   24 and the declared Node 22.15 minimum, and the Docker/Playwright E2E suite. Every job uses the
+   dedicated ephemeral GitHub-hosted runner label `weldall`; the runner image must provide Linux and
+   Docker Compose.
 2. After CI succeeds on `main`, the official `changesets/action` opens or updates one release pull
    request containing package versions and changelogs.
 3. Merging the release pull request publishes the packages to npm and creates the standard
@@ -77,12 +79,13 @@ Repository configuration:
   block force-pushes and deletion, and do not allow bypasses.
 - Install the Changeset bot GitHub App so reviewers are warned when a package change has no
   changeset. As recommended by Changesets, this remains advisory because many changes need no release.
-- Add a fine-grained `RELEASE_GITHUB_TOKEN` Actions secret restricted to this repository with
+- Keep a fine-grained `RELEASE_GITHUB_TOKEN` Actions secret restricted to this repository with
   Contents and Pull requests read/write access. Unlike the default workflow token, it allows CI to
   run on release pull requests created by `changesets/action`.
-- Add `NPM_TOKEN` as an Actions secret for the initial publication of the two new npm packages.
-  Afterwards, configure npm Trusted Publishing for organization `seibert-external`, repository
-  `weldall`, and workflow `ci.yml`, then delete the token; the action automatically uses GitHub OIDC.
+- npm Trusted Publishing is configured for both public packages with organization
+  `seibert-external`, repository `weldall`, and workflow `ci.yml`. Publishing uses GitHub OIDC; no npm
+  write token is stored in GitHub. npm cannot generate public provenance attestations while the source
+  repository remains private.
 
 ## Validation
 
