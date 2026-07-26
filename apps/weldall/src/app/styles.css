@@ -82,6 +82,57 @@
     background: var(--color-background-surface);
     padding: 1.5rem;
   }
+
+  #login-hero.login-shell {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: var(--color-background-body);
+    padding: 7rem 1.5rem 3rem;
+  }
+
+  .login-header {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    left: 0;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    padding: 1.5rem;
+  }
+
+  .login-logo {
+    display: block;
+    width: 9rem;
+    height: auto;
+  }
+
+  #login-hero .login-panel {
+    position: relative;
+    z-index: 1;
+    width: min(30rem, 100%);
+    padding: 2rem;
+  }
+
+  @media (max-width: 30rem) {
+    #login-hero.login-shell {
+      padding-right: 1rem;
+      padding-left: 1rem;
+    }
+
+    .login-header {
+      padding: 1.25rem 1rem;
+    }
+
+    .login-logo {
+      width: 8rem;
+    }
+
+    #login-hero .login-panel {
+      padding: 1.5rem;
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
