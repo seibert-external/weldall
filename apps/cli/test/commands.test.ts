@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { explainScope, printPermissions } from "../src/commands.js";
-import { printError, terminalDocument, terminalText } from "../src/output.js";
+import { brandHeading, printError, terminalDocument, terminalText } from "../src/output.js";
 
 describe("friendly scope descriptions", () => {
   it.each([
@@ -40,6 +40,12 @@ describe("friendly resource output", () => {
     expect(text).not.toContain("https://");
     expect(text).not.toContain("private-client-shape");
     output.mockRestore();
+  });
+});
+
+describe("CLI brand", () => {
+  it("centers the Weldall wordmark", () => {
+    expect(brandHeading(21)).toBe("       Weldall");
   });
 });
 

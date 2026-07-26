@@ -7,7 +7,7 @@ A macOS CLI for Weldall's DPoP-bound OAuth flow.
 Node.js 22.15 or newer is required. Install the public package globally:
 
 ```sh
-npm install --global @weldall/ci
+npm install --global @weldall/cli
 weldall --version
 ```
 
@@ -66,18 +66,18 @@ token nor request data. Weldall then obtains the matching resource token and add
 headers. `weldall skills` and `weldall skills show` expose administrator-managed
 Markdown instructions for agents.
 
-Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. The branded line and
-ANSI colors are only emitted to an interactive terminal and respect `NO_COLOR`. Running bare
-`weldall` briefly animates the line before showing help; set `WELDALL_NO_ANIMATION=1` to keep it static.
+Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. ANSI colors
+are only emitted to an interactive terminal and respect `NO_COLOR`. Root help starts with a concise
+agent-oriented introduction, followed by the administrator-provided appendix when one is configured.
 
 ## Development
 
 ```sh
 pnpm --dir apps/cli exec tsx src/index.ts --help
-pnpm --filter @weldall/ci typecheck
-pnpm --filter @weldall/ci test
-pnpm --filter @weldall/ci build
-pnpm --filter @weldall/ci pack:check
+pnpm --filter @weldall/cli typecheck
+pnpm --filter @weldall/cli test
+pnpm --filter @weldall/cli build
+pnpm --filter @weldall/cli pack:check
 ```
 
 ## Releasing
@@ -89,7 +89,7 @@ pnpm changeset
 pnpm changeset:status
 ```
 
-Select `@weldall/ci`, choose the SemVer bump, and describe the user-visible change. After CI succeeds
+Select `@weldall/cli`, choose the SemVer bump, and describe the user-visible change. After CI succeeds
 on `main`, the official Changesets GitHub Action opens or updates the shared release pull request.
 Merging that reviewed PR publishes the verified npm package and creates the standard Changesets Git
 tag and GitHub release. Repository secrets and the initial npm publication are documented in the

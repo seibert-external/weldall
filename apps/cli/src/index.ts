@@ -14,7 +14,7 @@ import {
 } from "./commands.js";
 import { discoverIssuer, selectIssuer } from "./config.js";
 import { CliError, errorMessage } from "./errors.js";
-import { animateBrandLine, brandLine, printError, terminalDocument } from "./output.js";
+import { brandHeading, printError, terminalDocument } from "./output.js";
 import { getCliAppendix } from "./services/settings.js";
 import { renderFriendlyValidation } from "./validation.js";
 
@@ -30,12 +30,15 @@ async function loadCliAppendix() {
   }
 }
 
+const agentIntroduction = [
+  "Agents can discover approved capabilities and access APIs with scoped credentials.",
+  "Start with `weldall skills`, then use `weldall skills show <skill-id>` for instructions.",
+].join("\n");
+
 export async function runCli(argv = process.argv.slice(2)) {
-  const animateHeader = argv.length === 0;
   const rootHelp =
     argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"));
   const appendix = rootHelp ? loadCliAppendix() : Promise.resolve("");
-  let headerAnimated = false;
 
   try {
     await cli(argv.length === 0 ? ["--help"] : argv, mainCommand, {
@@ -55,11 +58,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       },
       renderHeader: async (context) => {
         if ((context.values as Record<string, unknown>).help !== true) return "";
-        if (animateHeader && !headerAnimated) {
-          headerAnimated = true;
-          await animateBrandLine();
-        }
-        return [brandLine(), await appendix].filter(Boolean).join("\n\n");
+        return [brandHeading(), agentIntroduction, await appendix].filter(Boolean).join("\n\n");
       },
       renderValidationErrors: renderFriendlyValidation,
     });

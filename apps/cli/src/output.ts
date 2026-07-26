@@ -1,5 +1,4 @@
 import type { WriteStream } from "node:tty";
-import { createLogUpdate } from "log-update";
 
 const ansi = (code: string, value: string, stream: WriteStream) =>
   stream.isTTY && !("NO_COLOR" in process.env) && process.env.TERM !== "dumb"
@@ -30,58 +29,10 @@ const unicodeTerminal = () => {
   return locale === undefined || /utf-?8/i.test(locale);
 };
 
-const lineWidth = () => {
-  const columns = process.stdout.columns;
-  return Math.max(1, Math.min(36, (columns && columns > 0 ? columns : 40) - 4));
-};
-const lineGlyph = () => (unicodeTerminal() ? "━" : "-");
-
-const coloredLine = (highlightColumn: number) => {
-  const glyphs = lineGlyph().repeat(lineWidth());
-  const groups = Array.from(glyphs).reduce<Array<{ code: string; value: string }>>(
-    (result, character, index) => {
-      const code = Math.abs(index - highlightColumn) <= 1 ? "38;5;220" : "38;5;33";
-      const current = result.at(-1);
-      if (current?.code === code) current.value += character;
-      else result.push({ code, value: character });
-      return result;
-    },
-    [],
-  );
-  return groups.map(({ code, value }) => ansi(code, value, process.stdout)).join("");
-};
-
-export const brandLine = () => {
-  if (!process.stdout.isTTY) return "";
-  return coloredLine(Math.floor(lineWidth() / 2));
-};
-
-const canAnimateLine = () =>
-  process.stdout.isTTY &&
-  unicodeTerminal() &&
-  process.env.TERM !== "dumb" &&
-  !("CI" in process.env) &&
-  !("NO_COLOR" in process.env) &&
-  !("WELDALL_NO_ANIMATION" in process.env);
-
-const wait = (milliseconds: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-
-export const animateBrandLine = async () => {
-  if (!canAnimateLine()) return;
-
-  const render = createLogUpdate(process.stdout, { showCursor: true });
-  const frameCount = 12;
-  try {
-    for (let frame = 0; frame < frameCount; frame += 1) {
-      const highlightColumn = Math.round(-2 + (frame * (lineWidth() + 3)) / (frameCount - 1));
-      render(coloredLine(highlightColumn));
-      await wait(55);
-    }
-  } finally {
-    render.clear();
-    render.done();
-  }
+export const brandHeading = (columns = process.stdout.columns || 80) => {
+  const name = "Weldall";
+  const padding = " ".repeat(Math.max(0, Math.floor((columns - name.length) / 2)));
+  return `${padding}${ansi("1;38;5;33", name, process.stdout)}`;
 };
 
 const glyph = (unicode: string, ascii: string) =>

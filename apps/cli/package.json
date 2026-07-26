@@ -1,5 +1,5 @@
 {
-  "name": "@weldall/ci",
+  "name": "@weldall/cli",
   "version": "0.2.0",
   "description": "Secure macOS CLI for accessing Weldall-managed APIs",
   "license": "Apache-2.0",
@@ -39,8 +39,7 @@
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",
     "gunshi": "^0.37.1",
-    "jose": "^6.2.2",
-    "log-update": "^8.0.0"
+    "jose": "^6.2.2"
   },
   "devDependencies": {
     "@weldall/sdk": "workspace:*",
