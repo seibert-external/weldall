@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.2.1
+
+### Patch Changes
+
+- aa7d279: Replace the animated CLI header with a centered Weldall wordmark and agent-focused introduction.
+
 ## 0.2.0
 
 ### Minor Changes
