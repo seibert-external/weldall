@@ -122,7 +122,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("button", { name: "Create resource" }).click();
   await expect(page.getByRole("row").filter({ hasText: "reports" })).toBeVisible();
 
-  const expensesResourceRow = page.getByRole("row").filter({ hasText: "expenses" });
+  const expensesResourceRow = page
+    .getByRole("row")
+    .filter({ has: page.getByText("expenses", { exact: true }) });
   await expensesResourceRow.getByRole("link", { name: "Open" }).click();
   await page
     .getByLabel("Request prefixes")
