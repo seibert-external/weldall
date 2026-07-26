@@ -86,26 +86,16 @@ const hash = (x: number, y: number) => {
   return value - Math.floor(value);
 };
 
-const nextGlyph = (
-  current: string,
-  distanceScale: number,
-  glyphs: string[],
-) => {
+const nextGlyph = (current: string, distanceScale: number, glyphs: string[]) => {
   const ramp = glyphs.length > 1 ? glyphs : ASCII_RAMP;
   const currentIndex = ramp.indexOf(current);
   const direction = Math.random() < 0.5 ? -1 : 1;
-  const distance = Math.max(
-    1,
-    Math.round((2 + Math.floor(Math.random() * 4)) * distanceScale),
-  );
+  const distance = Math.max(1, Math.round((2 + Math.floor(Math.random() * 4)) * distanceScale));
   const fallbackIndex = Math.floor(Math.random() * ramp.length);
   const nextIndex =
     currentIndex < 0
       ? fallbackIndex
-      : Math.min(
-          ramp.length - 1,
-          Math.max(0, currentIndex + direction * distance),
-        );
+      : Math.min(ramp.length - 1, Math.max(0, currentIndex + direction * distance));
 
   const next = ramp[nextIndex] ?? ".";
   if (next !== current) return next;
@@ -120,9 +110,7 @@ const LoginGlyphCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const motionPreference = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    );
+    const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     const controller = new AbortController();
     let disposed = false;
@@ -172,9 +160,7 @@ const LoginGlyphCanvas = () => {
 
         const column = Math.max(0, Math.round(sourceMark.x / gridWidth - 0.5));
         const row = Math.max(0, Math.round(sourceMark.y / gridHeight - 0.5));
-        let density = clamp(
-          (sourceMark.density - 0.5) * (currentConfig.contrast / 100) + 0.5,
-        );
+        let density = clamp((sourceMark.density - 0.5) * (currentConfig.contrast / 100) + 0.5);
         density = Math.pow(density, currentConfig.gamma / 100);
         if (currentConfig.dither === "ordered") {
           const threshold = BAYER_4[row % 4]?.[column % 4] ?? 0;
@@ -186,9 +172,7 @@ const LoginGlyphCanvas = () => {
         density = Math.round(clamp(density) * steps) / steps;
         density = clamp(density * (currentConfig.density / 100));
         density = clamp(
-          density +
-            (hash(column + 41, row + 79) - 0.5) *
-              (currentConfig.variation / 100),
+          density + (hash(column + 41, row + 79) - 0.5) * (currentConfig.variation / 100),
         );
         const glyphIndex = Math.min(
           characters.length - 1,
@@ -201,10 +185,7 @@ const LoginGlyphCanvas = () => {
           glyph: characters[glyphIndex] || characters[0] || ".",
           color: currentConfig.foreground,
           opacity: density < 0.035 ? 0 : 0.28 + density * 0.72,
-          size:
-            gridWidth *
-            (currentConfig.glyphSize / 100) *
-            (0.58 + density * 0.42),
+          size: gridWidth * (currentConfig.glyphSize / 100) * (0.58 + density * 0.42),
           weight: density > 0.76 ? 700 : 500,
         };
       });
@@ -212,17 +193,12 @@ const LoginGlyphCanvas = () => {
       candidates = marks.filter(
         (mark) =>
           mark.opacity > 0 &&
-          hash(mark.x + 113, mark.y + 197) <=
-            currentConfig.animationDensity / 100,
+          hash(mark.x + 113, mark.y + 197) <= currentConfig.animationDensity / 100,
       );
     };
 
     const canAnimate = () =>
-      initialized &&
-      isVisible &&
-      !document.hidden &&
-      !motionPreference.matches &&
-      !disposed;
+      initialized && isVisible && !document.hidden && !motionPreference.matches && !disposed;
 
     const clearTimer = () => {
       if (timer === undefined) return;
@@ -237,12 +213,7 @@ const LoginGlyphCanvas = () => {
     };
 
     const clearCell = (mark: GlyphMark) => {
-      context.clearRect(
-        mark.x - gridWidth / 2,
-        mark.y - gridHeight / 2,
-        gridWidth,
-        gridHeight,
-      );
+      context.clearRect(mark.x - gridWidth / 2, mark.y - gridHeight / 2, gridWidth, gridHeight);
     };
 
     const drawGlyph = (mark: GlyphMark, glyph: string, alpha = 1) => {
@@ -280,24 +251,15 @@ const LoginGlyphCanvas = () => {
 
       const canvasRect = canvas.getBoundingClientRect();
       const descriptionRect = description.getBoundingClientRect();
-      const coverScale = Math.max(
-        canvasRect.width / sourceWidth,
-        canvasRect.height / sourceHeight,
-      );
+      const coverScale = Math.max(canvasRect.width / sourceWidth, canvasRect.height / sourceHeight);
       const renderedWidth = sourceWidth * coverScale;
       const offsetX = canvasRect.width - renderedWidth;
       const horizontalPadding = 34;
       const verticalPadding = 24;
 
       readingZone = {
-        x:
-          (descriptionRect.left -
-            canvasRect.left -
-            offsetX -
-            horizontalPadding) /
-          coverScale,
-        y:
-          (descriptionRect.top - canvasRect.top - verticalPadding) / coverScale,
+        x: (descriptionRect.left - canvasRect.left - offsetX - horizontalPadding) / coverScale,
+        y: (descriptionRect.top - canvasRect.top - verticalPadding) / coverScale,
         width: (descriptionRect.width + horizontalPadding * 2) / coverScale,
         height: (descriptionRect.height + verticalPadding * 2) / coverScale,
         feather: 22 / coverScale,
@@ -363,9 +325,7 @@ const LoginGlyphCanvas = () => {
       if (!canAnimate()) return;
 
       const speedFactor = 100 / currentConfig.speed;
-      const delay =
-        (initial ? 150 + Math.random() * 150 : 400 + Math.random() * 600) *
-        speedFactor;
+      const delay = (initial ? 150 + Math.random() * 150 : 400 + Math.random() * 600) * speedFactor;
       timer = window.setTimeout(startTransitions, delay);
     };
 
@@ -378,16 +338,13 @@ const LoginGlyphCanvas = () => {
         Math.max(
           1,
           Math.round(
-            candidates.length *
-              (currentConfig.activity / 100) *
-              (0.8 + Math.random() * 0.4),
+            candidates.length * (currentConfig.activity / 100) * (0.8 + Math.random() * 0.4),
           ),
         ),
       );
       const selected = new Set<GlyphMark>();
       while (selected.size < count) {
-        const candidate =
-          candidates[Math.floor(Math.random() * candidates.length)];
+        const candidate = candidates[Math.floor(Math.random() * candidates.length)];
         if (candidate) selected.add(candidate);
       }
 
@@ -398,11 +355,7 @@ const LoginGlyphCanvas = () => {
       activeTransitions = Array.from(selected, (mark) => ({
         mark,
         from: mark.glyph,
-        to: nextGlyph(
-          mark.glyph,
-          1 + currentConfig.variation / 50,
-          animationGlyphs,
-        ),
+        to: nextGlyph(mark.glyph, 1 + currentConfig.variation / 50, animationGlyphs),
         delay: Math.random() * 250 * speedFactor,
         duration: (700 + Math.random() * 500) * speedFactor,
       }));
@@ -417,8 +370,7 @@ const LoginGlyphCanvas = () => {
         let complete = true;
         for (const transition of activeTransitions) {
           clearCell(transition.mark);
-          const progress =
-            (now - startedAt - transition.delay) / transition.duration;
+          const progress = (now - startedAt - transition.delay) / transition.duration;
 
           if (progress <= 0) {
             drawGlyph(transition.mark, transition.from);
@@ -427,21 +379,13 @@ const LoginGlyphCanvas = () => {
           }
 
           if (progress < 0.5) {
-            drawGlyph(
-              transition.mark,
-              transition.from,
-              1 - smoothstep(progress * 2),
-            );
+            drawGlyph(transition.mark, transition.from, 1 - smoothstep(progress * 2));
             complete = false;
             continue;
           }
 
           if (progress < 1) {
-            drawGlyph(
-              transition.mark,
-              transition.to,
-              smoothstep((progress - 0.5) * 2),
-            );
+            drawGlyph(transition.mark, transition.to, smoothstep((progress - 0.5) * 2));
             complete = false;
             continue;
           }
@@ -503,10 +447,7 @@ const LoginGlyphCanvas = () => {
           throw new Error(`Glyph source request failed: ${response.status}`);
         }
         const svgText = await response.text();
-        const documentNode = new DOMParser().parseFromString(
-          svgText,
-          "image/svg+xml",
-        );
+        const documentNode = new DOMParser().parseFromString(svgText, "image/svg+xml");
         const svg = documentNode.documentElement;
         if (svg.nodeName === "parsererror") {
           throw new Error("Glyph source could not be parsed.");
@@ -514,34 +455,24 @@ const LoginGlyphCanvas = () => {
 
         sourceWidth = Number(svg.getAttribute("width")) || 1200;
         sourceHeight = Number(svg.getAttribute("height")) || 675;
-        sourceMarks = Array.from(
-          documentNode.querySelectorAll("text"),
-          (node) => {
-            const opacity = Number(node.getAttribute("fill-opacity")) || 1;
-            return {
-              x: Number(node.getAttribute("x")),
-              y: Number(node.getAttribute("y")),
-              glyph: node.textContent || ".",
-              opacity,
-              size: Number(node.getAttribute("font-size")) || 6,
-              weight: Number(node.getAttribute("font-weight")) || 500,
-              density: clamp((opacity - 0.28) / 0.72),
-            };
-          },
-        ).filter(
-          (mark) =>
-            Number.isFinite(mark.x) &&
-            Number.isFinite(mark.y) &&
-            mark.glyph.length > 0,
+        sourceMarks = Array.from(documentNode.querySelectorAll("text"), (node) => {
+          const opacity = Number(node.getAttribute("fill-opacity")) || 1;
+          return {
+            x: Number(node.getAttribute("x")),
+            y: Number(node.getAttribute("y")),
+            glyph: node.textContent || ".",
+            opacity,
+            size: Number(node.getAttribute("font-size")) || 6,
+            weight: Number(node.getAttribute("font-weight")) || 500,
+            density: clamp((opacity - 0.28) / 0.72),
+          };
+        }).filter(
+          (mark) => Number.isFinite(mark.x) && Number.isFinite(mark.y) && mark.glyph.length > 0,
         );
         if (disposed || sourceMarks.length === 0) return;
 
-        const xPositions = [...new Set(sourceMarks.map((mark) => mark.x))].sort(
-          (a, b) => a - b,
-        );
-        const yPositions = [...new Set(sourceMarks.map((mark) => mark.y))].sort(
-          (a, b) => a - b,
-        );
+        const xPositions = [...new Set(sourceMarks.map((mark) => mark.x))].sort((a, b) => a - b);
+        const yPositions = [...new Set(sourceMarks.map((mark) => mark.y))].sort((a, b) => a - b);
         gridWidth = (xPositions[1] ?? 6) - (xPositions[0] ?? 0) || 6;
         gridHeight = (yPositions[1] ?? 6.36) - (yPositions[0] ?? 0) || 6.36;
         rebuildMarks();
@@ -574,10 +505,7 @@ const LoginGlyphCanvas = () => {
   }, []);
 
   return (
-    <div
-      className="pointer-events-none absolute inset-0 z-0"
-      aria-hidden="true"
-    >
+    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
       <div
         className={`absolute inset-0 bg-[url('/assets/glyph-hero.svg')] bg-cover bg-right-top bg-no-repeat max-sm:bg-[length:auto_100%] ${ready ? "opacity-0" : "opacity-100"}`}
       />
