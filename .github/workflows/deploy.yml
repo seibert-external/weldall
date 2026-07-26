@@ -1,0 +1,19 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: seibert-external/vibe-ci/.github/workflows/coolify-deploy.yml@v1
+    permissions:
+      contents: read
+    with:
+      coolify_app_uuid: ${{ vars.COOLIFY_APP_UUID }}
+      commit_sha: ${{ github.sha }}
+    secrets: inherit

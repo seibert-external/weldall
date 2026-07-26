@@ -41,6 +41,10 @@ Run the hermetic browser/CLI suite with `pnpm test:e2e`. Docker Compose creates 
 
 The E2E stack uses generated identities, keys, and OAuth values and destroys its containers and volumes after each run. `request` calls Expenses directly; Weldall is not in the API data path.
 
+## Deployment
+
+Weldall is packaged as a single-replica Next.js container for Coolify. The container applies Prisma migrations before startup; PostgreSQL runs as a separate Coolify resource. See [the Coolify deployment guide](docs/coolify.md) for the required Coolify, OAuth, and GitHub settings.
+
 ## Prototype security boundary
 
 There is no DPoP nonce. Proof and one-time-grant replay state is bounded and process-local, so each server must run as one process; restart resets replay state and horizontal scaling would partition it. OAuth Provider rc.2 hardcodes a database-backed DPoP store, so `patches/@better-auth__oauth-provider@1.7.0-rc.2.patch` narrowly replaces its two native DPoP call sites with one module-scoped `createInMemoryDpopReplayStore()` singleton. Re-review this patch before changing the pinned prerelease.

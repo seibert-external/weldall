@@ -2,11 +2,13 @@
   "$schema": "https://turborepo.com/schema.json",
   "globalEnv": [
     "POSTGRES_URL",
+    "WELDALL_ISSUER",
     "BETTER_AUTH_SECRET",
     "OAUTH_PROXY_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
     "WELDALL_DEPLOYMENT_MODE",
+    "WELDALL_BOOTSTRAP_ADMIN_EMAIL",
     "ENABLE_DEV_LOGIN",
     "DEV_IDP_ISSUER",
     "DEV_IDP_CLIENT_ID",
