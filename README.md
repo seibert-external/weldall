@@ -87,11 +87,13 @@ Repository configuration required before enabling releases:
   protected `sdk-v*` and `ci-v*` tags and releases.
 - `RELEASE_BOT_USER`: repository variable containing that Forgejo bot's username for the final
   credential-scoped Git push.
-- Protect `main`, require the CI `verify` and `e2e` jobs, require pull requests to be up to date
-  with `main` before merge, and prevent humans from pushing to `release/pnpm`.
-- The `docker` runner must be disposable and isolated and expose a dedicated Docker daemon. Do not
-  run fork pull requests automatically on a persistent Docker-capable runner; require maintainer
-  approval or disable fork workflows.
+- Protect `main`, require the CI `verify` job, require pull requests to be up to date with `main`
+  before merge, and prevent humans from pushing to `release/pnpm`. Require `e2e` as well once the
+  Docker runner below is available.
+- Docker E2E is disabled by default. After registering a disposable, isolated `docker` runner with
+  a dedicated Docker daemon, set the repository variable `RUN_DOCKER_E2E=true`. Do not run fork
+  pull requests automatically on a persistent Docker-capable runner; require maintainer approval
+  or disable fork workflows.
 
 Checkout credentials are never persisted, package installation/builds run without npm or release-bot
 secrets, and npm/Forgejo credentials are injected into separate final steps only. npm trusted

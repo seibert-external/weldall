@@ -12,7 +12,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  e2e:
+    if: vars.RUN_DOCKER_E2E == 'true'
+    runs-on: docker
+    env:
+      FORGEJO_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Check out immutable release commit
+        uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Run release-gating Docker and Playwright E2E tests
+        env:
+          KEEP_E2E_ARTIFACTS: "1"
+        run: bash scripts/test-e2e.sh
+
   verify-and-publish:
+    needs: e2e
+    if: always() && (vars.RUN_DOCKER_E2E != 'true' || needs.e2e.result == 'success')
     runs-on: node
     services:
       postgres:
@@ -80,11 +99,6 @@ jobs:
         env:
           RELEASE_MANIFEST_FILE: .release-manifests.txt
         run: node scripts/release/prepare-release-plan.mjs .release-artifacts .release-plan.json
-
-      - name: Run release-gating Docker and Playwright E2E tests
-        env:
-          KEEP_E2E_ARTIFACTS: "1"
-        run: bash scripts/test-e2e.sh
 
       - name: Publish prepared tarballs to npm
         env:
