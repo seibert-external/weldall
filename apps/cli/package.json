@@ -2,6 +2,12 @@
   "name": "@weldall/ci",
   "version": "0.1.0",
   "description": "Secure macOS CLI for accessing Weldall-managed APIs",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seibert-external/weldall.git",
+    "directory": "apps/cli"
+  },
   "type": "module",
   "os": [
     "darwin"
@@ -11,7 +17,8 @@
   },
   "files": [
     "dist/index.js",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "bin": {
     "weldall": "dist/index.js"

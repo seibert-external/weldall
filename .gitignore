@@ -11,7 +11,5 @@ apps/e2e/test-results/
 *.tsbuildinfo
 .DS_Store
 .pi-subagents/
-.release-artifacts/
-.release-manifests.txt
-.release-plan.json
+.pnpm-store/
 packages/db/src/generated/

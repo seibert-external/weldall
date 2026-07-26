@@ -82,22 +82,18 @@ pnpm --filter @weldall/ci pack:check
 
 ## Releasing
 
-Release-affecting pull requests commit a pnpm change intent from the repository root:
+Release-affecting pull requests add a standard Changeset from the repository root:
 
 ```sh
-pnpm change @weldall/ci --bump patch --summary "Describe the user-visible change"
-pnpm change status
+pnpm changeset
+pnpm changeset:status
 ```
 
-After the change reaches `main`, Forgejo opens or updates the shared `release/pnpm` PR using pnpm's
-native `version -r` flow. Merging that reviewed PR triggers the non-cancellable publish workflow,
-which rebuilds and verifies the immutable release commit, publishes the prepared CLI tarball, and
-creates the matching `ci-v<version>` tag and Forgejo release. Interrupted runs are safely rerunnable.
-
-Before the first release, create the `@weldall` npm scope and configure the protected Forgejo secrets
-`NPM_TOKEN` and `RELEASE_BOT_TOKEN` plus the `RELEASE_BOT_USER` repository variable as documented in
-the root README. Restrict the npm token to `@weldall/ci` and `@weldall/sdk`, and protect `ci-v*` tags
-so only the release bot can create them.
+Select `@weldall/ci`, choose the SemVer bump, and describe the user-visible change. After CI succeeds
+on `main`, the official Changesets GitHub Action opens or updates the shared release pull request.
+Merging that reviewed PR publishes the verified npm package and creates the standard Changesets Git
+tag and GitHub release. Repository secrets and the initial npm publication are documented in the
+root README.
 
 The older standalone executable builder remains available for local testing with Bun:
 

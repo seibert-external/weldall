@@ -22,7 +22,7 @@ assert.deepEqual(packageJson.os, ["darwin"]);
 assert.equal(packageJson.engines?.node, ">=22.15.0");
 assert.equal(packageJson.bin?.weldall, "dist/index.js");
 assert.equal(packageJson.publishConfig?.access, "public");
-assert.deepEqual(files, ["README.md", "dist/index.js", "package.json"]);
+assert.deepEqual(files, ["LICENSE", "README.md", "dist/index.js", "package.json"]);
 assert.equal(packageJson.dependencies?.["@weldall/sdk"], undefined);
 for (const specifier of Object.values(packageJson.dependencies ?? {}))
   assert.doesNotMatch(specifier, /^(?:workspace:|link:|file:)/);

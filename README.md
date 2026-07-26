@@ -49,54 +49,40 @@ User policy and the downstream resource registry are database-backed. `/resource
 
 `weldall request` resolves the complete target URL against the live registry before token exchange. Origins must match exactly and paths match on segment boundaries; query strings are allowed. The CLI never follows redirects and refuses unregistered, ambiguous, or disabled targets before sending a downstream token or request body. Human-readable `weldall scopes` output contains only service names and granted scopes; `--json` exposes the technical registry contract.
 
-## Change intents, CI, and releases
+## Changesets, CI, and releases
 
-This workspace uses pnpm 11's native change intents. Pull requests that change `packages/sdk/**` or
-`apps/cli/**` must commit a matching intent, including an explicit `none` intent when no package
-release is required:
+Published package changes are described with standard [Changesets](https://github.com/changesets/changesets):
 
 ```sh
-pnpm change
-# or non-interactively
-pnpm change --bump patch --summary "Describe the change" @weldall/sdk
-pnpm change --bump none --summary "Tests only" @weldall/sdk
-pnpm change status
+pnpm changeset
+pnpm changeset:status
 ```
 
-Forgejo runs the following native release flow without `changesets/action`:
+Select `@weldall/sdk` and/or `@weldall/ci`, choose the SemVer bump, and commit the generated
+`.changeset/*.md` file with the pull request. Changes that do not require a package release do not
+need an empty changeset.
 
-1. `.forgejo/workflows/ci.yml` validates intents, formatting, linting, types, tests, workspace builds,
-   packed CLI/SDK artifacts, fresh framework consumers, and Docker/Playwright E2E.
-2. After a merge to `main`, `.forgejo/workflows/release-pr.yml` regenerates the single
-   `release/pnpm` branch with `pnpm version -r`, changelogs, the change-intent ledger, lockfile, and
-   an immutable `.releases/*.json` manifest, then opens or updates a release PR through the Forgejo
-   API.
-3. Merging that release PR triggers the non-cancellable `.forgejo/workflows/publish.yml`. It rebuilds
-   and packs the exact first-parent commit that introduced the manifest, verifies tarball integrity,
-   reruns CI and E2E, and publishes missing npm versions in SDK-before-CLI order.
-4. Successful publishes create `sdk-v<version>` or `ci-v<version>` tags and matching Forgejo
-   releases at that immutable release commit. Workflow reruns verify npm integrity before recovering
-   a partial publish.
+GitHub Actions runs one conventional release flow:
 
-Repository configuration required before enabling releases:
+1. `.github/workflows/ci.yml` runs formatting, linting, types, tests, builds, package checks, and the
+   Docker/Playwright E2E suite on GitHub-hosted runners.
+2. After CI succeeds on `main`, the official `changesets/action` opens or updates one release pull
+   request containing package versions and changelogs.
+3. Merging the release pull request publishes the packages to npm and creates the standard
+   Changesets Git tags and GitHub releases.
 
-- `NPM_TOKEN`: protected granular npm token restricted to `@weldall/sdk` and `@weldall/ci`, with
-  CI 2FA bypass and a short expiry.
-- `RELEASE_BOT_TOKEN`: protected Forgejo token with `write:repository`; its non-interactive user
-  needs repository write access, permission to update `release/pnpm`, and permission to create the
-  protected `sdk-v*` and `ci-v*` tags and releases.
-- `RELEASE_BOT_USER`: repository variable containing that Forgejo bot's username for the final
-  credential-scoped Git push.
-- Protect `main`, require the CI `verify` job, require pull requests to be up to date with `main`
-  before merge, and prevent humans from pushing to `release/pnpm`.
-- Docker E2E currently runs locally with `pnpm test:e2e` and is temporarily excluded from Forgejo
-  until an isolated Docker-capable runner is confirmed. Once enabled, do not run fork pull requests
-  automatically on that runner; require maintainer approval or disable fork workflows.
+Repository configuration:
 
-Checkout credentials are never persisted, package installation/builds run without npm or release-bot
-secrets, and npm/Forgejo credentials are injected into separate final steps only. npm trusted
-publishing does not currently support Forgejo, so publishing uses `NPM_TOKEN`. Package
-existence checks plus idempotent tag/release creation make recovery a normal workflow rerun.
+- Protect `main`: require pull requests plus `verify` and `e2e`, require the branch to be current,
+  block force-pushes and deletion, and do not allow bypasses.
+- Install the Changeset bot GitHub App so reviewers are warned when a package change has no
+  changeset. As recommended by Changesets, this remains advisory because many changes need no release.
+- Add a fine-grained `RELEASE_GITHUB_TOKEN` Actions secret restricted to this repository with
+  Contents and Pull requests read/write access. Unlike the default workflow token, it allows CI to
+  run on release pull requests created by `changesets/action`.
+- Add `NPM_TOKEN` as an Actions secret for the initial publication of the two new npm packages.
+  Afterwards, configure npm Trusted Publishing for organization `seibert-external`, repository
+  `weldall`, and workflow `ci.yml`, then delete the token; the action automatically uses GitHub OIDC.
 
 ## Validation
 
