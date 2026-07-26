@@ -158,6 +158,11 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("button", { name: "Create skill" }).click();
   await expect(page.getByRole("row").filter({ hasText: "expenses.list" })).toBeVisible();
 
+  const metadataWarmup = await apiRequest.get(
+    "https://weldall.seibert.localdev/.well-known/oauth-authorization-server",
+  );
+  expect(metadataWarmup.ok()).toBe(true);
+
   const scopes = await runCli("scopes");
   expect(scopes, scopes.stderr).toMatchObject({ code: 0 });
   expect(scopes.stdout.trim().split("\n").sort()).toEqual([
