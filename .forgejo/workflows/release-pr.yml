@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   update-release-pr:
-    runs-on: docker
+    runs-on: ubuntu-latest
     env:
       FORGEJO_TOKEN: ""
       GITHUB_TOKEN: ""
