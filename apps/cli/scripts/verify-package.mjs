@@ -16,7 +16,7 @@ const packed = JSON.parse(
 )[0];
 const files = packed.files.map(({ path }) => path).sort();
 
-assert.equal(packageJson.name, "@weldall/ci");
+assert.equal(packageJson.name, "@weldall/cli");
 assert.equal(packageJson.private, undefined);
 assert.deepEqual(packageJson.os, ["darwin"]);
 assert.equal(packageJson.engines?.node, ">=22.15.0");

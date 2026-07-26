@@ -35,7 +35,7 @@ weldall request --method DELETE --scope expenses:delete --scope expenses:write h
 weldall logout
 ```
 
-For `pnpm --filter @weldall/ci dev ...` or direct `node apps/cli/dist/index.js ...` invocations, set `NODE_USE_SYSTEM_CA=1`; the linked `weldall` bin already starts Node with `--use-system-ca`.
+For `pnpm --filter @weldall/cli dev ...` or direct `node apps/cli/dist/index.js ...` invocations, set `NODE_USE_SYSTEM_CA=1`; the linked `weldall` bin already starts Node with `--use-system-ca`.
 
 Run the hermetic browser/CLI suite with `pnpm test:e2e`. Docker Compose creates fresh signing keys and secrets, PostgreSQL, the Development IdP, Caddy, Chromium, Weldall, and Expenses, then removes containers and volumes after the run.
 
@@ -62,7 +62,7 @@ pnpm changeset
 pnpm changeset:status
 ```
 
-Select `@weldall/sdk` and/or `@weldall/ci`, choose the SemVer bump, and commit the generated
+Select `@weldall/sdk` and/or `@weldall/cli`, choose the SemVer bump, and commit the generated
 `.changeset/*.md` file with the pull request. Changes that do not require a package release do not
 need an empty changeset.
 
@@ -90,6 +90,16 @@ Repository configuration:
   `seibert-external`, repository `weldall`, and workflow `ci.yml`. Publishing uses GitHub OIDC; no npm
   write token is stored in GitHub. npm cannot generate public provenance attestations while the source
   repository remains private.
+
+A new package name must exist before npm allows Trusted Publishing to be configured. Bootstrap it from
+a clean `main` checkout before merging its first Changesets release pull request:
+
+```sh
+pnpm --filter @weldall/cli pack:check
+(cd apps/cli && npm publish --access public)
+```
+
+Then configure `@weldall/cli` to trust `seibert-external/weldall` and `ci.yml` for `npm publish`.
 
 ## Validation
 

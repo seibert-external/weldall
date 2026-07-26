@@ -64,7 +64,7 @@ jobs:
       - name: Verify publishable packages
         run: |
           pnpm --filter @weldall/sdk pack:check
-          pnpm --filter @weldall/ci pack:check
+          pnpm --filter @weldall/cli pack:check
 
   package-compat:
     runs-on: weldall
@@ -90,9 +90,9 @@ jobs:
           pnpm --filter @weldall/sdk typecheck
           pnpm --filter @weldall/sdk test
           pnpm --filter @weldall/sdk pack:check
-          pnpm --filter @weldall/ci typecheck
-          pnpm --filter @weldall/ci test
-          pnpm --filter @weldall/ci pack:check
+          pnpm --filter @weldall/cli typecheck
+          pnpm --filter @weldall/cli test
+          pnpm --filter @weldall/cli pack:check
 
   e2e:
     needs: verify
@@ -148,7 +148,7 @@ jobs:
       - name: Build publishable packages without credentials
         run: |
           pnpm --filter @weldall/sdk pack:check
-          pnpm --filter @weldall/ci pack:check
+          pnpm --filter @weldall/cli pack:check
 
       - name: Create release pull request or publish
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
