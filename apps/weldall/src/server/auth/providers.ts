@@ -4,6 +4,18 @@ const present = (value: string | undefined) => {
   return normalized && normalized !== optionalPlaceholder ? normalized : undefined;
 };
 
+export type WeldallDeploymentMode = "development" | "e2e" | "production";
+
+export function resolveDeploymentMode(env: NodeJS.ProcessEnv = process.env): WeldallDeploymentMode {
+  const deploymentMode =
+    present(env.WELDALL_DEPLOYMENT_MODE) ??
+    (env.NODE_ENV === "production" ? "production" : "development");
+  if (!new Set(["development", "e2e", "production"]).has(deploymentMode)) {
+    throw new Error("WELDALL_DEPLOYMENT_MODE must be development, e2e or production");
+  }
+  return deploymentMode as WeldallDeploymentMode;
+}
+
 export type LoginProviderConfiguration = {
   google?: { clientId: string; clientSecret: string };
   devOidc?: {
@@ -21,11 +33,7 @@ export function resolveLoginProviders(
   if (Boolean(googleClientId) !== Boolean(googleClientSecret))
     throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured together");
 
-  const deploymentMode =
-    present(env.WELDALL_DEPLOYMENT_MODE) ??
-    (env.NODE_ENV === "production" ? "production" : "development");
-  if (!new Set(["development", "e2e", "production"]).has(deploymentMode))
-    throw new Error("WELDALL_DEPLOYMENT_MODE must be development, e2e or production");
+  const deploymentMode = resolveDeploymentMode(env);
   const devLoginEnabled = env.ENABLE_DEV_LOGIN === "true";
   if (devLoginEnabled && deploymentMode === "production")
     throw new Error("ENABLE_DEV_LOGIN must not be enabled in production");
