@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: node
     env:
       FORGEJO_TOKEN: ""
       GITHUB_TOKEN: ""
@@ -70,7 +70,7 @@ jobs:
 
   e2e:
     if: forgejo.event_name == 'push' || forgejo.event.pull_request.head.repo.full_name == forgejo.repository
-    runs-on: ubuntu-latest
+    runs-on: node
     needs: verify
     env:
       FORGEJO_TOKEN: ""
