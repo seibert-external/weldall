@@ -94,9 +94,3 @@ on `main`, the official Changesets GitHub Action opens or updates the shared rel
 Merging that reviewed PR publishes the verified npm package and creates the standard Changesets Git
 tag and GitHub release. Repository secrets and the initial npm publication are documented in the
 root README.
-
-The older standalone executable builder remains available for local testing with Bun:
-
-```sh
-pnpm --filter @weldall/ci release
-```
