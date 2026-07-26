@@ -14,9 +14,20 @@ concurrency:
 jobs:
   verify-and-publish:
     runs-on: node
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       FORGEJO_TOKEN: ""
       GITHUB_TOKEN: ""
+      POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/postgres
     steps:
       - name: Check out immutable release commit
         uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -57,6 +68,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm secrets:generate > .env
           pnpm db:generate
+          pnpm db:migrate:deploy
           pnpm format:check
           pnpm lint
           pnpm typecheck

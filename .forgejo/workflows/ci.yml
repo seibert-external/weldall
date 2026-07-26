@@ -13,9 +13,20 @@ concurrency:
 jobs:
   verify:
     runs-on: node
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       FORGEJO_TOKEN: ""
       GITHUB_TOKEN: ""
+      POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/postgres
     steps:
       - name: Check out repository
         uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -49,8 +60,10 @@ jobs:
       - name: Generate hermetic test configuration
         run: pnpm secrets:generate > .env
 
-      - name: Generate database client
-        run: pnpm db:generate
+      - name: Prepare test database
+        run: |
+          pnpm db:generate
+          pnpm db:migrate:deploy
 
       - name: Verify source
         run: |
