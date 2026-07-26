@@ -19,7 +19,7 @@ FROM dependencies AS builder
 RUN pnpm --dir packages/db exec prisma generate --schema prisma/schema.prisma \
   && pnpm --filter @weldall/sdk build \
   && pnpm --filter @weldall/db build \
-  && pnpm --filter @weldall/ci exec esbuild ../weldall/src/scripts/deployment-init.ts \
+  && pnpm --dir apps/cli exec esbuild ../weldall/src/scripts/deployment-init.ts \
     --bundle \
     --platform=node \
     --format=esm \
