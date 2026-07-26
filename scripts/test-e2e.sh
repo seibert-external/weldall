@@ -23,8 +23,8 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 set +e
-"${compose[@]}" up --build --abort-on-container-exit --exit-code-from e2e >"$log_file" 2>&1
-compose_status=$?
+"${compose[@]}" up --build --abort-on-container-exit --exit-code-from e2e 2>&1 | tee "$log_file"
+compose_status=${PIPESTATUS[0]}
 set -e
 
 report_status=0
@@ -33,7 +33,6 @@ if [[ ! -f apps/e2e/test-results/junit.xml ]]; then
   report_status=1
 fi
 if ((compose_status != 0)); then
-  cat "$log_file" >&2
   exit "$compose_status"
 fi
 exit "$report_status"
