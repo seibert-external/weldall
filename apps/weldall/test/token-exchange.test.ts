@@ -41,7 +41,7 @@ beforeAll(async () => {
   issuerKey = await generateEs256KeyPair();
   deviceKey = await generateEs256KeyPair();
   Object.assign(process.env, {
-    POSTGRES_URL: "postgresql://postgres@localhost:5433/postgres",
+    POSTGRES_URL: process.env.POSTGRES_URL ?? "postgresql://postgres@localhost:5433/postgres",
     BETTER_AUTH_SECRET: "test-better-auth-secret-at-least-32-characters",
     OAUTH_PROXY_SECRET: "test-oauth-proxy-secret-at-least-32-characters",
     GOOGLE_CLIENT_ID: "google-test-client",
