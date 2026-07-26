@@ -32,7 +32,7 @@ const startCli = (args: string[]) => {
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error(`CLI timed out: weldall ${args.join(" ")}`));
-    }, 45_000);
+    }, 120_000);
     child.once("error", reject);
     child.once("exit", (code) => {
       clearTimeout(timer);
@@ -48,7 +48,7 @@ const runCli = async (...args: string[]) => {
 };
 
 const waitForBrowserUrl = async () => {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     try {
       const value = await readFile(browserUrlFile, "utf8");

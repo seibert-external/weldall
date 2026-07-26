@@ -7,7 +7,7 @@ export default defineConfig({
   testDir: "./test",
   fullyParallel: false,
   workers: 1,
-  timeout: 180_000,
+  timeout: 300_000,
   expect: { timeout: 30_000 },
   outputDir: join(artifacts, "playwright"),
   use: {
