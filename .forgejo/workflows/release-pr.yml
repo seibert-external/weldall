@@ -37,6 +37,8 @@ jobs:
           RELEASE_PLAN_FILE: /tmp/weldall-release-plan.txt
           RELEASE_VERSION_SNAPSHOT: /tmp/weldall-release-versions.json
         run: |
+          git reset --hard "$FORGEJO_SHA"
+          git clean -fd
           pnpm change status | tee "$RELEASE_PLAN_FILE"
           if test "$(cat "$RELEASE_PLAN_FILE")" = "No pending changes."; then
             echo "No pending change intents; no release PR is needed."
