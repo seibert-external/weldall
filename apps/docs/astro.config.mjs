@@ -15,6 +15,28 @@ export default defineConfig({
       },
       plugins: [lucode()],
       customCss: ["./src/styles/logo.css"],
+      sidebar: [
+        {
+          label: "Weldall Ecosystem",
+          items: [{ slug: "ecosystem/overview" }],
+        },
+        {
+          label: "Weldall CLI",
+          items: [
+            { slug: "index" },
+            { slug: "agent-run" },
+            { label: "Features", link: "/features/" },
+            { slug: "oauth-security" },
+            { label: "SDKs", link: "/sdks/" },
+            {
+              label: "How to: Weldall aufsetzen",
+              translations: { en: "How to: Set up Weldall" },
+              link: "/weldall-setup/",
+            },
+            { slug: "service-configuration" },
+          ],
+        },
+      ],
       locales: {
         root: { label: "Deutsch", lang: "de" },
         en: { label: "English", lang: "en" },

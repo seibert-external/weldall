@@ -1,0 +1,151 @@
+---
+title: A complete agent run
+description: How an employee and their agent use Weldall CLI to access a company application securely.
+sidebar:
+  label: Walktrough
+  order: 1
+---
+
+This page follows a complete run from the perspective of an employee and their agent. The example uses an application that manages the company's contracts.
+
+## 1. The employee signs in
+
+The employee signs in once through the CLI:
+
+```sh
+weldall login
+```
+
+The CLI opens the company's sign-in page in the browser. After a successful login, it stores the session and device key in the operating system's secure credential store.
+
+:::note[Automated sign-in]
+If the company uses mobile device management (MDM), this step can also run automatically.
+:::
+
+## 2. The employee gives the agent a task
+
+Weldall is not tied to a specific agent. It works with Pi, Claude, and any other agent that can invoke the CLI. The agent initially needs to know only one rule:
+
+> Use Weldall for tasks in my company.
+
+Administrators can add further company-specific guidance to the centrally managed [CLI appendix](../features/#cli-appendix). When the agent invokes `weldall` without a subcommand, the help output includes the locally cached appendix. The CLI then fetches updates for the next invocation.
+
+The employee then gives the agent the business task:
+
+> Find the contract with Nordstern GmbH and change its next review date to September 30, 2026.
+
+The employee does not need to know which service manages contracts or how to call its API.
+
+## 3. The agent discovers available skills
+
+The agent starts with the capabilities that Weldall publishes for this employee:
+
+```sh
+weldall skills
+```
+
+`weldall skills` is shorthand for `weldall skills list`. A possible response is:
+
+```text
+contracts.manage  Manage contracts  available
+```
+
+The list contains only skills that are visible to this employee. Depending on its configuration, a visible skill can either be available or indicate missing permissions.
+
+## 4. The agent reads the instructions
+
+The agent loads the complete skill:
+
+```sh
+weldall skills show contracts.manage
+```
+
+The skill document tells the agent how to use the CLI for the correct HTTP requests. It contains complete `weldall request` commands with target URLs, scopes, and required data:
+
+````md
+---
+title: "Manage contracts"
+requiredScopes:
+  - "contracts:read"
+  - "contracts:update"
+---
+
+Search for a contract:
+
+```sh
+weldall request \
+  --scope contracts:read \
+  "https://contracts.example.com/api/contracts?customer=<url-encoded-name>"
+```
+
+Ask the user for confirmation before making a change. Then update the review date:
+
+```sh
+weldall request \
+  --method PATCH \
+  --scope contracts:update \
+  --json '{"nextReviewAt":"<YYYY-MM-DD>"}' \
+  https://contracts.example.com/api/contracts/<contract-id>
+```
+````
+
+In this example, confirmation is a rule defined by the skill. Weldall does not enforce the confirmation itself. Weldall enforces that the agent can use only approved targets and scopes.
+
+## 5. The agent reads the contract
+
+The agent follows the instructions and searches for the contract:
+
+```sh
+weldall request \
+  --scope contracts:read \
+  "https://contracts.example.com/api/contracts?customer=Nordstern%20GmbH"
+```
+
+The contract service might respond with:
+
+```json
+{
+  "id": "contract-4711",
+  "customer": "Nordstern GmbH",
+  "nextReviewAt": "2026-06-30",
+  "status": "active"
+}
+```
+
+The agent now knows the current value and asks the employee for the confirmation required by the skill.
+
+## 6. The agent updates the contract
+
+After confirmation, the agent sends the change:
+
+```sh
+weldall request \
+  --method PATCH \
+  --scope contracts:update \
+  --json '{"nextReviewAt":"2026-09-30"}' \
+  https://contracts.example.com/api/contracts/contract-4711
+```
+
+The CLI prints the contract service's response. The agent summarizes the result for the employee.
+
+## What Weldall handles
+
+For every `weldall request`, the CLI performs the security-sensitive steps itself:
+
+1. It verifies that the target URL belongs to a registered company service.
+2. It verifies that the requested scope is supported by the service and assigned to the employee.
+3. It obtains short-lived, DPoP-bound credentials for that specific service.
+4. It sends the API request directly to the contract service.
+5. It returns only the business response to the agent.
+
+The agent never sees an access token and does not need to store credentials. Administrators centrally control which skills are visible and which scopes an employee may use. Weldall records whether the requested authorization was granted or denied.
+
+:::note[Security through open standards]
+Weldall follows the current OAuth drafts for identity chaining and DPoP-bound grants, together with established OAuth standards. See [Security model and OAuth standards](../oauth-security/) for details.
+:::
+
+## Connect your own services to Weldall
+
+Before an agent can access a company service, administrators connect that service to Weldall once. They define the permissions and publish a matching skill. Employees can then use the service without needing to understand its API, URLs, or authorization model.
+
+See [How to: Integrate a service](../service-configuration/) for the individual steps.

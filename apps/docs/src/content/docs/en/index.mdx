@@ -1,22 +1,25 @@
 ---
 title: Why Weldall CLI?
 description: Weldall CLI gives agents secure, centrally controlled access to company capabilities.
+sidebar:
+  label: Introduction
+  order: 0
 ---
 
 Employees will increasingly use natural language to interact with business software. Agents will do more than answer questions. They will carry out tasks.
 
-To do that, they need access to protected company systems. Today, this often means storing API keys or other credentials in agents and configuration files. IT loses oversight, permissions become scattered across individual integrations, and security concerns prevent many useful actions altogether.
+To do that, they need access to protected company systems. Today, this often means storing API keys or other credentials in agents and configuration files. Administrators lose oversight, permissions become scattered across individual integrations, and security concerns prevent many useful actions altogether.
 
 For example, an employee asks their agent to submit an expense. The agent needs instructions for the task and permission to call the relevant service. It should not need to see or manage credentials.
 
-Weldall CLI provides a central access layer between agents and company capabilities. Employees sign in through the company's existing SSO. IT determines who may use each capability. Any agent that can invoke the CLI operates within these rules.
+Weldall CLI provides a central access layer between agents and company capabilities. Employees sign in through the company's existing SSO. Administrators determine who may use each capability. Any agent that can invoke the CLI operates within these rules.
 
 Skills tell the agent how to use a capability and which permissions it requires. Depending on the configuration, employees either see only approved skills or can discover which additional capabilities exist. They can only execute actions they are authorized to perform.
 
 The agent never receives an access token. The CLI manages the required credentials in the operating system's secure credential store and sends the request itself. Access tokens are short-lived and bound to the device key with DPoP. A captured token therefore cannot be reused on another system.
 
-Weldall records granted and denied access requests. IT can see who requested access to which resource and with which permissions. Changes to policies, resources, and skills are also traceable.
+Weldall records granted and denied access requests. Administrators can see who requested access to which resource and with which permissions. Changes to policies, resources, and skills are also traceable.
 
 The security architecture follows open OAuth standards. Company services can integrate through the provided SDKs, while the choice of agent remains flexible.
 
-“Weldall CLI” refers to the complete product: the local CLI, the Weldall Authorization Server, and the SDKs for connected services. The following architecture section explains how these components work together.
+“Weldall CLI” refers to the complete product: the local CLI, the Weldall Authorization Server, and the SDKs for connected services. [A complete agent run](./agent-run/) shows how these components work together.
