@@ -76,6 +76,7 @@ app.get("/api/contracts", weldall.protect({ scopes: ["contracts:read"] }), (cont
   const auth = weldall.getAuth(context);
   return context.json({
     requestedBy: auth.identity.subject,
+    requestedByEmail: auth.identity.email,
     contracts: [
       { id: "contract-1001", customer: "Nordstern GmbH", status: "active" },
       { id: "contract-1002", customer: "Südwind AG", status: "review" },
@@ -86,7 +87,7 @@ app.get("/api/contracts", weldall.protect({ scopes: ["contracts:read"] }), (cont
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8787) });
 ```
 
-`weldall.protect` prüft jeden eingehenden Request, bevor der Handler die Vertragsdaten liest. Der Handler läuft nur, wenn der Request den Scope `contracts:read` erfüllt.
+`weldall.protect` prüft jeden eingehenden Request, bevor der Handler die Vertragsdaten liest. Der Handler läuft nur, wenn der Request den Scope `contracts:read` erfüllt. Die Identität enthält das stabile Weldall-Subject und die verifizierte E-Mail, die Weldall in den ID-JAG signiert und das SDK in das Downstream-Access-Token übernommen hat. Wie der Service diese Identität mit seiner eigenen User-Datenbank verwendet, bleibt anwendungsspezifisch.
 
 :::note[Replay-Schutz bei horizontaler Skalierung]
 `inMemory()` speichert verwendete ID-JAGs und DPoP-Proofs nur im aktuellen Prozess. Bei mehreren Service-Instanzen kennt eine Instanz die Replays nicht, die eine andere bereits gesehen hat. Der Replay-Store verhindert die mehrfache Einlösung eines ID-JAGs und die erneute Verwendung eines DPoP-Proofs; das Access Token selbst wird nicht als einmalig verbraucht markiert.

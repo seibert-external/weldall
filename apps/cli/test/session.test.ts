@@ -172,6 +172,7 @@ describe("CLI token validation", () => {
     const accessToken = await issueAccessToken({
       issuer: WELDALL_ISSUER,
       subject: "user",
+      email: "user@example.com",
       resource: WELDALL_RESOURCE,
       clientId: WELDALL_CLIENT_ID,
       scopes: ["weldall:scopes"],
@@ -215,6 +216,7 @@ describe("CLI token validation", () => {
     const token = await issueIdJag({
       issuer: WELDALL_ISSUER,
       subject: "user",
+      email: "user@example.com",
       audience: EXPENSES_ISSUER,
       clientId: DOWNSTREAM_CLIENT_ID,
       resource: EXPENSES_RESOURCE,
@@ -236,6 +238,7 @@ describe("CLI token validation", () => {
         },
         device.publicJwk,
         {
+          subject: "user",
           authorizationServer: EXPENSES_ISSUER,
           resource: EXPENSES_RESOURCE,
           clientId: DOWNSTREAM_CLIENT_ID,
@@ -249,8 +252,11 @@ describe("CLI token validation", () => {
     ["additional audience", (_key: DpopKeyPair) => ({ aud: [EXPENSES_ISSUER, "attacker"] })],
     ["wrong resource", () => ({ resource: "https://attacker.example/api" })],
     ["wrong client", () => ({ client_id: "attacker" })],
+    ["wrong subject", () => ({ sub: "other-user" })],
     ["empty device binding", () => ({ cnf: { jkt: "" } })],
     ["scope escalation", () => ({ scope: "expenses:read expenses:delete" })],
+    ["invalid email", () => ({ email: "not-an-email" })],
+    ["unverified email", () => ({ email_verified: false })],
   ])("rejects a returned ID-JAG with %s", async (_name, patch) => {
     const issuer = await generateEs256KeyPair();
     const device = await generateEs256KeyPair();
@@ -259,6 +265,8 @@ describe("CLI token validation", () => {
       {
         iss: WELDALL_ISSUER,
         sub: "user",
+        email: "user@example.com",
+        email_verified: true,
         aud: EXPENSES_ISSUER,
         client_id: DOWNSTREAM_CLIENT_ID,
         resource: EXPENSES_RESOURCE,
@@ -285,6 +293,7 @@ describe("CLI token validation", () => {
         },
         device.publicJwk,
         {
+          subject: "user",
           authorizationServer: EXPENSES_ISSUER,
           resource: EXPENSES_RESOURCE,
           clientId: DOWNSTREAM_CLIENT_ID,

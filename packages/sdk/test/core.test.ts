@@ -8,9 +8,10 @@ import {
   inMemory,
   initWeldall,
   issueAccessToken,
-  issueIdJag,
+  issueIdJag as issueSdkIdJag,
   signEs256,
   verifyAccessToken,
+  verifyIdJag,
   type DpopKeyPair,
 } from "../src/index.js";
 
@@ -24,6 +25,9 @@ let deviceKey: DpopKeyPair;
 let discoveredKey: DpopKeyPair;
 let discoveredKid: string;
 let fetchCalls: string[];
+
+const issueIdJag = (input: Omit<Parameters<typeof issueSdkIdJag>[0], "email">) =>
+  issueSdkIdJag({ ...input, email: "user@example.com" });
 
 beforeEach(async () => {
   weldallKey = await generateEs256KeyPair();
@@ -168,6 +172,8 @@ describe("exchange and verification", () => {
       iss: origin,
       aud: resource,
       sub: "user-1",
+      email: "user@example.com",
+      email_verified: true,
       scope: "read write",
       cnf: { jkt: deviceKey.jkt },
     });
@@ -183,7 +189,13 @@ describe("exchange and verification", () => {
     });
     expect(auth).toMatchObject({
       subject: "user-1",
-      identity: { subject: "user-1" },
+      email: "user@example.com",
+      emailVerified: true,
+      identity: {
+        subject: "user-1",
+        email: "user@example.com",
+        emailVerified: true,
+      },
       scopes: ["read", "write"],
     });
   });
@@ -197,6 +209,7 @@ describe("exchange and verification", () => {
       const token = await issueAccessToken({
         ...claims,
         subject: "user-1",
+        email: "user@example.com",
         clientId,
         scopes: ["read"],
         jkt: deviceKey.jkt,
@@ -217,6 +230,43 @@ describe("exchange and verification", () => {
         }),
       ).rejects.toMatchObject({ code: "invalid_token", status: 401 });
     }
+  });
+
+  it.each([
+    ["missing email", { email: undefined }],
+    ["invalid email", { email: "not-an-email" }],
+    ["unverified email", { email_verified: false }],
+  ])("rejects an access token with %s", async (_name, patch) => {
+    const valid = decodeJwt(
+      await issueAccessToken({
+        issuer: origin,
+        subject: "user-1",
+        email: "user@example.com",
+        resource,
+        clientId,
+        scopes: ["read"],
+        jkt: deviceKey.jkt,
+        kid: "local",
+        privateJwk: localKey.privateJwk,
+      }),
+    );
+    const token = await signEs256(
+      { ...valid, ...patch },
+      { kid: "local", privateJwk: localKey.privateJwk, typ: "at+jwt" },
+    );
+    await expect(sdk().verify(await protectedRequest(token))).rejects.toMatchObject({
+      code: "invalid_token",
+      status: 401,
+    });
+    await expect(
+      verifyAccessToken(token, {
+        issuer: origin,
+        resource,
+        clientId,
+        kid: "local",
+        publicJwk: localKey.publicJwk,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_token", status: 401 });
   });
 
   it("returns consistent 401/403 responses and detects proof replay", async () => {
@@ -319,6 +369,30 @@ describe("exchange and verification", () => {
     ];
     for (const jag of invalidAssertions)
       expect((await exchange(sdk(), jag)).response.status).toBe(400);
+  });
+
+  it.each([
+    ["missing email", { email: undefined }],
+    ["invalid email", { email: "not-an-email" }],
+    ["unverified email", { email_verified: false }],
+  ])("rejects an ID-JAG with %s", async (_name, patch) => {
+    const valid = decodeJwt(await assertion());
+    const jag = await signEs256(
+      { ...valid, ...patch },
+      { kid: "w1", privateJwk: weldallKey.privateJwk, typ: "oauth-id-jag+jwt" },
+    );
+    await expect(
+      verifyIdJag(jag, {
+        issuer: host,
+        audience: origin,
+        resource,
+        clientId,
+        kid: "w1",
+        publicJwk: weldallKey.publicJwk,
+        allowedScopes: ["read", "write"],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_grant" });
+    expect((await exchange(sdk(), Promise.resolve(jag))).response.status).toBe(400);
   });
 
   it("atomically consumes ID-JAGs and enforces strict token forms", async () => {

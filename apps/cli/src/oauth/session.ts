@@ -162,6 +162,7 @@ export async function validateIdJagResponse(
   result: Record<string, unknown>,
   publicJwk: JWK,
   expected: {
+    subject: string;
     authorizationServer: string;
     resource: string;
     clientId: string;
@@ -190,6 +191,8 @@ export async function validateIdJagResponse(
       "iss",
       "aud",
       "sub",
+      "email",
+      "email_verified",
       "exp",
       "iat",
       "jti",
@@ -210,8 +213,12 @@ export async function validateIdJagResponse(
     claims.aud !== expected.authorizationServer ||
     claims.resource !== expected.resource ||
     claims.client_id !== expected.clientId ||
-    typeof claims.sub !== "string" ||
-    !claims.sub ||
+    claims.sub !== expected.subject ||
+    typeof claims.email !== "string" ||
+    claims.email.length > 320 ||
+    claims.email !== claims.email.trim() ||
+    !/^[^\s@]+@[^\s@]+$/.test(claims.email) ||
+    claims.email_verified !== true ||
     typeof claims.jti !== "string" ||
     claims.jti.length < 1 ||
     claims.jti.length > 128 ||
