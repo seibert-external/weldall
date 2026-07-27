@@ -1,0 +1,17 @@
+---
+title: Overview
+description: An overview of the Weldall Ecosystem.
+---
+
+import { Image } from "astro:assets";
+import { AstroZoomInit } from "astro-zoom";
+import productsLight from "../../../../assets/weldall-products.svg";
+import productsDark from "../../../../assets/weldall-products-dark.svg";
+
+<AstroZoomInit background="var(--sl-color-bg)" />
+<div class="dark:sl-hidden">
+  <Image src={productsLight} alt="Weldall Ecosystem products" data-zoom />
+</div>
+<div class="light:sl-hidden">
+  <Image src={productsDark} alt="Weldall Ecosystem products" data-zoom />
+</div>

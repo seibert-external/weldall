@@ -1,0 +1,27 @@
+---
+title: Sicherheitsmodell und OAuth-Standards
+description: Die Sicherheitsgarantien und verwendeten OAuth-Standards von Weldall.
+sidebar:
+  label: Sicherheit
+---
+
+import { Image } from "astro:assets";
+import { AstroZoomInit } from "astro-zoom";
+import securityFlowLight from "../../assets/security-flow.svg";
+import securityFlowDark from "../../assets/security-flow-dark.svg";
+
+<AstroZoomInit background="var(--sl-color-bg)" />
+<div class="dark:sl-hidden">
+  <Image
+    src={securityFlowLight}
+    alt="Sicherheitsablauf zwischen Agent, Weldall CLI und Service"
+    data-zoom
+  />
+</div>
+<div class="light:sl-hidden">
+  <Image
+    src={securityFlowDark}
+    alt="Sicherheitsablauf zwischen Agent, Weldall CLI und Service"
+    data-zoom
+  />
+</div>
