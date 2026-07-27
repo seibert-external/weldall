@@ -1,42 +1,42 @@
 ---
 title: Weldall
-description: A reference implementation of OAuth identity and authorization chaining across trust domains.
+description: Eine Referenzimplementierung für die Verkettung von OAuth-Identität und -Autorisierung über Vertrauensdomänen hinweg.
 ---
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-## The two main components
+## Die zwei Hauptkomponenten
 
 <CardGrid>
   <Card title="Weldall Authorization Server" icon="approve-check-circle">
-    Authenticates the user, applies central policy, and issues a target-bound Identity Assertion JWT
-    Authorization Grant (ID-JAG). It also publishes the resource, scope, and skill registries used
-    by the CLI.
+    Authentifiziert den Benutzer, wendet zentrale Richtlinien an und stellt einen zielgebundenen
+    Identity Assertion JWT Authorization Grant (ID-JAG) aus. Außerdem veröffentlicht er die
+    Ressourcen-, Scope- und Skill-Register, die von der CLI verwendet werden.
   </Card>
   <Card title="Weldall CLI" icon="seti:shell">
-    A native OAuth client for macOS. It keeps the device key in the system keychain, obtains
-    DPoP-bound credentials, and calls registered APIs directly.
+    Ein nativer OAuth-Client für macOS. Er verwahrt den Geräteschlüssel im System-Schlüsselbund,
+    bezieht DPoP-gebundene Zugangsdaten und ruft registrierte APIs direkt auf.
   </Card>
 </CardGrid>
 
-## How it fits together
+## Zusammenspiel der Komponenten
 
 ```text
-Weldall CLI ── sign in and request access ──▶ Weldall Authorization Server
-     │                                               │
-     │                                               └── issues an ID-JAG
+Weldall CLI ── Anmeldung und Zugriffsanfrage ──▶ Weldall Authorization Server
+     │                                                   │
+     │                                                   └── stellt einen ID-JAG aus
      │
-     ├── exchanges the ID-JAG at the resource's authorization server
-     └── calls the API directly with a DPoP-bound access token
+     ├── tauscht den ID-JAG beim Authorization Server der Ressource ein
+     └── ruft die API direkt mit einem DPoP-gebundenen Access Token auf
 ```
 
-This lets one trust domain carry identity and authorization into another without handing a reusable bearer credential to the client or routing API traffic through Weldall.
+So kann eine Vertrauensdomäne Identität und Autorisierung in eine andere übertragen, ohne dem Client wiederverwendbare Bearer-Zugangsdaten auszuhändigen oder den API-Verkehr durch Weldall zu leiten.
 
-## The specifications
+## Die Spezifikationen
 
-The architecture follows [OAuth Identity and Authorization Chaining Across Domains](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-chaining/). The current implementation pins these draft revisions:
+Die Architektur folgt [OAuth Identity and Authorization Chaining Across Domains](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-chaining/). Die aktuelle Implementierung verwendet diese Draft-Versionen:
 
-- [Identity Assertion JWT Authorization Grant, draft 04](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) defines the ID-JAG issued by Weldall.
-- [OAuth 2.0 JWT Authorization Grant with DPoP Binding, draft 01](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01) defines how that grant is exchanged for a key-bound access token.
+- [Identity Assertion JWT Authorization Grant, Draft 04](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) definiert den von Weldall ausgestellten ID-JAG.
+- [OAuth 2.0 JWT Authorization Grant with DPoP Binding, Draft 01](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01) definiert, wie dieser Grant gegen ein schlüsselgebundenes Access Token eingetauscht wird.
 
-The flow also uses [DPoP](https://www.rfc-editor.org/rfc/rfc9449), [OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), [Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414), and [Protected Resource Metadata](https://www.rfc-editor.org/rfc/rfc9728).
+Der Ablauf verwendet außerdem [DPoP](https://www.rfc-editor.org/rfc/rfc9449), [OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), [Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414) und [Protected Resource Metadata](https://www.rfc-editor.org/rfc/rfc9728).

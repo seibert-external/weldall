@@ -11,4 +11,4 @@ pnpm --filter @weldall/docs build
 pnpm --filter @weldall/docs preview
 ```
 
-Documentation pages belong in `src/content/docs/`. The collection is intentionally empty for now.
+Documentation pages belong in `src/content/docs/`. German is served from the site root and English translations live under `src/content/docs/en/`.
