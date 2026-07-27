@@ -36,6 +36,7 @@ const authorizedRequest = async (
   const token = await issueAccessToken({
     issuer: claims.issuer ?? "https://api.example",
     subject: "adapter-user",
+    email: "adapter@example.com",
     resource: claims.resource ?? "https://api.example/resource",
     clientId: "client",
     scopes: claims.scopes ?? ["read"],
@@ -69,7 +70,10 @@ describe("framework adapters", () => {
     const app = new Hono<{ Variables: WeldallVariables }>();
     weldall.registerRoutes(app);
     app.get("/private", weldall.protect({ scopes: ["read"] }), (c) =>
-      c.json({ subject: weldall.getAuth(c).subject }),
+      c.json({
+        subject: weldall.getAuth(c).subject,
+        email: weldall.getAuth(c).email,
+      }),
     );
     expect((await app.request("/.well-known/oauth-protected-resource")).status).toBe(200);
     const response = await app.request("/private");
@@ -77,7 +81,10 @@ describe("framework adapters", () => {
     expect(response.headers.get("www-authenticate")).toBe('DPoP error="invalid_token"');
     const success = await app.request(await authorizedRequest("https://api.example/private"));
     expect(success.status).toBe(200);
-    await expect(success.json()).resolves.toEqual({ subject: "adapter-user" });
+    await expect(success.json()).resolves.toEqual({
+      subject: "adapter-user",
+      email: "adapter@example.com",
+    });
     await expectAdapterContract((request) => app.request(request));
   });
 

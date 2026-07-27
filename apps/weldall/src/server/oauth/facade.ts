@@ -146,7 +146,8 @@ async function exchange(
   await validateBoundProof(request, binding);
   const user = await db.user.findUnique({ where: { id: binding.userId } });
   if (!user?.emailVerified) throw new WeldallAuthError("invalid_grant");
-  audit.actorEmail = user.email.trim().toLowerCase();
+  const email = user.email.trim().toLowerCase();
+  audit.actorEmail = email;
   const policy = await exchangePolicyFor({
     email: user.email,
     resourceIdentifier,
@@ -166,6 +167,7 @@ async function exchange(
   const accessToken = await issueIdJag({
     issuer: WELDALL_ISSUER,
     subject: user.id,
+    email,
     audience: policy.authorizationServer,
     clientId: policy.downstreamClientId,
     resource: policy.resourceIdentifier,

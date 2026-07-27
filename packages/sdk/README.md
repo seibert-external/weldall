@@ -31,12 +31,13 @@ const weldall = initWeldall("https://weldall.example.com", {
 
 await weldall.ready(); // optional eager discovery; exchange is otherwise lazy
 const auth = await weldall.verify(request, { scopes: ["expenses:read"] });
+console.log(auth.identity); // { subject, email, emailVerified: true }
 const result = await weldall.verifyNoThrow(request);
 ```
 
 `scopes` is all-of. When `anyScopes` is also present, at least one of those scopes is additionally required. An empty policy means authenticated-only.
 
-`handlers.token`, `handlers.authorizationServerMetadata`, `handlers.protectedResourceMetadata`, and `handlers.jwks` are standard Fetch handlers. They exchange Weldall ID-JAGs for local ES256 DPoP-bound `at+jwt` tokens and publish the local server metadata.
+`handlers.token`, `handlers.authorizationServerMetadata`, `handlers.protectedResourceMetadata`, and `handlers.jwks` are standard Fetch handlers. They require a verified email in every Weldall ID-JAG, copy that identity into the local ES256 DPoP-bound `at+jwt` token, and publish the local server metadata. `verify` exposes the signed `subject`, `email`, and `emailVerified` values without accessing or making assumptions about the downstream application's user database.
 
 ## Replay storage
 

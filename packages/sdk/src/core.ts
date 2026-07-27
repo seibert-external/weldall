@@ -5,6 +5,7 @@ import { isSha256JwkThumbprint } from "./crypto.js";
 import { WeldallDiscovery } from "./discovery.js";
 import { verifyStrictDpop } from "./dpop.js";
 import { WeldallAuthError, oauthErrorResponse } from "./errors.js";
+import { hasVerifiedEmail } from "./identity.js";
 import { parseScope } from "./scope.js";
 import { consumeReplay } from "./replay.js";
 import {
@@ -98,7 +99,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
         algorithms: ["ES256"],
         issuer: hostUrl.origin,
         audience: issuer,
-        requiredClaims: ["iss", "sub", "aud", "exp", "iat", "jti"],
+        requiredClaims: ["iss", "sub", "email", "email_verified", "aud", "exp", "iat", "jti"],
         maxTokenAge: "5m",
         clockTolerance: 5,
       });
@@ -126,6 +127,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
       payload.client_id !== clientId ||
       typeof payload.sub !== "string" ||
       !payload.sub ||
+      !hasVerifiedEmail(payload) ||
       typeof payload.jti !== "string" ||
       payload.jti.length < 1 ||
       payload.jti.length > 128 ||
@@ -181,6 +183,8 @@ export function initWeldall(host: string, options: WeldallOptions) {
       const payload: JWTPayload = {
         iss: issuer,
         sub: jag.sub,
+        email: jag.email,
+        email_verified: true,
         aud: resource,
         client_id: clientId,
         scope: jag.scope,
@@ -229,7 +233,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
           algorithms: ["ES256"],
           issuer,
           audience: resource,
-          requiredClaims: ["iss", "sub", "aud", "exp", "iat", "jti"],
+          requiredClaims: ["iss", "sub", "email", "email_verified", "aud", "exp", "iat", "jti"],
           maxTokenAge: "10m",
           clockTolerance: 5,
         },
@@ -245,6 +249,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
       payload.client_id !== clientId ||
       typeof payload.sub !== "string" ||
       !payload.sub ||
+      !hasVerifiedEmail(payload) ||
       typeof payload.jti !== "string" ||
       payload.jti.length < 1 ||
       payload.jti.length > 128 ||
@@ -280,8 +285,14 @@ export function initWeldall(host: string, options: WeldallOptions) {
         ...any,
       ]);
     return {
-      identity: { subject: payload.sub },
+      identity: {
+        subject: payload.sub,
+        email: payload.email,
+        emailVerified: true,
+      },
       subject: payload.sub,
+      email: payload.email,
+      emailVerified: true,
       scopes: granted,
       tokenId: payload.jti,
       clientId,

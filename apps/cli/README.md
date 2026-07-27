@@ -80,7 +80,9 @@ without `--output` are rejected instead of being printed to a terminal.
 Before token exchange, the CLI requires the exact origin and path segments to match one active Resource
 Registry prefix, then checks supported and granted scopes. It never follows redirects. Unregistered or
 ambiguous targets receive neither a token nor request data. Weldall then obtains the matching resource
-token and adds the DPoP authorization headers. `weldall skills` and `weldall skills show` expose
+token; before forwarding its ID-JAG, the CLI verifies the bound subject and verified email alongside
+the audience, resource, scopes, and device key. It then adds the DPoP authorization headers.
+`weldall skills` and `weldall skills show` expose
 administrator-managed Markdown instructions for agents.
 
 Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. ANSI colors

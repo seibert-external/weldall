@@ -5,7 +5,7 @@ import {
   JWT_DPOP_GRANT,
   createDpopProof,
   generateEs256KeyPair,
-  issueIdJag,
+  issueIdJag as issueSdkIdJag,
   signEs256,
   type DpopKeyPair,
 } from "@weldall/sdk";
@@ -20,6 +20,9 @@ import {
 let weldallKey: DpopKeyPair;
 let expensesKey: DpopKeyPair;
 let deviceKey: DpopKeyPair;
+
+const issueIdJag = (input: Omit<Parameters<typeof issueSdkIdJag>[0], "email">) =>
+  issueSdkIdJag({ ...input, email: "user@example.com" });
 
 beforeAll(async () => {
   weldallKey = await generateEs256KeyPair();
@@ -131,6 +134,8 @@ describe("Expenses", () => {
       {
         iss: WELDALL_ISSUER,
         sub: "weldall-user",
+        email: "user@example.com",
+        email_verified: true,
         aud: EXPENSES_ISSUER,
         client_id: DOWNSTREAM_CLIENT_ID,
         resource: EXPENSES_RESOURCE,
@@ -271,6 +276,8 @@ describe("Expenses", () => {
     expect(decoded).toMatchObject({
       iss: EXPENSES_ISSUER,
       sub: "weldall-user",
+      email: "user@example.com",
+      email_verified: true,
       aud: EXPENSES_RESOURCE,
       client_id: DOWNSTREAM_CLIENT_ID,
       scope: "expenses:read",
@@ -289,7 +296,10 @@ describe("Expenses", () => {
     const apiHeaders = { authorization: `DPoP ${token}`, dpop: apiProof };
     const success = await app.request("/api/expenses", { headers: apiHeaders });
     expect(success.status, await success.clone().text()).toBe(200);
-    await expect(success.json()).resolves.toMatchObject({ subject: "weldall-user" });
+    await expect(success.json()).resolves.toMatchObject({
+      subject: "weldall-user",
+      email: "user@example.com",
+    });
 
     const proofReplay = await app.request("/api/expenses", { headers: apiHeaders });
     expect(proofReplay.status).toBe(401);

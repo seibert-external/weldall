@@ -10,6 +10,8 @@ export type JwtKey = { kid: string; privateJwk: JWK; publicJwk: JWK };
 export type IdJagClaims = JWTPayload & {
   iss: string;
   sub: string;
+  email: string;
+  email_verified: true;
   aud: string;
   client_id: string;
   resource: string;
@@ -47,10 +49,12 @@ export type ScopePolicy = {
   anyScopes?: readonly string[];
 };
 
-export type AuthIdentity = { subject: string };
+export type AuthIdentity = { subject: string; email: string; emailVerified: true };
 export type AuthContext = {
   identity: AuthIdentity;
   subject: string;
+  email: string;
+  emailVerified: true;
   scopes: readonly string[];
   tokenId: string;
   clientId: string;

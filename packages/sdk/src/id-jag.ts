@@ -3,12 +3,14 @@ import type { JWK } from "jose";
 import { ID_JAG_DRAFT } from "./constants.js";
 import { isSha256JwkThumbprint } from "./crypto.js";
 import { WeldallAuthError } from "./errors.js";
+import { hasVerifiedEmail } from "./identity.js";
 import { signEs256, verifyEs256 } from "./jwt.js";
 import { parseScope } from "./scope.js";
 import type { IdJagClaims } from "./types.js";
 export async function issueIdJag(input: {
   issuer: string;
   subject: string;
+  email: string;
   audience: string;
   clientId: string;
   resource: string;
@@ -20,11 +22,18 @@ export async function issueIdJag(input: {
 }): Promise<string> {
   const now = input.now ?? Math.floor(Date.now() / 1000);
   const scope = [...new Set(input.scopes)].sort().join(" ");
-  if (!input.subject || !isSha256JwkThumbprint(input.jkt) || !parseScope(scope))
+  if (
+    !input.subject ||
+    !hasVerifiedEmail({ email: input.email, email_verified: true }) ||
+    !isSha256JwkThumbprint(input.jkt) ||
+    !parseScope(scope)
+  )
     throw new Error("invalid ID-JAG issuance claims");
   const claims: IdJagClaims = {
     iss: input.issuer,
     sub: input.subject,
+    email: input.email,
+    email_verified: true,
     aud: input.audience,
     client_id: input.clientId,
     resource: input.resource,
@@ -62,6 +71,7 @@ export async function verifyIdJag(
     p.client_id !== input.clientId ||
     typeof p.sub !== "string" ||
     !p.sub ||
+    !hasVerifiedEmail(p) ||
     typeof p.jti !== "string" ||
     p.jti.length < 1 ||
     p.jti.length > 128 ||

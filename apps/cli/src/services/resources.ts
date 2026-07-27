@@ -203,6 +203,7 @@ export async function resourceRequest(
         exchange,
         session.credentials.publicJwk,
         {
+          subject: session.subject,
           authorizationServer: resource.authorizationServer,
           resource: resource.resourceIdentifier,
           clientId: resource.downstreamClientId,

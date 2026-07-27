@@ -26,6 +26,7 @@ export const createApp = async () => {
         { id: "expense-1", description: "Prototype lunch", amount: 18.5, currency: "EUR" },
       ],
       subject: weldall.getAuth(c).subject,
+      email: weldall.getAuth(c).email,
     }),
   );
   app.post("/api/expenses", weldall.protect({ scopes: ["expenses:create"] }), async (c) =>

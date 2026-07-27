@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { JWK } from "jose";
 import { isSha256JwkThumbprint } from "./crypto.js";
 import { WeldallAuthError } from "./errors.js";
+import { hasVerifiedEmail } from "./identity.js";
 import { signEs256, verifyEs256 } from "./jwt.js";
 import { parseScope } from "./scope.js";
 export async function issueAccessToken(input: {
   issuer: string;
   subject: string;
+  email: string;
   resource: string;
   clientId: string;
   scopes: string[];
@@ -17,12 +19,19 @@ export async function issueAccessToken(input: {
 }): Promise<string> {
   const now = input.now ?? Math.floor(Date.now() / 1000);
   const scope = [...new Set(input.scopes)].sort().join(" ");
-  if (!input.subject || !isSha256JwkThumbprint(input.jkt) || !parseScope(scope))
+  if (
+    !input.subject ||
+    !hasVerifiedEmail({ email: input.email, email_verified: true }) ||
+    !isSha256JwkThumbprint(input.jkt) ||
+    !parseScope(scope)
+  )
     throw new Error("invalid access-token issuance claims");
   return signEs256(
     {
       iss: input.issuer,
       sub: input.subject,
+      email: input.email,
+      email_verified: true,
       aud: input.resource,
       client_id: input.clientId,
       scope,
@@ -63,6 +72,7 @@ export async function verifyAccessToken(
     !isSha256JwkThumbprint((cnf as { jkt?: unknown }).jkt) ||
     typeof p.sub !== "string" ||
     !p.sub ||
+    !hasVerifiedEmail(p) ||
     p.client_id !== input.clientId ||
     typeof p.jti !== "string" ||
     p.jti.length < 1 ||
@@ -81,5 +91,11 @@ export async function verifyAccessToken(
       403,
       input.requiredScopes,
     );
-  return p as typeof p & { cnf: { jkt: string }; sub: string; scope: string };
+  return p as typeof p & {
+    cnf: { jkt: string };
+    sub: string;
+    email: string;
+    email_verified: true;
+    scope: string;
+  };
 }

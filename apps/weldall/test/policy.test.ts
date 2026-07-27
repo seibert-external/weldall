@@ -36,6 +36,7 @@ describe("Weldall signing identity", () => {
     const jag = await issueIdJag({
       issuer: "https://idp",
       subject: "user",
+      email: "user@example.com",
       audience: "https://as",
       clientId: "client",
       resource: "https://api",
@@ -54,7 +55,11 @@ describe("Weldall signing identity", () => {
         publicJwk: key.publicJwk,
         allowedScopes: ["read"],
       }),
-    ).resolves.toMatchObject({ sub: "user" });
+    ).resolves.toMatchObject({
+      sub: "user",
+      email: "user@example.com",
+      email_verified: true,
+    });
   });
 });
 
