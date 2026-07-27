@@ -1,6 +1,7 @@
 import { define } from "gunshi";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
 import { CliError } from "./errors.js";
+import { responseValue } from "./http.js";
 import {
   bold,
   checkmark,
@@ -16,6 +17,7 @@ import { login, logout, whoAmI } from "./services/auth.js";
 import { listScopes, resourceRequest, type ResourceGrant } from "./services/resources.js";
 import { listSkills, showSkill } from "./services/skills.js";
 import { issuerPreferences } from "./storage/preferences.js";
+import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transfers.js";
 
 const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
@@ -263,7 +265,7 @@ export const requestCommand = define({
     data: {
       type: "string",
       short: "d",
-      description: "Raw request body",
+      description: "Raw text request body",
     },
     json: {
       type: "custom",
@@ -271,28 +273,68 @@ export const requestCommand = define({
       parse: parseJson,
       description: "JSON request body",
     },
+    uploadFile: {
+      type: "string",
+      short: "T",
+      toKebab: true,
+      description: "Upload a file as the raw request body",
+    },
+    form: {
+      type: "string",
+      short: "F",
+      multiple: true,
+      description: "Multipart field as `name=value` or `name=@path[;type=MIME]`; repeatable",
+    },
+    output: {
+      type: "string",
+      short: "o",
+      description: "Write the response body to a file, or `-` for stdout",
+    },
   },
   examples:
     "weldall request --scope expenses:read https://expenses.example/api/expenses\n" +
-    "weldall request -X POST --scope expenses:create --json '{\"amount\":24}' https://expenses.example/api/expenses",
+    "weldall request -X POST --scope expenses:create --json '{\"amount\":24}' https://expenses.example/api/expenses\n" +
+    "weldall request -X PUT --scope files:write -T ./report.pdf -H 'Content-Type: application/pdf' https://files.example/api/report.pdf\n" +
+    "weldall request --scope files:read -o ./report.pdf https://files.example/api/report.pdf",
   run: async (context) => {
-    if (context.values.data !== undefined && context.values.json !== undefined) {
-      throw new CliError("Use either --data or --json, not both");
+    const headers = parseHeaders(context.values.header);
+    const payload = await buildRequestPayload({
+      method: context.values.method,
+      data: context.values.data,
+      json: context.values.json,
+      uploadFile: context.values.uploadFile,
+      form: context.values.form,
+    });
+    if (payload.kind === "form" && headers["content-type"] !== undefined) {
+      throw new CliError(
+        "Do not set Content-Type with --form; Weldall adds the multipart boundary",
+      );
     }
-    if (
-      ["GET", "HEAD"].includes(context.values.method) &&
-      (context.values.data !== undefined || context.values.json !== undefined)
-    ) {
-      throw new CliError(`${context.values.method} requests cannot have a body`);
+    if (payload.kind === "file" && headers["content-type"] === undefined) {
+      headers["content-type"] = "application/octet-stream";
     }
-    const value = await resourceRequest(await resolveWeldallConfig(), {
+
+    const response = await resourceRequest(await resolveWeldallConfig(), {
       url: parseRequestUrl(context.values.url),
       method: context.values.method,
       scopes: context.values.scope,
-      headers: parseHeaders(context.values.header),
-      ...(context.values.data === undefined ? {} : { body: context.values.data }),
-      ...(context.values.json === undefined ? {} : { json: context.values.json }),
+      headers,
+      ...(payload.kind === "json"
+        ? { json: payload.value }
+        : payload.kind === "text" || payload.kind === "file" || payload.kind === "form"
+          ? { body: payload.body }
+          : {}),
     });
+    if (context.values.output !== undefined) {
+      await writeResponseBody(response, context.values.output);
+      return;
+    }
+    if (!isTextResponse(response)) {
+      throw new CliError("The response is binary", {
+        hint: "Use --output <path> to save it or --output - to write it to stdout.",
+      });
+    }
+    const value = await responseValue(response);
     if (typeof value === "string") console.log(terminalDocument(value));
     else jsonOutput(value);
   },

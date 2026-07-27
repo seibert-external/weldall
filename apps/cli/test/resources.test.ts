@@ -13,6 +13,9 @@ vi.mock("../src/services/auth.js", () => ({
 vi.mock("../src/storage/lock.js", () => ({
   withLock: async (operation: () => Promise<unknown>) => operation(),
 }));
+vi.mock("../src/oauth/session.js", () => ({
+  validateIdJagResponse: async () => "downstream-assertion",
+}));
 
 const config: WeldallConfig = {
   issuer: "https://weldall.example",
@@ -111,6 +114,43 @@ describe("URL-first resource requests", () => {
       expect(fetcher).not.toHaveBeenCalledWith(config.token, expect.anything());
     },
   );
+
+  it("passes a binary body through and returns the successful response unconsumed", async () => {
+    const target = `${EXPENSES_ISSUER}/api/files/report.pdf`;
+    const bytes = Uint8Array.from([0, 255, 128, 13, 10]);
+    const responseBytes = Uint8Array.from([5, 4, 3, 2, 1, 0]);
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === config.scopes) return Response.json([expenses]);
+      if (url === config.token) return Response.json({ issued_token: "id-jag" });
+      if (url === `${EXPENSES_ISSUER}/oauth/token`) {
+        return Response.json({ access_token: "resource-access-token" });
+      }
+      if (url === target) {
+        expect(init?.method).toBe("PUT");
+        expect(new Headers(init?.headers).get("authorization")).toBe("DPoP resource-access-token");
+        expect(init?.body).toBeInstanceOf(Blob);
+        expect(new Uint8Array(await (init?.body as Blob).arrayBuffer())).toEqual(bytes);
+        return new Response(responseBytes, {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const { resourceRequest } = await import("../src/services/resources.js");
+
+    const response = await resourceRequest(config, {
+      url: target,
+      method: "PUT",
+      scopes: ["expenses:read"],
+      headers: { "content-type": "application/octet-stream" },
+      body: new Blob([bytes]),
+    });
+
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(responseBytes);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
 
   it("rejects unsupported and ungranted scopes before token exchange", async () => {
     const fetcher = vi.fn(async () => Response.json([expenses]));

@@ -51,6 +51,10 @@ weldall scopes
 weldall skills
 weldall skills show expenses.list
 weldall request --scope expenses:read https://expenses.example.com/api/expenses
+weldall request -X PUT --scope files:write --upload-file ./report.pdf \
+  -H 'Content-Type: application/pdf' https://files.example.com/api/report.pdf
+weldall request --scope files:read --output ./report.pdf \
+  https://files.example.com/api/report.pdf
 weldall logout
 ```
 
@@ -61,12 +65,23 @@ then groups scopes that are currently usable by enabled APIs. It explains common
 such as `expenses:read` while still showing the exact scope needed by scripts and API requests.
 
 `weldall request` accepts an absolute HTTPS URL, explicit repeatable `--scope` values, an optional
-`--method`, additional headers, and raw or JSON request bodies. Before token exchange, the CLI requires
-the exact origin and path segments to match one active Resource Registry prefix, then checks supported
-and granted scopes. It never follows redirects. Unregistered or ambiguous targets receive neither a
-token nor request data. Weldall then obtains the matching resource token and adds the DPoP authorization
-headers. `weldall skills` and `weldall skills show` expose administrator-managed
-Markdown instructions for agents.
+`--method`, additional headers, and text, JSON, raw file, or multipart request bodies. Use
+`-T, --upload-file <path>` for a binary-safe raw upload. It defaults to `application/octet-stream`;
+set a more specific `Content-Type` with `--header` when the API requires one. Use repeatable
+`-F, --form 'name=value'` and `-F, --form 'name=@path;type=MIME'` arguments for multipart fields and
+files. Weldall generates the multipart boundary, so multipart requests must not set `Content-Type`
+manually. The body modes are mutually exclusive, and `GET` and `HEAD` requests cannot have a body.
+
+Use `-o, --output <path>` to stream any successful response body to a file without text decoding.
+The destination is replaced atomically only after the complete response has been written. Use
+`--output -` for binary-safe stdout, for example when piping to another process. Binary responses
+without `--output` are rejected instead of being printed to a terminal.
+
+Before token exchange, the CLI requires the exact origin and path segments to match one active Resource
+Registry prefix, then checks supported and granted scopes. It never follows redirects. Unregistered or
+ambiguous targets receive neither a token nor request data. Weldall then obtains the matching resource
+token and adds the DPoP authorization headers. `weldall skills` and `weldall skills show` expose
+administrator-managed Markdown instructions for agents.
 
 Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. ANSI colors
 are only emitted to an interactive terminal and respect `NO_COLOR`. Help starts with a compact framed
