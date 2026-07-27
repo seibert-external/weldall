@@ -13,7 +13,7 @@ import {
 } from "@weldall/sdk";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
-import { isRecord, successfulResponse } from "../http.js";
+import { isRecord, successfulResponse, successfulResponseStream } from "../http.js";
 import { WELDALL_CLIENT_ID } from "../oauth/constants.js";
 import { validateIdJagResponse } from "../oauth/session.js";
 import { withLock } from "../storage/lock.js";
@@ -137,7 +137,7 @@ export async function resourceRequest(
     method: string;
     scopes: string[];
     headers?: Record<string, string>;
-    body?: string;
+    body?: string | Blob | FormData;
     json?: unknown;
   },
 ) {
@@ -243,7 +243,7 @@ export async function resourceRequest(
       headers.set("authorization", `DPoP ${downstream.access_token}`);
       headers.set("dpop", apiProof);
       if (input.json !== undefined) headers.set("content-type", "application/json");
-      return successfulResponse(
+      return successfulResponseStream(
         await fetch(target, {
           method: input.method,
           headers,

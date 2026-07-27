@@ -85,20 +85,28 @@ export async function responseValue(response: Response): Promise<unknown> {
   }
 }
 
-export async function successfulResponse(response: Response, label: string): Promise<unknown> {
+const throwResponseError = async (response: Response, label: string): Promise<never> => {
   const value = await responseValue(response);
-  if (!response.ok) {
-    const detail =
-      isRecord(value) && typeof value.error_description === "string"
-        ? value.error_description
-        : isRecord(value) && typeof value.error === "string"
-          ? value.error
-          : typeof value === "string" && value.length <= 300
-            ? value
-            : undefined;
-    throw new CliError(
-      `${label} failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
-    );
-  }
-  return value;
+  const detail =
+    isRecord(value) && typeof value.error_description === "string"
+      ? value.error_description
+      : isRecord(value) && typeof value.error === "string"
+        ? value.error
+        : typeof value === "string" && value.length <= 300
+          ? value
+          : undefined;
+  throw new CliError(`${label} failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+};
+
+export async function successfulResponse(response: Response, label: string): Promise<unknown> {
+  if (!response.ok) return throwResponseError(response, label);
+  return responseValue(response);
+}
+
+export async function successfulResponseStream(
+  response: Response,
+  label: string,
+): Promise<Response> {
+  if (!response.ok) return throwResponseError(response, label);
+  return response;
 }
