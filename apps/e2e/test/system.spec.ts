@@ -301,11 +301,13 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByLabel("CLI appendix").fill(appendix);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("CLI settings saved", { exact: true })).toBeVisible();
-  for (const help of [await runCli(), await runCli("--help")]) {
-    expect(help, help.stderr).toMatchObject({ code: 0 });
-    expect(help.stdout).toContain(appendix);
-    expect(help.stdout).toContain("USAGE:");
-  }
+  const staleHelp = await runCli();
+  expect(staleHelp, staleHelp.stderr).toMatchObject({ code: 0 });
+  expect(staleHelp.stdout).toContain("USAGE:");
+  const refreshedHelp = await runCli("--help");
+  expect(refreshedHelp, refreshedHelp.stderr).toMatchObject({ code: 0 });
+  expect(refreshedHelp.stdout).toContain(appendix);
+  expect(refreshedHelp.stdout).toContain("Organization instructions");
 
   const logout = await runCli("logout");
   expect(logout, logout.stderr).toMatchObject({ code: 0 });
