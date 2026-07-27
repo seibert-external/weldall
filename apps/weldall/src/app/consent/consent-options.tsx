@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/Stack";
 import { authClient } from "@/lib/auth-client";
 
 export function ConsentOptions() {
+  const [ready, setReady] = useState(false);
   const [pending, setPending] = useState<"approve" | "deny" | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => setReady(true), []);
 
   const decide = async (accept: boolean) => {
     if (pending) return;
@@ -33,14 +36,14 @@ export function ConsentOptions() {
       {error ? <p role="alert">{error}</p> : null}
       <HStack gap={2} hAlign="end">
         <Button
-          isDisabled={pending !== null && pending !== "deny"}
+          isDisabled={!ready || (pending !== null && pending !== "deny")}
           isLoading={pending === "deny"}
           label="Deny"
           onClick={() => void decide(false)}
           variant="secondary"
         />
         <Button
-          isDisabled={pending !== null && pending !== "approve"}
+          isDisabled={!ready || (pending !== null && pending !== "approve")}
           isLoading={pending === "approve"}
           label="Approve"
           onClick={() => void decide(true)}

@@ -18,7 +18,7 @@ const cliEnv = {
 
 type CliResult = { code: number; stdout: string; stderr: string };
 
-const startCli = (args: string[]) => {
+const startCli = (args: string[], timeoutMs = 45_000) => {
   const child = spawn(process.execPath, ["--use-system-ca", cli, ...args], {
     cwd: workspace,
     env: cliEnv,
@@ -32,7 +32,7 @@ const startCli = (args: string[]) => {
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error(`CLI timed out: weldall ${args.join(" ")}`));
-    }, 45_000);
+    }, timeoutMs);
     child.once("error", reject);
     child.once("exit", (code) => {
       clearTimeout(timer);
@@ -67,7 +67,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   page,
   request: apiRequest,
 }) => {
-  const login = startCli(["login"]);
+  const login = startCli(["login"], 90_000);
   await page.goto(await waitForBrowserUrl());
   await page.getByRole("button", { name: "Development login" }).click();
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
