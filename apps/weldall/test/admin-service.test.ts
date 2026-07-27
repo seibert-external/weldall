@@ -12,7 +12,10 @@ import {
   getAssignmentByEmail,
   getCliSettings,
   getResource,
+  getUser,
   listSkills,
+  listUserAuditEvents,
+  listUsers,
   replaceAssignment,
   updateCliSettings,
   updateResource,
@@ -107,6 +110,87 @@ afterAll(async () => {
 });
 
 describe("admin scope service", () => {
+  it("lists signed-in users and returns their related audit activity", async () => {
+    const users = await listUsers({
+      page: 1,
+      pageSize: 20,
+      q: runId,
+      sort: "email.asc",
+    });
+    expect(users.items.map((user) => user.id)).toEqual([primaryUserId, secondaryUserId]);
+    await expect(getUser(primaryUserId)).resolves.toMatchObject({
+      id: primaryUserId,
+      email: primaryEmail,
+      emailVerified: true,
+    });
+
+    let assignment = await db.emailScopeAssignment.findUnique({
+      where: { normalizedEmail: secondaryEmail },
+    });
+    assignment ??= await db.emailScopeAssignment.create({
+      data: {
+        normalizedEmail: secondaryEmail,
+        createdBy: primaryUserId,
+        updatedBy: primaryUserId,
+      },
+    });
+    const occurredAt = new Date("2026-02-10T10:00:00.000Z");
+    await db.auditEvent.createMany({
+      data: [
+        {
+          id: `${runId}-user-activity`,
+          eventType: "id_jag.denied",
+          occurredAt,
+          actorType: "user",
+          actorId: secondaryUserId,
+          actorEmail: secondaryEmail,
+          clientId: "weldall-cli",
+          requestId: `${runId}:user-activity`,
+          outcome: "denied",
+          reasonCode: "scope_not_granted",
+          subjectType: "resource",
+          subjectId: "https://example.test/api",
+          metadata: {
+            audience: "https://example.test",
+            resource: "https://example.test/api",
+            requestedScopes: ["example:read"],
+          },
+        },
+        {
+          id: `${runId}-user-assignment`,
+          eventType: "user_scopes.created",
+          occurredAt,
+          actorType: "user",
+          actorId: primaryUserId,
+          actorEmail: primaryEmail,
+          requestId: `${runId}:user-assignment`,
+          outcome: "success",
+          subjectType: "email_scope_assignment",
+          subjectId: assignment.id,
+          metadata: {
+            normalizedEmail: secondaryEmail,
+            beforeScopes: [],
+            afterScopes: ["expenses:read"],
+            addedScopes: ["expenses:read"],
+            removedScopes: [],
+            source: "admin_api",
+            versionBefore: 0,
+            versionAfter: 1,
+          },
+        },
+      ],
+    });
+
+    const activity = await listUserAuditEvents(secondaryUserId, {
+      page: 1,
+      pageSize: 20,
+      sort: "occurredAt.desc",
+    });
+    expect(activity.items.map((event) => event.id)).toEqual(
+      expect.arrayContaining([`${runId}-user-activity`, `${runId}-user-assignment`]),
+    );
+  });
+
   it("atomically replaces normalized email assignments and rejects unknown scopes", async () => {
     const scope = await createScope(
       { key: `${namespace}:read`, description: "Read test data." },

@@ -44,25 +44,32 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "medium",
 });
 const eventTypeOptions = AUDIT_EVENT_TYPES.map((value) => ({ value, label: value }));
+const outcomes = ["success", "denied", "failed"] as const;
+const outcomeOptions = outcomes.map((value) => ({ value, label: value }));
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 type AuditRow = Omit<AuditEventDto, "metadata"> & { metadata?: unknown };
 
-export function AuditEventsTable() {
+export function AuditEventsTable({ userId }: { userId?: string } = {}) {
   const trpc = useTRPC();
   const [selectedEvent, setSelectedEvent] = useState<AuditRow | null>(null);
-  const [{ from, to, eventType, actorEmail, page, sort: sorting }, setTableQuery] = useQueryStates(
-    {
-      from: parseAsString.withDefault(""),
-      to: parseAsString.withDefault(""),
-      eventType: parseAsString.withDefault(""),
-      actorEmail: parseAsString.withDefault(""),
-      page: parseAsInteger.withDefault(1),
-      sort: sortingParser,
-    },
-    { history: "replace", shallow: true },
-  );
+  const [{ from, to, eventType, outcome, actorEmail, page, sort: sorting }, setTableQuery] =
+    useQueryStates(
+      {
+        from: parseAsString.withDefault(""),
+        to: parseAsString.withDefault(""),
+        eventType: parseAsString.withDefault(""),
+        outcome: parseAsString.withDefault(""),
+        actorEmail: parseAsString.withDefault(""),
+        page: parseAsInteger.withDefault(1),
+        sort: sortingParser,
+      },
+      { history: "replace", shallow: true },
+    );
   const selectedEventType = AUDIT_EVENT_TYPES.includes(eventType as AuditEventType)
     ? (eventType as AuditEventType)
+    : undefined;
+  const selectedOutcome = outcomes.includes(outcome as (typeof outcomes)[number])
+    ? (outcome as (typeof outcomes)[number])
     : undefined;
   const dateRange = toDateRange(from, to);
   const currentPage = Math.max(1, page);
@@ -74,9 +81,10 @@ export function AuditEventsTable() {
     () => [
       ...(dateRange ? [{ id: "occurredAt", value: dateRange }] : []),
       ...(selectedEventType ? [{ id: "eventType", value: selectedEventType }] : []),
-      ...(actorEmail ? [{ id: "actor", value: actorEmail }] : []),
+      ...(selectedOutcome ? [{ id: "outcome", value: selectedOutcome }] : []),
+      ...(!userId && actorEmail ? [{ id: "actor", value: actorEmail }] : []),
     ],
-    [actorEmail, dateRange, selectedEventType],
+    [actorEmail, dateRange, selectedEventType, selectedOutcome, userId],
   );
   const auditQuery = useQuery(
     trpc.admin.auditEvents.list.queryOptions({
@@ -89,7 +97,8 @@ export function AuditEventsTable() {
           }
         : {}),
       ...(selectedEventType ? { eventType: selectedEventType } : {}),
-      ...(actorEmail ? { email: actorEmail } : {}),
+      ...(selectedOutcome ? { outcome: selectedOutcome } : {}),
+      ...(userId ? { userId } : actorEmail ? { email: actorEmail } : {}),
       sort: sortingToAuditSort(sorting),
     }),
   );
@@ -207,22 +216,34 @@ export function AuditEventsTable() {
           value={selectedEventType ?? null}
           width={260}
         />
-        <TextInput
+        <Selector
           hasClear
           isLabelHidden
-          label="User email"
-          onChange={(value) => void setTableQuery({ actorEmail: value || null, page: 1 })}
-          placeholder="User email contains…"
-          startIcon="search"
-          value={actorEmail}
-          width={280}
+          label="Outcome"
+          onChange={(value) => void setTableQuery({ outcome: value, page: 1 })}
+          options={outcomeOptions}
+          placeholder="All outcomes"
+          value={selectedOutcome ?? null}
+          width={180}
         />
+        {!userId ? (
+          <TextInput
+            hasClear
+            isLabelHidden
+            label="User email"
+            onChange={(value) => void setTableQuery({ actorEmail: value || null, page: 1 })}
+            placeholder="User email contains…"
+            startIcon="search"
+            value={actorEmail}
+            width={280}
+          />
+        ) : null}
       </div>
       {auditQuery.error ? (
         <Banner
           container="card"
           status="error"
-          title="Could not load audit events"
+          title={userId ? "Could not load user audit events" : "Could not load audit events"}
           description={auditQuery.error.message}
         />
       ) : null}
@@ -283,7 +304,11 @@ export function AuditEventsTable() {
                 {!auditQuery.isPending && table.getRowModel().rows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>
-                      <Text color="secondary">No audit events match these filters.</Text>
+                      <Text color="secondary">
+                        {userId
+                          ? "No audit events for this user match these filters."
+                          : "No audit events match these filters."}
+                      </Text>
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -300,7 +325,7 @@ export function AuditEventsTable() {
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination
-            label="Audit event pages"
+            label={userId ? "User audit event pages" : "Audit event pages"}
             onChange={(nextPage) => table.setPageIndex(nextPage - 1)}
             page={pagination.pageIndex + 1}
             pageSize={pagination.pageSize}
