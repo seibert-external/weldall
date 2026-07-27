@@ -25,6 +25,7 @@ minimumReleaseAgeExclude:
   - "@better-auth/prisma-adapter@1.7.0-rc.2"
   - "@better-auth/telemetry@1.7.0-rc.2"
   - better-auth@1.7.0-rc.2
+  - lucode-starlight@0.2.0
 
 allowBuilds:
   "@napi-rs/keyring": true

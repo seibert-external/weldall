@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { z } from "zod";
+import { AUDIT_EVENT_TYPES, getAuditEvent, listAuditEvents } from "../audit/service";
 import {
   AdminDomainError,
   createResource,
@@ -45,6 +46,7 @@ const adminProcedure = trpc.procedure.use(async ({ ctx, next }) => {
     id: user.id,
     email: user.email,
     requestId: ctx.requestId,
+    ...(ctx.correlationId ? { correlationId: ctx.correlationId } : {}),
   };
   return next({ ctx: { ...ctx, adminActor: actor } });
 });
@@ -59,6 +61,37 @@ export const appRouter = trpc.router({
       authenticated: true as const,
       email: ctx.adminActor.email ?? null,
     })),
+    auditEvents: trpc.router({
+      list: adminProcedure
+        .input(
+          z
+            .object({
+              page: z.number().int().positive().default(1),
+              pageSize: z.number().int().min(1).max(100).default(20),
+              from: z
+                .string()
+                .datetime()
+                .transform((value) => new Date(value))
+                .optional(),
+              to: z
+                .string()
+                .datetime()
+                .transform((value) => new Date(value))
+                .optional(),
+              eventType: z.enum(AUDIT_EVENT_TYPES).optional(),
+              email: z.string().max(320).optional(),
+              sort: z.enum(["occurredAt.asc", "occurredAt.desc"]).default("occurredAt.desc"),
+            })
+            .strict()
+            .refine((input) => !input.from || !input.to || input.from <= input.to, {
+              message: "The start of the audit period must precede its end.",
+            }),
+        )
+        .query(({ input }) => mapDomainErrors(() => listAuditEvents(input))),
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getAuditEvent(input.id))),
+    }),
     cli: trpc.router({
       get: adminProcedure.query(() => mapDomainErrors(getCliSettings)),
       update: adminProcedure

@@ -65,6 +65,33 @@ export const parseRegistry = (value: unknown): ResourceRegistryEntry[] => {
   return resources;
 };
 
+const assignedScopes = async (config: WeldallConfig, session: AccessSession) => {
+  const proof = await createDpopProof({
+    ...session.credentials,
+    method: "GET",
+    url: config.grants,
+    accessToken: session.accessToken,
+  });
+  const response = await fetch(config.grants, {
+    headers: {
+      accept: "application/json",
+      authorization: `DPoP ${session.accessToken}`,
+      dpop: proof,
+    },
+    redirect: "error",
+  });
+  if (response.status === 404) return null;
+  const value = await successfulResponse(response, "Weldall grants request");
+  if (
+    !stringArray(value) ||
+    value.some((scope) => !scope) ||
+    new Set(value).size !== value.length
+  ) {
+    throw new CliError("Weldall returned invalid assigned scopes");
+  }
+  return [...value].sort();
+};
+
 const registry = async (config: WeldallConfig, session: AccessSession) => {
   const proof = await createDpopProof({
     ...session.credentials,
@@ -88,7 +115,19 @@ const registry = async (config: WeldallConfig, session: AccessSession) => {
 };
 
 export async function listScopes(config: WeldallConfig) {
-  return withLock(() => withAccess(config, (session) => registry(config, session)));
+  return withLock(() =>
+    withAccess(config, async (session) => {
+      const [scopes, resources] = await Promise.all([
+        assignedScopes(config, session),
+        registry(config, session),
+      ]);
+      return {
+        assignedScopes:
+          scopes ?? [...new Set(resources.flatMap((resource) => resource.grantedScopes))].sort(),
+        resources,
+      };
+    }),
+  );
 }
 
 export async function resourceRequest(

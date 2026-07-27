@@ -55,8 +55,10 @@ weldall logout
 ```
 
 `weldall status` gives people the friendly overview: the signed-in display name and verified email,
-which Weldall host is active, and what that account is allowed to do. `weldall scopes` explains common permission names such
-as `expenses:read` while still showing the exact scope needed by scripts and API requests.
+which Weldall host is active, and what that account is allowed to do. `weldall scopes` shows every
+scope assigned to the account, including host permissions and scopes without an enabled resource,
+then groups scopes that are currently usable by enabled APIs. It explains common permission names
+such as `expenses:read` while still showing the exact scope needed by scripts and API requests.
 
 `weldall request` accepts an absolute HTTPS URL, explicit repeatable `--scope` values, an optional
 `--method`, additional headers, and raw or JSON request bodies. Before token exchange, the CLI requires
@@ -67,8 +69,12 @@ headers. `weldall skills` and `weldall skills show` expose administrator-managed
 Markdown instructions for agents.
 
 Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. ANSI colors
-are only emitted to an interactive terminal and respect `NO_COLOR`. Root help starts with a concise
-agent-oriented introduction, followed by the administrator-provided appendix when one is configured.
+are only emitted to an interactive terminal and respect `NO_COLOR`. Help starts with a compact framed
+header that shows the effective Weldall host, or makes clear that no host is configured. Root help
+renders a non-empty cached administrator-provided appendix in a separate, prominent instructions
+frame with wrapped, justified prose, then refreshes it for the next invocation. Discovery has a
+2.5-second total deadline; an authenticated refresh that has already begun is allowed to finish so
+refresh-token rotation is not interrupted.
 
 ## Development
 

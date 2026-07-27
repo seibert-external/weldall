@@ -32,6 +32,7 @@ const config: WeldallConfig = {
   revoke: `${WELDALL_ISSUER}/api/auth/oauth2/revoke`,
   jwks: `${WELDALL_ISSUER}/api/oauth/jwks`,
   cli: `${WELDALL_ISSUER}/api/me/cli`,
+  grants: `${WELDALL_ISSUER}/api/me/grants`,
   scopes: `${WELDALL_ISSUER}/api/me/scopes`,
   skills: `${WELDALL_ISSUER}/api/me/skills`,
   userInfo: `${WELDALL_ISSUER}/api/auth/oauth2/userinfo`,

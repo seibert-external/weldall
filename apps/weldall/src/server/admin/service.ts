@@ -7,6 +7,7 @@ import {
   requestPrefixesOverlap,
 } from "@weldall/sdk";
 import { z } from "zod";
+import { prismaAuditWriter, type AuditEventType } from "../audit/service";
 
 export const ADMIN_SCOPE_KEY = "weldall:administer";
 export const MAX_ASSIGNMENT_SCOPES = 100;
@@ -47,6 +48,7 @@ export interface AdminActor {
   id: string;
   email?: string | null;
   requestId: string;
+  correlationId?: string;
 }
 
 export interface ScopeDto {
@@ -298,7 +300,7 @@ export async function createResource(
           },
           include: resourceInclude,
         });
-        await writeResourceAudit(tx, actor, "resource.created", null, resource);
+        await writeResourceAudit(tx, actor, "resource_scopes.created", null, resource);
         return serializeResource(resource);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -385,16 +387,7 @@ export async function updateResource(
           where: { id: current.id },
           include: resourceInclude,
         });
-        await writeResourceAudit(tx, actor, "resource.updated", before, updated);
-        if (before.enabled !== updated.enabled) {
-          await writeResourceAudit(
-            tx,
-            actor,
-            updated.enabled ? "resource.enabled" : "resource.disabled",
-            before,
-            updated,
-          );
-        }
+        await writeResourceAudit(tx, actor, "resource_scopes.replaced", before, updated);
         return serializeResource(updated);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -473,12 +466,7 @@ export async function createScope(
     const scope = await tx.scope.create({
       data: { key, description, createdBy: actor.id, updatedBy: actor.id },
     });
-    await writeAudit(tx, actor, {
-      eventType: "scope.created",
-      subjectType: "scope",
-      subjectId: scope.id,
-      metadata: { key, description, isSystem: false, version: scope.version },
-    });
+    await writeScopeAudit(tx, actor, "resource_scopes.created", null, scope);
     return serializeScope(scope, 0);
   });
 }
@@ -514,16 +502,7 @@ export async function updateScope(
       where: { id: current.id },
       include: { _count: { select: { grants: true } } },
     });
-    await writeAudit(tx, actor, {
-      eventType: "scope.updated",
-      subjectType: "scope",
-      subjectId: current.id,
-      metadata: {
-        key: current.key,
-        before: { description: current.description, version: current.version },
-        after: { description: updated.description, version: updated.version },
-      },
-    });
+    await writeScopeAudit(tx, actor, "resource_scopes.replaced", current, updated);
     return serializeScope(updated, updated._count.grants);
   });
 }
@@ -614,17 +593,7 @@ export async function deleteScope(
         },
       });
     }
-    await writeAudit(tx, actor, {
-      eventType: "scope.deleted",
-      subjectType: "scope",
-      subjectId: current.id,
-      metadata: {
-        key: current.key,
-        description: current.description,
-        version: current.version,
-        affectedAssignments: affected.length,
-      },
-    });
+    await writeScopeAudit(tx, actor, "resource_scopes.deleted", current, null);
 
     return { id: current.id, affectedAssignments: affected.length };
   });
@@ -966,11 +935,24 @@ export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
           },
           include: { grants: { include: { scope: { select: { key: true } } } } },
         });
+    const beforeScopes = existing
+      ? sortedUnique(existing.grants.map((grant) => grant.scope.key))
+      : [];
+    const afterScopes = sortedUnique(assignment.grants.map((grant) => grant.scope.key));
     await writeAudit(tx, actor, {
-      eventType: "admin.bootstrap",
+      eventType: beforeScopes.length ? "user_scopes.replaced" : "user_scopes.created",
       subjectType: "email_scope_assignment",
       subjectId: assignment.id,
-      metadata: { normalizedEmail, scope: ADMIN_SCOPE_KEY, version: assignment.version },
+      metadata: {
+        normalizedEmail,
+        beforeScopes,
+        afterScopes,
+        addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),
+        removedScopes: [],
+        source: "deployment_bootstrap",
+        versionBefore: existing?.version ?? 0,
+        versionAfter: assignment.version,
+      },
     });
     return serializeAssignment(assignment);
   });
@@ -1083,6 +1065,7 @@ async function replaceAssignmentInTransaction(
       afterScopes,
       addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),
       removedScopes: beforeScopes.filter((key) => !afterScopes.includes(key)),
+      source: "admin_api",
       versionBefore: current?.version ?? 0,
       versionAfter: saved.version,
     },
@@ -1121,24 +1104,27 @@ async function writeAudit(
   tx: Prisma.TransactionClient,
   actor: AdminActor,
   event: {
-    eventType: string;
+    eventType: AuditEventType;
     subjectType: string;
     subjectId: string;
-    metadata: Prisma.InputJsonObject;
+    metadata: unknown;
   },
 ): Promise<void> {
-  await tx.adminAuditEvent.create({
-    data: {
+  await prismaAuditWriter.write(
+    {
       eventType: event.eventType,
+      actorType: actor.id === "deployment-bootstrap" ? "workload" : "user",
       actorId: actor.id,
-      actorEmail: actor.email ? normalizeEmail(actor.email) : null,
+      ...(actor.email ? { actorEmail: normalizeEmail(actor.email) } : {}),
       requestId: actor.requestId,
+      ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+      outcome: "success",
       subjectType: event.subjectType,
       subjectId: event.subjectId,
-      outcome: "success",
       metadata: event.metadata,
     },
-  });
+    tx,
+  );
 }
 
 function parseResourceInput(
@@ -1272,6 +1258,7 @@ function serializeResource(resource: {
   version: number;
   createdAt: Date;
   updatedAt: Date;
+  createdBy: string;
   scopes: { scope: { id: string; key: string } }[];
   requestPrefixes: { urlPrefix: string }[];
 }): ResourceDto {
@@ -1295,7 +1282,7 @@ function serializeResource(resource: {
 async function writeResourceAudit(
   tx: Prisma.TransactionClient,
   actor: AdminActor,
-  eventType: "resource.created" | "resource.updated" | "resource.enabled" | "resource.disabled",
+  eventType: "resource_scopes.created" | "resource_scopes.replaced",
   before: Parameters<typeof serializeResource>[0] | null,
   after: Parameters<typeof serializeResource>[0],
 ) {
@@ -1307,19 +1294,73 @@ async function writeResourceAudit(
     scopeKeys: sortedUnique(resource.scopes.map(({ scope }) => scope.key)),
     requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
     enabled: resource.enabled,
+    ownerId: resource.createdBy,
     version: resource.version,
   });
+  const beforeSnapshot = before ? snapshot(before) : null;
+  const afterSnapshot = snapshot(after);
+  const beforeScopes = beforeSnapshot?.scopeKeys ?? [];
+  const afterScopes = afterSnapshot.scopeKeys;
   await writeAudit(tx, actor, {
     eventType,
     subjectType: "downstream_resource",
     subjectId: after.id,
     metadata: {
-      resourceId: after.id,
-      resourceKey: after.key,
-      versionBefore: before?.version ?? 0,
-      versionAfter: after.version,
-      before: before ? snapshot(before) : null,
-      after: snapshot(after),
+      entityType: "registered_resource",
+      source: "admin_api",
+      resourceIdentifier: after.resourceIdentifier,
+      before: beforeSnapshot,
+      after: afterSnapshot,
+      addedScopes: afterScopes.filter((scope) => !beforeScopes.includes(scope)),
+      changedScopes: [],
+      removedScopes: beforeScopes.filter((scope) => !afterScopes.includes(scope)),
+      contentDigest: contentHash(JSON.stringify(afterSnapshot)),
+    },
+  });
+}
+
+async function writeScopeAudit(
+  tx: Prisma.TransactionClient,
+  actor: AdminActor,
+  eventType: "resource_scopes.created" | "resource_scopes.replaced" | "resource_scopes.deleted",
+  before: {
+    id: string;
+    key: string;
+    description: string;
+    isSystem: boolean;
+    version: number;
+  } | null,
+  after: {
+    id: string;
+    key: string;
+    description: string;
+    isSystem: boolean;
+    version: number;
+  } | null,
+) {
+  const snapshot = (scope: NonNullable<typeof before>) => ({
+    key: scope.key,
+    description: scope.description,
+    isSystem: scope.isSystem,
+    version: scope.version,
+  });
+  const beforeSnapshot = before ? snapshot(before) : null;
+  const afterSnapshot = after ? snapshot(after) : null;
+  const key = after?.key ?? before!.key;
+  await writeAudit(tx, actor, {
+    eventType,
+    subjectType: "scope_definition",
+    subjectId: after?.id ?? before!.id,
+    metadata: {
+      entityType: "scope_definition",
+      source: "admin_api",
+      resourceIdentifier: null,
+      before: beforeSnapshot,
+      after: afterSnapshot,
+      addedScopes: before ? [] : [key],
+      changedScopes: before && after ? [key] : [],
+      removedScopes: after ? [] : [key],
+      contentDigest: contentHash(JSON.stringify(afterSnapshot ?? beforeSnapshot)),
     },
   });
 }

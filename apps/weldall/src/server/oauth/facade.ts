@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db, type OAuthDeviceRefreshBinding } from "@weldall/db";
+import { decodeJwt } from "jose";
 import {
   ID_JAG_TOKEN_TYPE,
   WeldallAuthError,
@@ -19,6 +20,8 @@ import {
   WELDALL_REVOCATION_ENDPOINT,
   WELDALL_TOKEN_ENDPOINT,
 } from "./constants";
+import type { AuditEventType, AuditReasonCode } from "../../lib/audit";
+import { auditRequestIdentifiers, prismaAuditWriter, type AuditWriter } from "../audit/service";
 import { auth } from "../auth/auth";
 import { exchangePolicyFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
@@ -39,6 +42,18 @@ const confirmationJkt = (value: unknown): string | undefined => {
   return typeof jkt === "string" && jkt.length > 0 ? jkt : undefined;
 };
 const replay = inMemory({ suppressWarning: true });
+interface ExchangeAuditContext {
+  requestId: string;
+  correlationId?: string;
+  actorId: string;
+  actorEmail?: string;
+  actorType: "user" | "oauth_client" | "anonymous";
+  clientId?: string;
+  audience: string | null;
+  resource: string | null;
+  requestedScopes: string[];
+}
+
 const securityParameters = [
   "grant_type",
   "code",
@@ -85,13 +100,21 @@ async function validateBoundProof(
   });
 }
 
-async function exchange(request: Request, form: FormData) {
+async function exchange(
+  request: Request,
+  form: FormData,
+  audit: ExchangeAuditContext,
+  auditWriter: AuditWriter,
+) {
+  if (requiredString(form, "client_id") !== WELDALL_CLIENT_ID) {
+    throw new WeldallAuthError("invalid_client");
+  }
   if (
     requiredString(form, "requested_token_type") !== ID_JAG_TOKEN_TYPE ||
-    requiredString(form, "subject_token_type") !== REFRESH_TOKEN_TYPE ||
-    requiredString(form, "client_id") !== WELDALL_CLIENT_ID
-  )
+    requiredString(form, "subject_token_type") !== REFRESH_TOKEN_TYPE
+  ) {
     throw new WeldallAuthError("invalid_target");
+  }
   const audience = requiredString(form, "audience");
   const resourceIdentifier = requiredString(form, "resource");
   const subject = requiredString(form, "subject_token");
@@ -115,11 +138,15 @@ async function exchange(request: Request, form: FormData) {
     providerToken.expiresAt <= new Date() ||
     typeof providerJkt !== "string" ||
     !safeEqual(providerJkt, binding.dpopJkt)
-  )
+  ) {
     throw new WeldallAuthError("invalid_grant");
+  }
+  audit.actorId = binding.userId;
+  audit.actorType = "user";
   await validateBoundProof(request, binding);
   const user = await db.user.findUnique({ where: { id: binding.userId } });
   if (!user?.emailVerified) throw new WeldallAuthError("invalid_grant");
+  audit.actorEmail = user.email.trim().toLowerCase();
   const policy = await exchangePolicyFor({
     email: user.email,
     resourceIdentifier,
@@ -132,8 +159,9 @@ async function exchange(request: Request, form: FormData) {
     scopes.some(
       (scope) => !policy.supportedScopes.includes(scope) || !policy.grantedScopes.includes(scope),
     )
-  )
+  ) {
     throw new WeldallAuthError("invalid_scope");
+  }
   const signingKey = await getWeldallSigningKey();
   const accessToken = await issueIdJag({
     issuer: WELDALL_ISSUER,
@@ -146,6 +174,42 @@ async function exchange(request: Request, form: FormData) {
     kid: signingKey.kid,
     privateJwk: signingKey.privateJwk,
   });
+  const claims = decodeJwt(accessToken);
+  if (
+    typeof claims.jti !== "string" ||
+    !Number.isInteger(claims.iat) ||
+    !Number.isInteger(claims.exp)
+  ) {
+    throw new Error("ID-JAG signer returned invalid audit claims");
+  }
+  try {
+    await auditWriter.write({
+      eventType: "id_jag.issued",
+      actorType: "user",
+      actorId: user.id,
+      actorEmail: audit.actorEmail,
+      clientId: WELDALL_CLIENT_ID,
+      requestId: audit.requestId,
+      ...(audit.correlationId ? { correlationId: audit.correlationId } : {}),
+      deduplicationKey: auditDeduplicationKey(audit, "id_jag.issued"),
+      outcome: "success",
+      subjectType: "id_jag",
+      subjectId: claims.jti,
+      metadata: {
+        audience: policy.authorizationServer,
+        resource: policy.resourceIdentifier,
+        requestedScopes: audit.requestedScopes,
+        grantedScopes: scopes,
+        targetClientId: policy.downstreamClientId,
+        jti: claims.jti,
+        issuedAt: new Date((claims.iat as number) * 1_000).toISOString(),
+        expiresAt: new Date((claims.exp as number) * 1_000).toISOString(),
+        kid: signingKey.kid,
+      },
+    });
+  } catch {
+    throw new WeldallAuthError("server_error", "audit store unavailable", 500);
+  }
   return Response.json(
     {
       access_token: accessToken,
@@ -158,12 +222,104 @@ async function exchange(request: Request, form: FormData) {
   );
 }
 
-export async function tokenFacade(request: Request) {
+function createExchangeAuditContext(request: Request, form: FormData): ExchangeAuditContext {
+  const identifiers = auditRequestIdentifiers(request);
+  const clientId = safeAuditString(form.get("client_id"), 200);
+  const rawScope = safeAuditString(form.get("scope"), 16_100);
+  const requestedScopes = rawScope
+    ? [...new Set(rawScope.split(" ").filter((scope) => scope.length > 0 && scope.length <= 160))]
+        .sort()
+        .slice(0, 100)
+    : [];
+  return {
+    ...identifiers,
+    actorId: clientId ?? "anonymous",
+    actorType: clientId ? "oauth_client" : "anonymous",
+    ...(clientId ? { clientId } : {}),
+    audience: safeAuditString(form.get("audience"), 2_000),
+    resource: safeAuditString(form.get("resource"), 2_000),
+    requestedScopes,
+  };
+}
+
+async function auditExchangeFailure(
+  audit: ExchangeAuditContext,
+  error: unknown,
+  auditWriter: AuditWriter,
+): Promise<void> {
+  const failed = !(error instanceof WeldallAuthError) || error.status >= 500;
+  const reasonCode = auditReasonCode(error);
+  try {
+    await auditWriter.write({
+      eventType: failed ? "id_jag.failed" : "id_jag.denied",
+      actorType: audit.actorType,
+      actorId: audit.actorId,
+      ...(audit.actorEmail ? { actorEmail: audit.actorEmail } : {}),
+      ...(audit.clientId ? { clientId: audit.clientId } : {}),
+      requestId: audit.requestId,
+      ...(audit.correlationId ? { correlationId: audit.correlationId } : {}),
+      deduplicationKey: auditDeduplicationKey(audit, failed ? "id_jag.failed" : "id_jag.denied"),
+      outcome: failed ? "failed" : "denied",
+      reasonCode,
+      ...(audit.resource ? { subjectType: "resource", subjectId: audit.resource } : {}),
+      metadata: {
+        audience: audit.audience,
+        resource: audit.resource,
+        requestedScopes: audit.requestedScopes,
+      },
+    });
+  } catch {
+    // Keep the OAuth failure fail-closed and emit only a non-sensitive operational signal.
+    console.error("ID-JAG audit write failed");
+  }
+}
+
+function auditDeduplicationKey(audit: ExchangeAuditContext, eventType: AuditEventType): string {
+  return createHash("sha256")
+    .update(`${audit.actorType}\0${audit.actorId}\0${audit.requestId}\0${eventType}`, "utf8")
+    .digest("base64url");
+}
+
+function auditReasonCode(error: unknown): AuditReasonCode {
+  if (!(error instanceof WeldallAuthError)) return "internal_error";
+  if (error.status >= 500)
+    return error.message === "audit store unavailable"
+      ? "audit_store_unavailable"
+      : "internal_error";
+  if (/replay|reuse/i.test(error.message)) return "replay_detected";
+  if (error.code === "invalid_client") return "invalid_client";
+  if (error.code === "invalid_target") return "invalid_resource";
+  if (error.code === "invalid_scope") return "scope_not_granted";
+  if (error.code === "invalid_dpop_proof") return "invalid_dpop_proof";
+  if (error.code === "invalid_grant") return "invalid_grant";
+  return "invalid_request";
+}
+
+function safeAuditString(value: FormDataEntryValue | null, maxLength: number): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= maxLength && !/[\u0000-\u001f\u007f]/.test(normalized)
+    ? normalized
+    : null;
+}
+
+export function tokenFacade(request: Request) {
+  return tokenFacadeWithAuditWriter(request, prismaAuditWriter);
+}
+
+export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: AuditWriter) {
+  let exchangeAudit: ExchangeAuditContext | undefined;
   try {
     const form = await request.clone().formData();
+    const grantTypeValue = form.get("grant_type");
+    if (grantTypeValue === TOKEN_EXCHANGE_GRANT) {
+      exchangeAudit = createExchangeAuditContext(request, form);
+    }
     rejectDuplicateParameters(form);
     const grantType = requiredString(form, "grant_type");
-    if (grantType === TOKEN_EXCHANGE_GRANT) return await exchange(request, form);
+    if (grantType === TOKEN_EXCHANGE_GRANT) {
+      return await exchange(request, form, exchangeAudit!, auditWriter);
+    }
 
     let previous: OAuthDeviceRefreshBinding | null = null;
     let verifiedJkt: string | undefined;
@@ -278,6 +434,7 @@ export async function tokenFacade(request: Request) {
     }
     return response;
   } catch (error) {
+    if (exchangeAudit) await auditExchangeFailure(exchangeAudit, error, auditWriter);
     return oauthErrorResponse(error);
   }
 }

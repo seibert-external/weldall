@@ -18,8 +18,13 @@ import { useThemeMode } from "../providers";
 
 gsap.registerPlugin(useGSAP);
 
-type AdminRoute = "cli" | "resources" | "scopes" | "assignments" | "skills";
+type AdminRoute = "audit" | "cli" | "resources" | "scopes" | "assignments" | "skills";
 const designs = {
+  audit: {
+    title: "Audit logs",
+    light: { from: "rgb(126, 45, 45)", to: "rgb(255, 205, 142)" },
+    dark: { from: "rgb(72, 28, 28)", to: "rgb(112, 65, 30)" },
+  },
   cli: {
     title: "CLI",
     light: { from: "rgb(130, 65, 0)", to: "rgb(255, 214, 153)" },
@@ -53,6 +58,7 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const route = useMemo<AdminRoute>(() => {
+    if (pathname.startsWith("/audit")) return "audit";
     if (pathname.startsWith("/cli")) return "cli";
     if (pathname.startsWith("/resources")) return "resources";
     if (pathname.startsWith("/assignments")) return "assignments";

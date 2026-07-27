@@ -4,9 +4,16 @@ import { normalizeEmail } from "../admin/service";
 
 const sortedUnique = (values: string[]) => [...new Set(values)].sort();
 
+export async function assignedScopesFor(email: string): Promise<string[]> {
+  const grants = await db.emailScopeGrant.findMany({
+    where: { assignment: { normalizedEmail: normalizeEmail(email) } },
+    select: { scope: { select: { key: true } } },
+  });
+  return sortedUnique(grants.map((grant) => grant.scope.key));
+}
+
 export async function resourceRegistryFor(email: string): Promise<ResourceRegistryEntry[]> {
-  const normalizedEmail = normalizeEmail(email);
-  const [resources, grants] = await Promise.all([
+  const [resources, assignedScopes] = await Promise.all([
     db.downstreamResource.findMany({
       where: { enabled: true },
       orderBy: [{ name: "asc" }, { key: "asc" }],
@@ -15,12 +22,9 @@ export async function resourceRegistryFor(email: string): Promise<ResourceRegist
         scopes: { include: { scope: { select: { key: true } } } },
       },
     }),
-    db.emailScopeGrant.findMany({
-      where: { assignment: { normalizedEmail } },
-      select: { scope: { select: { key: true } } },
-    }),
+    assignedScopesFor(email),
   ]);
-  const granted = new Set(grants.map((grant) => grant.scope.key));
+  const granted = new Set(assignedScopes);
   return resources.map((resource) => {
     const supportedScopes = sortedUnique(resource.scopes.map(({ scope }) => scope.key));
     return {

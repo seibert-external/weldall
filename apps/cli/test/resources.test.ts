@@ -22,6 +22,7 @@ const config: WeldallConfig = {
   revoke: "https://weldall.example/api/auth/oauth2/revoke",
   jwks: "https://weldall.example/api/oauth/jwks",
   cli: "https://weldall.example/api/me/cli",
+  grants: "https://weldall.example/api/me/grants",
   scopes: "https://weldall.example/api/me/scopes",
   skills: "https://weldall.example/api/me/skills",
   userInfo: "https://weldall.example/api/auth/oauth2/userinfo",
@@ -50,6 +51,42 @@ beforeEach(async () => {
     },
   };
   vi.unstubAllGlobals();
+});
+
+describe("scope overview", () => {
+  it("returns assigned scopes even when no enabled resource exposes them", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === config.grants) return Response.json(["weldall:administer"]);
+      if (url === config.scopes) return Response.json([]);
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const { listScopes } = await import("../src/services/resources.js");
+
+    await expect(listScopes(config)).resolves.toEqual({
+      assignedScopes: ["weldall:administer"],
+      resources: [],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to resource grants during a rolling server upgrade", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) =>
+        String(input) === config.grants
+          ? new Response(null, { status: 404 })
+          : Response.json([expenses]),
+      ),
+    );
+    const { listScopes } = await import("../src/services/resources.js");
+
+    await expect(listScopes(config)).resolves.toEqual({
+      assignedScopes: ["expenses:read"],
+      resources: [expenses],
+    });
+  });
 });
 
 describe("URL-first resource requests", () => {

@@ -102,6 +102,12 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 icon={SkillIcon}
                 isSelected={selected("/skills")}
               />
+              <SideNavItem
+                label="Audit logs"
+                href="/audit"
+                icon={AuditIcon}
+                isSelected={selected("/audit")}
+              />
               <SideNavItem label="CLI" href="/cli" icon={CliIcon} isSelected={selected("/cli")} />
             </SideNavSection>
           </SideNav>
@@ -138,6 +144,15 @@ function IconBase(props: IconProps) {
       strokeLinejoin="round"
       {...props}
     />
+  );
+}
+
+function AuditIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M5 4h14v16H5z" />
+      <path d="M8 8h8M8 12h8M8 16h5" />
+    </IconBase>
   );
 }
 

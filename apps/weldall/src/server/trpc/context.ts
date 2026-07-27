@@ -1,16 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { auditRequestIdentifiers } from "../audit/service";
 import { auth } from "../auth/auth";
 
-const requestIdPattern = /^[A-Za-z0-9._:-]{1,128}$/;
-
 export async function createContext(request: Request) {
-  const suppliedRequestId = request.headers.get("x-request-id")?.trim();
   return {
     request,
-    requestId:
-      suppliedRequestId && requestIdPattern.test(suppliedRequestId)
-        ? suppliedRequestId
-        : randomUUID(),
+    ...auditRequestIdentifiers(request),
     session: await auth.api.getSession({ headers: request.headers }),
   };
 }

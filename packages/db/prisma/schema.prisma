@@ -129,24 +129,30 @@ model ResourceRequestPrefix {
   @@index([resourceId])
 }
 
-model AdminAuditEvent {
-  id            String   @id @default(cuid())
-  schemaVersion Int      @default(1)
-  eventType     String
-  occurredAt    DateTime @default(now())
-  actorId       String
-  actorEmail    String?
-  requestId     String
-  subjectType   String
-  subjectId     String
-  outcome       String
-  metadata      Json
-  createdAt     DateTime @default(now())
+model AuditEvent {
+  id               String   @id @default(cuid())
+  schemaVersion    Int      @default(1)
+  eventType        String
+  occurredAt       DateTime @default(now())
+  actorType        String
+  actorId          String
+  actorEmail       String?
+  clientId         String?
+  requestId        String
+  correlationId    String?
+  deduplicationKey String?   @unique
+  outcome          String
+  reasonCode       String?
+  subjectType      String?
+  subjectId        String?
+  metadata         Json
+  createdAt        DateTime @default(now())
 
-  @@index([occurredAt])
-  @@index([eventType, occurredAt])
-  @@index([actorId, occurredAt])
-  @@index([subjectType, subjectId, occurredAt])
+  @@index([occurredAt, id])
+  @@index([eventType, occurredAt, id])
+  @@index([actorId, occurredAt, id])
+  @@index([actorEmail, occurredAt, id])
+  @@index([subjectType, subjectId, occurredAt, id])
 }
 
 model Session {

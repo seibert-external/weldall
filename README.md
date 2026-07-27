@@ -4,6 +4,10 @@ Public native OAuth CLI → Weldall/Google → database-backed downstream resour
 
 The same environment-provided Weldall ES256 key signs OAuth access tokens, ID tokens, and ID-JAGs and is published at `/api/oauth/jwks`. Expenses uses its own independent ES256 key through the publishable [`@weldall/sdk`](packages/sdk/README.md), whose root Fetch API and Hono, Next.js, and Astro adapters are demonstrated under `examples/`. Device keys are generated per installation and stored with the rotating Weldall refresh token in macOS Keychain.
 
+## Documentation
+
+The Astro Starlight workspace lives in [`apps/docs`](apps/docs/README.md). Start it locally with `pnpm docs:dev`.
+
 ## Setup
 
 1. Install Node 22.15.0 or newer, pnpm, PostgreSQL on port 5433, Caddy, and trust the Caddy local CA in macOS Keychain. The CLI requires macOS Keychain and uses Node's system CA store.
