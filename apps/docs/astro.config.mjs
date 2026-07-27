@@ -15,6 +15,10 @@ export default defineConfig({
       },
       plugins: [lucode()],
       customCss: ["./src/styles/logo.css"],
+      locales: {
+        root: { label: "Deutsch", lang: "de" },
+        en: { label: "English", lang: "en" },
+      },
       social: [
         {
           icon: "github",
