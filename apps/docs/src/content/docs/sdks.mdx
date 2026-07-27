@@ -1,0 +1,57 @@
+---
+title: SDKs
+sidebar:
+  label: SDKs
+description: Die npm-Pakete für die Weldall CLI und angebundene Unternehmensservices.
+---
+
+Weldall veröffentlicht zwei Pakete über npm. Die CLI läuft auf dem Gerät eines Mitarbeiters. Das SDK läuft im angebundenen Unternehmensservice.
+
+## `@weldall/cli`
+
+[`@weldall/cli`](https://www.npmjs.com/package/@weldall/cli) installiert den Befehl `weldall`. Mitarbeitende melden sich damit an. Agenten entdecken darüber Skills und senden freigegebene Requests an Unternehmensservices.
+
+:::note[Voraussetzungen]
+Die CLI unterstützt derzeit nur macOS und benötigt Node.js 22.15 oder neuer.
+:::
+
+```sh
+npm install --global @weldall/cli
+```
+
+## `@weldall/sdk`
+
+Ein Downstream-Service muss eingehende Requests prüfen, bevor er Daten liest oder Änderungen ausführt. Dafür stellt [`@weldall/sdk`](https://www.npmjs.com/package/@weldall/sdk) JavaScript-Schnittstellen für Fetch, Hono, Next.js und Astro bereit.
+
+:::note[Voraussetzungen]
+Das SDK benötigt Node.js 22.15 oder neuer. Next.js-Routen müssen die Node.js-Runtime verwenden.
+:::
+
+```sh
+pnpm add @weldall/sdk
+```
+
+Erzeuge beim Start des Downstream-Services eine Weldall-Instanz. Sie enthält die öffentliche URL des Services und die Scopes, die seine Endpunkte akzeptieren:
+
+```ts
+import { initWeldall } from "@weldall/sdk";
+
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://contracts.example.com/api",
+  publicOrigin: "https://contracts.example.com",
+  clientId: "weldall-cli-at-contracts",
+  supportedScopes: ["contracts:read", "contracts:update"],
+  signingKey,
+  replayStore,
+});
+
+await weldall.ready(); // optional: prüft die Weldall-Konfiguration beim Start
+```
+
+In einem Fetch-Handler prüft `weldall.verify(request, { scopes: [...] })` den eingehenden Request vor der eigentlichen Geschäftslogik. Die Framework-Adapter übernehmen diese Prüfung als Middleware oder Handler-Wrapper:
+
+- `@weldall/sdk/hono`
+- `@weldall/sdk/next`
+- `@weldall/sdk/astro`
+
+Die praktische Einrichtung beschreibt [How to: Service integrieren](../service-configuration/). Hintergründe zu Schlüsseln, Autorisierung und den verwendeten Standards stehen unter [Sicherheit](../oauth-security/).

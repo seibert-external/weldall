@@ -7,7 +7,7 @@ import {
   requestPrefixesOverlap,
 } from "@weldall/sdk";
 import { z } from "zod";
-import { prismaAuditWriter, type AuditEventType } from "../audit/service";
+import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
 
 export const ADMIN_SCOPE_KEY = "weldall:administer";
 export const MAX_ASSIGNMENT_SCOPES = 100;
@@ -49,6 +49,14 @@ export interface AdminActor {
   email?: string | null;
   requestId: string;
   correlationId?: string;
+}
+
+export interface UserDto {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: string;
 }
 
 export interface ScopeDto {
@@ -167,6 +175,86 @@ export async function requireAdminUser(userId: string): Promise<{
     throw new AdminDomainError("FORBIDDEN", "Administrator access is required.");
   }
   return { id: user.id, email: user.email };
+}
+
+export async function listUsers(input: {
+  page: number;
+  pageSize: number;
+  q?: string | undefined;
+  sort?:
+    | "name.asc"
+    | "name.desc"
+    | "email.asc"
+    | "email.desc"
+    | "createdAt.asc"
+    | "createdAt.desc"
+    | undefined;
+}): Promise<{ items: UserDto[]; total: number }> {
+  const page = positiveInteger(input.page, 1);
+  const pageSize = Math.min(positiveInteger(input.pageSize, 20), MAX_PAGE_SIZE);
+  const q = input.q?.trim();
+  const where: Prisma.UserWhereInput = q
+    ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {};
+  const orderBy: Prisma.UserOrderByWithRelationInput[] =
+    input.sort === "name.asc"
+      ? [{ name: "asc" }, { id: "asc" }]
+      : input.sort === "name.desc"
+        ? [{ name: "desc" }, { id: "desc" }]
+        : input.sort === "email.asc"
+          ? [{ email: "asc" }, { id: "asc" }]
+          : input.sort === "email.desc"
+            ? [{ email: "desc" }, { id: "desc" }]
+            : input.sort === "createdAt.asc"
+              ? [{ createdAt: "asc" }, { id: "asc" }]
+              : [{ createdAt: "desc" }, { id: "desc" }];
+  const [items, total] = await Promise.all([
+    db.user.findMany({
+      where,
+      orderBy,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.user.count({ where }),
+  ]);
+  return { items: items.map(serializeUser), total };
+}
+
+export async function getUser(id: string): Promise<UserDto> {
+  const user = await db.user.findUnique({ where: { id } });
+  if (!user) throw new AdminDomainError("NOT_FOUND", "User not found.");
+  return serializeUser(user);
+}
+
+export async function listUserAuditEvents(
+  userId: string,
+  input: {
+    page: number;
+    pageSize: number;
+    from?: Date | undefined;
+    to?: Date | undefined;
+    eventType?: AuditEventType | undefined;
+    outcome?: "success" | "denied" | "failed" | undefined;
+    sort: "occurredAt.asc" | "occurredAt.desc";
+  },
+) {
+  const user = await getUser(userId);
+  const assignment = await db.emailScopeAssignment.findUnique({
+    where: { normalizedEmail: normalizeEmail(user.email) },
+    select: { id: true },
+  });
+  return listAuditEvents({
+    ...input,
+    relatedUser: {
+      actorId: user.id,
+      ...(assignment ? { assignmentId: assignment.id } : {}),
+    },
+  });
 }
 
 export async function getCliSettings(): Promise<CliSettingsDto> {
@@ -1492,6 +1580,22 @@ function parseSkillInput(
     );
   }
   return { slug, title, content, requiredScopes, hidden: input.hidden };
+}
+
+function serializeUser(user: {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: Date;
+}): UserDto {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    emailVerified: user.emailVerified,
+    createdAt: user.createdAt.toISOString(),
+  };
 }
 
 function serializeAssignment(assignment: {

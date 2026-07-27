@@ -1,42 +1,25 @@
 ---
-title: Weldall
-description: A reference implementation of OAuth identity and authorization chaining across trust domains.
+title: Why Weldall CLI?
+description: Weldall CLI gives agents secure, centrally controlled access to company capabilities.
+sidebar:
+  label: Introduction
+  order: 0
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+Employees will increasingly use natural language to interact with business software. Agents will do more than answer questions. They will carry out tasks.
 
-## The two main components
+To do that, they need access to protected company systems. Today, this often means storing API keys or other credentials in agents and configuration files. Administrators lose oversight, permissions become scattered across individual integrations, and security concerns prevent many useful actions altogether.
 
-<CardGrid>
-  <Card title="Weldall Authorization Server" icon="approve-check-circle">
-    Authenticates the user, applies central policy, and issues a target-bound Identity Assertion JWT
-    Authorization Grant (ID-JAG). It also publishes the resource, scope, and skill registries used
-    by the CLI.
-  </Card>
-  <Card title="Weldall CLI" icon="seti:shell">
-    A native OAuth client for macOS. It keeps the device key in the system keychain, obtains
-    DPoP-bound credentials, and calls registered APIs directly.
-  </Card>
-</CardGrid>
+For example, an employee asks their agent to submit an expense. The agent needs instructions for the task and permission to call the relevant service. It should not need to see or manage credentials.
 
-## How it fits together
+Weldall CLI provides a central access layer between agents and company capabilities. Employees sign in through the company's existing SSO. Administrators determine who may use each capability. Any agent that can invoke the CLI operates within these rules.
 
-```text
-Weldall CLI ── sign in and request access ──▶ Weldall Authorization Server
-     │                                               │
-     │                                               └── issues an ID-JAG
-     │
-     ├── exchanges the ID-JAG at the resource's authorization server
-     └── calls the API directly with a DPoP-bound access token
-```
+Skills tell the agent how to use a capability and which permissions it requires. Depending on the configuration, employees either see only approved skills or can discover which additional capabilities exist. They can only execute actions they are authorized to perform.
 
-This lets one trust domain carry identity and authorization into another without handing a reusable bearer credential to the client or routing API traffic through Weldall.
+The agent never receives an access token. The CLI manages the required credentials in the operating system's secure credential store and sends the request itself. Access tokens are short-lived and bound to the device key with DPoP. A captured token therefore cannot be reused on another system.
 
-## The specifications
+Weldall records granted and denied access requests. Administrators can see who requested access to which resource and with which permissions. Changes to policies, resources, and skills are also traceable.
 
-The architecture follows [OAuth Identity and Authorization Chaining Across Domains](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-chaining/). The current implementation pins these draft revisions:
+The security architecture follows open OAuth standards. Company services can integrate through the provided SDKs, while the choice of agent remains flexible.
 
-- [Identity Assertion JWT Authorization Grant, draft 04](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) defines the ID-JAG issued by Weldall.
-- [OAuth 2.0 JWT Authorization Grant with DPoP Binding, draft 01](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01) defines how that grant is exchanged for a key-bound access token.
-
-The flow also uses [DPoP](https://www.rfc-editor.org/rfc/rfc9449), [OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), [Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414), and [Protected Resource Metadata](https://www.rfc-editor.org/rfc/rfc9728).
+“Weldall CLI” refers to the complete product: the local CLI, the Weldall Authorization Server, and the SDKs for connected services. [A complete agent run](./agent-run/) shows how these components work together.

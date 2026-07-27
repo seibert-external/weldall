@@ -97,6 +97,12 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 isSelected={selected("/assignments")}
               />
               <SideNavItem
+                label="Users"
+                href="/users"
+                icon={UserIcon}
+                isSelected={selected("/users")}
+              />
+              <SideNavItem
                 label="Skill registry"
                 href="/skills"
                 icon={SkillIcon}
@@ -191,6 +197,15 @@ function AssignmentIcon(props: IconProps) {
       <path d="M15 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1" />
       <circle cx="8.5" cy="7" r="3" />
       <path d="M15 8h7M18.5 4.5v7" />
+    </IconBase>
+  );
+}
+
+function UserIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
     </IconBase>
   );
 }

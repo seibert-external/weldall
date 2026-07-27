@@ -309,6 +309,17 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   expect(refreshedHelp.stdout).toContain(appendix);
   expect(refreshedHelp.stdout).toContain("Organization instructions");
 
+  await page.getByRole("link", { name: "Users", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
+  const userRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
+  await expect(userRow).toBeVisible();
+  await userRow.getByRole("link", { name: "Open" }).click();
+  await expect(page.getByRole("heading", { name: "Alice E2E" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Audit activity" })).toBeVisible();
+  await expect(
+    page.getByText("id_jag.issued", { exact: true }).filter({ visible: true }).first(),
+  ).toBeVisible();
+
   const logout = await runCli("logout");
   expect(logout, logout.stderr).toMatchObject({ code: 0 });
   expect(logout.stdout).toContain("Logged out.");
