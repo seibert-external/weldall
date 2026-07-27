@@ -1,5 +1,12 @@
 # @weldall/cli
 
+## 0.4.0
+
+### Minor Changes
+
+- 97a3552: Carry Weldall-verified email claims through ID-JAG exchange into downstream access tokens and expose them in the SDK authentication context.
+- 0edef3d: Add streaming raw and multipart file uploads plus binary-safe, atomic response downloads to `weldall request`.
+
 ## 0.3.0
 
 ### Minor Changes
