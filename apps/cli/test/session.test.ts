@@ -19,6 +19,7 @@ const DOWNSTREAM_CLIENT_ID = "weldall-cli-at-expenses";
 import { loopback } from "../src/oauth/loopback.js";
 import {
   createPkce,
+  refresh,
   tokenRequest,
   validateIdJagResponse,
   validateLoginResponse,
@@ -116,6 +117,62 @@ describe("native login", () => {
     expect((await fetch(base, { method: "POST" })).status).toBe(400);
     expect((await fetch(base)).status).toBe(200);
     await expect(callback.code).resolves.toBe("authorization-code");
+  });
+});
+
+describe("refresh rotation", () => {
+  it("persists a structurally valid rotated token before JWKS validation", async () => {
+    const device = await generateEs256KeyPair();
+    const credentials = {
+      version: 1 as const,
+      issuer: config.issuer,
+      privateJwk: device.privateJwk,
+      publicJwk: device.publicJwk,
+      refreshToken: "old-refresh-token",
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          token_type: "DPoP",
+          access_token: "new-access-token",
+          refresh_token: "new-refresh-token",
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetcher);
+    const persist = vi.fn(async () => undefined);
+
+    await expect(refresh(config, credentials, persist)).rejects.toThrow(
+      "Unable to load Weldall signing keys",
+    );
+    expect(persist).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledWith({
+      ...credentials,
+      refreshToken: "new-refresh-token",
+    });
+    expect(persist.mock.invocationCallOrder[0]).toBeLessThan(fetcher.mock.invocationCallOrder[1]!);
+  });
+
+  it("does not persist malformed refresh responses", async () => {
+    const device = await generateEs256KeyPair();
+    const credentials = {
+      version: 1 as const,
+      issuer: config.issuer,
+      privateJwk: device.privateJwk,
+      publicJwk: device.publicJwk,
+      refreshToken: "old-refresh-token",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ token_type: "DPoP", access_token: "token", refresh_token: "" }),
+      ),
+    );
+    const persist = vi.fn(async () => undefined);
+
+    await expect(refresh(config, credentials, persist)).rejects.toThrow("invalid refresh response");
+    expect(persist).not.toHaveBeenCalled();
   });
 });
 

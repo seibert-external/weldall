@@ -83,7 +83,7 @@ export const auth = betterAuth({
     oauthProvider({
       loginPage: "/login",
       silenceWarnings: { oauthAuthServerConfig: true, openidConfig: true },
-      consentPage: "/login",
+      consentPage: "/consent",
       scopes: cliScopes,
       dpop: { proofMaxAgeSeconds: 60, signingAlgorithms: ["ES256"] },
       cachedTrustedClients: new Set([WELDALL_CLIENT_ID]),

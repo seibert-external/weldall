@@ -17,7 +17,6 @@ describe("resource request URL contract", () => {
     ["https://other.example.com/api/events", false],
     ["https://example.com/other/../api/events", true],
     ["https://example.com:443/api/events", true],
-    ["https://example.com/api%2Fevents", false],
   ])("matches %s segment-wise", (target, expected) => {
     expect(requestPrefixAccepts("https://example.com/api", target)).toBe(expected);
   });
@@ -67,5 +66,21 @@ describe("resource request URL contract", () => {
     ["https://example.com/api%2Fevents"],
   ])("rejects unsafe request prefix %s", (prefix) => {
     expect(() => normalizeRequestPrefix(prefix)).toThrow();
+  });
+
+  it.each([
+    ["https://example.com/api/..%2Fadmin"],
+    ["https://example.com/api/%2e%2e%2fadmin"],
+    ["https://example.com/api/%5Cadmin"],
+    ["https://example.com/api%2Fevents"],
+  ])("rejects percent-encoded request target paths %s", (target) => {
+    expect(() => normalizeRequestTarget(target)).toThrow("percent encoding");
+    expect(() => normalizeRequestTarget(new URL(target))).toThrow("percent encoding");
+    expect(() => requestPrefixAccepts("https://example.com/api", target)).toThrow(
+      "percent encoding",
+    );
+    expect(() => requestPrefixAccepts("https://example.com/api", new URL(target))).toThrow(
+      "percent encoding",
+    );
   });
 });

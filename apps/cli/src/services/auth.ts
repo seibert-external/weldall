@@ -38,6 +38,7 @@ export async function login(config: WeldallConfig) {
     const authorize = new URL(config.authorize);
     for (const [name, value] of Object.entries({
       response_type: "code",
+      prompt: "consent",
       client_id: WELDALL_CLIENT_ID,
       redirect_uri: callback.redirectUri,
       scope: "openid profile email offline_access weldall:scopes",
@@ -91,8 +92,9 @@ export async function withAccess<T>(
     throw new CliError(`You are not logged in to ${config.issuer}`, {
       hint: "Run `weldall login` first.",
     });
-  const fresh = await refresh(config, credentials);
-  await saveCredentials(config.issuer, fresh.credentials);
+  const fresh = await refresh(config, credentials, (rotated) =>
+    saveCredentials(config.issuer, rotated),
+  );
   return operation(fresh);
 }
 

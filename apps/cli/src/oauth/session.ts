@@ -240,7 +240,11 @@ export async function validateIdJagResponse(
   return result.access_token;
 }
 
-export async function refresh(config: WeldallConfig, credentials: StoredCredentials) {
+export async function refresh(
+  config: WeldallConfig,
+  credentials: StoredCredentials,
+  onRotation: (credentials: StoredCredentials) => Promise<void>,
+) {
   const result = await tokenRequest(
     config,
     new URLSearchParams({
@@ -253,12 +257,16 @@ export async function refresh(config: WeldallConfig, credentials: StoredCredenti
   if (
     result.token_type !== "DPoP" ||
     typeof result.access_token !== "string" ||
-    typeof result.refresh_token !== "string"
+    !result.access_token ||
+    typeof result.refresh_token !== "string" ||
+    !result.refresh_token
   )
     throw new CliError("Weldall returned an invalid refresh response");
+  const rotatedCredentials = { ...credentials, refreshToken: result.refresh_token };
+  await onRotation(rotatedCredentials);
   const claims = await validateAccessToken(config, result.access_token, credentials.publicJwk);
   return {
-    credentials: { ...credentials, refreshToken: result.refresh_token },
+    credentials: rotatedCredentials,
     accessToken: result.access_token,
     subject: claims.sub,
   };

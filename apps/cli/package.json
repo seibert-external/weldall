@@ -39,12 +39,14 @@
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",
     "gunshi": "^0.37.1",
-    "jose": "^6.2.2"
+    "jose": "^6.2.2",
+    "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/proper-lockfile": "^4.1.4",
     "@weldall/sdk": "workspace:*",
     "@weldall/tsconfig": "workspace:*",
-    "@types/node": "catalog:",
     "esbuild": "^0.28.1",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
