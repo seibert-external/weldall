@@ -100,7 +100,7 @@ afterAll(async () => {
   await db.downstreamResource.deleteMany({ where: { key: { startsWith: namespace } } });
   await db.scope.deleteMany({ where: { key: { startsWith: namespace } } });
   await db.skill.deleteMany({ where: { slug: { startsWith: namespace } } });
-  await db.adminAuditEvent.deleteMany({
+  await db.auditEvent.deleteMany({
     where: { actorId: { in: [primaryUserId, secondaryUserId] } },
   });
   await db.user.deleteMany({ where: { id: { in: [primaryUserId, secondaryUserId] } } });
@@ -219,7 +219,7 @@ describe("admin scope service", () => {
       });
     }
     await expect(
-      db.adminAuditEvent.count({
+      db.auditEvent.count({
         where: {
           actorId: primaryUserId,
           eventType: "user_scopes.replaced",
@@ -338,16 +338,15 @@ describe("admin scope service", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(getResource(resource.id)).resolves.toMatchObject({ enabled: false, version: 2 });
     await expect(
-      db.adminAuditEvent.findMany({
+      db.auditEvent.findMany({
         where: { subjectId: resource.id },
         orderBy: { occurredAt: "asc" },
         select: { eventType: true, metadata: true },
       }),
     ).resolves.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ eventType: "resource.created" }),
-        expect.objectContaining({ eventType: "resource.updated" }),
-        expect.objectContaining({ eventType: "resource.disabled" }),
+        expect.objectContaining({ eventType: "resource_scopes.created" }),
+        expect.objectContaining({ eventType: "resource_scopes.replaced" }),
       ]),
     );
   });
@@ -466,7 +465,7 @@ describe("admin scope service", () => {
       updateCliSettings({ appendix: "stale", expectedVersion: initial.version }, primaryActor),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(
-      db.adminAuditEvent.count({
+      db.auditEvent.count({
         where: { actorId: primaryUserId, eventType: "cli_settings.updated" },
       }),
     ).resolves.toBeGreaterThanOrEqual(1);

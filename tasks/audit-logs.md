@@ -197,7 +197,7 @@ Filter:
 
 Anforderungen:
 
-- Zugriff benötigt eine separate Berechtigung wie `weldall:audit:read`; `weldall:administer` impliziert dies nicht automatisch.
+- Zugriff benötigt die `weldall:administer`
 - Ergebnisse sind paginiert und stabil sortiert.
 - Exporte sind größenbegrenzt und werden selbst auditiert.
 - Leser können Audit Events nicht verändern oder löschen.
@@ -237,7 +237,6 @@ Die Audit-Funktion wird an zentralen Stellen integriert, nicht ad hoc in einzeln
 
 - in der maßgeblichen ID-JAG-Ausstellungsfunktion im Weldall OAuth-Facade,
 - in der zentralen Grant-/Scope-Konfigurationsschicht,
-- in späteren Ressourcenimporten und `weldall up`,
 - über eine typisierte `AuditWriter`-Schnittstelle für Tests und alternative persistente Backends.
 
 Bestehende historische Vorgänge können nicht rückwirkend rekonstruiert werden. Der Startzeitpunkt vollständiger Audit-Abdeckung wird dokumentiert.

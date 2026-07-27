@@ -71,6 +71,7 @@ describe("issuer configuration", () => {
       revoke: `${issuer}/api/auth/oauth2/revoke`,
       jwks: `${issuer}/api/oauth/jwks`,
       cli: `${issuer}/api/me/cli`,
+      grants: `${issuer}/api/me/grants`,
       scopes: `${issuer}/api/me/scopes`,
       skills: `${issuer}/api/me/skills`,
       userInfo: `${issuer}/api/auth/oauth2/userinfo`,

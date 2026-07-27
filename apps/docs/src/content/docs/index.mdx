@@ -1,7 +1,6 @@
 ---
 title: Weldall
 description: A reference implementation of OAuth identity and authorization chaining across trust domains.
-template: splash
 hero:
   layout: centered
   title: OAuth across trust domains, end to end.
@@ -18,7 +17,7 @@ hero:
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-## Two components. Clear jobs.
+## The two main components
 
 <CardGrid>
   <Card title="Weldall Authorization Server" icon="approve-check-circle">
@@ -31,8 +30,6 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     DPoP-bound credentials, and calls registered APIs directly.
   </Card>
 </CardGrid>
-
-The Weldall Authorization Server is in the authorization path, not the API data path. API requests do not pass through it.
 
 ## How it fits together
 
@@ -55,7 +52,3 @@ The architecture follows [OAuth Identity and Authorization Chaining Across Domai
 - [OAuth 2.0 JWT Authorization Grant with DPoP Binding, draft 01](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01) defines how that grant is exchanged for a key-bound access token.
 
 The flow also uses [DPoP](https://www.rfc-editor.org/rfc/rfc9449), [OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), [Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414), and [Protected Resource Metadata](https://www.rfc-editor.org/rfc/rfc9728).
-
-## Status
-
-Weldall is an independent reference implementation, not a conformance suite. The two core specifications are active Internet-Drafts and can still change.

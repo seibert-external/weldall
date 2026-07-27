@@ -34,6 +34,7 @@ const refreshToken = "test-refresh-token-never-issued";
 const sharedResource = "https://shared-token-exchange.example/api";
 const sharedIssuer = "https://shared-token-exchange.example";
 const sharedClientId = "weldall-cli-at-shared-test";
+const issuedAuditRequestId = `issued-${randomUUID()}`;
 let issuerKey: DpopKeyPair;
 let deviceKey: DpopKeyPair;
 
@@ -142,6 +143,7 @@ afterAll(async () => {
   const { db } = await import("@weldall/db");
   await db.oAuthDeviceRefreshBinding.deleteMany({ where: { userId } });
   await db.oauthRefreshToken.deleteMany({ where: { userId } });
+  await db.auditEvent.deleteMany({ where: { actorId: userId } });
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: email } });
   await db.downstreamResource.deleteMany({ where: { key: "token-exchange-shared" } });
   await db.user.deleteMany({ where: { id: userId } });
@@ -161,6 +163,7 @@ describe("Weldall token exchange", () => {
         headers: {
           "content-type": "application/x-www-form-urlencoded",
           dpop: proof,
+          "x-request-id": issuedAuditRequestId,
         },
         body: new URLSearchParams({
           grant_type: TOKEN_EXCHANGE_GRANT,
@@ -184,17 +187,77 @@ describe("Weldall token exchange", () => {
       issued_token_type: ID_JAG_TOKEN_TYPE,
       token_type: "N_A",
     });
-    await expect(
-      verifyIdJag(body.access_token, {
-        issuer: WELDALL_ISSUER,
-        audience: EXPENSES_ISSUER,
+    const claims = await verifyIdJag(body.access_token, {
+      issuer: WELDALL_ISSUER,
+      audience: EXPENSES_ISSUER,
+      resource: EXPENSES_RESOURCE,
+      clientId: DOWNSTREAM_CLIENT_ID,
+      kid: "weldall-token-exchange-test",
+      publicJwk: issuerKey.publicJwk,
+      allowedScopes: ["expenses:read"],
+    });
+    expect(claims).toMatchObject({ sub: userId, cnf: { jkt: deviceKey.jkt } });
+
+    const { db } = await import("@weldall/db");
+    const auditEvent = await db.auditEvent.findFirstOrThrow({
+      where: { requestId: issuedAuditRequestId, eventType: "id_jag.issued" },
+    });
+    expect(auditEvent.deduplicationKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(auditEvent.deduplicationKey).not.toContain(issuedAuditRequestId);
+    expect(auditEvent).toMatchObject({
+      eventType: "id_jag.issued",
+      actorId: userId,
+      actorEmail: email,
+      clientId: WELDALL_CLIENT_ID,
+      outcome: "success",
+      subjectId: claims.jti,
+      metadata: expect.objectContaining({
         resource: EXPENSES_RESOURCE,
-        clientId: DOWNSTREAM_CLIENT_ID,
+        grantedScopes: ["expenses:read"],
+        jti: claims.jti,
         kid: "weldall-token-exchange-test",
-        publicJwk: issuerKey.publicJwk,
-        allowedScopes: ["expenses:read"],
       }),
-    ).resolves.toMatchObject({ sub: userId, cnf: { jkt: deviceKey.jkt } });
+    });
+    const serializedAudit = JSON.stringify(auditEvent);
+    expect(serializedAudit).not.toContain(body.access_token);
+    expect(serializedAudit).not.toContain(proof);
+    expect(serializedAudit).not.toContain(refreshToken);
+  });
+
+  it("does not create a second success event when a request ID is retried", async () => {
+    const proof = await createDpopProof({
+      ...deviceKey,
+      method: "POST",
+      url: WELDALL_TOKEN_ENDPOINT,
+    });
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    const response = await tokenFacade(
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          dpop: proof,
+          "x-request-id": issuedAuditRequestId,
+        },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: EXPENSES_ISSUER,
+          resource: EXPENSES_RESOURCE,
+          scope: "expenses:read",
+          subject_token: refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: WELDALL_CLIENT_ID,
+        }),
+      }),
+    );
+    expect(response.status).toBe(500);
+    const { db } = await import("@weldall/db");
+    await expect(
+      db.auditEvent.count({
+        where: { requestId: issuedAuditRequestId, eventType: "id_jag.issued" },
+      }),
+    ).resolves.toBe(1);
   });
 
   it("uses the same global grant for a second registered resource", async () => {
@@ -233,6 +296,137 @@ describe("Weldall token exchange", () => {
         allowedScopes: ["expenses:read"],
       }),
     ).resolves.toMatchObject({ sub: userId });
+  });
+
+  it("audits a denied scope request with a stable, sanitized reason", async () => {
+    const requestId = `denied-${randomUUID()}`;
+    const proof = await createDpopProof({
+      ...deviceKey,
+      method: "POST",
+      url: WELDALL_TOKEN_ENDPOINT,
+    });
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    const response = await tokenFacade(
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          dpop: proof,
+          "x-request-id": requestId,
+        },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: EXPENSES_ISSUER,
+          resource: EXPENSES_RESOURCE,
+          scope: "expenses:delete",
+          subject_token: refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: WELDALL_CLIENT_ID,
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_scope" });
+
+    const { db } = await import("@weldall/db");
+    const event = await db.auditEvent.findFirstOrThrow({
+      where: { requestId, eventType: "id_jag.denied" },
+    });
+    expect(event).toMatchObject({
+      eventType: "id_jag.denied",
+      actorId: userId,
+      reasonCode: "scope_not_granted",
+      outcome: "denied",
+      metadata: {
+        audience: EXPENSES_ISSUER,
+        resource: EXPENSES_RESOURCE,
+        requestedScopes: ["expenses:delete"],
+      },
+    });
+    const serializedAudit = JSON.stringify(event);
+    expect(serializedAudit).not.toContain(proof);
+    expect(serializedAudit).not.toContain(refreshToken);
+  });
+
+  it("audits an invalid ID-JAG DPoP proof without storing the proof", async () => {
+    const requestId = `dpop-denied-${randomUUID()}`;
+    const attacker = await generateEs256KeyPair();
+    const proof = await createDpopProof({
+      ...attacker,
+      method: "POST",
+      url: WELDALL_TOKEN_ENDPOINT,
+    });
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    const response = await tokenFacade(
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          dpop: proof,
+          "x-request-id": requestId,
+        },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: EXPENSES_ISSUER,
+          resource: EXPENSES_RESOURCE,
+          scope: "expenses:read",
+          subject_token: refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: WELDALL_CLIENT_ID,
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    const { db } = await import("@weldall/db");
+    const event = await db.auditEvent.findFirstOrThrow({
+      where: { requestId, eventType: "id_jag.denied" },
+    });
+    expect(event).toMatchObject({
+      eventType: "id_jag.denied",
+      actorId: userId,
+      reasonCode: "invalid_dpop_proof",
+    });
+    expect(JSON.stringify(event)).not.toContain(proof);
+  });
+
+  it("fails ID-JAG issuance closed when the audit store cannot write", async () => {
+    const proof = await createDpopProof({
+      ...deviceKey,
+      method: "POST",
+      url: WELDALL_TOKEN_ENDPOINT,
+    });
+    const unavailableAuditWriter = {
+      write: vi.fn(async () => {
+        throw new Error("audit unavailable");
+      }),
+    };
+    const { tokenFacadeWithAuditWriter } = await import("../src/server/oauth/facade.js");
+    const response = await tokenFacadeWithAuditWriter(
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          dpop: proof,
+          "x-request-id": `unavailable-${randomUUID()}`,
+        },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: EXPENSES_ISSUER,
+          resource: EXPENSES_RESOURCE,
+          scope: "expenses:read",
+          subject_token: refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: WELDALL_CLIENT_ID,
+        }),
+      }),
+      unavailableAuditWriter,
+    );
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ error: "server_error" });
+    expect(unavailableAuditWriter.write).toHaveBeenCalled();
   });
 
   it("rejects a disabled registered resource immediately", async () => {

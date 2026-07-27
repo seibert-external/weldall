@@ -29,10 +29,69 @@ const unicodeTerminal = () => {
   return locale === undefined || /utf-?8/i.test(locale);
 };
 
-export const brandHeading = (columns = process.stdout.columns || 80) => {
+export const brandHeading = (issuer: string | null) => {
   const name = "Weldall";
-  const padding = " ".repeat(Math.max(0, Math.floor((columns - name.length) / 2)));
-  return `${padding}${ansi("1;38;5;33", name, process.stdout)}`;
+  const host = `Host  ${issuer ? terminalText(issuer) : "Not configured"}`;
+  const width = Math.max(name.length, host.length);
+  const horizontal = "═".repeat(width + 2);
+  return [
+    `╔${horizontal}╗`,
+    `║ ${ansi("1;38;5;33", name, process.stdout)}${" ".repeat(width - name.length)} ║`,
+    `║ ${host.padEnd(width)} ║`,
+    `╚${horizontal}╝`,
+  ].join("\n");
+};
+
+const justifyLine = (words: string[], width: number) => {
+  if (words.length < 2) return words.join("");
+  const spaces = width - words.reduce((length, word) => length + word.length, 0);
+  const gaps = words.length - 1;
+  const gapWidth = Math.floor(spaces / gaps);
+  const widerGaps = spaces % gaps;
+  return words
+    .map((word, index) =>
+      index === gaps ? word : `${word}${" ".repeat(gapWidth + (index < widerGaps ? 1 : 0))}`,
+    )
+    .join("");
+};
+
+const chunks = (word: string, width: number) => {
+  const values: string[] = [];
+  for (let offset = 0; offset < word.length; offset += width)
+    values.push(word.slice(offset, offset + width));
+  return values;
+};
+
+const blockLines = (value: string, width: number) =>
+  value.split("\n").flatMap((sourceLine) => {
+    const words = sourceLine
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .flatMap((word) => chunks(word, width));
+    if (words.length === 0) return [""];
+    const lines: string[][] = [];
+    for (const word of words) {
+      const current = lines.at(-1);
+      if (!current || current.join(" ").length + word.length + 1 > width) lines.push([word]);
+      else current.push(word);
+    }
+    return lines.map((line, index) =>
+      index === lines.length - 1 ? line.join(" ") : justifyLine(line, width),
+    );
+  });
+
+export const appendixFrame = (value: string, columns = process.stdout.columns || 80) => {
+  const document = terminalDocument(value).trim();
+  if (!document) return "";
+  const title = "Organization instructions";
+  const width = Math.max(title.length + 1, Math.min(76, columns - 4));
+  const lines = blockLines(document, width);
+  return [
+    `╔═ ${ansi("1;38;5;220", title, process.stdout)} ${"═".repeat(width - title.length - 1)}╗`,
+    ...lines.map((line) => `║ ${line.padEnd(width)} ║`),
+    `╚${"═".repeat(width + 2)}╝`,
+  ].join("\n");
 };
 
 const glyph = (unicode: string, ascii: string) =>

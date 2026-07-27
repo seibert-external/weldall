@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { explainScope, printPermissions } from "../src/commands.js";
-import { brandHeading, printError, terminalDocument, terminalText } from "../src/output.js";
+import {
+  appendixFrame,
+  brandHeading,
+  printError,
+  terminalDocument,
+  terminalText,
+} from "../src/output.js";
 
 describe("friendly scope descriptions", () => {
   it.each([
@@ -20,6 +26,17 @@ describe("friendly scope descriptions", () => {
 });
 
 describe("friendly resource output", () => {
+  it("shows assigned scopes even when no enabled resource exposes them", () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    printPermissions([], ["weldall:administer"]);
+    const text = output.mock.calls.flat().join("\n");
+
+    expect(text).toContain("weldall:administer");
+    expect(text).toContain("No enabled API resource");
+    expect(text).not.toContain("No permissions are currently assigned");
+    output.mockRestore();
+  });
+
   it("shows names and grants without technical registry URLs", () => {
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
     printPermissions([
@@ -44,8 +61,61 @@ describe("friendly resource output", () => {
 });
 
 describe("CLI brand", () => {
-  it("centers the Weldall wordmark", () => {
-    expect(brandHeading(21)).toBe("       Weldall");
+  it("renders a compact framed header with the configured host", () => {
+    vi.stubEnv("NO_COLOR", "1");
+    const heading = brandHeading("https://weldall.example.com");
+    const lines = heading.split("\n");
+
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toMatch(/^╔═+╗$/);
+    expect(lines[1]).toContain("Weldall");
+    expect(lines[2]).toContain("Host  https://weldall.example.com");
+    expect(new Set(lines.map((line) => line.length))).toHaveLength(1);
+    expect(lines[3]).toMatch(/^╚═+╝$/);
+    vi.unstubAllEnvs();
+  });
+
+  it("shows when no host is configured", () => {
+    vi.stubEnv("NO_COLOR", "1");
+    expect(brandHeading(null)).toContain("Host  Not configured");
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("CLI appendix", () => {
+  it("renders organization instructions in a separate prominent frame", () => {
+    vi.stubEnv("NO_COLOR", "1");
+    const frame = appendixFrame("Use approved skills.\nAsk before deleting data.");
+    const lines = frame.split("\n");
+
+    expect(lines[0]).toContain("Organization instructions");
+    expect(lines[1]).toContain("Use approved skills.");
+    expect(lines[2]).toContain("Ask before deleting data.");
+    expect(new Set(lines.map((line) => line.length))).toHaveLength(1);
+    expect(lines.at(-1)).toMatch(/^╚═+╝$/);
+    vi.unstubAllEnvs();
+  });
+
+  it("wraps and justifies lengthy instructions to the terminal width", () => {
+    vi.stubEnv("NO_COLOR", "1");
+    const frame = appendixFrame(
+      "Use this CLI for all company tasks. Access to external services requires centrally managed tokens and approved skills.",
+      48,
+    );
+    const lines = frame.split("\n");
+    const content = lines.slice(1, -1).map((line) => line.slice(2, -2));
+
+    expect(lines.every((line) => line.length === 48)).toBe(true);
+    expect(content[0]).toMatch(/\S +\S/);
+    expect(content[0]).not.toMatch(/\s$/);
+    expect(content.join(" ").replaceAll(/\s+/g, " ").trim()).toBe(
+      "Use this CLI for all company tasks. Access to external services requires centrally managed tokens and approved skills.",
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it("omits the frame for an empty appendix", () => {
+    expect(appendixFrame(" \n\t ")).toBe("");
   });
 });
 

@@ -5,7 +5,11 @@ import { generateEs256KeyPair, issueIdJag, verifyIdJag } from "@weldall/sdk";
 import { importJWK, jwtVerify } from "jose";
 import { normalizeEmail, parseScopeKey } from "../src/server/admin/service.js";
 import { signWeldallJwt } from "../src/server/oauth/jwt.js";
-import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/resources.js";
+import {
+  assignedScopesFor,
+  exchangePolicyFor,
+  resourceRegistryFor,
+} from "../src/server/policy/resources.js";
 
 describe("Weldall signing identity", () => {
   it("uses the same env ES256 key for OAuth JWTs and ID-JAGs", async () => {
@@ -95,6 +99,10 @@ describe("database-backed policy", () => {
       },
     });
     try {
+      await expect(assignedScopesFor(email)).resolves.toEqual([
+        "expenses:read",
+        "weldall:administer",
+      ]);
       const registry = await resourceRegistryFor(email);
       expect(registry).toEqual(
         expect.arrayContaining([
@@ -130,6 +138,15 @@ describe("database-backed policy", () => {
       const unknownRegistry = await resourceRegistryFor(`unknown-${id}@example.com`);
       expect(unknownRegistry.length).toBeGreaterThanOrEqual(2);
       expect(unknownRegistry.every((entry) => entry.grantedScopes.length === 0)).toBe(true);
+
+      await db.downstreamResource.update({ where: { id: resource.id }, data: { enabled: false } });
+      await expect(assignedScopesFor(email)).resolves.toEqual([
+        "expenses:read",
+        "weldall:administer",
+      ]);
+      expect((await resourceRegistryFor(email)).some((entry) => entry.key === resource.key)).toBe(
+        false,
+      );
     } finally {
       await db.emailScopeAssignment.delete({ where: { id: assignment.id } });
       await db.downstreamResource.delete({ where: { id: resource.id } });

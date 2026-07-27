@@ -19,6 +19,7 @@ import { issuerPreferences } from "./storage/preferences.js";
 
 const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
+type ScopeOverview = Awaited<ReturnType<typeof listScopes>>;
 
 const printIdentity = (identity: Identity) => {
   console.log(`${bold("Signed in as")} ${terminalText(identity.name)}`);
@@ -49,20 +50,33 @@ export const explainScope = (scope: string) => {
   );
 };
 
-export const printPermissions = (grants: ResourceGrant[]) => {
-  console.log(bold("You can do the following:"));
-  if (grants.length === 0 || grants.every((grant) => grant.grantedScopes.length === 0)) {
-    console.log("  No API permissions are currently assigned to your account.");
+export const printPermissions = (
+  grants: ResourceGrant[],
+  assignedScopes = [...new Set(grants.flatMap((grant) => grant.grantedScopes))].sort(),
+) => {
+  console.log(bold("Assigned permissions:"));
+  if (assignedScopes.length === 0) {
+    console.log("  No permissions are currently assigned to your account.");
     console.log(`  ${dim("Ask your Weldall administrator for the access you need.")}`);
     return;
   }
-  for (const grant of grants) {
+
+  const assignedWidth = Math.max(...assignedScopes.map((scope) => explainScope(scope).length));
+  for (const scope of assignedScopes)
+    console.log(
+      `  ${checkmark()} ${explainScope(scope).padEnd(assignedWidth)}  ${dim(terminalText(scope))}`,
+    );
+
+  console.log();
+  console.log(bold("Available APIs:"));
+  const available = grants.filter((grant) => grant.grantedScopes.length > 0);
+  if (available.length === 0) {
+    console.log(`  ${dim("No enabled API resource currently exposes these permissions.")}`);
+    return;
+  }
+  for (const grant of available) {
     console.log();
     console.log(bold(terminalText(grant.name)));
-    if (grant.grantedScopes.length === 0) {
-      console.log(`  ${dim("No permissions assigned.")}`);
-      continue;
-    }
     const width = Math.max(...grant.grantedScopes.map((scope) => explainScope(scope).length));
     for (const scope of grant.grantedScopes)
       console.log(
@@ -71,10 +85,10 @@ export const printPermissions = (grants: ResourceGrant[]) => {
   }
 };
 
-const printStatus = (identity: Identity, grants: ResourceGrant[]) => {
+const printStatus = (identity: Identity, permissions: ScopeOverview) => {
   printIdentity(identity);
   console.log();
-  printPermissions(grants);
+  printPermissions(permissions.resources, permissions.assignedScopes);
 };
 
 export const loginCommand = define({
@@ -92,9 +106,9 @@ export const loginCommand = define({
     success("You're signed in.");
     try {
       const identity = await whoAmI(config);
-      const grants = await listScopes(config);
+      const permissions = await listScopes(config);
       console.log();
-      printStatus(identity, grants);
+      printStatus(identity, permissions);
     } catch {
       warning("Signed in, but your account details could not be loaded.");
       console.log(`  ${dim("Run `weldall status` to try again.")}`);
@@ -127,9 +141,14 @@ export const statusCommand = define({
   run: async (context) => {
     const config = await resolveWeldallConfig();
     const identity = await whoAmI(config);
-    const grants = await listScopes(config);
-    if (context.values.json) jsonOutput({ identity, grants });
-    else printStatus(identity, grants);
+    const permissions = await listScopes(config);
+    if (context.values.json)
+      jsonOutput({
+        identity,
+        assignedScopes: permissions.assignedScopes,
+        grants: permissions.resources,
+      });
+    else printStatus(identity, permissions);
   },
 });
 
@@ -151,18 +170,16 @@ export const scopesCommand = define({
   args: { json: jsonArgument },
   examples: "weldall scopes\nweldall scopes --json",
   run: async (context) => {
-    const grants = await listScopes(await resolveWeldallConfig());
+    const permissions = await listScopes(await resolveWeldallConfig());
     if (context.values.json) {
-      jsonOutput(grants);
+      jsonOutput(permissions);
       return;
     }
     if (!process.stdout.isTTY) {
-      for (const grant of grants)
-        for (const scope of grant.grantedScopes)
-          console.log(`${terminalText(grant.name)}\t${terminalText(scope)}`);
+      for (const scope of permissions.assignedScopes) console.log(terminalText(scope));
       return;
     }
-    printPermissions(grants);
+    printPermissions(permissions.resources, permissions.assignedScopes);
   },
 });
 

@@ -62,6 +62,13 @@
     padding: 1rem;
   }
 
+  .admin-audit-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+  }
+
   .skill-detail-surface {
     display: grid;
     gap: 1.5rem;

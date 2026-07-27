@@ -161,16 +161,23 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const scopes = await runCli("scopes");
   expect(scopes, scopes.stderr).toMatchObject({ code: 0 });
   expect(scopes.stdout.trim().split("\n").sort()).toEqual([
-    "Expenses\texpenses:create",
-    "Expenses\texpenses:delete",
-    "Expenses\texpenses:read",
-    "Expenses\texpenses:write",
-    "Reports\texpenses:read",
+    "expenses:create",
+    "expenses:delete",
+    "expenses:read",
+    "expenses:write",
+    "weldall:administer",
   ]);
   const scopesJson = await runCli("scopes", "--json");
   expect(scopesJson, scopesJson.stderr).toMatchObject({ code: 0 });
-  expect(JSON.parse(scopesJson.stdout)).toEqual(
-    expect.arrayContaining([
+  expect(JSON.parse(scopesJson.stdout)).toEqual({
+    assignedScopes: [
+      "expenses:create",
+      "expenses:delete",
+      "expenses:read",
+      "expenses:write",
+      "weldall:administer",
+    ],
+    resources: expect.arrayContaining([
       expect.objectContaining({
         key: "expenses",
         resourceIdentifier: "https://expenses.seibert.localdev/api",
@@ -178,7 +185,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
       }),
       expect.objectContaining({ key: "reports", grantedScopes: ["expenses:read"] }),
     ]),
-  );
+  });
 
   const skills = await runCli("skills");
   expect(skills, skills.stderr).toMatchObject({ code: 0 });

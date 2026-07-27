@@ -14,6 +14,7 @@ export interface WeldallConfig {
   revoke: string;
   jwks: string;
   cli: string;
+  grants: string;
   scopes: string;
   skills: string;
   userInfo: string;
@@ -166,6 +167,7 @@ export async function discoverIssuer(
     revoke: requiredEndpoint(metadata, "revocation_endpoint", issuer, "/api/auth/oauth2/revoke"),
     jwks: requiredEndpoint(metadata, "jwks_uri", issuer, "/api/oauth/jwks"),
     cli: `${issuer}/api/me/cli`,
+    grants: `${issuer}/api/me/grants`,
     scopes: `${issuer}/api/me/scopes`,
     skills: `${issuer}/api/me/skills`,
     userInfo: `${issuer}/api/auth/oauth2/userinfo`,

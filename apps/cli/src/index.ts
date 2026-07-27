@@ -14,19 +14,40 @@ import {
 } from "./commands.js";
 import { discoverIssuer, selectIssuer } from "./config.js";
 import { CliError, errorMessage } from "./errors.js";
-import { brandHeading, printError, terminalDocument } from "./output.js";
+import { createHttpsDeadlineFetch } from "./http.js";
+import { appendixFrame, brandHeading, printError, terminalDocument } from "./output.js";
 import { getCliAppendix } from "./services/settings.js";
+import { appendixCache } from "./storage/appendix.js";
 import { renderFriendlyValidation } from "./validation.js";
 
-async function loadCliAppendix() {
+interface LocalHeader {
+  issuer: string | null;
+  appendix: string;
+}
+
+async function loadLocalHeader(includeAppendix: boolean): Promise<LocalHeader> {
   try {
-    const selection = await selectIssuer({ allowPrompt: false });
-    if (!selection) return "";
-    const config = await discoverIssuer(selection.issuer, { timeoutMs: 1_500 });
-    return terminalDocument(await getCliAppendix(config)).trim();
+    const issuer = (await selectIssuer({ allowPrompt: false }))?.issuer ?? null;
+    return {
+      issuer,
+      appendix: issuer && includeAppendix ? ((await appendixCache.read(issuer)) ?? "") : "",
+    };
   } catch {
-    // Help must remain available while signed out, offline, or before initial configuration.
-    return "";
+    // Help must remain available when the local configuration cannot be read.
+    return { issuer: null, appendix: "" };
+  }
+}
+
+async function refreshCliAppendix(issuer: string) {
+  try {
+    const timeoutMs = 2_500;
+    const config = await discoverIssuer(issuer, {
+      fetcher: createHttpsDeadlineFetch(timeoutMs),
+      timeoutMs,
+    });
+    await appendixCache.write(issuer, await getCliAppendix(config));
+  } catch {
+    // The cached appendix remains usable while discovery or refresh is unavailable.
   }
 }
 
@@ -38,7 +59,7 @@ const agentIntroduction = [
 export async function runCli(argv = process.argv.slice(2)) {
   const rootHelp =
     argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"));
-  const appendix = rootHelp ? loadCliAppendix() : Promise.resolve("");
+  let localHeader: Promise<LocalHeader> | undefined;
 
   try {
     await cli(argv.length === 0 ? ["--help"] : argv, mainCommand, {
@@ -58,7 +79,15 @@ export async function runCli(argv = process.argv.slice(2)) {
       },
       renderHeader: async (context) => {
         if ((context.values as Record<string, unknown>).help !== true) return "";
-        return [brandHeading(), agentIntroduction, await appendix].filter(Boolean).join("\n\n");
+        localHeader ??= loadLocalHeader(rootHelp);
+        const header = await localHeader;
+        return [
+          brandHeading(header.issuer),
+          agentIntroduction,
+          rootHelp ? appendixFrame(header.appendix) : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
       },
       renderValidationErrors: renderFriendlyValidation,
     });
@@ -72,6 +101,12 @@ export async function runCli(argv = process.argv.slice(2)) {
     if (process.env.WELDALL_DEBUG && error instanceof Error && error.stack)
       console.error(`\n${terminalDocument(error.stack)}`);
     process.exitCode = cliError?.exitCode ?? 1;
+  }
+
+  if (rootHelp) {
+    localHeader ??= loadLocalHeader(true);
+    const { issuer } = await localHeader;
+    if (issuer) await refreshCliAppendix(issuer);
   }
 }
 
