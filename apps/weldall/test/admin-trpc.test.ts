@@ -124,6 +124,29 @@ describe("admin tRPC middleware", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  it("lists users and resolves user details for administrators", async () => {
+    await expect(
+      caller(adminUserId).admin.users.list({
+        page: 1,
+        pageSize: 20,
+        q: normalEmail,
+        sort: "createdAt.desc",
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [{ id: normalUserId, email: normalEmail, name: "tRPC User" }],
+    });
+    await expect(caller(adminUserId).admin.users.get({ id: normalUserId })).resolves.toMatchObject({
+      id: normalUserId,
+      email: normalEmail,
+    });
+    await expect(caller(adminUserId).admin.users.get({ id: "missing-user" })).rejects.toMatchObject(
+      {
+        code: "NOT_FOUND",
+      },
+    );
+  });
+
   it("checks the live assignment on every procedure call", async () => {
     await expect(caller(adminUserId).admin.status()).resolves.toMatchObject({
       authenticated: true,
@@ -169,6 +192,22 @@ describe("admin tRPC middleware", () => {
     await expect(
       caller(adminUserId).admin.auditEvents.get({ id: firstPage.items[0]!.id }),
     ).resolves.toMatchObject({ actorEmail: adminEmail, eventType: "id_jag.denied" });
+    await expect(
+      caller(adminUserId).admin.auditEvents.list({
+        page: 1,
+        pageSize: 20,
+        userId: adminUserId,
+        eventType: "id_jag.denied",
+        outcome: "denied",
+        sort: "occurredAt.desc",
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({ actorId: adminUserId, eventType: "id_jag.denied" }),
+        expect.objectContaining({ actorId: adminUserId, eventType: "id_jag.denied" }),
+      ],
+    });
 
     await expect(
       caller(adminUserId).admin.auditEvents.list({

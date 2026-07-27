@@ -18,7 +18,7 @@ import { useThemeMode } from "../providers";
 
 gsap.registerPlugin(useGSAP);
 
-type AdminRoute = "audit" | "cli" | "resources" | "scopes" | "assignments" | "skills";
+type AdminRoute = "audit" | "cli" | "resources" | "scopes" | "assignments" | "users" | "skills";
 const designs = {
   audit: {
     title: "Audit logs",
@@ -45,6 +45,11 @@ const designs = {
     light: { from: "rgb(0, 112, 86)", to: "rgb(219, 255, 170)" },
     dark: { from: "rgb(0, 58, 47)", to: "rgb(49, 75, 18)" },
   },
+  users: {
+    title: "Users",
+    light: { from: "rgb(30, 78, 121)", to: "rgb(172, 224, 255)" },
+    dark: { from: "rgb(18, 42, 67)", to: "rgb(33, 82, 104)" },
+  },
   skills: {
     title: "Skill registry",
     light: { from: "rgb(9, 78, 145)", to: "rgb(156, 231, 255)" },
@@ -62,6 +67,7 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/cli")) return "cli";
     if (pathname.startsWith("/resources")) return "resources";
     if (pathname.startsWith("/assignments")) return "assignments";
+    if (pathname.startsWith("/users")) return "users";
     if (pathname.startsWith("/skills")) return "skills";
     return "scopes";
   }, [pathname]);

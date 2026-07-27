@@ -13,11 +13,14 @@ import {
   getCliSettings,
   getResource,
   getSkill,
+  getUser,
   listAssignments,
   listResources,
   listScopeOptions,
   listScopes,
   listSkills,
+  listUserAuditEvents,
+  listUsers,
   replaceAssignment,
   requireAdminUser,
   updateCliSettings,
@@ -61,6 +64,30 @@ export const appRouter = trpc.router({
       authenticated: true as const,
       email: ctx.adminActor.email ?? null,
     })),
+    users: trpc.router({
+      list: adminProcedure
+        .input(
+          z
+            .object({
+              ...pageInput,
+              sort: z
+                .enum([
+                  "name.asc",
+                  "name.desc",
+                  "email.asc",
+                  "email.desc",
+                  "createdAt.asc",
+                  "createdAt.desc",
+                ])
+                .default("createdAt.desc"),
+            })
+            .strict(),
+        )
+        .query(({ input }) => mapDomainErrors(() => listUsers(input))),
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getUser(input.id))),
+    }),
     auditEvents: trpc.router({
       list: adminProcedure
         .input(
@@ -79,15 +106,25 @@ export const appRouter = trpc.router({
                 .transform((value) => new Date(value))
                 .optional(),
               eventType: z.enum(AUDIT_EVENT_TYPES).optional(),
+              outcome: z.enum(["success", "denied", "failed"]).optional(),
               email: z.string().max(320).optional(),
+              userId: z.string().min(1).max(191).optional(),
               sort: z.enum(["occurredAt.asc", "occurredAt.desc"]).default("occurredAt.desc"),
             })
             .strict()
             .refine((input) => !input.from || !input.to || input.from <= input.to, {
               message: "The start of the audit period must precede its end.",
+            })
+            .refine((input) => !input.email || !input.userId, {
+              message: "Choose either an email filter or a user, not both.",
             }),
         )
-        .query(({ input }) => mapDomainErrors(() => listAuditEvents(input))),
+        .query(({ input }) => {
+          const { userId, ...auditInput } = input;
+          return mapDomainErrors(() =>
+            userId ? listUserAuditEvents(userId, auditInput) : listAuditEvents(auditInput),
+          );
+        }),
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getAuditEvent(input.id))),

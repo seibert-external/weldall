@@ -249,9 +249,40 @@ export async function listAuditEvents(input: {
   from?: Date | undefined;
   to?: Date | undefined;
   eventType?: AuditEventType | undefined;
+  outcome?: AuditOutcome | undefined;
   email?: string | undefined;
+  relatedUser?: { actorId: string; assignmentId?: string | undefined } | undefined;
   sort: "occurredAt.asc" | "occurredAt.desc";
 }): Promise<{ items: AuditEventDto[]; total: number }> {
+  const filters: Prisma.AuditEventWhereInput[] = [];
+  if (input.email?.trim()) {
+    filters.push({
+      OR: [
+        { actorEmail: { contains: input.email.trim(), mode: "insensitive" } },
+        {
+          metadata: {
+            path: ["normalizedEmail"],
+            string_contains: input.email.trim().toLowerCase(),
+          },
+        },
+      ],
+    });
+  }
+  if (input.relatedUser) {
+    filters.push({
+      OR: [
+        { actorType: "user", actorId: input.relatedUser.actorId },
+        ...(input.relatedUser.assignmentId
+          ? [
+              {
+                subjectType: "email_scope_assignment",
+                subjectId: input.relatedUser.assignmentId,
+              },
+            ]
+          : []),
+      ],
+    });
+  }
   const where: Prisma.AuditEventWhereInput = {
     ...(input.from || input.to
       ? {
@@ -262,19 +293,8 @@ export async function listAuditEvents(input: {
         }
       : {}),
     ...(input.eventType ? { eventType: input.eventType } : {}),
-    ...(input.email?.trim()
-      ? {
-          OR: [
-            { actorEmail: { contains: input.email.trim(), mode: "insensitive" } },
-            {
-              metadata: {
-                path: ["normalizedEmail"],
-                string_contains: input.email.trim().toLowerCase(),
-              },
-            },
-          ],
-        }
-      : {}),
+    ...(input.outcome ? { outcome: input.outcome } : {}),
+    ...(filters.length ? { AND: filters } : {}),
   };
   const direction = input.sort === "occurredAt.asc" ? "asc" : "desc";
   const [items, total] = await Promise.all([
