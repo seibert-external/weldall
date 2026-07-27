@@ -1,0 +1,61 @@
+---
+title: Weldall
+description: A reference implementation of OAuth identity and authorization chaining across trust domains.
+template: splash
+hero:
+  layout: centered
+  title: OAuth across trust domains, end to end.
+  tagline: Weldall is a working reference implementation built around an authorization server and a native CLI.
+  actions:
+    - text: See how it works
+      link: "#how-it-fits-together"
+      icon: right-arrow
+    - text: View the source
+      link: https://github.com/seibert-external/weldall
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## Two components. Clear jobs.
+
+<CardGrid>
+  <Card title="Weldall Authorization Server" icon="approve-check-circle">
+    Authenticates the user, applies central policy, and issues a target-bound Identity Assertion JWT
+    Authorization Grant (ID-JAG). It also publishes the resource, scope, and skill registries used
+    by the CLI.
+  </Card>
+  <Card title="Weldall CLI" icon="seti:shell">
+    A native OAuth client for macOS. It keeps the device key in the system keychain, obtains
+    DPoP-bound credentials, and calls registered APIs directly.
+  </Card>
+</CardGrid>
+
+The Weldall Authorization Server is in the authorization path, not the API data path. API requests do not pass through it.
+
+## How it fits together
+
+```text
+Weldall CLI ── sign in and request access ──▶ Weldall Authorization Server
+     │                                               │
+     │                                               └── issues an ID-JAG
+     │
+     ├── exchanges the ID-JAG at the resource's authorization server
+     └── calls the API directly with a DPoP-bound access token
+```
+
+This lets one trust domain carry identity and authorization into another without handing a reusable bearer credential to the client or routing API traffic through Weldall.
+
+## The specifications
+
+The architecture follows [OAuth Identity and Authorization Chaining Across Domains](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-chaining/). The current implementation pins these draft revisions:
+
+- [Identity Assertion JWT Authorization Grant, draft 04](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) defines the ID-JAG issued by Weldall.
+- [OAuth 2.0 JWT Authorization Grant with DPoP Binding, draft 01](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01) defines how that grant is exchanged for a key-bound access token.
+
+The flow also uses [DPoP](https://www.rfc-editor.org/rfc/rfc9449), [OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), [Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414), and [Protected Resource Metadata](https://www.rfc-editor.org/rfc/rfc9728).
+
+## Status
+
+Weldall is an independent reference implementation, not a conformance suite. The two core specifications are active Internet-Drafts and can still change.
