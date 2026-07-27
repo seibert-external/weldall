@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- 27ac58e: Render compact framed CLI context, cache administrator instructions, and distinguish all assigned scopes from permissions exposed by enabled APIs.
+
 ## 0.2.1
 
 ### Patch Changes
