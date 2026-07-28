@@ -45,6 +45,12 @@ export async function consumeReplay(
   }
   if (!first) {
     const { WeldallAuthError } = await import("./errors.js");
-    throw new WeldallAuthError(replayError.code, replayError.message, replayError.status ?? 400);
+    throw new WeldallAuthError(
+      replayError.code,
+      replayError.message,
+      replayError.status ?? 400,
+      [],
+      "replay_detected",
+    );
   }
 }

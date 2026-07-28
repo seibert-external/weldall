@@ -17,7 +17,7 @@ Weldall's upstream login handling.
 
 | Requirement                                                | Reference               | Coverage                                                       |
 | ---------------------------------------------------------- | ----------------------- | -------------------------------------------------------------- |
-| Native loopback redirect and issuer/state binding          | RFC 8252                | `apps/cli/test/session.test.ts`, Docker E2E login              |
+| Native loopback redirect, issuer/state binding and consent | RFC 8252 / OAuth 2.1    | CLI unit tests and Docker E2E login/approval                   |
 | S256 PKCE                                                  | RFC 7636                | CLI unit test, Development-IdP PKCE and code-consumption tests |
 | DPoP signature, JOSE header, claims, URI and time binding  | RFC 9449 §4             | OAuth malformed-input and boundary matrix                      |
 | DPoP access-token hash, atomic replay and endpoint binding | RFC 9449 §§4, 9         | OAuth and Expenses tests                                       |
@@ -42,6 +42,7 @@ Weldall's upstream login handling.
 - Parallel DPoP and ID-JAG replay: exactly one request succeeds
 - Missing, duplicate and unsupported OAuth form parameters
 - Missing, duplicate, ambiguous or wrong-issuer native callback parameters
+- Per-login native-client consent, including an explicit user approval before code issuance
 - PKCE `plain`, malformed challenges/verifiers and authorization-code replay
 - Partial Google configuration, ambiguous Development-IdP issuers and Development Login in production
 - Stolen refresh token with another DPoP key, refresh-token reuse and family revocation
@@ -52,20 +53,26 @@ Weldall's upstream login handling.
 
 ## Security findings with regression coverage
 
-| Severity | Finding                                                              | Resolution                                                                  |
-| -------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| High     | Empty ID-JAG `cnf.jkt` skipped DPoP key comparison                   | JKT shape is mandatory and `expectedJkt` is compared even when empty        |
-| High     | CLI forwarded a returned ID-JAG without validating it                | CLI now verifies signature, JOSE header, target, scope, draft and `cnf.jkt` |
-| Medium   | Development issuer paths were silently reduced to another issuer     | Configuration now requires an exact HTTPS origin                            |
-| Medium   | Duplicate security-sensitive OAuth parameters had ambiguous handling | Weldall, Expenses, loopback and Development IdP reject duplicates           |
-| Medium   | Malformed compact DPoP could escape as a generic parser error        | DPoP parser failures are normalized to `invalid_dpop_proof`                 |
-| Medium   | Revocation exposed unknown/already-revoked token state               | RFC 7009-style revocation is idempotent for both cases                      |
-| High     | Scope-only resource selection allowed token and body exfiltration    | CLI resolves the target against registered origins and path segments first  |
+| Severity | Finding                                                              | Resolution                                                                   |
+| -------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| High     | Empty ID-JAG `cnf.jkt` skipped DPoP key comparison                   | JKT shape is mandatory and `expectedJkt` is compared even when empty         |
+| High     | CLI forwarded a returned ID-JAG without validating it                | CLI now verifies signature, JOSE header, target, scope, draft and `cnf.jkt`  |
+| Medium   | Development issuer paths were silently reduced to another issuer     | Configuration now requires an exact HTTPS origin                             |
+| Medium   | Duplicate security-sensitive OAuth parameters had ambiguous handling | Weldall, Expenses, loopback and Development IdP reject duplicates            |
+| Medium   | Malformed compact DPoP could escape as a generic parser error        | DPoP parser failures are normalized to `invalid_dpop_proof`                  |
+| Medium   | Revocation exposed unknown/already-revoked token state               | RFC 7009-style revocation is idempotent for both cases                       |
+| High     | Scope-only resource selection allowed token and body exfiltration    | CLI resolves the target against registered origins and path segments first   |
+| High     | Native CLI authorization silently skipped user consent               | The client requires consent and every login sends `prompt=consent`           |
+| Medium   | Refresh reuse during token exchange skipped family revocation        | Exchange validates DPoP and revokes every binding in the refresh family      |
+| Medium   | Caller request IDs collapsed denied audit evidence                   | Denied and failed attempts are recorded independently                        |
+| Medium   | CLI lock takeover and refresh-persistence races                      | Cross-process locking is atomic; rotated credentials persist before JWKS I/O |
 
 ## Remaining production limitations
 
 The prototype replay stores are process-local. Restarting a service clears replay
-state, and multiple instances do not share it. This is an explicitly accepted
+state, and multiple instances do not share it. The SDK store caps live entries at
+10,000 and fails closed with HTTP 503 at capacity; the patched provider store has
+expiry-based cleanup but no fixed entry cap. This is an explicitly accepted
 prototype limitation; horizontal scaling still requires an atomic shared store
 plus multi-instance and restart tests.
 

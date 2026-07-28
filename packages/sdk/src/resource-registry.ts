@@ -52,16 +52,18 @@ export const normalizeRequestPrefix = (value: string): string => {
   return url.toString();
 };
 
-export const normalizeRequestTarget = (value: string): URL => {
-  const url = parseHttpsUrl(value, "Request URL");
+export const normalizeRequestTarget = (value: string | URL): URL => {
+  const url = parseHttpsUrl(value.toString(), "Request URL");
   if (url.hash) throw new TypeError("Request URL must not contain a fragment");
+  if (url.pathname.includes("%")) {
+    throw new TypeError("Request URL paths must not contain percent encoding");
+  }
   return url;
 };
 
 export const requestPrefixAccepts = (prefixValue: string, targetValue: string | URL): boolean => {
   const prefix = new URL(normalizeRequestPrefix(prefixValue));
-  const target =
-    typeof targetValue === "string" ? normalizeRequestTarget(targetValue) : targetValue;
+  const target = normalizeRequestTarget(targetValue);
   if (prefix.origin !== target.origin) return false;
   return (
     prefix.pathname === "/" ||

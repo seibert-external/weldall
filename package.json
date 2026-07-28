@@ -10,6 +10,7 @@
     "admin:bootstrap": "pnpm --filter @weldall/weldall admin:bootstrap",
     "build": "turbo run build",
     "build:dev": "turbo run build --filter=!@weldall/weldall",
+    "check": "eslint apps packages scripts && turbo run lint typecheck",
     "cli:link": "pnpm --filter @weldall/cli build && ln -sf \"$PWD/apps/cli/dist/index.js\" \"$(dirname \"$(command -v node)\")/weldall\"",
     "dev": "turbo run dev --filter=@weldall/weldall --filter=@weldall/expenses --filter=@weldall/dev-idp",
     "docs:dev": "pnpm --filter @weldall/docs dev",

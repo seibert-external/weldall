@@ -275,7 +275,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
       });
     } catch (error) {
       if (error instanceof WeldallAuthError && error.code === "invalid_dpop_proof")
-        throw new WeldallAuthError(error.code, error.message, 401);
+        throw new WeldallAuthError(error.code, error.message, 401, [], error.reason);
       throw error;
     }
     const missingAll = required.filter((scope) => !granted.includes(scope));
@@ -319,6 +319,8 @@ export function initWeldall(host: string, options: WeldallOptions) {
         token_endpoint: tokenEndpoint,
         jwks_uri: `${issuer}/.well-known/jwks.json`,
         grant_types_supported: [JWT_DPOP_GRANT],
+        response_types_supported: [],
+        token_endpoint_auth_methods_supported: ["none"],
         dpop_signing_alg_values_supported: ["ES256"],
         "urn:weldall:jwt-dpop-draft": JWT_DPOP_DRAFT,
       }),

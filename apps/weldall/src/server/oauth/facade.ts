@@ -82,6 +82,21 @@ function requiredString(form: FormData, name: string): string {
   return value;
 }
 
+async function oauthForm(request: Request): Promise<FormData> {
+  if (request.method !== "POST") {
+    throw new WeldallAuthError("invalid_request", "OAuth endpoint requires POST");
+  }
+  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/x-www-form-urlencoded") {
+    throw new WeldallAuthError("invalid_request", "form content type required");
+  }
+  try {
+    return await request.clone().formData();
+  } catch {
+    throw new WeldallAuthError("invalid_request", "invalid form body");
+  }
+}
+
 const findBinding = (token: string) =>
   db.oAuthDeviceRefreshBinding.findUnique({ where: { tokenHash: hash(token) } });
 
@@ -109,6 +124,9 @@ async function exchange(
   if (requiredString(form, "client_id") !== WELDALL_CLIENT_ID) {
     throw new WeldallAuthError("invalid_client");
   }
+  audit.actorId = WELDALL_CLIENT_ID;
+  audit.actorType = "oauth_client";
+  audit.clientId = WELDALL_CLIENT_ID;
   if (
     requiredString(form, "requested_token_type") !== ID_JAG_TOKEN_TYPE ||
     requiredString(form, "subject_token_type") !== REFRESH_TOKEN_TYPE
@@ -124,18 +142,49 @@ async function exchange(
     db.oauthRefreshToken.findUnique({ where: { token: tokenHash } }),
   ]);
   const providerJkt = confirmationJkt(providerToken?.confirmation);
+  const now = new Date();
+  const providerReuseSignal =
+    binding &&
+    providerToken?.rotatedAt &&
+    providerToken.clientId === binding.clientId &&
+    providerToken.userId === binding.userId &&
+    !providerToken.revoked &&
+    providerToken.expiresAt > now &&
+    typeof providerJkt === "string" &&
+    safeEqual(providerJkt, binding.dpopJkt);
+  if (
+    binding &&
+    binding.clientId === WELDALL_CLIENT_ID &&
+    !binding.revokedAt &&
+    binding.expiresAt > now &&
+    (binding.rotatedAt || providerReuseSignal)
+  ) {
+    audit.actorId = binding.userId;
+    audit.actorType = "user";
+    await validateBoundProof(request, binding);
+    await db.oAuthDeviceRefreshBinding.updateMany({
+      where: { familyId: binding.familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    throw new WeldallAuthError(
+      "invalid_grant",
+      "refresh token reuse detected",
+      400,
+      [],
+      "replay_detected",
+    );
+  }
   if (
     !binding ||
     binding.clientId !== WELDALL_CLIENT_ID ||
     binding.revokedAt ||
-    binding.rotatedAt ||
-    binding.expiresAt <= new Date() ||
+    binding.expiresAt <= now ||
     !providerToken ||
     providerToken.clientId !== binding.clientId ||
     providerToken.userId !== binding.userId ||
     providerToken.revoked ||
     providerToken.rotatedAt ||
-    providerToken.expiresAt <= new Date() ||
+    providerToken.expiresAt <= now ||
     typeof providerJkt !== "string" ||
     !safeEqual(providerJkt, binding.dpopJkt)
   ) {
@@ -226,7 +275,6 @@ async function exchange(
 
 function createExchangeAuditContext(request: Request, form: FormData): ExchangeAuditContext {
   const identifiers = auditRequestIdentifiers(request);
-  const clientId = safeAuditString(form.get("client_id"), 200);
   const rawScope = safeAuditString(form.get("scope"), 16_100);
   const requestedScopes = rawScope
     ? [...new Set(rawScope.split(" ").filter((scope) => scope.length > 0 && scope.length <= 160))]
@@ -235,9 +283,8 @@ function createExchangeAuditContext(request: Request, form: FormData): ExchangeA
     : [];
   return {
     ...identifiers,
-    actorId: clientId ?? "anonymous",
-    actorType: clientId ? "oauth_client" : "anonymous",
-    ...(clientId ? { clientId } : {}),
+    actorId: "anonymous",
+    actorType: "anonymous",
     audience: safeAuditString(form.get("audience"), 2_000),
     resource: safeAuditString(form.get("resource"), 2_000),
     requestedScopes,
@@ -260,7 +307,6 @@ async function auditExchangeFailure(
       ...(audit.clientId ? { clientId: audit.clientId } : {}),
       requestId: audit.requestId,
       ...(audit.correlationId ? { correlationId: audit.correlationId } : {}),
-      deduplicationKey: auditDeduplicationKey(audit, failed ? "id_jag.failed" : "id_jag.denied"),
       outcome: failed ? "failed" : "denied",
       reasonCode,
       ...(audit.resource ? { subjectType: "resource", subjectId: audit.resource } : {}),
@@ -288,7 +334,7 @@ function auditReasonCode(error: unknown): AuditReasonCode {
     return error.message === "audit store unavailable"
       ? "audit_store_unavailable"
       : "internal_error";
-  if (/replay|reuse/i.test(error.message)) return "replay_detected";
+  if (error.reason === "replay_detected") return "replay_detected";
   if (error.code === "invalid_client") return "invalid_client";
   if (error.code === "invalid_target") return "invalid_resource";
   if (error.code === "invalid_scope") return "scope_not_granted";
@@ -312,7 +358,7 @@ export function tokenFacade(request: Request) {
 export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: AuditWriter) {
   let exchangeAudit: ExchangeAuditContext | undefined;
   try {
-    const form = await request.clone().formData();
+    const form = await oauthForm(request);
     const grantTypeValue = form.get("grant_type");
     if (grantTypeValue === TOKEN_EXCHANGE_GRANT) {
       exchangeAudit = createExchangeAuditContext(request, form);
@@ -334,7 +380,13 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
           where: { familyId: previous.familyId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        throw new WeldallAuthError("invalid_grant", "refresh token reuse detected");
+        throw new WeldallAuthError(
+          "invalid_grant",
+          "refresh token reuse detected",
+          400,
+          [],
+          "replay_detected",
+        );
       }
       verifiedJkt = (await validateBoundProof(request, previous)).jkt;
     }
@@ -443,7 +495,7 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
 
 export async function revocationFacade(request: Request) {
   try {
-    const form = await request.clone().formData();
+    const form = await oauthForm(request);
     rejectDuplicateParameters(form);
     const binding = await findBinding(requiredString(form, "token"));
     if (!binding || binding.revokedAt)

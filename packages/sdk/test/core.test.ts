@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { decodeJwt } from "jose";
+import { calculateJwkThumbprint, decodeJwt } from "jose";
 import {
   JWT_DPOP_GRANT,
   WeldallAuthError,
+  consumeReplay,
   createDpopProof,
   generateEs256KeyPair,
   inMemory,
   initWeldall,
+  isSha256JwkThumbprint,
   issueAccessToken,
   issueIdJag as issueSdkIdJag,
+  oauthErrorResponse,
   signEs256,
   verifyAccessToken,
   verifyIdJag,
@@ -159,8 +162,51 @@ describe("configuration and metadata", () => {
     await expect(instance.handlers.protectedResourceMetadata()).resolves.toMatchObject({
       status: 200,
     });
+    const authorizationServerMetadata = (await (
+      await instance.handlers.authorizationServerMetadata()
+    ).json()) as Record<string, unknown>;
+    expect(authorizationServerMetadata).toMatchObject({
+      response_types_supported: [],
+      token_endpoint_auth_methods_supported: ["none"],
+    });
     const jwks = (await (await instance.handlers.jwks()).json()) as { keys: { kid: string }[] };
     expect(jwks.keys.map(({ kid }) => kid)).toEqual(["local"]);
+  });
+
+  it("maps unknown endpoint failures to server errors", async () => {
+    const response = oauthErrorResponse(new Error("database unavailable"));
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "server_error",
+      error_description: "server error",
+    });
+  });
+
+  it("marks replay rejection structurally instead of relying on message text", async () => {
+    await expect(
+      consumeReplay(
+        { consume: async () => false },
+        "dpop",
+        "duplicate",
+        new Date(Date.now() + 60_000),
+        { code: "invalid_dpop_proof", message: "already seen" },
+      ),
+    ).rejects.toMatchObject({ reason: "replay_detected" });
+  });
+
+  it("matches the official RFC 7638 JWK thumbprint vector", async () => {
+    const thumbprint = await calculateJwkThumbprint(
+      {
+        kty: "RSA",
+        n: "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+        e: "AQAB",
+        alg: "RS256",
+        kid: "2011-04-29",
+      },
+      "sha256",
+    );
+    expect(thumbprint).toBe("NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs");
+    expect(isSha256JwkThumbprint(thumbprint)).toBe(true);
   });
 });
 

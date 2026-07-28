@@ -2,6 +2,8 @@
 
 A macOS CLI for Weldall's DPoP-bound OAuth flow.
 
+> **Prototype:** Weldall uses pinned draft protocols and process-local replay protection. Review your server deployment's security boundary before production use. Every `weldall login` opens a browser approval screen; approve only when you started that login on the same device.
+
 ## Installation
 
 Node.js 22.15 or newer is required. Install the public package globally:

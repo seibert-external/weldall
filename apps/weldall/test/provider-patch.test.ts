@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { generateEs256KeyPair } from "@weldall/sdk";
+import { enforceCliConsent } from "../src/server/auth/consent.js";
 import {
   WELDALL_CLIENT_ID,
   WELDALL_ISSUER,
@@ -9,6 +10,24 @@ import {
 } from "../src/server/oauth/constants.js";
 
 describe("Better Auth DPoP replay patch", () => {
+  it.each([undefined, "none", "login"])(
+    "forces CLI consent server-side when prompt is %s",
+    (prompt) => {
+      const url = new URL(`${WELDALL_ISSUER}/api/auth/oauth2/authorize`);
+      url.searchParams.set("client_id", WELDALL_CLIENT_ID);
+      if (prompt) url.searchParams.set("prompt", prompt);
+      const enforced = enforceCliConsent(new Request(url));
+      expect(new URL(enforced.url).searchParams.get("prompt")).toBe("consent");
+    },
+  );
+
+  it("does not rewrite unrelated authorization clients", () => {
+    const url = new URL(`${WELDALL_ISSUER}/api/auth/oauth2/authorize`);
+    url.searchParams.set("client_id", "other-client");
+    const request = new Request(url);
+    expect(enforceCliConsent(request)).toBe(request);
+  });
+
   it("uses one process-local replay store at every provider DPoP call site", async () => {
     const providerEntry = fileURLToPath(import.meta.resolve("@better-auth/oauth-provider"));
     const source = await readFile(providerEntry, "utf8");
@@ -31,6 +50,11 @@ describe("Better Auth DPoP replay patch", () => {
       WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(signingKey.publicJwk),
       WELDALL_SIGNING_KID: "weldall-provider-test",
     });
+    const { db } = await import("@weldall/db");
+    await expect(
+      db.oauthClient.findUniqueOrThrow({ where: { clientId: WELDALL_CLIENT_ID } }),
+    ).resolves.toMatchObject({ skipConsent: false });
+
     const deviceKey = await generateEs256KeyPair();
     const authorize = new URL(`${WELDALL_ISSUER}/api/auth/oauth2/authorize`);
     Object.entries({

@@ -391,6 +391,120 @@ describe("Weldall token exchange", () => {
     expect(JSON.stringify(event)).not.toContain(proof);
   });
 
+  it("records repeated denied attempts even when the caller reuses a request ID", async () => {
+    const requestId = `repeated-denial-${randomUUID()}`;
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const proof = await createDpopProof({
+        ...deviceKey,
+        method: "POST",
+        url: WELDALL_TOKEN_ENDPOINT,
+      });
+      const response = await tokenFacade(
+        new Request(WELDALL_TOKEN_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            dpop: proof,
+            "x-request-id": requestId,
+          },
+          body: new URLSearchParams({
+            grant_type: TOKEN_EXCHANGE_GRANT,
+            requested_token_type: ID_JAG_TOKEN_TYPE,
+            audience: EXPENSES_ISSUER,
+            resource: EXPENSES_RESOURCE,
+            scope: "expenses:delete",
+            subject_token: refreshToken,
+            subject_token_type: REFRESH_TOKEN_TYPE,
+            client_id: WELDALL_CLIENT_ID,
+          }),
+        }),
+      );
+      expect(response.status).toBe(400);
+    }
+
+    const { db } = await import("@weldall/db");
+    await expect(
+      db.auditEvent.count({ where: { requestId, eventType: "id_jag.denied" } }),
+    ).resolves.toBe(2);
+  });
+
+  it("does not attribute an invalid client ID to the attacker-chosen identity", async () => {
+    const requestId = `invalid-client-${randomUUID()}`;
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    const response = await tokenFacade(
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "x-request-id": requestId,
+        },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: EXPENSES_ISSUER,
+          resource: EXPENSES_RESOURCE,
+          scope: "expenses:read",
+          subject_token: refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: "attacker-chosen-client",
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+
+    const { db } = await import("@weldall/db");
+    const event = await db.auditEvent.findFirstOrThrow({
+      where: { requestId, eventType: "id_jag.denied" },
+    });
+    expect(event).toMatchObject({
+      actorType: "anonymous",
+      actorId: "anonymous",
+      clientId: null,
+      reasonCode: "invalid_client",
+    });
+    await db.auditEvent.deleteMany({ where: { requestId } });
+  });
+
+  it("classifies a reused DPoP proof with a structured replay reason", async () => {
+    const proof = await createDpopProof({
+      ...deviceKey,
+      method: "POST",
+      url: WELDALL_TOKEN_ENDPOINT,
+    });
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    const request = (requestId: string) =>
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          dpop: proof,
+          "x-request-id": requestId,
+        },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: EXPENSES_ISSUER,
+          resource: EXPENSES_RESOURCE,
+          scope: "expenses:read",
+          subject_token: refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: WELDALL_CLIENT_ID,
+        }),
+      });
+    expect((await tokenFacade(request(`replay-first-${randomUUID()}`))).status).toBe(200);
+    const replayRequestId = `replay-denied-${randomUUID()}`;
+    const response = await tokenFacade(request(replayRequestId));
+    expect(response.status).toBe(400);
+
+    const { db } = await import("@weldall/db");
+    await expect(
+      db.auditEvent.findFirstOrThrow({
+        where: { requestId: replayRequestId, eventType: "id_jag.denied" },
+      }),
+    ).resolves.toMatchObject({ reasonCode: "replay_detected" });
+  });
+
   it("fails ID-JAG issuance closed when the audit store cannot write", async () => {
     const proof = await createDpopProof({
       ...deviceKey,
@@ -547,6 +661,82 @@ describe("Weldall token exchange", () => {
     await expect(duplicateResponse.json()).resolves.toMatchObject({ error: "invalid_request" });
   });
 
+  it("revokes a refresh-token family when the provider detects exchange reuse first", async () => {
+    const { db } = await import("@weldall/db");
+    const familyId = `exchange-reuse-${randomUUID()}`;
+    const reusedToken = `reused-${randomUUID()}`;
+    const reusedHash = createHash("sha256").update(reusedToken, "ascii").digest("base64url");
+    const replacementHash = createHash("sha256")
+      .update(`replacement-${randomUUID()}`, "ascii")
+      .digest("base64url");
+    await db.oauthRefreshToken.create({
+      data: {
+        id: `provider-${randomUUID()}`,
+        token: reusedHash,
+        clientId: WELDALL_CLIENT_ID,
+        userId,
+        confirmation: JSON.stringify({ jkt: deviceKey.jkt }),
+        expiresAt: new Date(Date.now() + 60_000),
+        rotatedAt: new Date(),
+        scopes: ["openid", "offline_access", "weldall:scopes"],
+      },
+    });
+    await db.oAuthDeviceRefreshBinding.createMany({
+      data: [
+        {
+          tokenHash: reusedHash,
+          familyId,
+          clientId: WELDALL_CLIENT_ID,
+          userId,
+          dpopJkt: deviceKey.jkt,
+          expiresAt: new Date(Date.now() + 60_000),
+          replacementHash,
+        },
+        {
+          tokenHash: replacementHash,
+          familyId,
+          clientId: WELDALL_CLIENT_ID,
+          userId,
+          dpopJkt: deviceKey.jkt,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      ],
+    });
+
+    try {
+      const proof = await createDpopProof({
+        ...deviceKey,
+        method: "POST",
+        url: WELDALL_TOKEN_ENDPOINT,
+      });
+      const { tokenFacade } = await import("../src/server/oauth/facade.js");
+      const response = await tokenFacade(
+        new Request(WELDALL_TOKEN_ENDPOINT, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
+          body: new URLSearchParams({
+            grant_type: TOKEN_EXCHANGE_GRANT,
+            requested_token_type: ID_JAG_TOKEN_TYPE,
+            audience: EXPENSES_ISSUER,
+            resource: EXPENSES_RESOURCE,
+            scope: "expenses:read",
+            subject_token: reusedToken,
+            subject_token_type: REFRESH_TOKEN_TYPE,
+            client_id: WELDALL_CLIENT_ID,
+          }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: "invalid_grant" });
+      const family = await db.oAuthDeviceRefreshBinding.findMany({ where: { familyId } });
+      expect(family).toHaveLength(2);
+      expect(family.every(({ revokedAt }) => revokedAt instanceof Date)).toBe(true);
+    } finally {
+      await db.oAuthDeviceRefreshBinding.deleteMany({ where: { familyId } });
+      await db.oauthRefreshToken.deleteMany({ where: { token: reusedHash } });
+    }
+  });
+
   it("revokes a refresh-token family when a rotated token is reused", async () => {
     const { db } = await import("@weldall/db");
     await db.oAuthDeviceRefreshBinding.updateMany({
@@ -596,6 +786,18 @@ describe("Weldall token exchange", () => {
       expect(response.status).toBe(200);
       await expect(response.text()).resolves.toBe("");
     }
+  });
+
+  it("returns invalid_request for malformed OAuth media types", async () => {
+    const { tokenFacade } = await import("../src/server/oauth/facade.js");
+    const response = await tokenFacade(
+      new Request(WELDALL_TOKEN_ENDPOINT, {
+        method: "POST",
+        body: "grant_type=refresh_token",
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_request" });
   });
 
   it("rejects duplicate revocation hints", async () => {
