@@ -22,6 +22,8 @@
     "test:e2e": "bash scripts/test-e2e.sh",
     "db:generate": "pnpm --filter @weldall/db generate",
     "db:migrate:deploy": "pnpm --filter @weldall/db migrate:deploy",
+    "db:seed:production": "pnpm --filter @weldall/db seed:production",
+    "db:seed:development": "pnpm --filter @weldall/db seed:development",
     "secrets:generate": "tsx scripts/generate-env.ts",
     "changeset": "changeset",
     "changeset:status": "changeset status",

@@ -151,12 +151,12 @@ Die Werte müssen zur Konfiguration im Hono-Service passen. Weldall gibt keine Z
 
 Öffne **Skills**, wähle **Create skill** und trage ein:
 
-| Feld                           | Wert                 |
-| ------------------------------ | -------------------- |
-| Skill ID                       | `contracts.list`     |
-| Title                          | `Verträge auflisten` |
-| Required scopes                | `contracts:read`     |
-| Hidden without required scopes | aktiviert            |
+| Feld            | Wert                 |
+| --------------- | -------------------- |
+| Skill ID        | `contracts.list`     |
+| Title           | `Verträge auflisten` |
+| Required scopes | `contracts:read`     |
+| Visibility      | Hidden if unallowed  |
 
 Verwende diese Markdown-Anweisung:
 
@@ -196,4 +196,4 @@ weldall request \
   https://contracts.example.com/api/contracts
 ```
 
-Der Service liefert die Vertragsliste zusammen mit der Identität, für die Weldall den Request autorisiert hat. Entfernst du die Zuweisung, wird der gleiche Request abgelehnt und der versteckte Skill nicht mehr angezeigt.
+Der Service liefert die Vertragsliste zusammen mit der Identität, für die Weldall den Request autorisiert hat. Entfernst du die Zuweisung, wird der gleiche Request abgelehnt; ein als **Hidden if unallowed** konfigurierter Skill wird außerdem nicht mehr angezeigt.

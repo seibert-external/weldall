@@ -50,6 +50,7 @@ jobs:
         run: |
           pnpm db:generate
           pnpm db:migrate:deploy
+          pnpm db:seed:development
 
       - name: Verify source
         run: |

@@ -49,7 +49,14 @@ beforeEach(async () => {
         return Response.json({ issuer: host, jwks_uri: `${host}/jwks` });
       if (url === `${host}/jwks`)
         return Response.json({
-          keys: [{ ...discoveredKey.publicJwk, kid: discoveredKid, alg: "ES256", use: "sig" }],
+          keys: [
+            {
+              ...discoveredKey.publicJwk,
+              kid: discoveredKid,
+              alg: "ES256",
+              use: "sig",
+            },
+          ],
         });
       return new Response(null, { status: 404 });
     }),
@@ -62,7 +69,11 @@ const sdk = () =>
     publicOrigin: origin,
     clientId,
     supportedScopes: ["read", "write", "admin"],
-    signingKey: { kid: "local", privateJwk: localKey.privateJwk, publicJwk: localKey.publicJwk },
+    signingKey: {
+      kid: "local",
+      privateJwk: localKey.privateJwk,
+      publicJwk: localKey.publicJwk,
+    },
     replayStore: inMemory({ suppressWarning: true }),
   });
 
@@ -88,17 +99,34 @@ async function exchange(instance = sdk(), jag = assertion()) {
   const response = await instance.handlers.token(
     new Request(`${origin}/oauth/token`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
-      body: new URLSearchParams({ grant_type: JWT_DPOP_GRANT, assertion: await jag }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        dpop: proof,
+      },
+      body: new URLSearchParams({
+        grant_type: JWT_DPOP_GRANT,
+        assertion: await jag,
+      }),
     }),
   );
-  const body = (await response.clone().json()) as { access_token?: string; error?: string };
+  const body = (await response.clone().json()) as {
+    access_token?: string;
+    error?: string;
+  };
   return { instance, response, body };
 }
 
 async function protectedRequest(token: string, url = `${origin}/api/expenses`, method = "GET") {
-  const proof = await createDpopProof({ ...deviceKey, method, url, accessToken: token });
-  return new Request(url, { method, headers: { authorization: `DPoP ${token}`, dpop: proof } });
+  const proof = await createDpopProof({
+    ...deviceKey,
+    method,
+    url,
+    accessToken: token,
+  });
+  return new Request(url, {
+    method,
+    headers: { authorization: `DPoP ${token}`, dpop: proof },
+  });
 }
 
 describe("configuration and metadata", () => {
@@ -169,8 +197,73 @@ describe("configuration and metadata", () => {
       response_types_supported: [],
       token_endpoint_auth_methods_supported: ["none"],
     });
-    const jwks = (await (await instance.handlers.jwks()).json()) as { keys: { kid: string }[] };
+    const jwks = (await (await instance.handlers.jwks()).json()) as {
+      keys: { kid: string }[];
+    };
     expect(jwks.keys.map(({ kid }) => kid)).toEqual(["local"]);
+  });
+
+  it("publishes and protects a skill catalog with a replay-safe service assertion", async () => {
+    const instance = initWeldall(host, {
+      resource,
+      publicOrigin: origin,
+      clientId,
+      supportedScopes: ["expenses:read"],
+      signingKey: {
+        kid: "local",
+        privateJwk: localKey.privateJwk,
+        publicJwk: localKey.publicJwk,
+      },
+      replayStore: inMemory({ suppressWarning: true }),
+      skills: {
+        items: [
+          {
+            id: "review",
+            title: "Review expenses",
+            requiredScopes: ["expenses:read"],
+            visibility: "DEFAULT",
+            content: "# Review expenses",
+          },
+        ],
+      },
+    });
+    const metadata = (await (await instance.handlers.protectedResourceMetadata()).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(metadata.weldall_skills_endpoint).toBe(`${origin}/.well-known/weldall-skills`);
+    const now = Math.floor(Date.now() / 1_000);
+    const token = await signEs256(
+      {
+        iss: host,
+        sub: host,
+        aud: `${origin}/.well-known/weldall-skills`,
+        resource,
+        purpose: "skills:read",
+        iat: now,
+        exp: now + 60,
+        jti: "skills-test",
+      },
+      {
+        kid: "w1",
+        privateJwk: weldallKey.privateJwk,
+        typ: "weldall-skills+jwt",
+      },
+    );
+    const request = () =>
+      new Request(`${origin}/.well-known/weldall-skills`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+    const response = await instance.handlers.skills(request());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      schemaVersion: 1,
+      resource,
+      skills: [{ id: "review", visibility: "DEFAULT" }],
+    });
+    await expect(instance.handlers.skills(request())).resolves.toMatchObject({
+      status: 401,
+    });
   });
 
   it("maps unknown endpoint failures to server errors", async () => {
@@ -324,7 +417,10 @@ describe("exchange and verification", () => {
     });
     const malformedProof = await instance.verifyNoThrow(
       new Request(`${origin}/api/expenses`, {
-        headers: { authorization: `DPoP ${body.access_token!}`, dpop: "not-a-proof" },
+        headers: {
+          authorization: `DPoP ${body.access_token!}`,
+          dpop: "not-a-proof",
+        },
       }),
       { scopes: ["admin"] },
     );
@@ -338,7 +434,10 @@ describe("exchange and verification", () => {
     await instance.verify(first);
     const replay = await instance.verifyNoThrow(
       new Request(first.url, {
-        headers: { authorization: first.headers.get("authorization")!, dpop: proof },
+        headers: {
+          authorization: first.headers.get("authorization")!,
+          dpop: proof,
+        },
       }),
     );
     expect(replay.ok).toBe(false);
@@ -508,7 +607,11 @@ describe("exchange and verification", () => {
       publicOrigin: origin,
       clientId,
       supportedScopes: ["read"],
-      signingKey: { kid: "local", privateJwk: localKey.privateJwk, publicJwk: localKey.publicJwk },
+      signingKey: {
+        kid: "local",
+        privateJwk: localKey.privateJwk,
+        publicJwk: localKey.publicJwk,
+      },
       replayStore: {
         consume: async () => {
           throw new Error("redis unavailable");
@@ -540,7 +643,11 @@ describe("discovery and signing hardening", () => {
         kid: "kms",
         publicJwk: localKey.publicJwk,
         sign: (payload: Parameters<typeof signEs256>[0], header: { kid: string; typ: string }) =>
-          signEs256(payload, { kid: header.kid, privateJwk: localKey.privateJwk, typ: header.typ }),
+          signEs256(payload, {
+            kid: header.kid,
+            privateJwk: localKey.privateJwk,
+            typ: header.typ,
+          }),
       }),
       jwks: async () => [{ ...localKey.publicJwk, kid: "kms" }],
     };
@@ -569,7 +676,11 @@ describe("discovery and signing hardening", () => {
     },
   ])("rejects invalid or payload-mutating async signer output", async (sign) => {
     const provider = {
-      current: async () => ({ kid: "kms", publicJwk: localKey.publicJwk, sign }),
+      current: async () => ({
+        kid: "kms",
+        publicJwk: localKey.publicJwk,
+        sign,
+      }),
       jwks: async () => [{ ...localKey.publicJwk, kid: "kms" }],
     };
     const instance = initWeldall(host, {

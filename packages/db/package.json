@@ -16,6 +16,8 @@
     "test": "vitest run --passWithNoTests",
     "generate": "prisma generate --schema prisma/schema.prisma",
     "migrate:deploy": "pnpm with-env prisma migrate deploy --schema prisma/schema.prisma",
+    "seed:production": "pnpm with-env tsx prisma/seed.ts",
+    "seed:development": "pnpm seed:production && pnpm with-env tsx prisma/seed.dev.ts",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
@@ -25,6 +27,7 @@
     "@weldall/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "prisma": "6.19.3",
+    "tsx": "^4.21.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -19,6 +19,7 @@ const emailSchema = z.string().email().max(320);
 const resourceInclude = {
   scopes: { include: { scope: { select: { id: true, key: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
+  discoveredCatalog: { include: { _count: { select: { skills: true } } } },
 } as const;
 
 export type AdminErrorCode =
@@ -81,16 +82,31 @@ export interface AssignmentDto {
   updatedAt: string;
 }
 
+export type SkillVisibilityDto = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
+
 export interface SkillDto {
   id: string;
   slug: string;
   title: string;
   content: string;
   requiredScopes: string[];
-  hidden: boolean;
+  visibility: SkillVisibilityDto;
   version: number;
   createdAt: string;
   updatedAt: string;
+  source:
+    | { type: "manual" }
+    | {
+        type: "resource";
+        resourceId: string;
+        key: string;
+        name: string;
+        catalogState: "disabled" | "pending" | "fresh" | "stale" | "expired" | "failed";
+      };
+  readOnly: boolean;
+  disabled: boolean;
+  scopeWarnings: string[];
+  overridden: boolean;
 }
 
 export interface CliSettingsDto {
@@ -108,6 +124,15 @@ export interface ResourceDto {
   authorizationServer: string;
   downstreamClientId: string;
   enabled: boolean;
+  skillDiscoveryEnabled: boolean;
+  catalogStatus: {
+    state: "disabled" | "pending" | "fresh" | "stale" | "expired" | "failed";
+    skillCount: number;
+    lastAttemptAt: string | null;
+    lastSuccessfulRefreshAt: string | null;
+    lastFailureCategory: string | null;
+    lastFailureAt: string | null;
+  } | null;
   version: number;
   scopeIds: string[];
   scopeKeys: string[];
@@ -260,7 +285,9 @@ export async function listUserAuditEvents(
 }
 
 export async function getCliSettings(): Promise<CliSettingsDto> {
-  const settings = await db.cliSettings.findUnique({ where: { id: "default" } });
+  const settings = await db.cliSettings.findUnique({
+    where: { id: "default" },
+  });
   if (!settings) throw new AdminDomainError("NOT_FOUND", "CLI settings are not initialized.");
   return serializeCliSettings(settings);
 }
@@ -277,7 +304,9 @@ export async function updateCliSettings(
     );
   }
   return db.$transaction(async (tx) => {
-    const current = await tx.cliSettings.findUnique({ where: { id: "default" } });
+    const current = await tx.cliSettings.findUnique({
+      where: { id: "default" },
+    });
     if (!current) throw new AdminDomainError("NOT_FOUND", "CLI settings are not initialized.");
     assertVersion(current.version, input.expectedVersion);
     if (current.appendix === appendix) return serializeCliSettings(current);
@@ -288,14 +317,22 @@ export async function updateCliSettings(
     if (write.count !== 1) {
       throw new AdminDomainError("CONFLICT", "The CLI settings changed. Reload and try again.");
     }
-    const updated = await tx.cliSettings.findUniqueOrThrow({ where: { id: current.id } });
+    const updated = await tx.cliSettings.findUniqueOrThrow({
+      where: { id: current.id },
+    });
     await writeAudit(tx, actor, {
       eventType: "cli_settings.updated",
       subjectType: "cli_settings",
       subjectId: current.id,
       metadata: {
-        before: { appendixSha256: contentHash(current.appendix), version: current.version },
-        after: { appendixSha256: contentHash(updated.appendix), version: updated.version },
+        before: {
+          appendixSha256: contentHash(current.appendix),
+          version: current.version,
+        },
+        after: {
+          appendixSha256: contentHash(updated.appendix),
+          version: updated.version,
+        },
       },
     });
     return serializeCliSettings(updated);
@@ -358,6 +395,7 @@ export async function createResource(
     authorizationServer: string;
     downstreamClientId: string;
     enabled: boolean;
+    skillDiscoveryEnabled: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
   },
@@ -378,6 +416,7 @@ export async function createResource(
             authorizationServer: parsed.authorizationServer,
             downstreamClientId: parsed.downstreamClientId,
             enabled: parsed.enabled,
+            skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
             createdBy: actor.id,
             updatedBy: actor.id,
             scopes: { create: scopes.map((scope) => ({ scopeId: scope.id })) },
@@ -387,6 +426,9 @@ export async function createResource(
                 createdBy: actor.id,
               })),
             },
+            ...(parsed.skillDiscoveryEnabled
+              ? { discoveredCatalog: { create: { nextRefreshAt: new Date() } } }
+              : {}),
           },
           include: resourceInclude,
         });
@@ -410,6 +452,7 @@ export async function updateResource(
     authorizationServer: string;
     downstreamClientId: string;
     enabled: boolean;
+    skillDiscoveryEnabled: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
     expectedVersion: number;
@@ -417,7 +460,11 @@ export async function updateResource(
   actor: AdminActor,
 ): Promise<ResourceDto> {
   const parsed = parseResourceInput(
-    { ...input, key: "placeholder", resourceIdentifier: "https://placeholder.invalid" },
+    {
+      ...input,
+      key: "placeholder",
+      resourceIdentifier: "https://placeholder.invalid",
+    },
     false,
   );
   try {
@@ -438,6 +485,8 @@ export async function updateResource(
           current.authorizationServer === parsed.authorizationServer &&
           current.downstreamClientId === parsed.downstreamClientId &&
           current.enabled === parsed.enabled &&
+          current.skillDiscoveryEnabled === parsed.skillDiscoveryEnabled &&
+          (!parsed.skillDiscoveryEnabled || current.discoveredCatalog !== null) &&
           sameStrings(current.scopes.map(({ scope }) => scope.id).sort(), parsed.scopeIds) &&
           sameStrings(
             current.requestPrefixes.map(({ urlPrefix }) => urlPrefix).sort(),
@@ -445,13 +494,20 @@ export async function updateResource(
           );
         if (unchanged) return serializeResource(current);
 
-        await tx.resourceScope.deleteMany({ where: { resourceId: current.id } });
+        await tx.resourceScope.deleteMany({
+          where: { resourceId: current.id },
+        });
         if (scopes.length) {
           await tx.resourceScope.createMany({
-            data: scopes.map((scope) => ({ resourceId: current.id, scopeId: scope.id })),
+            data: scopes.map((scope) => ({
+              resourceId: current.id,
+              scopeId: scope.id,
+            })),
           });
         }
-        await tx.resourceRequestPrefix.deleteMany({ where: { resourceId: current.id } });
+        await tx.resourceRequestPrefix.deleteMany({
+          where: { resourceId: current.id },
+        });
         await tx.resourceRequestPrefix.createMany({
           data: parsed.requestPrefixes.map((urlPrefix) => ({
             resourceId: current.id,
@@ -466,12 +522,24 @@ export async function updateResource(
             authorizationServer: parsed.authorizationServer,
             downstreamClientId: parsed.downstreamClientId,
             enabled: parsed.enabled,
+            skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
             version: { increment: 1 },
             updatedBy: actor.id,
           },
         });
         if (updatedCount.count !== 1) {
           throw new AdminDomainError("CONFLICT", "The resource changed. Reload and try again.");
+        }
+        if (parsed.skillDiscoveryEnabled) {
+          await tx.discoveredSkillCatalog.upsert({
+            where: { resourceId: current.id },
+            create: { resourceId: current.id, nextRefreshAt: new Date() },
+            update: {
+              nextRefreshAt: new Date(),
+              refreshLeaseId: null,
+              refreshLeaseUntil: null,
+            },
+          });
         }
         const updated = await tx.downstreamResource.findUniqueOrThrow({
           where: { id: current.id },
@@ -612,7 +680,9 @@ export async function deleteScope(
         grants: {
           include: {
             assignment: {
-              include: { grants: { include: { scope: { select: { key: true } } } } },
+              include: {
+                grants: { include: { scope: { select: { key: true } } } },
+              },
             },
           },
         },
@@ -754,38 +824,75 @@ export async function listSkills(input: {
   const page = positiveInteger(input.page, 1);
   const pageSize = Math.min(positiveInteger(input.pageSize, 20), MAX_PAGE_SIZE);
   const q = input.q?.trim();
-  const where: Prisma.SkillWhereInput = q
+  const textFilter = q
     ? {
         OR: [
-          { slug: { contains: q, mode: "insensitive" } },
+          { slug: { contains: q, mode: "insensitive" as const } },
+          { title: { contains: q, mode: "insensitive" as const } },
+        ],
+      }
+    : {};
+  const discoveredFilter: Prisma.DiscoveredSkillWhereInput = q
+    ? {
+        OR: [
+          { canonicalId: { contains: q, mode: "insensitive" } },
           { title: { contains: q, mode: "insensitive" } },
         ],
       }
     : {};
-  const orderBy: Prisma.SkillOrderByWithRelationInput =
-    input.sort === "title.desc"
-      ? { title: "desc" }
-      : input.sort === "updatedAt.asc"
-        ? { updatedAt: "asc" }
-        : input.sort === "updatedAt.desc"
-          ? { updatedAt: "desc" }
-          : { title: "asc" };
-  const [items, total] = await Promise.all([
-    db.skill.findMany({
-      where,
-      orderBy,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+  const [manual, discovered, scopes, manualSlugs] = await Promise.all([
+    db.skill.findMany({ where: textFilter }),
+    db.discoveredSkill.findMany({
+      where: discoveredFilter,
+      include: { catalog: { include: { resource: true } } },
     }),
-    db.skill.count({ where }),
+    db.scope.findMany({ select: { key: true, isSystem: true } }),
+    db.skill.findMany({ select: { slug: true } }),
   ]);
-  return { items: items.map(serializeSkill), total };
+  const scopeRegistry = new Map(scopes.map((scope) => [scope.key, scope.isSystem]));
+  const manualIds = new Set(manualSlugs.map((skill) => skill.slug));
+  const items = [
+    ...manual.map(serializeSkill),
+    ...discovered.map((skill) =>
+      serializeDiscoveredSkill(skill, scopeRegistry, manualIds.has(skill.canonicalId)),
+    ),
+  ];
+  const direction = input.sort?.endsWith(".desc") ? -1 : 1;
+  const byUpdatedAt = input.sort?.startsWith("updatedAt") ?? false;
+  items.sort((left, right) => {
+    const primary = byUpdatedAt
+      ? left.updatedAt.localeCompare(right.updatedAt)
+      : left.title.localeCompare(right.title);
+    return direction * (primary || left.slug.localeCompare(right.slug));
+  });
+  return {
+    items: items.slice((page - 1) * pageSize, page * pageSize),
+    total: items.length,
+  };
 }
 
 export async function getSkill(id: string): Promise<SkillDto> {
-  const skill = await db.skill.findUnique({ where: { id } });
-  if (!skill) throw new AdminDomainError("NOT_FOUND", "Skill not found.");
-  return serializeSkill(skill);
+  const [manual, discovered, scopes] = await Promise.all([
+    db.skill.findUnique({ where: { id } }),
+    db.discoveredSkill.findUnique({
+      where: { id },
+      include: { catalog: { include: { resource: true } } },
+    }),
+    db.scope.findMany({ select: { key: true, isSystem: true } }),
+  ]);
+  if (manual) return serializeSkill(manual);
+  if (!discovered) throw new AdminDomainError("NOT_FOUND", "Skill not found.");
+  const overridden = Boolean(
+    await db.skill.findUnique({
+      where: { slug: discovered.canonicalId },
+      select: { id: true },
+    }),
+  );
+  return serializeDiscoveredSkill(
+    discovered,
+    new Map(scopes.map((scope) => [scope.key, scope.isSystem])),
+    overridden,
+  );
 }
 
 export async function createSkill(
@@ -794,7 +901,7 @@ export async function createSkill(
     title: string;
     content: string;
     requiredScopes: string[];
-    hidden: boolean;
+    visibility: SkillVisibilityDto;
   },
   actor: AdminActor,
 ): Promise<SkillDto> {
@@ -814,7 +921,7 @@ export async function createSkill(
           slug: skill.slug,
           title: skill.title,
           requiredScopes: skill.requiredScopes,
-          hidden: skill.hidden,
+          visibility: skill.visibility,
           contentSha256: contentHash(skill.content),
           version: skill.version,
         },
@@ -835,7 +942,7 @@ export async function updateSkill(
     title: string;
     content: string;
     requiredScopes: string[];
-    hidden: boolean;
+    visibility: SkillVisibilityDto;
     expectedVersion: number;
   },
   actor: AdminActor,
@@ -850,7 +957,7 @@ export async function updateSkill(
     if (
       current.title === parsed.title &&
       current.content === parsed.content &&
-      current.hidden === parsed.hidden &&
+      current.visibility === parsed.visibility &&
       sameStrings(current.requiredScopes, parsed.requiredScopes)
     ) {
       return serializeSkill(current);
@@ -861,7 +968,7 @@ export async function updateSkill(
         title: parsed.title,
         content: parsed.content,
         requiredScopes: parsed.requiredScopes,
-        hidden: parsed.hidden,
+        visibility: parsed.visibility,
         version: { increment: 1 },
         updatedBy: actor.id,
       },
@@ -869,7 +976,9 @@ export async function updateSkill(
     if (write.count !== 1) {
       throw new AdminDomainError("CONFLICT", "The skill changed. Reload and try again.");
     }
-    const updated = await tx.skill.findUniqueOrThrow({ where: { id: current.id } });
+    const updated = await tx.skill.findUniqueOrThrow({
+      where: { id: current.id },
+    });
     await writeAudit(tx, actor, {
       eventType: "skill.updated",
       subjectType: "skill",
@@ -879,14 +988,14 @@ export async function updateSkill(
         before: {
           title: current.title,
           requiredScopes: current.requiredScopes,
-          hidden: current.hidden,
+          visibility: current.visibility,
           contentSha256: contentHash(current.content),
           version: current.version,
         },
         after: {
           title: updated.title,
           requiredScopes: updated.requiredScopes,
-          hidden: updated.hidden,
+          visibility: updated.visibility,
           contentSha256: contentHash(updated.content),
           version: updated.version,
         },
@@ -918,7 +1027,7 @@ export async function deleteSkill(
         slug: current.slug,
         title: current.title,
         requiredScopes: current.requiredScopes,
-        hidden: current.hidden,
+        visibility: current.visibility,
         contentSha256: contentHash(current.content),
         version: current.version,
       },
@@ -997,7 +1106,11 @@ export async function replaceAssignment(
       (tx) =>
         replaceAssignmentInTransaction(
           tx,
-          { normalizedEmail, scopeKeys, expectedVersion: input.expectedVersion },
+          {
+            normalizedEmail,
+            scopeKeys,
+            expectedVersion: input.expectedVersion,
+          },
           actor,
         ),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -1033,10 +1146,15 @@ export async function deleteAssignment(
 
 export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
   const normalizedEmail = normalizeEmail(email);
-  const actor: AdminActor = { id: "deployment-bootstrap", requestId: randomUUID() };
+  const actor: AdminActor = {
+    id: "deployment-bootstrap",
+    requestId: randomUUID(),
+  };
 
   return db.$transaction(async (tx) => {
-    const adminScope = await tx.scope.findUnique({ where: { key: ADMIN_SCOPE_KEY } });
+    const adminScope = await tx.scope.findUnique({
+      where: { key: ADMIN_SCOPE_KEY },
+    });
     if (!adminScope?.isSystem) {
       throw new AdminDomainError("NOT_FOUND", "The built-in administrator scope is missing.");
     }
@@ -1073,7 +1191,9 @@ export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
               },
             },
           },
-          include: { grants: { include: { scope: { select: { key: true } } } } },
+          include: {
+            grants: { include: { scope: { select: { key: true } } } },
+          },
         })
       : await tx.emailScopeAssignment.create({
           data: {
@@ -1088,7 +1208,9 @@ export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
               },
             },
           },
-          include: { grants: { include: { scope: { select: { key: true } } } } },
+          include: {
+            grants: { include: { scope: { select: { key: true } } } },
+          },
         });
     const beforeScopes = existing
       ? sortedUnique(existing.grants.map((grant) => grant.scope.key))
@@ -1124,7 +1246,9 @@ async function replaceAssignmentInTransaction(
 ): Promise<AssignmentDto | null> {
   const current = await tx.emailScopeAssignment.findUnique({
     where: { normalizedEmail: input.normalizedEmail },
-    include: { grants: { include: { scope: { select: { id: true, key: true } } } } },
+    include: {
+      grants: { include: { scope: { select: { id: true, key: true } } } },
+    },
   });
   const beforeScopes = current ? sortedUnique(current.grants.map((grant) => grant.scope.key)) : [];
 
@@ -1163,7 +1287,9 @@ async function replaceAssignmentInTransaction(
 
   let saved;
   if (current) {
-    await tx.emailScopeGrant.deleteMany({ where: { assignmentId: current.id } });
+    await tx.emailScopeGrant.deleteMany({
+      where: { assignmentId: current.id },
+    });
     if (scopes.length) {
       await tx.emailScopeGrant.createMany({
         data: scopes.map((scope) => ({
@@ -1290,6 +1416,7 @@ function parseResourceInput(
     authorizationServer: string;
     downstreamClientId: string;
     enabled: boolean;
+    skillDiscoveryEnabled?: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
   },
@@ -1348,6 +1475,7 @@ function parseResourceInput(
     authorizationServer,
     downstreamClientId,
     enabled: input.enabled,
+    skillDiscoveryEnabled: input.skillDiscoveryEnabled === true,
     scopeIds: sortedUnique(input.scopeIds),
     requestPrefixes,
   };
@@ -1410,13 +1538,39 @@ function serializeResource(resource: {
   authorizationServer: string;
   downstreamClientId: string;
   enabled: boolean;
+  skillDiscoveryEnabled: boolean;
   version: number;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string;
   scopes: { scope: { id: string; key: string } }[];
   requestPrefixes: { urlPrefix: string }[];
+  discoveredCatalog: {
+    lastAttemptAt: Date | null;
+    lastSuccessfulRefreshAt: Date | null;
+    nextRefreshAt: Date;
+    staleAfter: Date | null;
+    lastFailureCategory: string | null;
+    lastFailureAt: Date | null;
+    _count: { skills: number };
+  } | null;
 }): ResourceDto {
+  const now = new Date();
+  const catalog = resource.discoveredCatalog;
+  const catalogState =
+    !resource.enabled || !resource.skillDiscoveryEnabled
+      ? "disabled"
+      : !catalog?.lastSuccessfulRefreshAt
+        ? catalog?.lastFailureCategory
+          ? "failed"
+          : "pending"
+        : catalog.staleAfter && catalog.staleAfter <= now
+          ? "expired"
+          : catalog.lastFailureCategory
+            ? "failed"
+            : catalog.nextRefreshAt <= now
+              ? "stale"
+              : "fresh";
   return {
     id: resource.id,
     key: resource.key,
@@ -1425,6 +1579,17 @@ function serializeResource(resource: {
     authorizationServer: resource.authorizationServer,
     downstreamClientId: resource.downstreamClientId,
     enabled: resource.enabled,
+    skillDiscoveryEnabled: resource.skillDiscoveryEnabled,
+    catalogStatus: catalog
+      ? {
+          state: catalogState,
+          skillCount: catalog._count.skills,
+          lastAttemptAt: catalog.lastAttemptAt?.toISOString() ?? null,
+          lastSuccessfulRefreshAt: catalog.lastSuccessfulRefreshAt?.toISOString() ?? null,
+          lastFailureCategory: catalog.lastFailureCategory,
+          lastFailureAt: catalog.lastFailureAt?.toISOString() ?? null,
+        }
+      : null,
     version: resource.version,
     scopeIds: sortedUnique(resource.scopes.map(({ scope }) => scope.id)),
     scopeKeys: sortedUnique(resource.scopes.map(({ scope }) => scope.key)),
@@ -1449,6 +1614,7 @@ async function writeResourceAudit(
     scopeKeys: sortedUnique(resource.scopes.map(({ scope }) => scope.key)),
     requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
     enabled: resource.enabled,
+    skillDiscoveryEnabled: resource.skillDiscoveryEnabled,
     ownerId: resource.createdBy,
     version: resource.version,
   });
@@ -1564,7 +1730,7 @@ function serializeSkill(skill: {
   title: string;
   content: string;
   requiredScopes: string[];
-  hidden: boolean;
+  visibility: SkillVisibilityDto;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -1575,10 +1741,89 @@ function serializeSkill(skill: {
     title: skill.title,
     content: skill.content,
     requiredScopes: sortedUnique(skill.requiredScopes),
-    hidden: skill.hidden,
+    visibility: skill.visibility,
     version: skill.version,
     createdAt: skill.createdAt.toISOString(),
     updatedAt: skill.updatedAt.toISOString(),
+    source: { type: "manual" },
+    readOnly: false,
+    disabled: false,
+    scopeWarnings: [],
+    overridden: false,
+  };
+}
+
+function serializeDiscoveredSkill(
+  skill: {
+    id: string;
+    canonicalId: string;
+    title: string;
+    content: string;
+    requiredScopes: string[];
+    visibility: SkillVisibilityDto;
+    createdAt: Date;
+    updatedAt: Date;
+    catalog: {
+      lastSuccessfulRefreshAt: Date | null;
+      nextRefreshAt: Date;
+      staleAfter: Date | null;
+      lastFailureCategory: string | null;
+      resource: {
+        id: string;
+        key: string;
+        name: string;
+        enabled: boolean;
+        skillDiscoveryEnabled: boolean;
+      };
+    };
+  },
+  scopeRegistry: ReadonlyMap<string, boolean>,
+  overridden: boolean,
+): SkillDto {
+  const scopeWarnings = sortedUnique(
+    skill.requiredScopes.flatMap((scope) => {
+      const isSystem = scopeRegistry.get(scope);
+      if (isSystem === undefined) return [`Unknown scope: ${scope}`];
+      return isSystem ? [`Protected system scope: ${scope}`] : [];
+    }),
+  );
+  const resource = skill.catalog.resource;
+  const now = new Date();
+  const catalogState =
+    !resource.enabled || !resource.skillDiscoveryEnabled
+      ? "disabled"
+      : !skill.catalog.lastSuccessfulRefreshAt
+        ? skill.catalog.lastFailureCategory
+          ? "failed"
+          : "pending"
+        : skill.catalog.staleAfter && skill.catalog.staleAfter <= now
+          ? "expired"
+          : skill.catalog.lastFailureCategory
+            ? "failed"
+            : skill.catalog.nextRefreshAt <= now
+              ? "stale"
+              : "fresh";
+  return {
+    id: skill.id,
+    slug: skill.canonicalId,
+    title: skill.title,
+    content: skill.content,
+    requiredScopes: sortedUnique(skill.requiredScopes),
+    visibility: skill.visibility,
+    version: 1,
+    createdAt: skill.createdAt.toISOString(),
+    updatedAt: skill.updatedAt.toISOString(),
+    source: {
+      type: "resource",
+      resourceId: resource.id,
+      key: resource.key,
+      name: resource.name,
+      catalogState,
+    },
+    readOnly: true,
+    disabled: !resource.enabled || !resource.skillDiscoveryEnabled,
+    scopeWarnings,
+    overridden,
   };
 }
 
@@ -1611,7 +1856,7 @@ function parseSkillInput(
     title: string;
     content: string;
     requiredScopes: string[];
-    hidden: boolean;
+    visibility: SkillVisibilityDto;
   },
   validateSlug = true,
 ): {
@@ -1619,7 +1864,7 @@ function parseSkillInput(
   title: string;
   content: string;
   requiredScopes: string[];
-  hidden: boolean;
+  visibility: SkillVisibilityDto;
 } {
   const slug = input.slug.trim();
   const title = input.title.trim();
@@ -1646,7 +1891,10 @@ function parseSkillInput(
       `A skill may require at most ${MAX_ASSIGNMENT_SCOPES} scopes.`,
     );
   }
-  return { slug, title, content, requiredScopes, hidden: input.hidden };
+  if (!(["DEFAULT", "HIDDEN_IF_UNALLOWED"] as const).includes(input.visibility)) {
+    throw new AdminDomainError("INVALID_SKILL", "Skill visibility is invalid.");
+  }
+  return { slug, title, content, requiredScopes, visibility: input.visibility };
 }
 
 function serializeUser(user: {

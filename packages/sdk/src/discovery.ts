@@ -9,9 +9,31 @@ const jsonResponse = async (response: Response): Promise<unknown> => {
   const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/json" && contentType !== "application/jwk-set+json")
     throw new Error("unexpected content type");
-  const text = await response.text();
-  if (text.length > 256_000) throw new Error("response too large");
-  return JSON.parse(text);
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > 256_000) {
+    throw new Error("response too large");
+  }
+  if (!response.body) throw new Error("response body is missing");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > 256_000) {
+      await reader.cancel();
+      throw new Error("response too large");
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
 };
 
 const JWKS_TTL_MS = 60_000;
@@ -37,17 +59,25 @@ export class WeldallDiscovery {
     token: string,
     refreshForValidationFailure = false,
   ): Promise<{ kid: string; jwk: JWK }> {
+    return this.getSigningKey(token, "oauth-id-jag+jwt", refreshForValidationFailure);
+  }
+
+  async getSigningKey(
+    token: string,
+    expectedType: string,
+    refreshForValidationFailure = false,
+  ): Promise<{ kid: string; jwk: JWK }> {
     let kid: unknown;
     try {
       const header = decodeProtectedHeader(token);
-      if (header.alg !== "ES256" || header.typ !== "oauth-id-jag+jwt" || header.crit)
+      if (header.alg !== "ES256" || header.typ !== expectedType || header.crit)
         throw new Error("header");
       kid = header.kid;
     } catch {
-      throw new WeldallAuthError("invalid_grant", "invalid ID-JAG header");
+      throw new WeldallAuthError("invalid_grant", "invalid signed assertion header");
     }
     if (typeof kid !== "string" || !kid)
-      throw new WeldallAuthError("invalid_grant", "invalid ID-JAG header");
+      throw new WeldallAuthError("invalid_grant", "invalid signed assertion header");
     await this.refreshJwks(false);
     let jwk = this.keys.get(kid);
     if ((refreshForValidationFailure || !jwk) && Date.now() >= this.unknownRefreshAt) {
@@ -123,7 +153,11 @@ export class WeldallDiscovery {
   private async fetchJson(url: string): Promise<unknown> {
     const signal = AbortSignal.timeout(this.timeoutMs);
     return jsonResponse(
-      await fetch(url, { redirect: "error", signal, headers: { accept: "application/json" } }),
+      await fetch(url, {
+        redirect: "error",
+        signal,
+        headers: { accept: "application/json" },
+      }),
     );
   }
 }

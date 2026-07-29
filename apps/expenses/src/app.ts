@@ -17,13 +17,30 @@ export const createApp = async () => {
       publicJwk: env.expensesPublicJwk,
     },
     replayStore: inMemory(),
+    skills: {
+      items: [
+        {
+          id: "review",
+          title: "Review expenses",
+          requiredScopes: ["expenses:read"],
+          visibility: "DEFAULT",
+          content:
+            "# Review expenses\n\nUse `weldall request --scope expenses:read` with the Expenses API to list expenses.",
+        },
+      ],
+    },
   });
   const app = new Hono<{ Variables: WeldallVariables }>();
   weldall.registerRoutes(app);
   app.get("/api/expenses", weldall.protect({ scopes: ["expenses:read"] }), (c) =>
     c.json({
       expenses: [
-        { id: "expense-1", description: "Prototype lunch", amount: 18.5, currency: "EUR" },
+        {
+          id: "expense-1",
+          description: "Prototype lunch",
+          amount: 18.5,
+          currency: "EUR",
+        },
       ],
       subject: weldall.getAuth(c).subject,
       email: weldall.getAuth(c).email,

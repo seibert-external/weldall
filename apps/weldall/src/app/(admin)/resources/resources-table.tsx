@@ -75,6 +75,28 @@ export function ResourcesTable() {
         ),
       },
       {
+        accessorKey: "skillDiscoveryEnabled",
+        header: "Skill discovery",
+        enableSorting: false,
+        cell: ({ row, getValue }) => {
+          const enabled = getValue<boolean>();
+          const state = row.original.catalogStatus?.state;
+          return (
+            <div className="grid gap-1">
+              <Badge
+                label={enabled ? (state ?? "Pending") : "Disabled"}
+                variant={
+                  !enabled || state === "failed" || state === "expired" ? "purple" : "neutral"
+                }
+              />
+              {row.original.catalogStatus ? (
+                <Text color="secondary">{row.original.catalogStatus.skillCount} skills</Text>
+              ) : null}
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: "scopeKeys",
         header: "Scopes",
         enableSorting: false,

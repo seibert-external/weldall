@@ -8,6 +8,7 @@ import { WeldallAuthError, oauthErrorResponse } from "./errors.js";
 import { hasVerifiedEmail } from "./identity.js";
 import { parseScope } from "./scope.js";
 import { consumeReplay } from "./replay.js";
+import { loadSkillCatalog, SKILL_ASSERTION_TYPE, SKILL_CATALOG_PATH } from "./skills.js";
 import {
   assertSigningConfig,
   createSigningProvider,
@@ -79,6 +80,14 @@ export function initWeldall(host: string, options: WeldallOptions) {
     (!options.replayStore || typeof options.replayStore.consume !== "function")
   )
     throw new TypeError("replayStore is required");
+  if (options.skills) {
+    const hasItems = "items" in options.skills && Array.isArray(options.skills.items);
+    const hasLoader = "load" in options.skills && typeof options.skills.load === "function";
+    if (hasItems === hasLoader)
+      throw new TypeError("skills must configure exactly one of items or load");
+    if (options.replayStore === "disabled")
+      throw new TypeError("skill publication requires replay protection");
+  }
   assertSigningConfig(options.signingKey);
   const issuer = publicOriginUrl.origin;
   const resource = resourceUrl.toString();
@@ -87,6 +96,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
   const signing = createSigningProvider(options.signingKey);
   const discovery = new WeldallDiscovery(hostUrl.origin, discoveryTimeoutMs);
   const tokenEndpoint = `${issuer}/oauth/token`;
+  const skillsEndpoint = `${issuer}${SKILL_CATALOG_PATH}`;
 
   const ready = async () => {
     await Promise.all([discovery.ready(), validatedJwks(signing)]);
@@ -146,6 +156,94 @@ export function initWeldall(host: string, options: WeldallOptions) {
     return payload as IdJagClaims;
   };
 
+  const verifySkillAssertion = async (assertion: string): Promise<JWTPayload> => {
+    const validate = async (refresh: boolean) => {
+      const { kid, jwk } = await discovery.getSigningKey(assertion, SKILL_ASSERTION_TYPE, refresh);
+      const result = await jwtVerify(assertion, await importJWK(jwk, "ES256"), {
+        algorithms: ["ES256"],
+        issuer: hostUrl.origin,
+        audience: skillsEndpoint,
+        requiredClaims: ["iss", "sub", "aud", "resource", "purpose", "exp", "iat", "jti"],
+        maxTokenAge: "60s",
+        clockTolerance: 5,
+      });
+      if (decodeProtectedHeader(assertion).kid !== kid) throw new Error("kid");
+      return result.payload;
+    };
+    let payload: JWTPayload;
+    try {
+      payload = await validate(false);
+    } catch (firstError) {
+      if (firstError instanceof WeldallAuthError && firstError.code === "temporarily_unavailable")
+        throw firstError;
+      try {
+        payload = await validate(true);
+      } catch (error) {
+        if (error instanceof WeldallAuthError && error.code === "temporarily_unavailable")
+          throw error;
+        throw new WeldallAuthError("invalid_token", "skill assertion validation failed", 401);
+      }
+    }
+    if (
+      payload.iss !== hostUrl.origin ||
+      payload.sub !== hostUrl.origin ||
+      payload.aud !== skillsEndpoint ||
+      payload.resource !== resource ||
+      payload.purpose !== "skills:read" ||
+      typeof payload.jti !== "string" ||
+      payload.jti.length < 1 ||
+      payload.jti.length > 128 ||
+      !Number.isInteger(payload.iat) ||
+      !Number.isInteger(payload.exp) ||
+      (payload.exp as number) <= (payload.iat as number) ||
+      (payload.exp as number) - (payload.iat as number) > 60
+    ) {
+      throw new WeldallAuthError("invalid_token", "invalid skill assertion claims", 401);
+    }
+    await consumeReplay(
+      replayStore,
+      "skills",
+      payload.jti,
+      new Date(((payload.exp as number) + 6) * 1000),
+      {
+        code: "invalid_token",
+        message: "skill assertion was already used",
+        status: 401,
+      },
+    );
+    return payload;
+  };
+
+  const skills = async (request: Request): Promise<Response> => {
+    if (!options.skills) return new Response(null, { status: 404 });
+    try {
+      if (request.method !== "GET")
+        return new Response(null, { status: 405, headers: { allow: "GET" } });
+      const authorization = request.headers.get("authorization");
+      const match = authorization?.match(/^Bearer ([^\s,]+)$/);
+      if (!match)
+        throw new WeldallAuthError(
+          "invalid_token",
+          "exactly one Bearer assertion is required",
+          401,
+        );
+      await verifySkillAssertion(match[1]!);
+      const catalog = await loadSkillCatalog(options.skills, resource);
+      return Response.json(catalog, {
+        headers: { "cache-control": "private, no-store" },
+      });
+    } catch (error) {
+      if (error instanceof WeldallAuthError) return oauthErrorResponse(error);
+      return Response.json(
+        {
+          error: "temporarily_unavailable",
+          error_description: "Skill catalog unavailable",
+        },
+        { status: 503, headers: { "cache-control": "no-store" } },
+      );
+    }
+  };
+
   const token = async (request: Request): Promise<Response> => {
     try {
       if (request.method !== "POST")
@@ -195,7 +293,12 @@ export function initWeldall(host: string, options: WeldallOptions) {
       };
       const accessToken = await signWithProvider(signing, payload, "at+jwt");
       return Response.json(
-        { access_token: accessToken, token_type: "DPoP", expires_in: 600, scope: jag.scope },
+        {
+          access_token: accessToken,
+          token_type: "DPoP",
+          expires_in: 600,
+          scope: jag.scope,
+        },
         { headers: { "cache-control": "no-store", pragma: "no-cache" } },
       );
     } catch (error) {
@@ -331,7 +434,9 @@ export function initWeldall(host: string, options: WeldallOptions) {
         scopes_supported: supportedScopes,
         bearer_methods_supported: ["header"],
         dpop_signing_alg_values_supported: ["ES256"],
+        ...(options.skills ? { weldall_skills_endpoint: skillsEndpoint } : {}),
       }),
+    skills,
     jwks: async (_request?: Request) => Response.json({ keys: await validatedJwks(signing) }),
   };
   return {
@@ -339,6 +444,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
     issuer,
     resource,
     tokenEndpoint,
+    skillsEndpoint: options.skills ? skillsEndpoint : undefined,
     ready,
     verify,
     verifyNoThrow,

@@ -28,6 +28,8 @@ services:
         pnpm exec tsx scripts/generate-e2e-env.ts /run/e2e
         . /run/e2e/database/env.sh
         pnpm --dir packages/db exec prisma migrate deploy --schema prisma/schema.prisma
+        pnpm --dir packages/db exec tsx prisma/seed.ts
+        pnpm --dir packages/db exec tsx prisma/seed.dev.ts
         pnpm exec tsx apps/weldall/src/scripts/bootstrap-admin.ts --email alice@example.com
         touch /run/e2e/database/ready
         exec tail -f /dev/null

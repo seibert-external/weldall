@@ -1,8 +1,15 @@
 import type { JWK, JWTPayload } from "jose";
+import type { SkillProvider } from "./skills.js";
 
 export type DpopKeyPair = { privateJwk: JWK; publicJwk: JWK; jkt: string };
 export type VerifiedDpop = {
-  payload: JWTPayload & { htm: string; htu: string; jti: string; iat: number; ath?: string };
+  payload: JWTPayload & {
+    htm: string;
+    htu: string;
+    jti: string;
+    iat: number;
+    ath?: string;
+  };
   publicJwk: JWK;
   jkt: string;
 };
@@ -49,7 +56,11 @@ export type ScopePolicy = {
   anyScopes?: readonly string[];
 };
 
-export type AuthIdentity = { subject: string; email: string; emailVerified: true };
+export type AuthIdentity = {
+  subject: string;
+  email: string;
+  emailVerified: true;
+};
 export type AuthContext = {
   identity: AuthIdentity;
   subject: string;
@@ -62,7 +73,11 @@ export type AuthContext = {
 
 export type VerifyResult =
   | { ok: true; auth: AuthContext }
-  | { ok: false; error: import("./errors.js").WeldallAuthError; response: Response };
+  | {
+      ok: false;
+      error: import("./errors.js").WeldallAuthError;
+      response: Response;
+    };
 
 export type WeldallOptions = {
   resource: string;
@@ -73,4 +88,5 @@ export type WeldallOptions = {
   replayStore: ReplayStore | "disabled";
   discoveryTimeoutMs?: number;
   allowInsecureLoopback?: boolean;
+  skills?: SkillProvider;
 };

@@ -36,6 +36,17 @@ const weldall = initWeldall("https://weldall.example.com", {
     publicJwk: key.publicJwk,
   },
   replayStore: inMemory(),
+  skills: {
+    items: [
+      {
+        id: "review",
+        title: "Review expenses",
+        requiredScopes: ["expenses:read"],
+        visibility: "DEFAULT",
+        content: "# Review expenses\n\nUse the Expenses API to review submitted expenses.",
+      },
+    ],
+  },
 });
 
 await weldall.ready(); // optional eager discovery; exchange is otherwise lazy
@@ -51,7 +62,18 @@ export async function authenticateWithoutThrowing(request: Request) {
 
 `scopes` is all-of. When `anyScopes` is present, at least one of those scopes is additionally required. An empty policy means authenticated-only.
 
-Mount `handlers.token`, `handlers.authorizationServerMetadata`, `handlers.protectedResourceMetadata`, and `handlers.jwks` in the matching routes. They require a verified email in every Weldall ID-JAG, copy that identity into the local ES256 DPoP-bound `at+jwt` token, and publish local server metadata.
+Mount `handlers.token`, `handlers.authorizationServerMetadata`, `handlers.protectedResourceMetadata`, `handlers.jwks`, and (when configured) `handlers.skills` in the matching routes. They require a verified email in every Weldall ID-JAG, copy that identity into the local ES256 DPoP-bound `at+jwt` token, and publish local server metadata.
+
+## Publishing skills
+
+Configure either static `skills.items` or an async `skills.load` provider. Providers receive no user identity and must return the same catalog for every authenticated Weldall instance. Each skill uses a local ID; Weldall prefixes it with the registered resource key.
+
+`visibility` is an extensible enum:
+
+- `DEFAULT` keeps the skill discoverable and reports missing required scopes;
+- `HIDDEN_IF_UNALLOWED` omits it when any required scope is unavailable to the user.
+
+The protected-resource metadata advertises `weldall_skills_endpoint`. Mount `handlers.skills` at `/.well-known/weldall-skills`; the Hono adapter does this automatically. The endpoint accepts only short-lived, resource- and audience-bound `weldall-skills+jwt` Bearer assertions signed by Weldall. Skill publication therefore requires a real `ReplayStore`; `replayStore: "disabled"` is rejected when skills are configured.
 
 ## Framework adapters
 
@@ -114,7 +136,7 @@ export const runtime = "nodejs";
 export const POST = weldall.handlers.token;
 ```
 
-Mount the other three handlers at `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, and `/.well-known/jwks.json` in the same way.
+Mount the metadata/JWKS handlers at `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, and `/.well-known/jwks.json` in the same way. When skills are configured, mount `weldall.handlers.skills` at `/.well-known/weldall-skills`.
 
 ### Astro SSR
 
@@ -151,11 +173,11 @@ export const GET = (context) =>
   Response.json({ subject: weldall.getAuth(context).identity.subject });
 ```
 
-Declare `weldallAuth` in `App.Locals`. Mount `weldall.handlers.token` and the three metadata/JWKS handlers as Astro endpoints.
+Declare `weldallAuth` in `App.Locals`. Mount `weldall.handlers.token`, `weldall.handlers.skills`, and the metadata/JWKS handlers as Astro endpoints.
 
 ## Replay storage and security boundary
 
-`ReplayStore.consume(key, expiresAt)` must atomically return `true` only for the first consume. Store errors fail closed. The SDK namespaces DPoP and ID-JAG keys.
+`ReplayStore.consume(key, expiresAt)` must atomically return `true` only for the first consume. Store errors fail closed. The SDK namespaces DPoP, ID-JAG, and skill-fetch assertion keys.
 
 `inMemory()` is process-local, defaults to 10,000 live entries, and fails closed with HTTP 503 when capacity is reached. Size it approximately as `peak requests/second × 61`, or pass a larger `maxEntries`. Restarts clear it, and multiple instances do not share it. Use a shared Redis/database implementation for horizontal deployment. `replayStore: "disabled"` exists only for controlled diagnostics and is unsafe.
 

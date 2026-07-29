@@ -1,7 +1,9 @@
 import { initWeldall as initCore } from "./core.js";
 import type { AuthContext, ScopePolicy, WeldallOptions } from "./types.js";
 
-export type NextRouteContext = { params?: Promise<Record<string, string | string[] | undefined>> };
+export type NextRouteContext = {
+  params?: Promise<Record<string, string | string[] | undefined>>;
+};
 export type NextRouteHandler<C extends NextRouteContext = NextRouteContext> = (
   request: Request,
   context: C,
@@ -28,4 +30,5 @@ export function initWeldall(host: string, options: WeldallOptions) {
 
 export type NextWeldall = ReturnType<typeof initWeldall>;
 export * from "./types.js";
+export * from "./skills.js";
 export { WeldallAuthError } from "./errors.js";

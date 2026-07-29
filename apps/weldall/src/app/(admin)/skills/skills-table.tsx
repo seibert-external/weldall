@@ -69,24 +69,53 @@ export function SkillsTable() {
         cell: ({ getValue }) => <code className="text-sm">{getValue<string>()}</code>,
       },
       {
+        id: "source",
+        header: "Source",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="grid gap-1">
+            <Badge
+              label={row.original.source.type === "manual" ? "Manual" : row.original.source.name}
+              variant={row.original.source.type === "manual" ? "neutral" : "purple"}
+            />
+            {row.original.source.type === "resource" ? (
+              <Text color="secondary">{row.original.source.catalogState}</Text>
+            ) : null}
+            {row.original.overridden ? <Text color="secondary">Overridden</Text> : null}
+          </div>
+        ),
+      },
+      {
         accessorKey: "requiredScopes",
         header: "Required scopes",
         enableSorting: false,
-        cell: ({ getValue }) => {
+        cell: ({ getValue, row }) => {
           const scopes = getValue<string[]>();
-          return scopes.length ? <code className="text-sm">{scopes.join(", ")}</code> : "None";
+          return (
+            <div className="grid gap-1">
+              {scopes.length ? <code className="text-sm">{scopes.join(", ")}</code> : "None"}
+              {row.original.scopeWarnings.map((warning) => (
+                <Text key={warning} color="secondary">
+                  {warning}
+                </Text>
+              ))}
+            </div>
+          );
         },
       },
       {
-        accessorKey: "hidden",
+        accessorKey: "visibility",
         header: "Visibility",
         enableSorting: false,
-        cell: ({ getValue }) => (
-          <Badge
-            label={getValue<boolean>() ? "Hidden without scopes" : "Discoverable"}
-            variant={getValue<boolean>() ? "purple" : "neutral"}
-          />
-        ),
+        cell: ({ getValue }) => {
+          const visibility = getValue<SkillDto["visibility"]>();
+          return (
+            <Badge
+              label={visibility === "HIDDEN_IF_UNALLOWED" ? "Hidden if unallowed" : "Default"}
+              variant={visibility === "HIDDEN_IF_UNALLOWED" ? "purple" : "neutral"}
+            />
+          );
+        },
       },
       {
         accessorKey: "updatedAt",
@@ -105,12 +134,14 @@ export function SkillsTable() {
               size="sm"
               variant="secondary"
             />
-            <Button
-              label="Delete"
-              onClick={() => setDeletingSkill(row.original)}
-              size="sm"
-              variant="destructive"
-            />
+            {!row.original.readOnly ? (
+              <Button
+                label="Delete"
+                onClick={() => setDeletingSkill(row.original)}
+                size="sm"
+                variant="destructive"
+              />
+            ) : null}
           </div>
         ),
       },

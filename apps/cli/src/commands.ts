@@ -333,16 +333,21 @@ export const requestCommand = define({
 });
 
 const printSkills = async (asJson: boolean | undefined) => {
-  const skills = await listSkills(await resolveWeldallConfig());
+  const result = await listSkills(await resolveWeldallConfig());
   if (asJson) {
-    jsonOutput(skills);
+    jsonOutput(result);
     return;
   }
-  if (skills.length === 0) {
+  for (const warning of result.warnings) {
+    console.error(
+      `Warning: ${terminalText(warning.source)} skill catalog: ${terminalText(warning.code)}`,
+    );
+  }
+  if (result.items.length === 0) {
     console.log("No skills are visible to this account.");
     return;
   }
-  for (const skill of skills) {
+  for (const skill of result.items) {
     const access = skill.available ? "available" : `missing ${skill.missingScopes.join(", ")}`;
     console.log(
       `${terminalText(skill.slug)}\t${terminalText(skill.title)}\t${terminalText(access)}`,

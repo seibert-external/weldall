@@ -52,6 +52,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       requestPrefixes: "",
       scopeIds: [] as string[],
       enabled: true,
+      skillDiscoveryEnabled: false,
     },
     onSubmit: async ({ value }) => {
       const requestPrefixes = parsePrefixLines(value.requestPrefixes);
@@ -64,6 +65,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           requestPrefixes,
           scopeIds: value.scopeIds,
           enabled: value.enabled,
+          skillDiscoveryEnabled: value.skillDiscoveryEnabled,
           expectedVersion: resourceQuery.data.version,
         });
       } else {
@@ -76,6 +78,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           requestPrefixes,
           scopeIds: value.scopeIds,
           enabled: value.enabled,
+          skillDiscoveryEnabled: value.skillDiscoveryEnabled,
         });
       }
       await queryClient.invalidateQueries();
@@ -94,6 +97,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       requestPrefixes: resourceQuery.data.requestPrefixes.join("\n"),
       scopeIds: resourceQuery.data.scopeIds,
       enabled: resourceQuery.data.enabled,
+      skillDiscoveryEnabled: resourceQuery.data.skillDiscoveryEnabled,
     });
   }, [form, resourceQuery.data]);
 
@@ -133,10 +137,40 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           <h2 className="m-0 text-xl font-semibold">{isNew ? "Create resource" : current?.name}</h2>
           <Text color="secondary">
             {current
-              ? `Version ${current.version} · Updated ${new Date(current.updatedAt).toLocaleString()}`
+              ? `Version ${current.version} · Updated ${new Date(
+                  current.updatedAt,
+                ).toLocaleString()}`
               : "Register an OAuth resource and the HTTPS request areas it accepts."}
           </Text>
         </div>
+        {current?.catalogStatus ? (
+          <Banner
+            container="card"
+            status={
+              current.catalogStatus.state === "failed" || current.catalogStatus.state === "expired"
+                ? "warning"
+                : "info"
+            }
+            title={`Skill discovery: ${current.catalogStatus.state}`}
+            description={`Discovered skills: ${current.catalogStatus.skillCount} · Last attempt: ${
+              current.catalogStatus.lastAttemptAt
+                ? new Date(current.catalogStatus.lastAttemptAt).toLocaleString()
+                : "never"
+            } · Last successful refresh: ${
+              current.catalogStatus.lastSuccessfulRefreshAt
+                ? new Date(current.catalogStatus.lastSuccessfulRefreshAt).toLocaleString()
+                : "never"
+            }${
+              current.catalogStatus.lastFailureCategory
+                ? ` · Last failure: ${current.catalogStatus.lastFailureCategory} at ${
+                    current.catalogStatus.lastFailureAt
+                      ? new Date(current.catalogStatus.lastFailureAt).toLocaleString()
+                      : "unknown"
+                  }`
+                : ""
+            }`}
+          />
+        ) : null}
         {scopeOptionsQuery.error ? (
           <Banner
             container="card"
@@ -172,7 +206,9 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
             </form.Field>
             <form.Field
               name="name"
-              validators={{ onSubmit: ({ value }) => required(value, "Name", 200) }}
+              validators={{
+                onSubmit: ({ value }) => required(value, "Name", 200),
+              }}
             >
               {(field) => (
                 <TextInput
@@ -189,7 +225,9 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
             </form.Field>
             <form.Field
               name="resourceIdentifier"
-              validators={{ onSubmit: ({ value }) => validateHttps(value, "Resource identifier") }}
+              validators={{
+                onSubmit: ({ value }) => validateHttps(value, "Resource identifier"),
+              }}
             >
               {(field) => (
                 <TextInput
@@ -224,7 +262,9 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
             </form.Field>
             <form.Field
               name="downstreamClientId"
-              validators={{ onSubmit: ({ value }) => required(value, "Downstream client ID", 200) }}
+              validators={{
+                onSubmit: ({ value }) => required(value, "Downstream client ID", 200),
+              }}
             >
               {(field) => (
                 <TextInput
@@ -264,7 +304,10 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                   hasSelectAll
                   label="Supported scopes"
                   onChange={field.handleChange}
-                  options={scopeOptions.map((scope) => ({ value: scope.id, label: scope.key }))}
+                  options={scopeOptions.map((scope) => ({
+                    value: scope.id,
+                    label: scope.key,
+                  }))}
                   placeholder="Choose scopes…"
                   searchPlaceholder="Find scopes…"
                   triggerDisplay="badges"
@@ -278,6 +321,19 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 <Switch
                   description="Disabled resources are hidden from the CLI and rejected during token exchange."
                   label="Enabled"
+                  labelPosition="start"
+                  labelSpacing="spread"
+                  onChange={field.handleChange}
+                  value={field.state.value}
+                  width="100%"
+                />
+              )}
+            </form.Field>
+            <form.Field name="skillDiscoveryEnabled">
+              {(field) => (
+                <Switch
+                  description="Trust this resource to publish read-only agent instructions. Discovered documents and refresh status are stored in PostgreSQL."
+                  label="Discover skills from this resource"
                   labelPosition="start"
                   labelSpacing="spread"
                   onChange={field.handleChange}

@@ -70,6 +70,7 @@ const resourceSnapshot = z
     scopeKeys: scopeArray,
     requestPrefixes: stringArray,
     enabled: z.boolean(),
+    skillDiscoveryEnabled: z.boolean(),
     ownerId: z.string().min(1).max(320),
     version: z.number().int().positive(),
   })
@@ -119,11 +120,12 @@ const cliSettingsMetadata = z
     after: z.object({ appendixSha256: digest, version: z.number().int().positive() }).strict(),
   })
   .strict();
+const skillVisibility = z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]);
 const skillSnapshot = z
   .object({
     title: z.string().min(1).max(200),
     requiredScopes: scopeArray,
-    hidden: z.boolean(),
+    visibility: skillVisibility,
     contentSha256: digest,
     version: z.number().int().positive(),
   })
@@ -133,13 +135,17 @@ const skillCreatedMetadata = z
     slug: z.string().min(1).max(120),
     title: z.string().min(1).max(200),
     requiredScopes: scopeArray,
-    hidden: z.boolean(),
+    visibility: skillVisibility,
     contentSha256: digest,
     version: z.number().int().positive(),
   })
   .strict();
 const skillUpdatedMetadata = z
-  .object({ slug: z.string().min(1).max(120), before: skillSnapshot, after: skillSnapshot })
+  .object({
+    slug: z.string().min(1).max(120),
+    before: skillSnapshot,
+    after: skillSnapshot,
+  })
   .strict();
 const skillDeletedMetadata = skillCreatedMetadata;
 const providerMetadata = z
@@ -229,10 +235,16 @@ const auditInputSchema = z
   .strict()
   .superRefine((event, context) => {
     if ((event.subjectType === undefined) !== (event.subjectId === undefined)) {
-      context.addIssue({ code: "custom", message: "subjectType and subjectId must be paired" });
+      context.addIssue({
+        code: "custom",
+        message: "subjectType and subjectId must be paired",
+      });
     }
     if ((event.outcome === "success") !== (event.reasonCode === undefined)) {
-      context.addIssue({ code: "custom", message: "Only denied or failed events need a reason" });
+      context.addIssue({
+        code: "custom",
+        message: "Only denied or failed events need a reason",
+      });
     }
   });
 
