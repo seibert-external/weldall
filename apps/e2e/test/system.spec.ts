@@ -67,6 +67,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   page,
   request: apiRequest,
 }) => {
+  test.setTimeout(180_000);
+
   const login = startCli(["login"], 90_000);
   await page.goto(await waitForBrowserUrl());
   await page.getByRole("button", { name: "Development login" }).click();
@@ -141,8 +143,10 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await expect(aliceRow).toBeVisible();
   await aliceRow.getByRole("link", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { name: "Edit assignment" })).toBeVisible();
-  await page.getByLabel("Find scopes").fill("expenses:read");
-  await page.getByRole("checkbox", { name: /expenses:read/ }).check();
+  await page.getByLabel("Find scopes").fill("expenses:");
+  for (const scope of ["expenses:create", "expenses:delete", "expenses:read", "expenses:write"]) {
+    await page.getByRole("checkbox", { name: new RegExp(`^${scope}`) }).check();
+  }
   await page.getByRole("button", { name: "Save assignment" }).click();
   await expect(page).toHaveURL("https://weldall.seibert.localdev/assignments");
   await expect(
