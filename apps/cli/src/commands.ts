@@ -76,15 +76,7 @@ export const printPermissions = (
     console.log(`  ${dim("No enabled API resource currently exposes these permissions.")}`);
     return;
   }
-  for (const grant of available) {
-    console.log();
-    console.log(bold(terminalText(grant.name)));
-    const width = Math.max(...grant.grantedScopes.map((scope) => explainScope(scope).length));
-    for (const scope of grant.grantedScopes)
-      console.log(
-        `  ${checkmark()} ${explainScope(scope).padEnd(width)}  ${dim(terminalText(scope))}`,
-      );
-  }
+  for (const grant of available) console.log(`  ${bold(terminalText(grant.name))}`);
 };
 
 const printStatus = (identity: Identity, permissions: ScopeOverview) => {

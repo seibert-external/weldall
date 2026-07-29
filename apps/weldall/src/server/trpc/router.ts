@@ -10,6 +10,7 @@ import {
   deleteAssignment,
   deleteScope,
   deleteSkill,
+  getAssignment,
   getCliSettings,
   getResource,
   getSkill,
@@ -29,6 +30,22 @@ import {
   updateSkill,
   type AdminActor,
 } from "../admin/service";
+import {
+  createGroupAssignments,
+  createGroupProvider,
+  deleteGroupAssignment,
+  deleteGroupProvider,
+  getGroupAssignment,
+  getGroupProvider,
+  getProviderGroups,
+  listAssignedProviderGroupIds,
+  listGroupAssignments,
+  listGroupProviders,
+  replaceGroupAssignment,
+  searchProviderGroups,
+  testGroupProvider,
+  updateGroupProvider,
+} from "../group-providers/service";
 import type { TrpcContext } from "./context";
 
 const trpc = initTRPC.context<TrpcContext>().create();
@@ -286,7 +303,155 @@ export const appRouter = trpc.router({
         )
         .mutation(({ input, ctx }) => mapDomainErrors(() => deleteSkill(input, ctx.adminActor))),
     }),
+    groupProviders: trpc.router({
+      list: adminProcedure.query(() => mapDomainErrors(listGroupProviders)),
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getGroupProvider(input.id))),
+      create: adminProcedure
+        .input(
+          z
+            .object({
+              key: z.string().max(120),
+              name: z.string().max(200),
+              adapterType: z.literal("management-api-v1"),
+              baseUrl: z.string().max(2_000),
+              token: z.string().min(1).max(10_000),
+              enabled: z.boolean(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => createGroupProvider(input, ctx.adminActor)),
+        ),
+      update: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              name: z.string().max(200),
+              baseUrl: z.string().max(2_000),
+              token: z.string().max(10_000).optional(),
+              enabled: z.boolean(),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => updateGroupProvider(input, ctx.adminActor)),
+        ),
+      test: adminProcedure
+        .input(
+          z.union([
+            z
+              .object({
+                id: z.string().min(1).max(191),
+                baseUrl: z.string().max(2_000).optional(),
+                token: z.string().max(10_000).optional(),
+              })
+              .strict(),
+            z
+              .object({
+                key: z.string().max(120),
+                adapterType: z.literal("management-api-v1"),
+                baseUrl: z.string().max(2_000),
+                token: z.string().min(1).max(10_000),
+              })
+              .strict(),
+          ]),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => testGroupProvider(input, ctx.adminActor)),
+        ),
+      searchGroups: adminProcedure
+        .input(
+          z
+            .object({
+              providerId: z.string().min(1).max(191),
+              query: z.string().max(200),
+              limit: z.number().int().min(1).max(100).default(20),
+            })
+            .strict(),
+        )
+        .query(({ input }) => mapDomainErrors(() => searchProviderGroups(input))),
+      getGroups: adminProcedure
+        .input(
+          z
+            .object({
+              providerId: z.string().min(1).max(191),
+              groupIds: z.array(z.string().min(1).max(191)).min(1).max(100),
+            })
+            .strict(),
+        )
+        .query(({ input }) => mapDomainErrors(() => getProviderGroups(input))),
+      delete: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => deleteGroupProvider(input, ctx.adminActor)),
+        ),
+    }),
+    groupAssignments: trpc.router({
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getGroupAssignment(input.id))),
+      assignedGroupIds: adminProcedure
+        .input(z.object({ providerId: z.string().min(1).max(191) }).strict())
+        .query(({ input }) =>
+          mapDomainErrors(() => listAssignedProviderGroupIds(input.providerId)),
+        ),
+      list: adminProcedure
+        .input(z.object({ ...pageInput }).strict())
+        .query(({ input }) => mapDomainErrors(() => listGroupAssignments(input))),
+      createMany: adminProcedure
+        .input(
+          z
+            .object({
+              providerId: z.string().min(1).max(191),
+              groupIds: z.array(z.string().min(1).max(191)).min(1).max(100),
+              scopeKeys: z.array(z.string().max(160)).min(1).max(100),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => createGroupAssignments(input, ctx.adminActor)),
+        ),
+      replace: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              scopeKeys: z.array(z.string().max(160)).min(1).max(100),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => replaceGroupAssignment(input, ctx.adminActor)),
+        ),
+      delete: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => deleteGroupAssignment(input, ctx.adminActor)),
+        ),
+    }),
     assignments: trpc.router({
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getAssignment(input.id))),
       list: adminProcedure
         .input(
           z

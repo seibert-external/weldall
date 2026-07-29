@@ -12,6 +12,13 @@ export const AUDIT_EVENT_TYPES = [
   "skill.created",
   "skill.updated",
   "skill.deleted",
+  "group_provider.created",
+  "group_provider.updated",
+  "group_provider.deleted",
+  "group_provider.tested",
+  "group_scopes.created",
+  "group_scopes.replaced",
+  "group_scopes.deleted",
 ] as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];

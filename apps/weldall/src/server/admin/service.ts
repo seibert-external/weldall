@@ -8,12 +8,12 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
+import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
 
 export const ADMIN_SCOPE_KEY = "weldall:administer";
 export const MAX_ASSIGNMENT_SCOPES = 100;
 export const MAX_PAGE_SIZE = 100;
 
-const scopeKeyPattern = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
 const resourceKeyPattern = /^[a-z0-9._-]+$/;
 const emailSchema = z.string().email().max(320);
 const resourceInclude = {
@@ -27,6 +27,8 @@ export type AdminErrorCode =
   | "INVALID_CLI_SETTINGS"
   | "INVALID_EMAIL"
   | "INVALID_RESOURCE"
+  | "INVALID_PROVIDER"
+  | "INVALID_GROUP"
   | "INVALID_SCOPE"
   | "INVALID_SKILL"
   | "LAST_ADMIN"
@@ -122,15 +124,15 @@ export function normalizeEmail(rawEmail: string): string {
   return normalized;
 }
 
-export function parseScopeKey(rawKey: string): string {
-  const key = rawKey.trim();
-  if (key.length > 160 || !scopeKeyPattern.test(key)) {
+export function parseScopeKey(rawKey: string): ScopeKey {
+  const parsed = scopeKeySchema.safeParse(rawKey);
+  if (!parsed.success) {
     throw new AdminDomainError(
       "INVALID_SCOPE",
       "Scope keys must be lowercase namespace:permission values.",
     );
   }
-  return key;
+  return parsed.data;
 }
 
 export function parseScopeDescription(rawDescription: string): string {
@@ -520,13 +522,15 @@ export async function listScopes(input: {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { _count: { select: { grants: true } } },
+      include: { _count: { select: { grants: true, groupGrants: true } } },
     }),
     db.scope.count({ where }),
   ]);
 
   return {
-    items: items.map((scope) => serializeScope(scope, scope._count.grants)),
+    items: items.map((scope) =>
+      serializeScope(scope, scope._count.grants + scope._count.groupGrants),
+    ),
     total,
   };
 }
@@ -568,7 +572,7 @@ export async function updateScope(
   return db.$transaction(async (tx) => {
     const current = await tx.scope.findUnique({
       where: { id: input.id },
-      include: { _count: { select: { grants: true } } },
+      include: { _count: { select: { grants: true, groupGrants: true } } },
     });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Scope not found.");
     if (current.isSystem) {
@@ -576,7 +580,7 @@ export async function updateScope(
     }
     assertVersion(current.version, input.expectedVersion);
     if (current.description === description) {
-      return serializeScope(current, current._count.grants);
+      return serializeScope(current, current._count.grants + current._count.groupGrants);
     }
 
     const write = await tx.scope.updateMany({
@@ -588,10 +592,10 @@ export async function updateScope(
     }
     const updated = await tx.scope.findUniqueOrThrow({
       where: { id: current.id },
-      include: { _count: { select: { grants: true } } },
+      include: { _count: { select: { grants: true, groupGrants: true } } },
     });
     await writeScopeAudit(tx, actor, "resource_scopes.replaced", current, updated);
-    return serializeScope(updated, updated._count.grants);
+    return serializeScope(updated, updated._count.grants + updated._count.groupGrants);
   });
 }
 
@@ -609,6 +613,16 @@ export async function deleteScope(
           include: {
             assignment: {
               include: { grants: { include: { scope: { select: { key: true } } } } },
+            },
+          },
+        },
+        groupGrants: {
+          include: {
+            assignment: {
+              include: {
+                provider: { select: { key: true } },
+                grants: { include: { scope: { select: { key: true } } } },
+              },
             },
           },
         },
@@ -647,6 +661,16 @@ export async function deleteScope(
       beforeScopes: sortedUnique(assignment.grants.map((grant) => grant.scope.key)),
     }));
 
+    const affectedGroups = current.groupGrants.map(({ assignment }) => ({
+      id: assignment.id,
+      providerId: assignment.providerId,
+      providerKey: assignment.provider.key,
+      groupId: assignment.groupId,
+      groupName: assignment.groupName,
+      version: assignment.version,
+      beforeScopes: sortedUnique(assignment.grants.map((grant) => grant.scope.key)),
+    }));
+
     const deleted = await tx.scope.deleteMany({
       where: { id: current.id, version: input.expectedVersion },
     });
@@ -681,9 +705,43 @@ export async function deleteScope(
         },
       });
     }
+    for (const assignment of affectedGroups) {
+      const afterScopes = assignment.beforeScopes.filter((key) => key !== current.key);
+      const assignmentWrite = await tx.groupScopeAssignment.updateMany({
+        where: { id: assignment.id, version: assignment.version },
+        data: { version: { increment: 1 }, updatedBy: actor.id },
+      });
+      if (assignmentWrite.count !== 1) {
+        throw new AdminDomainError(
+          "CONFLICT",
+          "An affected group assignment changed. Reload and try again.",
+        );
+      }
+      await writeAudit(tx, actor, {
+        eventType: afterScopes.length ? "group_scopes.replaced" : "group_scopes.deleted",
+        subjectType: "group_scope_assignment",
+        subjectId: assignment.id,
+        metadata: {
+          providerId: assignment.providerId,
+          providerKey: assignment.providerKey,
+          groupId: assignment.groupId,
+          groupName: assignment.groupName,
+          beforeScopes: assignment.beforeScopes,
+          afterScopes,
+          addedScopes: [],
+          removedScopes: [current.key],
+          source: "scope_delete_cascade",
+          versionBefore: assignment.version,
+          versionAfter: assignment.version + 1,
+        },
+      });
+    }
     await writeScopeAudit(tx, actor, "resource_scopes.deleted", current, null);
 
-    return { id: current.id, affectedAssignments: affected.length };
+    return {
+      id: current.id,
+      affectedAssignments: affected.length + affectedGroups.length,
+    };
   });
 }
 
@@ -909,6 +967,15 @@ export async function listAssignments(input: {
   ]);
 
   return { items: items.map(serializeAssignment), total };
+}
+
+export async function getAssignment(id: string): Promise<AssignmentDto> {
+  const assignment = await db.emailScopeAssignment.findUnique({
+    where: { id },
+    include: { grants: { include: { scope: { select: { key: true } } } } },
+  });
+  if (!assignment) throw new AdminDomainError("NOT_FOUND", "Assignment not found.");
+  return serializeAssignment(assignment);
 }
 
 export async function getAssignmentByEmail(email: string): Promise<AssignmentDto | null> {

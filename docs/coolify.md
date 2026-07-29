@@ -42,21 +42,23 @@ Do not commit or put this output into GitHub Actions. Keep the signing key stabl
 
 None of these variables needs to be available during the Docker build.
 
-| Variable                        | Value                                                    |
-| ------------------------------- | -------------------------------------------------------- |
-| `POSTGRES_URL`                  | Internal URL of the Coolify PostgreSQL database          |
-| `WELDALL_ISSUER`                | Stable public origin, e.g. `https://weldall.example.com` |
-| `WELDALL_DEPLOYMENT_MODE`       | `production`                                             |
-| `ENABLE_DEV_LOGIN`              | `false`                                                  |
-| `BETTER_AUTH_SECRET`            | Generated secret                                         |
-| `GOOGLE_CLIENT_ID`              | Production Google OAuth client ID                        |
-| `GOOGLE_CLIENT_SECRET`          | Production Google OAuth client secret                    |
-| `WELDALL_SIGNING_PRIVATE_JWK`   | Generated private JWK JSON                               |
-| `WELDALL_SIGNING_PUBLIC_JWK`    | Generated public JWK JSON                                |
-| `WELDALL_SIGNING_KID`           | Generated key ID                                         |
-| `WELDALL_BOOTSTRAP_ADMIN_EMAIL` | Email address of the initial administrator               |
+| Variable                                    | Value                                                    |
+| ------------------------------------------- | -------------------------------------------------------- |
+| `POSTGRES_URL`                              | Internal URL of the Coolify PostgreSQL database          |
+| `WELDALL_ISSUER`                            | Stable public origin, e.g. `https://weldall.example.com` |
+| `WELDALL_DEPLOYMENT_MODE`                   | `production`                                             |
+| `ENABLE_DEV_LOGIN`                          | `false`                                                  |
+| `BETTER_AUTH_SECRET`                        | Generated secret                                         |
+| `GOOGLE_CLIENT_ID`                          | Production Google OAuth client ID                        |
+| `GOOGLE_CLIENT_SECRET`                      | Production Google OAuth client secret                    |
+| `WELDALL_SIGNING_PRIVATE_JWK`               | Generated private JWK JSON                               |
+| `WELDALL_SIGNING_PUBLIC_JWK`                | Generated public JWK JSON                                |
+| `WELDALL_SIGNING_KID`                       | Generated key ID                                         |
+| `WELDALL_BOOTSTRAP_ADMIN_EMAIL`             | Email address of the initial administrator               |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY`         | Base64-encoded 32-byte key for provider tokens           |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION` | Positive key version, initially `1`                      |
 
-Lock `POSTGRES_URL`, `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_SECRET`, and `WELDALL_SIGNING_PRIVATE_JWK` in Coolify. `OAUTH_PROXY_SECRET` and the Development IdP variables are local-development settings and must not be configured in production.
+Lock `POSTGRES_URL`, `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_SECRET`, `WELDALL_SIGNING_PRIVATE_JWK`, and `WELDALL_CREDENTIAL_ENCRYPTION_KEY` in Coolify. `OAUTH_PROXY_SECRET` and the Development IdP variables are local-development settings and must not be configured in production.
 
 Register this exact Google OAuth redirect URI:
 

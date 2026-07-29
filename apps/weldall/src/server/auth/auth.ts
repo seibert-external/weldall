@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { genericOAuth, jwt, oAuthProxy } from "better-auth/plugins";
+import { jwt, oAuthProxy } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "@weldall/db";
 import { WELDALL_CLIENT_ID, WELDALL_ISSUER, WELDALL_RESOURCE } from "../oauth/constants";
@@ -47,28 +47,28 @@ export const auth = betterAuth({
             secret: required("OAUTH_PROXY_SECRET"),
           }),
         ]),
-    ...(loginProviders.devOidc
-      ? [
-          genericOAuth({
-            config: [
-              {
-                providerId: "dev-oidc",
-                name: "Development login",
-                discoveryUrl: `${loginProviders.devOidc.issuer}/.well-known/openid-configuration`,
-                clientId: loginProviders.devOidc.clientId,
-                clientSecret: loginProviders.devOidc.clientSecret,
-                tokenEndpointAuth: { method: "client_secret_post" },
-                scopes: ["openid", "email", "profile"],
-                redirectURI:
-                  process.env.DEV_IDP_REDIRECT_URI ??
-                  `${localCallbackOrigin}/api/auth/callback/dev-oidc`,
-                pkce: true,
-                requireEmailVerification: true,
-              },
-            ],
-          }),
-        ]
-      : []),
+    // ...(loginProviders.devOidc
+    //   ? [
+    //       genericOAuth({
+    //         config: [
+    //           {
+    //             providerId: "dev-oidc",
+    //             name: "Development login",
+    //             discoveryUrl: `${loginProviders.devOidc.issuer}/.well-known/openid-configuration`,
+    //             clientId: loginProviders.devOidc.clientId,
+    //             clientSecret: loginProviders.devOidc.clientSecret,
+    //             tokenEndpointAuth: { method: "client_secret_post" },
+    //             scopes: ["openid", "email", "profile"],
+    //             redirectURI:
+    //               process.env.DEV_IDP_REDIRECT_URI ??
+    //               `${localCallbackOrigin}/api/auth/callback/dev-oidc`,
+    //             pkce: true,
+    //             requireEmailVerification: true,
+    //           },
+    //         ],
+    //       }),
+    //     ]
+    //   : []),
     jwt({
       jwks: {
         remoteUrl: `${WELDALL_ISSUER}/api/oauth/jwks`,

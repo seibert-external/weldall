@@ -35,6 +35,7 @@ Verwende Begriffe konsistent:
 - **Weldall CLI** bezeichnet gegenüber Kunden das Gesamtprodukt aus CLI, Authorization Server und SDKs.
 - **Skill** bezeichnet eine Anweisung für den Agenten. Sie zeigt, wie die CLI für die richtigen Requests verwendet wird und welche Scopes erforderlich sind.
 - **Scope**, **Access Token**, **DPoP** und andere Protokollbegriffe erscheinen erst, wenn sie für das Verständnis nötig sind.
+- **Group Provider** bezeichnet einen angebundenen Dienst für Gruppen und Mitgliedschaften. Verwende in deutschen Texten nicht „Gruppenanbieter“. Wenn der Kontext eindeutig ist, reicht anschließend **Provider**.
 
 Benutze für dasselbe Konzept nicht abwechselnd mehrere Synonyme.
 
@@ -173,6 +174,7 @@ Die deutsche Fassung ist keine Vorlage für eine wörtliche Übersetzung. Beide 
 
 - Erhalte Fakten, Sicherheitsgarantien und Einschränkungen.
 - Übersetze Satzbau und Redewendungen sinngemäß.
+- Übersetze etablierte englische Fachbegriffe nicht wörtlich, wenn das Ergebnis im Deutschen ungebräuchlich oder schwer verständlich ist.
 - Verwende in Englisch **employees**, **agents** und **administrators**.
 - Verwende auch in englischen Texten nicht pauschal **IT** als Akteur.
 - Halte Code, Befehle, Scopes und Produktnamen in beiden Sprachen identisch.

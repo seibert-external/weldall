@@ -9,6 +9,8 @@
     "GOOGLE_CLIENT_SECRET",
     "WELDALL_DEPLOYMENT_MODE",
     "WELDALL_BOOTSTRAP_ADMIN_EMAIL",
+    "WELDALL_CREDENTIAL_ENCRYPTION_KEY",
+    "WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION",
     "ENABLE_DEV_LOGIN",
     "DEV_IDP_ISSUER",
     "DEV_IDP_CLIENT_ID",
@@ -27,11 +29,18 @@
   ],
   "globalPassThroughEnv": ["NODE_ENV", "NODE_USE_SYSTEM_CA", "CI"],
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**", "!.next/cache/**"] },
-    "lint": { "dependsOn": ["^build"] },
-    "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"], "outputs": [] },
-    "dev": { "dependsOn": ["^build"], "cache": false, "persistent": true },
+    "build": {
+      "dependsOn": ["^build", "@weldall/db#generate"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "lint": { "dependsOn": ["^build", "@weldall/db#generate"] },
+    "typecheck": { "dependsOn": ["^build", "@weldall/db#generate"] },
+    "test": { "dependsOn": ["^build", "@weldall/db#generate"], "outputs": [] },
+    "dev": {
+      "dependsOn": ["^build", "@weldall/db#generate"],
+      "cache": false,
+      "persistent": true
+    },
     "generate": { "cache": false },
     "migrate:deploy": { "cache": false }
   }

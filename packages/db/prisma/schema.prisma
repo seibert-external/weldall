@@ -30,6 +30,7 @@ model Scope {
   createdBy   String
   updatedBy   String
   grants      EmailScopeGrant[]
+  groupGrants GroupScopeGrant[]
   resources   ResourceScope[]
 
   @@index([updatedAt])
@@ -55,6 +56,56 @@ model EmailScopeGrant {
   createdAt    DateTime             @default(now())
   createdBy    String
   assignment   EmailScopeAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  scope        Scope                @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, scopeId])
+  @@index([scopeId])
+}
+
+model GroupProvider {
+  id                   String                 @id @default(cuid())
+  key                  String                 @unique
+  name                 String
+  adapterType          String
+  baseUrl              String
+  encryptedToken       String
+  encryptionKeyVersion Int
+  enabled              Boolean                @default(true)
+  version              Int                    @default(1)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  createdBy            String
+  updatedBy            String
+  assignments          GroupScopeAssignment[]
+
+  @@index([enabled])
+  @@index([updatedAt])
+}
+
+model GroupScopeAssignment {
+  id         String            @id @default(cuid())
+  providerId String
+  groupId    String
+  groupName  String
+  version    Int               @default(1)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  createdBy  String
+  updatedBy  String
+  provider   GroupProvider     @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  grants     GroupScopeGrant[]
+
+  @@unique([providerId, groupId])
+  @@index([updatedAt])
+}
+
+model GroupScopeGrant {
+  id           String               @id @default(cuid())
+  assignmentId String
+  scopeId      String
+  createdAt    DateTime             @default(now())
+  createdBy    String
+  assignment   GroupScopeAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   scope        Scope                @relation(fields: [scopeId], references: [id], onDelete: Cascade)
 
   @@unique([assignmentId, scopeId])
@@ -140,7 +191,7 @@ model AuditEvent {
   clientId         String?
   requestId        String
   correlationId    String?
-  deduplicationKey String?   @unique
+  deduplicationKey String?  @unique
   outcome          String
   reasonCode       String?
   subjectType      String?

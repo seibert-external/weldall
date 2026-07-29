@@ -3,11 +3,14 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -18,7 +21,16 @@ import { useThemeMode } from "../providers";
 
 gsap.registerPlugin(useGSAP);
 
-type AdminRoute = "audit" | "cli" | "resources" | "scopes" | "assignments" | "users" | "skills";
+type AdminRoute =
+  | "audit"
+  | "cli"
+  | "resources"
+  | "scopes"
+  | "assignments"
+  | "group-assignments"
+  | "group-providers"
+  | "users"
+  | "skills";
 const designs = {
   audit: {
     title: "Audit logs",
@@ -45,6 +57,16 @@ const designs = {
     light: { from: "rgb(0, 112, 86)", to: "rgb(219, 255, 170)" },
     dark: { from: "rgb(0, 58, 47)", to: "rgb(49, 75, 18)" },
   },
+  "group-assignments": {
+    title: "Group assignments",
+    light: { from: "rgb(21, 94, 117)", to: "rgb(186, 230, 253)" },
+    dark: { from: "rgb(15, 48, 61)", to: "rgb(26, 86, 105)" },
+  },
+  "group-providers": {
+    title: "Group providers",
+    light: { from: "rgb(91, 65, 123)", to: "rgb(233, 213, 255)" },
+    dark: { from: "rgb(46, 31, 63)", to: "rgb(83, 52, 105)" },
+  },
   users: {
     title: "Users",
     light: { from: "rgb(30, 78, 121)", to: "rgb(172, 224, 255)" },
@@ -58,27 +80,33 @@ const designs = {
 } as const;
 
 const ActionsContext = createContext<HTMLDivElement | null>(null);
+const TitleContext = createContext<Dispatch<SetStateAction<string | null>>>(() => undefined);
 
 export function AdminPageChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
   const route = useMemo<AdminRoute>(() => {
     if (pathname.startsWith("/audit")) return "audit";
     if (pathname.startsWith("/cli")) return "cli";
     if (pathname.startsWith("/resources")) return "resources";
     if (pathname.startsWith("/assignments")) return "assignments";
+    if (pathname.startsWith("/group-assignments")) return "group-assignments";
+    if (pathname.startsWith("/group-providers")) return "group-providers";
     if (pathname.startsWith("/users")) return "users";
     if (pathname.startsWith("/skills")) return "skills";
     return "scopes";
   }, [pathname]);
 
   return (
-    <ActionsContext value={actionsTarget}>
-      <div className="-mx-6 -mt-6 flex flex-col gap-6">
-        <Herocrumbs route={route} setActionsTarget={setActionsTarget} />
-        <div className="flex w-full flex-col gap-6 px-6 pb-6">{children}</div>
-      </div>
-    </ActionsContext>
+    <TitleContext value={setTitle}>
+      <ActionsContext value={actionsTarget}>
+        <div className="-mx-6 -mt-6 flex flex-col gap-6">
+          <Herocrumbs route={route} setActionsTarget={setActionsTarget} title={title} />
+          <div className="flex w-full flex-col gap-6 px-6 pb-6">{children}</div>
+        </div>
+      </ActionsContext>
+    </TitleContext>
   );
 }
 
@@ -87,15 +115,29 @@ export function HerocrumbsActions({ children }: { children: ReactNode }) {
   return target ? createPortal(children, target) : null;
 }
 
+export function HerocrumbsTitle({ title }: { title: string }) {
+  const setTitle = useContext(TitleContext);
+
+  useEffect(() => {
+    setTitle(title);
+    return () => setTitle((currentTitle) => (currentTitle === title ? null : currentTitle));
+  }, [setTitle, title]);
+
+  return null;
+}
+
 function Herocrumbs({
   route,
   setActionsTarget,
+  title: titleOverride,
 }: {
   route: AdminRoute;
   setActionsTarget: (target: HTMLDivElement | null) => void;
+  title: string | null;
 }) {
   const { mode } = useThemeMode();
   const design = designs[route];
+  const title = titleOverride ?? design.title;
   const sectionRef = useRef<HTMLElement>(null);
   const noiseRef = useRef<HTMLDivElement>(null);
   const previousGradient = useRef<{ from: string; to: string } | null>(null);
@@ -166,7 +208,7 @@ function Herocrumbs({
       }
       previousGradient.current = gradient;
     },
-    { dependencies: [design.title, gradient.from, gradient.to], scope: sectionRef },
+    { dependencies: [title, gradient.from, gradient.to], scope: sectionRef },
   );
 
   return (
@@ -192,8 +234,8 @@ function Herocrumbs({
         }}
       />
       <div className="relative flex w-full flex-wrap items-center justify-between gap-4">
-        <Heading level={1} color="inherit" aria-label={design.title}>
-          {Array.from(design.title).map((character, index) => (
+        <Heading level={1} color="inherit" aria-label={title}>
+          {Array.from(title).map((character, index) => (
             <span
               aria-hidden="true"
               className="herocrumbs-char inline-block"

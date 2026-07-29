@@ -1,16 +1,11 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
-import type { AnyFieldApi } from "@tanstack/react-form";
+import { useMemo, useState } from "react";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { FormLayout } from "@astryxdesign/core/FormLayout";
-import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
-import { MultiSelector } from "@astryxdesign/core/MultiSelector";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import {
   TableBody,
@@ -22,11 +17,10 @@ import {
 } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
-import type { AssignmentDto, ScopeDto } from "@/server/admin/service";
+import type { AssignmentDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
@@ -43,9 +37,6 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 export function AssignmentsTable() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [editingAssignment, setEditingAssignment] = useState<AssignmentDto | null | undefined>(
-    undefined,
-  );
   const [deletingAssignment, setDeletingAssignment] = useState<AssignmentDto | null>(null);
   const [{ q, page, sort: sorting }, setTableQuery] = useQueryStates(
     {
@@ -63,7 +54,6 @@ export function AssignmentsTable() {
       sort: sortingToAssignmentSort(sorting),
     }),
   );
-  const scopeOptionsQuery = useQuery(trpc.admin.scopes.options.queryOptions());
   const assignments = assignmentsQuery.data?.items ?? [];
 
   const columns = useMemo<ColumnDef<AssignmentDto>[]>(
@@ -101,8 +91,8 @@ export function AssignmentsTable() {
         cell: ({ row }) => (
           <div className="flex justify-end gap-2">
             <Button
+              href={`/assignments/${row.original.id}`}
               label="Edit"
-              onClick={() => setEditingAssignment(row.original)}
               size="sm"
               variant="secondary"
             />
@@ -146,21 +136,16 @@ export function AssignmentsTable() {
             value={q}
             width={260}
           />
-          <Button
-            isDisabled={scopeOptionsQuery.isPending || Boolean(scopeOptionsQuery.error)}
-            label="Create assignment"
-            onClick={() => setEditingAssignment(null)}
-            variant="primary"
-          />
+          <Button href="/assignments/new" label="Create assignment" variant="primary" />
         </div>
       </HerocrumbsActions>
 
-      {assignmentsQuery.error || scopeOptionsQuery.error ? (
+      {assignmentsQuery.error ? (
         <Banner
           container="card"
           status="error"
           title="Could not load assignments"
-          description={(assignmentsQuery.error ?? scopeOptionsQuery.error)?.message}
+          description={assignmentsQuery.error.message}
         />
       ) : null}
 
@@ -252,18 +237,6 @@ export function AssignmentsTable() {
         </div>
       </div>
 
-      {editingAssignment !== undefined ? (
-        <AssignmentDialog
-          key={editingAssignment?.id ?? "new"}
-          assignment={editingAssignment}
-          scopes={scopeOptionsQuery.data ?? []}
-          onClose={() => setEditingAssignment(undefined)}
-          onSaved={async () => {
-            setEditingAssignment(undefined);
-            await queryClient.invalidateQueries();
-          }}
-        />
-      ) : null}
       <DeleteAssignmentDialog
         assignment={deletingAssignment}
         onClose={() => setDeletingAssignment(null)}
@@ -273,178 +246,6 @@ export function AssignmentsTable() {
         }}
       />
     </>
-  );
-}
-
-function AssignmentDialog({
-  assignment,
-  scopes,
-  onClose,
-  onSaved,
-}: {
-  assignment: AssignmentDto | null;
-  scopes: Pick<ScopeDto, "id" | "key" | "description" | "isSystem">[];
-  onClose: () => void;
-  onSaved: () => Promise<void>;
-}) {
-  const trpc = useTRPC();
-  const formId = useId();
-  const operationToast = useOperationToast();
-  const mutation = useMutation(
-    trpc.admin.assignments.replace.mutationOptions({
-      onSuccess: () =>
-        operationToast.success(
-          assignment ? "Assignment saved" : "Assignment created",
-          "assignment-save",
-        ),
-      onError: (error) =>
-        operationToast.error("Could not save assignment", error, "assignment-save"),
-    }),
-  );
-  const form = useForm({
-    defaultValues: {
-      email: assignment?.email ?? "",
-      scopeKeys: assignment?.scopes ?? ([] as string[]),
-    },
-    onSubmit: async ({ value }) => {
-      await mutation.mutateAsync({
-        email: value.email.trim(),
-        scopeKeys: value.scopeKeys,
-        expectedVersion: assignment?.version ?? null,
-      });
-      await onSaved();
-    },
-  });
-  const changeOpen = (open: boolean) => {
-    if (!open && !mutation.isPending) onClose();
-  };
-
-  return (
-    <Dialog isOpen onOpenChange={changeOpen} purpose="form" width="min(680px, calc(100vw - 32px))">
-      <Layout
-        header={
-          <DialogHeader
-            hasDivider
-            onOpenChange={changeOpen}
-            subtitle="Assignments may be created before a user signs in. Saving replaces the complete scope set."
-            title={assignment ? "Edit assignment" : "Create assignment"}
-          />
-        }
-        content={
-          <LayoutContent>
-            <form
-              className="admin-dialog-form"
-              id={formId}
-              onSubmit={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                void form.handleSubmit();
-              }}
-            >
-              <FormLayout>
-                <form.Field
-                  name="email"
-                  validators={{
-                    onBlur: ({ value }) => validateEmail(value),
-                    onChange: ({ value }) => validateEmail(value),
-                    onSubmit: ({ value }) => validateEmail(value),
-                  }}
-                >
-                  {(field) => (
-                    <TextInput
-                      isDisabled={Boolean(assignment)}
-                      isRequired
-                      label="Email address"
-                      onBlur={field.handleBlur}
-                      onChange={field.handleChange}
-                      placeholder="person@example.com"
-                      {...fieldStatusProps(field)}
-                      type="email"
-                      value={String(field.state.value)}
-                      width="100%"
-                    />
-                  )}
-                </form.Field>
-                <form.Field
-                  name="scopeKeys"
-                  validators={{
-                    onSubmit: ({ value }) =>
-                      !assignment && value.length === 0 ? "Choose at least one scope." : undefined,
-                  }}
-                >
-                  {(field) => (
-                    <MultiSelector
-                      hasClear
-                      hasSearch
-                      hasSelectAll
-                      isRequired={!assignment}
-                      label="Scopes"
-                      onChange={field.handleChange}
-                      options={scopes.map((scope) => ({
-                        value: scope.key,
-                        label: scope.key,
-                      }))}
-                      placeholder="Choose scopes…"
-                      renderOption={(option) => {
-                        const selectedScope = scopes.find((scope) => scope.key === option.value);
-                        return (
-                          <div className="grid gap-0.5">
-                            <span>{option.label ?? option.value}</span>
-                            {selectedScope ? (
-                              <span className="text-xs text-[var(--color-text-secondary)]">
-                                {selectedScope.description}
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      }}
-                      searchPlaceholder="Find scopes…"
-                      {...fieldStatusProps(field)}
-                      triggerDisplay="badges"
-                      value={field.state.value}
-                      width="100%"
-                    />
-                  )}
-                </form.Field>
-                {assignment?.scopes.includes("weldall:administer") ? (
-                  <form.Subscribe selector={(state) => state.values.scopeKeys}>
-                    {(scopeKeys) =>
-                      scopeKeys.includes("weldall:administer") ? null : (
-                        <Banner
-                          container="card"
-                          status="warning"
-                          title="Administrator access will be removed"
-                          description="The server rejects this change if it would remove the final administrator."
-                        />
-                      )
-                    }
-                  </form.Subscribe>
-                ) : null}
-              </FormLayout>
-            </form>
-          </LayoutContent>
-        }
-        footer={
-          <LayoutFooter hasDivider>
-            <div className="flex justify-end gap-2">
-              <Button label="Cancel" onClick={onClose} type="button" variant="secondary" />
-              <form.Subscribe selector={(state) => state.canSubmit}>
-                {(canSubmit) => (
-                  <Button
-                    form={formId}
-                    isDisabled={!canSubmit}
-                    isLoading={mutation.isPending}
-                    label="Save assignment"
-                    type="submit"
-                    variant="primary"
-                  />
-                )}
-              </form.Subscribe>
-            </div>
-          </LayoutFooter>
-        }
-      />
-    </Dialog>
   );
 }
 
@@ -500,32 +301,4 @@ function sortingToAssignmentSort(sorting: SortingState) {
   const first = sorting[0] ?? { id: "email", desc: false };
   return `${first.id}.${first.desc ? "desc" : "asc"}` as
     "email.asc" | "email.desc" | "updatedAt.asc" | "updatedAt.desc";
-}
-
-function validateEmail(value: unknown): string | undefined {
-  const email = String(value).trim();
-  if (!email) return "Email address is required.";
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? undefined : "Enter a valid email address.";
-}
-
-function fieldStatusProps(field: AnyFieldApi) {
-  const status = fieldStatus(field);
-  return status ? { status } : {};
-}
-
-function fieldStatus(field: AnyFieldApi): { type: "error"; message: string } | undefined {
-  const messages = field.state.meta.errors
-    .map(errorMessage)
-    .filter((message): message is string => Boolean(message));
-  return field.state.meta.isValid || messages.length === 0
-    ? undefined
-    : { type: "error", message: messages.join(", ") };
-}
-
-function errorMessage(error: unknown): string | undefined {
-  if (typeof error === "string") return error;
-  if (error && typeof error === "object" && "message" in error) {
-    return typeof error.message === "string" ? error.message : undefined;
-  }
-  return undefined;
 }
