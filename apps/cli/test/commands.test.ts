@@ -37,7 +37,7 @@ describe("friendly resource output", () => {
     output.mockRestore();
   });
 
-  it("shows names and grants without technical registry URLs", () => {
+  it("shows only API names without repeating grants or technical registry values", () => {
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
     printPermissions([
       {
@@ -52,8 +52,10 @@ describe("friendly resource output", () => {
       },
     ]);
     const text = output.mock.calls.flat().join("\n");
-    expect(text).toContain("Expenses");
-    expect(text).toContain("expenses:read");
+    const availableApis = text.split("Available APIs:")[1];
+    expect(availableApis).toContain("Expenses");
+    expect(availableApis).not.toContain("Read data");
+    expect(availableApis).not.toContain("expenses:read");
     expect(text).not.toContain("https://");
     expect(text).not.toContain("private-client-shape");
     output.mockRestore();

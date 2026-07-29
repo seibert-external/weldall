@@ -91,10 +91,22 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 isSelected={selected("/scopes")}
               />
               <SideNavItem
-                label="Assignments"
+                label="Email assignments"
                 href="/assignments"
                 icon={AssignmentIcon}
                 isSelected={selected("/assignments")}
+              />
+              <SideNavItem
+                label="Group providers"
+                href="/group-providers"
+                icon={GroupIcon}
+                isSelected={selected("/group-providers")}
+              />
+              <SideNavItem
+                label="Group assignments"
+                href="/group-assignments"
+                icon={AssignmentIcon}
+                isSelected={selected("/group-assignments")}
               />
               <SideNavItem
                 label="Users"
@@ -197,6 +209,16 @@ function AssignmentIcon(props: IconProps) {
       <path d="M15 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1" />
       <circle cx="8.5" cy="7" r="3" />
       <path d="M15 8h7M18.5 4.5v7" />
+    </IconBase>
+  );
+}
+
+function GroupIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="8" cy="8" r="3" />
+      <circle cx="17" cy="9" r="2.5" />
+      <path d="M2 20a6 6 0 0 1 12 0M13 20a5 5 0 0 1 9 0" />
     </IconBase>
   );
 }

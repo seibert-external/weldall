@@ -12,7 +12,7 @@
     "build:dev": "turbo run build --filter=!@weldall/weldall",
     "check": "eslint apps packages scripts && turbo run lint typecheck",
     "cli:link": "pnpm --filter @weldall/cli build && ln -sf \"$PWD/apps/cli/dist/index.js\" \"$(dirname \"$(command -v node)\")/weldall\"",
-    "dev": "turbo run dev --filter=@weldall/weldall --filter=@weldall/expenses --filter=@weldall/dev-idp",
+    "dev": "turbo run dev --filter=@weldall/weldall --filter=@weldall/expenses --filter=@weldall/dev-idp --filter=@weldall/docs",
     "docs:dev": "pnpm --filter @weldall/docs dev",
     "format": "prettier --no-error-on-unmatched-pattern --write \"apps/**/*.{ts,tsx,js,mjs,json,css,astro,md,mdx}\" \"examples/**/*.{ts,tsx,js,mjs,json,md}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js,mjs}\" \"tooling/**/*.{ts,js,json}\" \".github/**/*.{yaml,yml}\" \".changeset/**/*.{md,json}\" \"*.{json,yaml,yml}\" \"!pnpm-lock.yaml\" \"*.md\"",
     "format:check": "prettier --no-error-on-unmatched-pattern --check \"apps/**/*.{ts,tsx,js,mjs,json,css,astro,md,mdx}\" \"examples/**/*.{ts,tsx,js,mjs,json,md}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.{ts,js,mjs}\" \"tooling/**/*.{ts,js,json}\" \".github/**/*.{yaml,yml}\" \".changeset/**/*.{md,json}\" \"*.{json,yaml,yml}\" \"!pnpm-lock.yaml\" \"*.md\"",

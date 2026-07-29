@@ -202,10 +202,10 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
                   renderOption={(option) => {
                     const scope = scopes.find((candidate) => candidate.key === option.value);
                     return (
-                      <div className="grid gap-0.5">
+                      <div className="admin-dropdown-option">
                         <span>{option.label ?? option.value}</span>
                         {scope ? (
-                          <span className="text-xs text-[var(--color-text-secondary)]">
+                          <span className="admin-dropdown-option-subtitle">
                             {scope.description}
                           </span>
                         ) : null}

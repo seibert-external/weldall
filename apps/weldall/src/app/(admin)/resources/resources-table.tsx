@@ -24,14 +24,7 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
 
-const sortingParser = createSortingParser(new Set(["name", "updatedAt"]), [
-  { id: "name", desc: false },
-]);
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-const visibleScopeCount = 3;
+const sortingParser = createSortingParser(new Set(["name"]), [{ id: "name", desc: false }]);
 
 export function ResourcesTable() {
   const trpc = useTRPC();
@@ -87,25 +80,17 @@ export function ResourcesTable() {
         enableSorting: false,
         cell: ({ getValue }) => {
           const scopes = getValue<string[]>();
-          const visibleScopes = scopes.slice(0, visibleScopeCount);
-          const remainingScopes = scopes.length - visibleScopes.length;
 
           return scopes.length > 0 ? (
-            <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
-              {visibleScopes.map((scope) => (
+            <div className="flex flex-wrap items-center gap-1">
+              {scopes.map((scope) => (
                 <Badge key={scope} label={scope} />
               ))}
-              {remainingScopes > 0 ? <Badge label={`and ${remainingScopes} more`} /> : null}
             </div>
           ) : (
             <Text color="secondary">None</Text>
           );
         },
-      },
-      {
-        accessorKey: "updatedAt",
-        header: "Updated",
-        cell: ({ getValue }) => dateFormatter.format(new Date(getValue<string>())),
       },
       {
         id: "actions",
@@ -253,6 +238,5 @@ export function ResourcesTable() {
 
 function sortingToResourceSort(sorting: SortingState) {
   const first = sorting[0] ?? { id: "name", desc: false };
-  return `${first.id}.${first.desc ? "desc" : "asc"}` as
-    "name.asc" | "name.desc" | "updatedAt.asc" | "updatedAt.desc";
+  return `${first.id}.${first.desc ? "desc" : "asc"}` as "name.asc" | "name.desc";
 }

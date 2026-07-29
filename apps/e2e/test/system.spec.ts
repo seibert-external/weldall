@@ -67,6 +67,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   page,
   request: apiRequest,
 }) => {
+  test.setTimeout(180_000);
+
   const login = startCli(["login"], 90_000);
   await page.goto(await waitForBrowserUrl());
   await page.getByRole("button", { name: "Development login" }).click();
@@ -135,16 +137,33 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("button", { name: "Save resource" }).click();
   await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
 
-  await page.getByRole("link", { name: "Assignments" }).click();
+  await page.getByRole("link", { name: "Email assignments" }).click();
   await expect(page.getByRole("heading", { name: "Email assignments" })).toBeVisible();
   const aliceRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
   await expect(aliceRow).toBeVisible();
-  await aliceRow.getByRole("button", { name: "Edit" }).click();
-  const assignmentDialog = page.getByRole("dialog");
-  await assignmentDialog.getByRole("button", { name: "Scopes", exact: true }).click();
-  await page.getByRole("option", { name: "Select all" }).click();
-  await assignmentDialog.getByRole("button", { name: "Save assignment" }).click();
-  await expect(aliceRow.getByText("expenses:read", { exact: true })).toBeVisible();
+  await aliceRow.getByRole("link", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Edit assignment" })).toBeVisible();
+  await page.getByLabel("Find scopes").fill("expenses:");
+  for (const scope of ["expenses:create", "expenses:delete", "expenses:read", "expenses:write"]) {
+    await page.getByRole("checkbox", { name: new RegExp(`^${scope}`) }).check();
+  }
+  await page.getByRole("button", { name: "Save assignment" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/assignments");
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "alice@example.com" })
+      .getByText("expenses:read", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole("link", { name: "Group providers" }).click();
+  await expect(page.getByRole("heading", { name: "Group providers" })).toBeVisible();
+  await page.getByRole("link", { name: "Group assignments" }).click();
+  await expect(page.getByRole("heading", { name: "Group assignments" })).toBeVisible();
+  await page.getByRole("link", { name: "Create group assignment" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/group-assignments/new");
+  await expect(page.getByRole("heading", { name: "Create group assignment" })).toBeVisible();
+  await page.getByRole("link", { name: "Cancel" }).click();
 
   await page.getByRole("link", { name: "Skill registry" }).click();
   await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible();

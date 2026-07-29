@@ -17,6 +17,7 @@ let adminScopeId: string;
 
 describe("admin tRPC middleware", () => {
   beforeAll(async () => {
+    process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
     const adminScope = await db.scope.findUniqueOrThrow({
       where: { key: ADMIN_SCOPE_KEY },
     });
@@ -104,6 +105,7 @@ describe("admin tRPC middleware", () => {
     await db.emailScopeAssignment.deleteMany({
       where: { normalizedEmail: { in: [adminEmail, normalEmail] } },
     });
+    await db.groupProvider.deleteMany({ where: { key: { startsWith: `trpc-${runId}` } } });
     await db.auditEvent.deleteMany({ where: { actorId: adminUserId } });
     await db.user.deleteMany({ where: { id: { in: [adminUserId, normalUserId] } } });
   });
@@ -145,6 +147,19 @@ describe("admin tRPC middleware", () => {
         code: "NOT_FOUND",
       },
     );
+  });
+
+  it("resolves assignment details for administrators", async () => {
+    await expect(
+      caller(adminUserId).admin.assignments.get({ id: assignmentId }),
+    ).resolves.toMatchObject({
+      id: assignmentId,
+      email: adminEmail,
+      scopes: [ADMIN_SCOPE_KEY],
+    });
+    await expect(
+      caller(adminUserId).admin.assignments.get({ id: "missing-assignment" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("checks the live assignment on every procedure call", async () => {
@@ -218,6 +233,55 @@ describe("admin tRPC middleware", () => {
         sort: "occurredAt.desc",
       }),
     ).resolves.toMatchObject({ total: 1 });
+  });
+
+  it("exposes provider administration without ever returning the credential", async () => {
+    const created = await caller(adminUserId).admin.groupProviders.create({
+      key: `trpc-${runId}`,
+      name: "tRPC provider",
+      adapterType: "management-api-v1",
+      baseUrl: "https://groups.example/",
+      token: "must-never-be-returned",
+      enabled: true,
+    });
+    expect(created).toMatchObject({
+      key: `trpc-${runId}`,
+      baseUrl: "https://groups.example",
+      hasToken: true,
+    });
+    expect(JSON.stringify(created)).not.toContain("must-never-be-returned");
+    const listed = await caller(adminUserId).admin.groupProviders.list();
+    expect(JSON.stringify(listed)).not.toContain("encryptedToken");
+    expect(JSON.stringify(listed)).not.toContain("must-never-be-returned");
+
+    const scope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+    const assignment = await db.groupScopeAssignment.create({
+      data: {
+        providerId: created.id,
+        groupId: `trpc-group-${runId}`,
+        groupName: "tRPC group",
+        createdBy: adminUserId,
+        updatedBy: adminUserId,
+        grants: { create: { scopeId: scope.id, createdBy: adminUserId } },
+      },
+    });
+    await expect(
+      caller(adminUserId).admin.groupAssignments.get({ id: assignment.id }),
+    ).resolves.toMatchObject({
+      id: assignment.id,
+      providerId: created.id,
+      groupName: "tRPC group",
+      scopes: ["expenses:read"],
+    });
+    await expect(
+      caller(adminUserId).admin.groupAssignments.get({ id: "missing-group-assignment" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await db.groupScopeAssignment.delete({ where: { id: assignment.id } });
+
+    await caller(adminUserId).admin.groupProviders.delete({
+      id: created.id,
+      expectedVersion: created.version,
+    });
   });
 
   it("accepts same-origin JSON requests with the CSRF header", () => {

@@ -142,6 +142,38 @@ const skillUpdatedMetadata = z
   .object({ slug: z.string().min(1).max(120), before: skillSnapshot, after: skillSnapshot })
   .strict();
 const skillDeletedMetadata = skillCreatedMetadata;
+const providerMetadata = z
+  .object({
+    providerKey: z.string().min(1).max(120),
+    adapterType: z.literal("management-api-v1"),
+    baseUrl: z.string().url().max(2_000),
+    enabled: z.boolean(),
+    version: z.number().int().positive(),
+    credentialChanged: z.boolean(),
+  })
+  .strict();
+const providerTestedMetadata = providerMetadata.extend({
+  version: z.number().int().nonnegative(),
+  persisted: z.boolean(),
+  status: z.enum(["ok", "failed"]),
+  latencyMs: z.number().int().nonnegative(),
+  groupCount: z.number().int().nonnegative().nullable(),
+});
+const groupScopesMetadata = z
+  .object({
+    providerId: z.string().min(1).max(191),
+    providerKey: z.string().min(1).max(120),
+    groupId: z.string().min(1).max(191),
+    groupName: z.string().min(1).max(191),
+    beforeScopes: scopeArray,
+    afterScopes: scopeArray,
+    addedScopes: scopeArray,
+    removedScopes: scopeArray,
+    source: z.enum(["admin_api", "scope_delete_cascade"]),
+    versionBefore: z.number().int().nonnegative(),
+    versionAfter: z.number().int().positive(),
+  })
+  .strict();
 
 const metadataSchemas = {
   "id_jag.issued": idJagIssuedMetadata,
@@ -157,6 +189,13 @@ const metadataSchemas = {
   "skill.created": skillCreatedMetadata,
   "skill.updated": skillUpdatedMetadata,
   "skill.deleted": skillDeletedMetadata,
+  "group_provider.created": providerMetadata,
+  "group_provider.updated": providerMetadata,
+  "group_provider.deleted": providerMetadata,
+  "group_provider.tested": providerTestedMetadata,
+  "group_scopes.created": groupScopesMetadata,
+  "group_scopes.replaced": groupScopesMetadata,
+  "group_scopes.deleted": groupScopesMetadata,
 } satisfies Record<AuditEventType, z.ZodType>;
 
 const auditInputSchema = z

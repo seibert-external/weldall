@@ -34,6 +34,7 @@ export default defineConfig({
               link: "/weldall-setup/",
             },
             { slug: "service-configuration" },
+            { slug: "group-provider-http-interface" },
           ],
         },
       ],

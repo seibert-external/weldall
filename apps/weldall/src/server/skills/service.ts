@@ -1,5 +1,5 @@
 import { db } from "@weldall/db";
-import { normalizeEmail } from "../admin/service";
+import { effectiveScopesFor } from "../policy/resources";
 
 export interface VisibleSkill {
   slug: string;
@@ -19,12 +19,9 @@ export interface VisibleSkillDetail extends VisibleSkill {
 export async function listVisibleSkills(email: string): Promise<VisibleSkill[]> {
   const [skills, grants] = await Promise.all([
     db.skill.findMany({ orderBy: [{ title: "asc" }, { slug: "asc" }] }),
-    db.emailScopeGrant.findMany({
-      where: { assignment: { normalizedEmail: normalizeEmail(email) } },
-      select: { scope: { select: { key: true } } },
-    }),
+    effectiveScopesFor(email),
   ]);
-  const grantedScopes = new Set(grants.map((grant) => grant.scope.key));
+  const grantedScopes = new Set<string>(grants);
   return skills
     .map((skill) => skillVisibility(skill, grantedScopes))
     .filter((skill) => !skill.hidden || skill.available);
@@ -36,13 +33,10 @@ export async function getVisibleSkill(
 ): Promise<VisibleSkillDetail | null> {
   const [skill, grants] = await Promise.all([
     db.skill.findUnique({ where: { slug } }),
-    db.emailScopeGrant.findMany({
-      where: { assignment: { normalizedEmail: normalizeEmail(email) } },
-      select: { scope: { select: { key: true } } },
-    }),
+    effectiveScopesFor(email),
   ]);
   if (!skill) return null;
-  const metadata = skillVisibility(skill, new Set(grants.map((grant) => grant.scope.key)));
+  const metadata = skillVisibility(skill, new Set<string>(grants));
   if (metadata.hidden && !metadata.available) return null;
   return {
     ...metadata,

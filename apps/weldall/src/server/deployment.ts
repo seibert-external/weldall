@@ -1,4 +1,5 @@
 import { db } from "@weldall/db";
+import { decryptProviderToken } from "./group-providers/credentials";
 import { WELDALL_RESOURCE } from "./oauth/constants";
 
 const LOCAL_WELDALL_RESOURCE = "https://weldall.seibert.localdev/api";
@@ -37,4 +38,9 @@ export async function prepareProductionDatabase(): Promise<void> {
       },
     });
   });
+
+  const providers = await db.groupProvider.findMany({
+    select: { id: true, encryptedToken: true, encryptionKeyVersion: true },
+  });
+  for (const provider of providers) decryptProviderToken(provider);
 }
