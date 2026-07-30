@@ -2,36 +2,30 @@
 title: SDKs
 sidebar:
   label: SDKs
-description: The npm packages for Weldall CLI and connected company services.
+description: The npm packages for the Weldall CLI and connected company services.
 ---
 
-Weldall publishes two packages through npm. The CLI runs on an employee's device. The SDK runs in the connected company service.
+Weldall publishes two npm packages. The CLI runs on an employee's device. The SDK runs inside a connected service.
 
 ## `@weldall/cli`
 
 [`@weldall/cli`](https://www.npmjs.com/package/@weldall/cli) installs the `weldall` command. Employees use it to sign in. Agents use it to discover skills and send approved requests to company services.
 
-:::note[Requirements]
-The CLI currently supports macOS only and requires Node.js 22.15 or newer.
-:::
-
 ```sh
 npm install --global @weldall/cli
 ```
 
+The CLI currently supports macOS and requires Node.js 22.15 or newer.
+
 ## `@weldall/sdk`
 
-A downstream service must check incoming requests before it reads data or makes changes. [`@weldall/sdk`](https://www.npmjs.com/package/@weldall/sdk) provides JavaScript interfaces for Fetch, Hono, Next.js, and Astro.
-
-:::note[Requirements]
-The SDK requires Node.js 22.15 or newer. Next.js routes must use the Node.js runtime.
-:::
+[`@weldall/sdk`](https://www.npmjs.com/package/@weldall/sdk) validates requests before a service reads data or makes changes. It provides a Fetch API and adapters for Hono, Next.js, and Astro.
 
 ```sh
 pnpm add @weldall/sdk
 ```
 
-Create a Weldall instance when the downstream service starts. It contains the service's public URL and the scopes accepted by its endpoints:
+Create one Weldall instance when the service starts:
 
 ```ts
 import { initWeldall } from "@weldall/sdk";
@@ -44,14 +38,57 @@ const weldall = initWeldall("https://weldall.example.com", {
   signingKey,
   replayStore,
 });
-
-await weldall.ready(); // optional: validate the Weldall configuration at startup
 ```
 
-In a Fetch handler, `weldall.verify(request, { scopes: [...] })` checks the incoming request before the business logic runs. The framework adapters perform this check through middleware or handler wrappers:
+In a Fetch handler, `weldall.verify(request, { scopes: [...] })` checks the request before business logic runs. Framework adapters provide middleware or handler wrappers:
 
 - `@weldall/sdk/hono`
 - `@weldall/sdk/next`
 - `@weldall/sdk/astro`
 
-See [How to: Integrate a service](../service-configuration/) for the practical setup. [Security](../oauth-security/) explains keys, authorization, and the standards involved.
+The SDK requires Node.js 22.15 or newer. Next.js routes must use the Node.js runtime.
+
+## Publish skills from a service
+
+A resource can publish its own agent instructions. Add a `skills` provider to the same SDK configuration:
+
+```ts
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://contracts.example.com/api",
+  publicOrigin: "https://contracts.example.com",
+  clientId: "weldall-cli-at-contracts",
+  supportedScopes: ["contracts:read"],
+  signingKey,
+  replayStore,
+  skills: {
+    items: [
+      {
+        id: "list",
+        title: "List contracts",
+        requiredScopes: ["contracts:read"],
+        visibility: "HIDDEN_IF_UNALLOWED",
+        content:
+          "# List contracts\n\nRun `weldall request --scope contracts:read https://contracts.example.com/api/contracts`.",
+      },
+    ],
+  },
+});
+```
+
+Skill IDs are local to the resource. If the registered resource key is `contracts`, Weldall exposes this skill as `contracts.list`.
+
+Use `skills.load` instead of `skills.items` when the catalog comes from a database or another local source:
+
+```ts
+skills: {
+  load: async () => loadPublishedSkills(),
+}
+```
+
+The provider receives no employee identity. It must return the same catalog for every caller.
+
+`DEFAULT` keeps a skill visible and reports missing scopes. `HIDDEN_IF_UNALLOWED` hides it unless the employee has every required scope. Visibility controls discovery, not authorization: the API route still needs its own protection policy, and skill instructions never grant access. Required scopes must already exist in Weldall; unknown or protected scopes are withheld from users and shown as warnings to administrators.
+
+The Hono adapter mounts the catalog route through `weldall.registerRoutes(app)`. Fetch, Next.js, and Astro integrations must expose `weldall.handlers.skills` at `/.well-known/weldall-skills` alongside the OAuth metadata, token, and JWKS handlers.
+
+See [How to: Integrate a service](../service-configuration/) for a complete Hono setup. [Security](../oauth-security/) covers keys, replay protection, and the protocol boundary.

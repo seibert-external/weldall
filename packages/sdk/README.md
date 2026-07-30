@@ -1,204 +1,230 @@
 # @weldall/sdk
 
-Weldall's Node.js resource-server SDK for Fetch, Hono 4, Next.js 16 App Router, and Astro 7 SSR.
+Build a Weldall resource server with Fetch, Hono, Next.js, or Astro. The SDK verifies DPoP-bound requests, issues local access tokens, publishes OAuth metadata, and can publish agent skills from the service itself.
 
-> **Prototype:** review the security boundary below before production use. The default replay store is process-local and the draft protocols are pinned, not stable RFCs.
-
-## Requirements
-
-- Node.js `>=22.15.0`
-- Node runtime only (Next.js routes must export `runtime = "nodejs"`)
-- HTTPS origins; loopback HTTP requires `allowInsecureLoopback: true`
+> This package implements pinned ID-JAG and JWT-DPoP drafts. Review the production notes before using it outside a controlled deployment.
 
 ## Install
 
 ```sh
-pnpm add @weldall/sdk
-# add hono, next, or astro for the matching optional adapter
+npm install @weldall/sdk
 ```
 
-## Core Fetch API
+Requirements:
 
-This runnable development setup generates a key at startup. Production deployments must load a stable key or use an external signer so existing tokens remain verifiable after restarts.
+- Node.js 22.15 or newer
+- HTTPS in deployed environments
+- Node.js runtime for Next.js route handlers
+
+Hono, Next.js, and Astro are optional peer dependencies. Install the framework you use.
+
+## Hono quick start
+
+```sh
+npm install @weldall/sdk hono @hono/node-server
+```
 
 ```ts
-import { generateEs256KeyPair, inMemory, initWeldall } from "@weldall/sdk";
+import { serve } from "@hono/node-server";
+import { generateEs256KeyPair, inMemory } from "@weldall/sdk";
+import { initWeldall, type WeldallVariables } from "@weldall/sdk/hono";
+import { Hono } from "hono";
 
-const key = await generateEs256KeyPair();
+const key = await generateEs256KeyPair(); // use a stable key in production
+
 const weldall = initWeldall("https://weldall.example.com", {
-  resource: "https://expenses.example.com/api",
-  publicOrigin: "https://expenses.example.com",
-  clientId: "weldall-cli-at-expenses",
-  supportedScopes: ["expenses:read", "expenses:write"],
-  signingKey: {
-    kid: "development-only",
-    privateJwk: key.privateJwk,
-    publicJwk: key.publicJwk,
-  },
+  resource: "https://contracts.example.com/api",
+  publicOrigin: "https://contracts.example.com",
+  clientId: "weldall-cli-at-contracts",
+  supportedScopes: ["contracts:read"],
+  signingKey: { kid: "development-only", ...key },
   replayStore: inMemory(),
   skills: {
     items: [
       {
-        id: "review",
-        title: "Review expenses",
-        requiredScopes: ["expenses:read"],
-        visibility: "DEFAULT",
-        content: "# Review expenses\n\nUse the Expenses API to review submitted expenses.",
+        id: "list",
+        title: "List contracts",
+        requiredScopes: ["contracts:read"],
+        visibility: "HIDDEN_IF_UNALLOWED",
+        content:
+          "# List contracts\n\nRun `weldall request --scope contracts:read https://contracts.example.com/api/contracts`.",
       },
     ],
   },
 });
 
-await weldall.ready(); // optional eager discovery; exchange is otherwise lazy
-
-export async function authenticate(request: Request) {
-  return weldall.verify(request, { scopes: ["expenses:read"] });
-}
-
-export async function authenticateWithoutThrowing(request: Request) {
-  return weldall.verifyNoThrow(request);
-}
-```
-
-`scopes` is all-of. When `anyScopes` is present, at least one of those scopes is additionally required. An empty policy means authenticated-only.
-
-Mount `handlers.token`, `handlers.authorizationServerMetadata`, `handlers.protectedResourceMetadata`, `handlers.jwks`, and (when configured) `handlers.skills` in the matching routes. They require a verified email in every Weldall ID-JAG, copy that identity into the local ES256 DPoP-bound `at+jwt` token, and publish local server metadata.
-
-## Publishing skills
-
-Configure either static `skills.items` or an async `skills.load` provider. Providers receive no user identity and must return the same catalog for every authenticated Weldall instance. Each skill uses a local ID; Weldall prefixes it with the registered resource key.
-
-`visibility` is an extensible enum:
-
-- `DEFAULT` keeps the skill discoverable and reports missing required scopes;
-- `HIDDEN_IF_UNALLOWED` omits it when any required scope is unavailable to the user.
-
-The protected-resource metadata advertises `weldall_skills_endpoint`. Mount `handlers.skills` at `/.well-known/weldall-skills`; the Hono adapter does this automatically. The endpoint accepts only short-lived, resource- and audience-bound `weldall-skills+jwt` Bearer assertions signed by Weldall. Skill publication therefore requires a real `ReplayStore`; `replayStore: "disabled"` is rejected when skills are configured.
-
-## Framework adapters
-
-### Hono
-
-```ts
-import { generateEs256KeyPair, inMemory } from "@weldall/sdk";
-import { initWeldall, type WeldallVariables } from "@weldall/sdk/hono";
-import { Hono } from "hono";
-
-const key = await generateEs256KeyPair();
-const weldall = initWeldall("https://weldall.example.com", {
-  resource: "https://expenses.example.com/api",
-  publicOrigin: "https://expenses.example.com",
-  clientId: "weldall-cli-at-expenses",
-  supportedScopes: ["expenses:read"],
-  signingKey: { kid: "development-only", ...key },
-  replayStore: inMemory(),
-});
 const app = new Hono<{ Variables: WeldallVariables }>();
 weldall.registerRoutes(app);
-app.get("/api/expenses", weldall.protect({ scopes: ["expenses:read"] }), (c) =>
-  c.json({ subject: weldall.getAuth(c).identity.subject }),
-);
+
+app.get("/api/contracts", weldall.protect({ scopes: ["contracts:read"] }), (context) => {
+  const auth = weldall.getAuth(context);
+  return context.json({ requestedBy: auth.identity.email, contracts: [] });
+});
+
+serve({ fetch: app.fetch, port: 8787 });
 ```
 
-### Next.js App Router
+`registerRoutes` mounts the token, metadata, JWKS, and skill catalog endpoints. `protect` rejects the request before your handler runs. `getAuth` returns the verified subject, email, granted scopes, token ID, and client ID.
+
+Call `await weldall.ready()` during startup if you want Weldall discovery to fail early. Otherwise discovery happens when it is first needed.
+
+## Scope policies
+
+```ts
+weldall.protect({ scopes: ["contracts:read", "contracts:export"] });
+```
+
+Every entry in `scopes` is required. If `anyScopes` is present, the request must additionally contain at least one of those scopes. An empty policy still requires a valid Weldall request.
+
+The core Fetch API exposes the same behavior:
+
+```ts
+const auth = await weldall.verify(request, { scopes: ["contracts:read"] });
+const result = await weldall.verifyNoThrow(request);
+```
+
+`verify` throws `WeldallAuthError`. `verifyNoThrow` returns either `{ ok: true, auth }` or `{ ok: false, error, response }`.
+
+## Publish skills
+
+Skills live with the API they describe. Configure static items or load them from a local source:
+
+```ts
+skills: {
+  load: async () => loadPublishedSkills(),
+}
+```
+
+The provider receives no employee identity and must return the same catalog for every caller.
+
+A published skill contains:
+
+```ts
+{
+  id: "list",                       // local resource ID
+  title: "List contracts",
+  requiredScopes: ["contracts:read"],
+  visibility: "HIDDEN_IF_UNALLOWED",
+  content: "# List contracts\n\n..."
+}
+```
+
+Weldall prefixes the local ID with the registered resource key. For a resource with the key `contracts`, the public skill ID is `contracts.list`.
+
+Visibility controls discovery, not authorization:
+
+- `DEFAULT` keeps the skill visible and reports missing scopes.
+- `HIDDEN_IF_UNALLOWED` hides the skill until every required scope is granted.
+
+The API route still needs its own `protect` policy. Instructions never grant access.
+
+When skill discovery is enabled for the resource, Weldall reads its protected-resource metadata and follows `weldall_skills_endpoint`. Catalog requests use a short-lived, audience- and resource-bound service assertion. Employee tokens and identities are not sent to the catalog endpoint.
+
+The SDK validates each catalog before returning it. IDs must be unique local IDs, required scopes use `namespace:permission` syntax, and a catalog may contain at most 100 skills or 1 MiB of JSON. Weldall validates the response again before storing it and withholds skills that use unknown or protected scopes.
+
+## Routes
+
+The Hono adapter mounts these routes with `registerRoutes`:
+
+| Route                                     | Handler                                |
+| ----------------------------------------- | -------------------------------------- |
+| `/.well-known/oauth-authorization-server` | `handlers.authorizationServerMetadata` |
+| `/.well-known/oauth-protected-resource`   | `handlers.protectedResourceMetadata`   |
+| `/.well-known/oauth-protected-resource/*` | `handlers.protectedResourceMetadata`   |
+| `/.well-known/jwks.json`                  | `handlers.jwks`                        |
+| `/.well-known/weldall-skills`             | `handlers.skills`                      |
+| `/oauth/token`                            | `handlers.token`                       |
+
+With the core Fetch API or the Next.js adapter, mount those handlers yourself. The Astro adapter wraps them as Astro endpoints.
+
+## Next.js App Router
+
+Create one shared instance:
 
 ```ts
 // src/lib/weldall.ts
-import { generateEs256KeyPair, inMemory } from "@weldall/sdk";
 import { initWeldall } from "@weldall/sdk/next";
 
-const key = await generateEs256KeyPair(); // load a stable key in production
-export const weldall = initWeldall("https://weldall.example.com", {
-  resource: "https://expenses.example.com/api",
-  publicOrigin: "https://expenses.example.com",
-  clientId: "weldall-cli-at-expenses",
-  supportedScopes: ["expenses:read"],
-  signingKey: { kid: "development-only", ...key },
-  replayStore: inMemory(),
-});
+export const weldall = initWeldall("https://weldall.example.com", options);
 ```
 
+Protect application routes with `withWeldall`:
+
 ```ts
-// app/api/expenses/route.ts
+// src/app/api/contracts/route.ts
 import { weldall } from "@/lib/weldall";
 
 export const runtime = "nodejs";
-export const GET = weldall.withWeldall({ scopes: ["expenses:read"] }, async (_request, auth) =>
-  Response.json({ subject: auth.identity.subject }),
+export const GET = weldall.withWeldall({ scopes: ["contracts:read"] }, async (_request, auth) =>
+  Response.json({ requestedBy: auth.identity.email }),
 );
 ```
 
+Infrastructure routes are small handler exports. For example:
+
 ```ts
-// app/oauth/token/route.ts
+// src/app/oauth/token/route.ts
 import { weldall } from "@/lib/weldall";
 
 export const runtime = "nodejs";
 export const POST = weldall.handlers.token;
 ```
 
-Mount the metadata/JWKS handlers at `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, and `/.well-known/jwks.json` in the same way. When skills are configured, mount `weldall.handlers.skills` at `/.well-known/weldall-skills`.
+Create the remaining route files the same way:
 
-### Astro SSR
+| File                                                        | Export                                               |
+| ----------------------------------------------------------- | ---------------------------------------------------- |
+| `src/app/.well-known/oauth-authorization-server/route.ts`   | `GET = weldall.handlers.authorizationServerMetadata` |
+| `src/app/.well-known/oauth-protected-resource/route.ts`     | `GET = weldall.handlers.protectedResourceMetadata`   |
+| `src/app/.well-known/oauth-protected-resource/api/route.ts` | `GET = weldall.handlers.protectedResourceMetadata`   |
+| `src/app/.well-known/jwks.json/route.ts`                    | `GET = weldall.handlers.jwks`                        |
+| `src/app/.well-known/weldall-skills/route.ts`               | `GET = weldall.handlers.skills`                      |
+
+The `/api` metadata route above matches `resource: "https://contracts.example.com/api"`. If your resource uses another path, expose the corresponding RFC 9728 path instead. The skills route is needed only when `skills` is configured.
+
+## Astro SSR
+
+Create the Astro adapter instance:
 
 ```ts
 // src/weldall.ts
-import { generateEs256KeyPair, inMemory } from "@weldall/sdk";
 import { initWeldall } from "@weldall/sdk/astro";
 
-const key = await generateEs256KeyPair(); // load a stable key in production
-export const weldall = initWeldall("https://weldall.example.com", {
-  resource: "https://expenses.example.com/api",
-  publicOrigin: "https://expenses.example.com",
-  clientId: "weldall-cli-at-expenses",
-  supportedScopes: ["expenses:read"],
-  signingKey: { kid: "development-only", ...key },
-  replayStore: inMemory(),
-});
+export const weldall = initWeldall("https://weldall.example.com", options);
 ```
 
-```ts
-// src/middleware.ts
-import { defineMiddleware, sequence } from "astro:middleware";
-import { weldall } from "./weldall";
+Use `weldall.protect()` in middleware and read the identity with `weldall.getAuth(context)`. Declare `weldallAuth` in `App.Locals`.
 
-export const onRequest = sequence(weldall.protect({ scopes: ["expenses:read"] }));
-```
+Astro handlers already accept an endpoint context:
 
 ```ts
-// src/pages/api/expenses.ts
+// src/pages/oauth/token.ts
 import { weldall } from "../../weldall";
 
 export const prerender = false;
-export const GET = (context) =>
-  Response.json({ subject: weldall.getAuth(context).identity.subject });
+export const POST = weldall.handlers.token;
 ```
 
-Declare `weldallAuth` in `App.Locals`. Mount `weldall.handlers.token`, `weldall.handlers.skills`, and the metadata/JWKS handlers as Astro endpoints.
+Add equivalent `GET` endpoint files for authorization-server metadata, protected-resource metadata, the resource-specific protected metadata path, JWKS, and—when configured—the skill catalog. Set `prerender = false` in each file. For the `/api` resource used above, the files are:
 
-## Replay storage and security boundary
+- `src/pages/.well-known/oauth-authorization-server.ts`
+- `src/pages/.well-known/oauth-protected-resource.ts`
+- `src/pages/.well-known/oauth-protected-resource/api.ts`
+- `src/pages/.well-known/jwks.json.ts`
+- `src/pages/.well-known/weldall-skills.ts`
 
-`ReplayStore.consume(key, expiresAt)` must atomically return `true` only for the first consume. Store errors fail closed. The SDK namespaces DPoP, ID-JAG, and skill-fetch assertion keys.
+## Production notes
 
-`inMemory()` is process-local, defaults to 10,000 live entries, and fails closed with HTTP 503 when capacity is reached. Size it approximately as `peak requests/second × 61`, or pass a larger `maxEntries`. Restarts clear it, and multiple instances do not share it. Use a shared Redis/database implementation for horizontal deployment. `replayStore: "disabled"` exists only for controlled diagnostics and is unsafe.
+Use a stable ES256 signing key. Generating a key at startup invalidates verification after a restart. For KMS or Vault, provide a signing-key provider with `current()` and `jwks()` methods.
 
-The SDK implements pinned ID-JAG draft-04 and JWT-DPoP draft-01 behavior. There is no DPoP nonce negotiation. Treat key rotation, shared replay storage, restart behavior, draft upgrades, and independent conformance testing as production-readiness work.
+Use a shared atomic `ReplayStore` when more than one service instance is running. `inMemory()` is process-local, clears on restart, and defaults to 10,000 live entries. It is suitable for development and single-process evaluation, not horizontal deployment.
 
-## Low-level verification primitives
+`ReplayStore.consume(key, expiresAt)` must return `true` only for the first consume. Store failures fail closed. Skill publishing cannot be combined with `replayStore: "disabled"`.
 
-The root package exports primitives for advanced integrations. They deliberately do not compose the whole sender-constrained flow:
+Keep `resource`, `publicOrigin`, the deployed routes, and the resource registered in Weldall aligned exactly. Set `allowInsecureLoopback: true` only for local loopback development.
 
-- `verifyAccessToken` validates the token and `cnf.jkt`; the caller must also verify the request's DPoP proof with `verifyStrictDpop`, passing both `accessToken` and `expectedJkt`.
-- `verifyIdJag` validates the assertion; the caller must atomically consume its `jti` before issuing a token.
-- `verifyStrictDpop` should be given `expectedJkt` and a real replay store whenever it protects a sender-bound token or assertion.
+The current protocol boundary has no DPoP nonce negotiation. Plan key rotation, shared replay storage, restart behavior, draft upgrades, and independent conformance testing before production rollout.
 
-Prefer `initWeldall().verify`, the token handler, or a framework adapter unless you need this lower-level control.
+## License
 
-## Rotation and external signers
-
-Instead of a direct key, provide `current()` and `jwks()` methods. `current()` returns a public JWK plus a `sign(payload, protectedHeader)` callback suitable for KMS/Vault. The SDK verifies provider JWKS, protected headers, payloads, and signatures before returning tokens. Keep retiring public keys in `jwks()` until every token they signed has expired.
-
-## Errors
-
-`verify` throws `WeldallAuthError`. `verifyNoThrow` returns `{ ok: true, auth }` or `{ ok: false, error, response }`. Adapter rejection responses use OAuth JSON, including `WWW-Authenticate` for 401/403 errors. Tokens, assertions, proofs, and key material are never logged.
-
-Licensed under Apache-2.0.
+Apache-2.0
