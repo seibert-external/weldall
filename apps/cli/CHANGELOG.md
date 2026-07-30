@@ -1,5 +1,15 @@
 # @weldall/cli
 
+## 0.5.0
+
+### Minor Changes
+
+- 27eddb1: Add authenticated resource skill publication, persisted Weldall discovery, source metadata, partial catalog warnings, and extensible skill visibility values.
+
+### Patch Changes
+
+- e33b4e0: Show only API names in the status output's available APIs section.
+
 ## 0.4.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@weldall/cli",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Secure macOS CLI for accessing Weldall-managed APIs",
   "license": "Apache-2.0",
   "repository": {
