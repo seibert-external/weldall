@@ -15,7 +15,7 @@ import {
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
 import { listScopes, resourceRequest, type ResourceGrant } from "./services/resources.js";
-import { listSkills, showSkill } from "./services/skills.js";
+import { listSkills, showSkill, type SkillSummary, type SkillWarning } from "./services/skills.js";
 import { issuerPreferences } from "./storage/preferences.js";
 import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transfers.js";
 
@@ -332,22 +332,37 @@ export const requestCommand = define({
   },
 });
 
+export const formatSkillListLine = (skill: SkillSummary): string => {
+  const identity = `${terminalText(skill.title)} (${terminalText(skill.slug)})`;
+  if (skill.available) return identity;
+  const missing = skill.missingScopes.map(terminalText).join(", ");
+  return `${identity} (not available${missing ? `, missing scopes: ${missing}` : ""})`;
+};
+
+export const formatSkillWarning = (warning: SkillWarning): string => {
+  const source = terminalText(warning.source);
+  const messages: Record<string, string> = {
+    catalog_pending: `Skills from ${source} are not available yet because the catalog has not been fetched.`,
+    catalog_temporarily_unavailable: `Skills from ${source} may be outdated because the catalog could not be refreshed.`,
+    catalog_expired: `Skills from ${source} are unavailable because the catalog could not be refreshed in time.`,
+  };
+  return (
+    messages[warning.code] ?? `The ${source} skill catalog reported ${terminalText(warning.code)}.`
+  );
+};
+
 const printSkills = async (asJson: boolean | undefined) => {
-  const skills = await listSkills(await resolveWeldallConfig());
+  const result = await listSkills(await resolveWeldallConfig());
   if (asJson) {
-    jsonOutput(skills);
+    jsonOutput(result);
     return;
   }
-  if (skills.length === 0) {
+  for (const warning of result.warnings) console.error(`Warning: ${formatSkillWarning(warning)}`);
+  if (result.items.length === 0) {
     console.log("No skills are visible to this account.");
     return;
   }
-  for (const skill of skills) {
-    const access = skill.available ? "available" : `missing ${skill.missingScopes.join(", ")}`;
-    console.log(
-      `${terminalText(skill.slug)}\t${terminalText(skill.title)}\t${terminalText(access)}`,
-    );
-  }
+  for (const skill of result.items) console.log(formatSkillListLine(skill));
 };
 
 const skillsListCommand = define({

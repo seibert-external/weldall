@@ -151,12 +151,12 @@ The values must match the configuration in the Hono service. Weldall does not se
 
 Open **Skills**, select **Create skill**, and enter:
 
-| Field                          | Value            |
-| ------------------------------ | ---------------- |
-| Skill ID                       | `contracts.list` |
-| Title                          | `List contracts` |
-| Required scopes                | `contracts:read` |
-| Hidden without required scopes | on               |
+| Field           | Value               |
+| --------------- | ------------------- |
+| Skill ID        | `contracts.list`    |
+| Title           | `List contracts`    |
+| Required scopes | `contracts:read`    |
+| Visibility      | Hidden if unallowed |
 
 Use these Markdown instructions:
 
@@ -196,4 +196,4 @@ weldall request \
   https://contracts.example.com/api/contracts
 ```
 
-The service returns the contract list together with the identity for which Weldall authorized the request. Remove the assignment and the same request is rejected; the hidden skill also disappears.
+The service returns the contract list together with the identity for which Weldall authorized the request. Remove the assignment and the same request is rejected; a skill configured as **Hidden if unallowed** also disappears.

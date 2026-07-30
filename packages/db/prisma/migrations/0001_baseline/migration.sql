@@ -1,9 +1,8 @@
--- Squashed greenfield baseline: schema, application catalogs, and downstream resource registry.
-
-
--- Previous migration: packages/db/prisma/migrations/0001_initial/migration.sql
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
+
+-- CreateEnum
+CREATE TYPE "SkillVisibility" AS ENUM ('DEFAULT', 'HIDDEN_IF_UNALLOWED');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -16,6 +15,220 @@ CREATE TABLE "User" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Scope" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "isSystem" BOOLEAN NOT NULL DEFAULT false,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT NOT NULL,
+    "updatedBy" TEXT NOT NULL,
+
+    CONSTRAINT "Scope_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "EmailScopeAssignment" (
+    "id" TEXT NOT NULL,
+    "normalizedEmail" TEXT NOT NULL,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT NOT NULL,
+    "updatedBy" TEXT NOT NULL,
+
+    CONSTRAINT "EmailScopeAssignment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "EmailScopeGrant" (
+    "id" TEXT NOT NULL,
+    "assignmentId" TEXT NOT NULL,
+    "scopeId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdBy" TEXT NOT NULL,
+
+    CONSTRAINT "EmailScopeGrant_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "GroupProvider" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "adapterType" TEXT NOT NULL,
+    "baseUrl" TEXT NOT NULL,
+    "encryptedToken" TEXT NOT NULL,
+    "encryptionKeyVersion" INTEGER NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT NOT NULL,
+    "updatedBy" TEXT NOT NULL,
+
+    CONSTRAINT "GroupProvider_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "GroupScopeAssignment" (
+    "id" TEXT NOT NULL,
+    "providerId" TEXT NOT NULL,
+    "groupId" TEXT NOT NULL,
+    "groupName" TEXT NOT NULL,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT NOT NULL,
+    "updatedBy" TEXT NOT NULL,
+
+    CONSTRAINT "GroupScopeAssignment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "GroupScopeGrant" (
+    "id" TEXT NOT NULL,
+    "assignmentId" TEXT NOT NULL,
+    "scopeId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdBy" TEXT NOT NULL,
+
+    CONSTRAINT "GroupScopeGrant_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Skill" (
+    "id" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "requiredScopes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "visibility" "SkillVisibility" NOT NULL DEFAULT 'DEFAULT',
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT NOT NULL,
+    "updatedBy" TEXT NOT NULL,
+
+    CONSTRAINT "Skill_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "CliSettings" (
+    "id" TEXT NOT NULL DEFAULT 'default',
+    "appendix" TEXT NOT NULL DEFAULT '',
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT NOT NULL,
+    "updatedBy" TEXT NOT NULL,
+
+    CONSTRAINT "CliSettings_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DownstreamResource" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "resourceIdentifier" TEXT NOT NULL,
+    "authorizationServer" TEXT NOT NULL,
+    "downstreamClientId" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "skillDiscoveryEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT NOT NULL,
+    "updatedBy" TEXT NOT NULL,
+
+    CONSTRAINT "DownstreamResource_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DiscoveredSkillCatalog" (
+    "id" TEXT NOT NULL,
+    "resourceId" TEXT NOT NULL,
+    "sourceResourceVersion" INTEGER,
+    "schemaVersion" INTEGER,
+    "metadataUrl" TEXT,
+    "catalogEndpoint" TEXT,
+    "lastAttemptAt" TIMESTAMP(3),
+    "lastSuccessfulRefreshAt" TIMESTAMP(3),
+    "nextRefreshAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "staleAfter" TIMESTAMP(3),
+    "refreshLeaseId" TEXT,
+    "refreshLeaseUntil" TIMESTAMP(3),
+    "retryCount" INTEGER NOT NULL DEFAULT 0,
+    "lastFailureCategory" TEXT,
+    "lastFailureAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "DiscoveredSkillCatalog_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DiscoveredSkill" (
+    "id" TEXT NOT NULL,
+    "catalogId" TEXT NOT NULL,
+    "localId" TEXT NOT NULL,
+    "canonicalId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "requiredScopes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "visibility" "SkillVisibility" NOT NULL DEFAULT 'DEFAULT',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "DiscoveredSkill_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ResourceScope" (
+    "resourceId" TEXT NOT NULL,
+    "scopeId" TEXT NOT NULL,
+
+    CONSTRAINT "ResourceScope_pkey" PRIMARY KEY ("resourceId","scopeId")
+);
+
+-- CreateTable
+CREATE TABLE "ResourceRequestPrefix" (
+    "id" TEXT NOT NULL,
+    "resourceId" TEXT NOT NULL,
+    "urlPrefix" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdBy" TEXT NOT NULL,
+
+    CONSTRAINT "ResourceRequestPrefix_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AuditEvent" (
+    "id" TEXT NOT NULL,
+    "schemaVersion" INTEGER NOT NULL DEFAULT 1,
+    "eventType" TEXT NOT NULL,
+    "occurredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "actorType" TEXT NOT NULL,
+    "actorId" TEXT NOT NULL,
+    "actorEmail" TEXT,
+    "clientId" TEXT,
+    "requestId" TEXT NOT NULL,
+    "correlationId" TEXT,
+    "deduplicationKey" TEXT,
+    "outcome" TEXT NOT NULL,
+    "reasonCode" TEXT,
+    "subjectType" TEXT,
+    "subjectId" TEXT,
+    "metadata" JSONB NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AuditEvent_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -35,7 +248,8 @@ CREATE TABLE "Session" (
 -- CreateTable
 CREATE TABLE "Account" (
     "id" TEXT NOT NULL,
-    "accountId" TEXT NOT NULL,
+    "issuer" TEXT NOT NULL,
+    "providerAccountId" TEXT NOT NULL,
     "providerId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "accessToken" TEXT,
@@ -237,6 +451,108 @@ CREATE TABLE "OAuthDeviceRefreshBinding" (
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Scope_key_key" ON "Scope"("key");
+
+-- CreateIndex
+CREATE INDEX "Scope_updatedAt_idx" ON "Scope"("updatedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "EmailScopeAssignment_normalizedEmail_key" ON "EmailScopeAssignment"("normalizedEmail");
+
+-- CreateIndex
+CREATE INDEX "EmailScopeAssignment_updatedAt_idx" ON "EmailScopeAssignment"("updatedAt");
+
+-- CreateIndex
+CREATE INDEX "EmailScopeGrant_scopeId_idx" ON "EmailScopeGrant"("scopeId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "EmailScopeGrant_assignmentId_scopeId_key" ON "EmailScopeGrant"("assignmentId", "scopeId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "GroupProvider_key_key" ON "GroupProvider"("key");
+
+-- CreateIndex
+CREATE INDEX "GroupProvider_enabled_idx" ON "GroupProvider"("enabled");
+
+-- CreateIndex
+CREATE INDEX "GroupProvider_updatedAt_idx" ON "GroupProvider"("updatedAt");
+
+-- CreateIndex
+CREATE INDEX "GroupScopeAssignment_updatedAt_idx" ON "GroupScopeAssignment"("updatedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "GroupScopeAssignment_providerId_groupId_key" ON "GroupScopeAssignment"("providerId", "groupId");
+
+-- CreateIndex
+CREATE INDEX "GroupScopeGrant_scopeId_idx" ON "GroupScopeGrant"("scopeId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "GroupScopeGrant_assignmentId_scopeId_key" ON "GroupScopeGrant"("assignmentId", "scopeId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Skill_slug_key" ON "Skill"("slug");
+
+-- CreateIndex
+CREATE INDEX "Skill_updatedAt_idx" ON "Skill"("updatedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DownstreamResource_key_key" ON "DownstreamResource"("key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DownstreamResource_resourceIdentifier_key" ON "DownstreamResource"("resourceIdentifier");
+
+-- CreateIndex
+CREATE INDEX "DownstreamResource_name_idx" ON "DownstreamResource"("name");
+
+-- CreateIndex
+CREATE INDEX "DownstreamResource_updatedAt_idx" ON "DownstreamResource"("updatedAt");
+
+-- CreateIndex
+CREATE INDEX "DownstreamResource_enabled_idx" ON "DownstreamResource"("enabled");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DiscoveredSkillCatalog_resourceId_key" ON "DiscoveredSkillCatalog"("resourceId");
+
+-- CreateIndex
+CREATE INDEX "DiscoveredSkillCatalog_nextRefreshAt_refreshLeaseUntil_idx" ON "DiscoveredSkillCatalog"("nextRefreshAt", "refreshLeaseUntil");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DiscoveredSkill_canonicalId_key" ON "DiscoveredSkill"("canonicalId");
+
+-- CreateIndex
+CREATE INDEX "DiscoveredSkill_catalogId_idx" ON "DiscoveredSkill"("catalogId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DiscoveredSkill_catalogId_localId_key" ON "DiscoveredSkill"("catalogId", "localId");
+
+-- CreateIndex
+CREATE INDEX "ResourceScope_scopeId_idx" ON "ResourceScope"("scopeId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ResourceRequestPrefix_urlPrefix_key" ON "ResourceRequestPrefix"("urlPrefix");
+
+-- CreateIndex
+CREATE INDEX "ResourceRequestPrefix_resourceId_idx" ON "ResourceRequestPrefix"("resourceId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AuditEvent_deduplicationKey_key" ON "AuditEvent"("deduplicationKey");
+
+-- CreateIndex
+CREATE INDEX "AuditEvent_occurredAt_id_idx" ON "AuditEvent"("occurredAt", "id");
+
+-- CreateIndex
+CREATE INDEX "AuditEvent_eventType_occurredAt_id_idx" ON "AuditEvent"("eventType", "occurredAt", "id");
+
+-- CreateIndex
+CREATE INDEX "AuditEvent_actorId_occurredAt_id_idx" ON "AuditEvent"("actorId", "occurredAt", "id");
+
+-- CreateIndex
+CREATE INDEX "AuditEvent_actorEmail_occurredAt_id_idx" ON "AuditEvent"("actorEmail", "occurredAt", "id");
+
+-- CreateIndex
+CREATE INDEX "AuditEvent_subjectType_subjectId_occurredAt_id_idx" ON "AuditEvent"("subjectType", "subjectId", "occurredAt", "id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Session_token_key" ON "Session"("token");
 
 -- CreateIndex
@@ -244,6 +560,9 @@ CREATE INDEX "Session_userId_idx" ON "Session"("userId");
 
 -- CreateIndex
 CREATE INDEX "Account_userId_idx" ON "Account"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Account_issuer_providerAccountId_key" ON "Account"("issuer", "providerAccountId");
 
 -- CreateIndex
 CREATE INDEX "Verification_identifier_idx" ON "Verification"("identifier");
@@ -315,382 +634,162 @@ CREATE INDEX "OAuthDeviceRefreshBinding_familyId_idx" ON "OAuthDeviceRefreshBind
 CREATE INDEX "OAuthDeviceRefreshBinding_userId_clientId_idx" ON "OAuthDeviceRefreshBinding"("userId", "clientId");
 
 -- AddForeignKey
+ALTER TABLE "EmailScopeGrant" ADD CONSTRAINT "EmailScopeGrant_assignmentId_fkey" FOREIGN KEY ("assignmentId") REFERENCES "EmailScopeAssignment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "EmailScopeGrant" ADD CONSTRAINT "EmailScopeGrant_scopeId_fkey" FOREIGN KEY ("scopeId") REFERENCES "Scope"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "GroupScopeAssignment" ADD CONSTRAINT "GroupScopeAssignment_providerId_fkey" FOREIGN KEY ("providerId") REFERENCES "GroupProvider"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "GroupScopeGrant" ADD CONSTRAINT "GroupScopeGrant_assignmentId_fkey" FOREIGN KEY ("assignmentId") REFERENCES "GroupScopeAssignment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "GroupScopeGrant" ADD CONSTRAINT "GroupScopeGrant_scopeId_fkey" FOREIGN KEY ("scopeId") REFERENCES "Scope"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DiscoveredSkillCatalog" ADD CONSTRAINT "DiscoveredSkillCatalog_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "DownstreamResource"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DiscoveredSkill" ADD CONSTRAINT "DiscoveredSkill_catalogId_fkey" FOREIGN KEY ("catalogId") REFERENCES "DiscoveredSkillCatalog"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ResourceScope" ADD CONSTRAINT "ResourceScope_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "DownstreamResource"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ResourceScope" ADD CONSTRAINT "ResourceScope_scopeId_fkey" FOREIGN KEY ("scopeId") REFERENCES "Scope"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ResourceRequestPrefix" ADD CONSTRAINT "ResourceRequestPrefix_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "DownstreamResource"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-
--- Previous migration: packages/db/prisma/migrations/0002_seed_weldall_cli/migration.sql
--- The native CLI is a fixed first-party public client. It has no client secret.
-INSERT INTO "OauthClient" (
-  "id",
-  "clientId",
-  "disabled",
-  "skipConsent",
-  "scopes",
-  "name",
-  "redirectUris",
-  "tokenEndpointAuthMethod",
-  "grantTypes",
-  "responseTypes",
-  "public",
-  "type",
-  "requirePKCE",
-  "dpopBoundAccessTokens",
-  "createdAt",
-  "updatedAt"
-) VALUES (
-  'weldall-cli',
-  'weldall-cli',
-  false,
-  true,
-  ARRAY['openid', 'offline_access', 'weldall:scopes']::TEXT[],
-  'Weldall CLI',
-  ARRAY['http://127.0.0.1/callback']::TEXT[],
-  'none',
-  ARRAY['authorization_code', 'refresh_token']::TEXT[],
-  ARRAY['code']::TEXT[],
-  true,
-  'native',
-  true,
-  true,
-  CURRENT_TIMESTAMP,
-  CURRENT_TIMESTAMP
-);
-
--- Previous migration: packages/db/prisma/migrations/0003_seed_weldall_resource/migration.sql
--- Keep the fixed Weldall API resource available before the first auth request.
--- The runtime config fills the environment-specific signing key id.
-INSERT INTO "OauthResource" (
-  "id",
-  "identifier",
-  "name",
-  "signingAlgorithm",
-  "allowedScopes",
-  "dpopBoundAccessTokensRequired",
-  "disabled",
-  "policyVersion",
-  "createdAt",
-  "updatedAt"
-) VALUES (
-  'weldall-api',
-  'https://weldall.seibert.localdev/api',
-  'Weldall API',
-  'ES256',
-  ARRAY['openid', 'offline_access', 'weldall:scopes']::TEXT[],
-  true,
-  false,
-  1,
-  CURRENT_TIMESTAMP,
-  CURRENT_TIMESTAMP
-)
-ON CONFLICT ("identifier") DO UPDATE SET
-  "name" = EXCLUDED."name",
-  "signingAlgorithm" = EXCLUDED."signingAlgorithm",
-  "allowedScopes" = EXCLUDED."allowedScopes",
-  "dpopBoundAccessTokensRequired" = EXCLUDED."dpopBoundAccessTokensRequired",
-  "disabled" = false,
-  "updatedAt" = CURRENT_TIMESTAMP;
-
--- Previous migration: packages/db/prisma/migrations/0004_better_auth_account_identity/migration.sql
--- Better Auth 1.7 identifies external accounts by issuer and provider subject.
-ALTER TABLE "Account" RENAME COLUMN "accountId" TO "providerAccountId";
-
-ALTER TABLE "Account" ADD COLUMN "issuer" TEXT;
-
--- Google is the only social provider configured by Weldall.
-UPDATE "Account"
-SET "issuer" = 'https://accounts.google.com'
-WHERE "providerId" = 'google';
-
-ALTER TABLE "Account" ALTER COLUMN "issuer" SET NOT NULL;
-
-CREATE UNIQUE INDEX "Account_issuer_providerAccountId_key"
-ON "Account"("issuer", "providerAccountId");
-
--- Previous migration: packages/db/prisma/migrations/0005_admin_scope_catalog/migration.sql
--- Global scope definitions are deliberately separate from OAuth resource metadata.
-CREATE TABLE "Scope" (
-  "id" TEXT NOT NULL,
-  "key" TEXT NOT NULL,
-  "description" TEXT NOT NULL,
-  "isSystem" BOOLEAN NOT NULL DEFAULT false,
-  "version" INTEGER NOT NULL DEFAULT 1,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
-  "createdBy" TEXT NOT NULL,
-  "updatedBy" TEXT NOT NULL,
-
-  CONSTRAINT "Scope_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "Scope_key_format" CHECK (
-    "key" ~ '^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$'
-    AND char_length("key") <= 160
+-- Application invariants not expressible in Prisma's schema language.
+ALTER TABLE "Scope"
+  ADD CONSTRAINT "Scope_key_format" CHECK (
+    "key" ~ '^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$' AND char_length("key") <= 160
   ),
-  CONSTRAINT "Scope_description_length" CHECK (
+  ADD CONSTRAINT "Scope_description_length" CHECK (
     char_length(btrim("description")) BETWEEN 1 AND 500
   ),
-  CONSTRAINT "Scope_version_positive" CHECK ("version" > 0)
-);
+  ADD CONSTRAINT "Scope_version_positive" CHECK ("version" > 0);
 
-CREATE TABLE "EmailScopeAssignment" (
-  "id" TEXT NOT NULL,
-  "normalizedEmail" TEXT NOT NULL,
-  "version" INTEGER NOT NULL DEFAULT 1,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
-  "createdBy" TEXT NOT NULL,
-  "updatedBy" TEXT NOT NULL,
-
-  CONSTRAINT "EmailScopeAssignment_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "EmailScopeAssignment_email_normalized" CHECK (
+ALTER TABLE "EmailScopeAssignment"
+  ADD CONSTRAINT "EmailScopeAssignment_email_normalized" CHECK (
     char_length("normalizedEmail") BETWEEN 3 AND 320
     AND "normalizedEmail" = lower(btrim("normalizedEmail"))
   ),
-  CONSTRAINT "EmailScopeAssignment_version_positive" CHECK ("version" > 0)
-);
+  ADD CONSTRAINT "EmailScopeAssignment_version_positive" CHECK ("version" > 0);
 
-CREATE TABLE "EmailScopeGrant" (
-  "id" TEXT NOT NULL,
-  "assignmentId" TEXT NOT NULL,
-  "scopeId" TEXT NOT NULL,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "createdBy" TEXT NOT NULL,
-
-  CONSTRAINT "EmailScopeGrant_pkey" PRIMARY KEY ("id")
-);
-
-CREATE TABLE "AdminAuditEvent" (
-  "id" TEXT NOT NULL,
-  "schemaVersion" INTEGER NOT NULL DEFAULT 1,
-  "eventType" TEXT NOT NULL,
-  "occurredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "actorId" TEXT NOT NULL,
-  "actorEmail" TEXT,
-  "requestId" TEXT NOT NULL,
-  "subjectType" TEXT NOT NULL,
-  "subjectId" TEXT NOT NULL,
-  "outcome" TEXT NOT NULL,
-  "metadata" JSONB NOT NULL,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  CONSTRAINT "AdminAuditEvent_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "AdminAuditEvent_schema_version_positive" CHECK ("schemaVersion" > 0),
-  CONSTRAINT "AdminAuditEvent_outcome" CHECK ("outcome" IN ('success', 'denied', 'failed'))
-);
-
-CREATE UNIQUE INDEX "Scope_key_key" ON "Scope"("key");
-CREATE INDEX "Scope_updatedAt_idx" ON "Scope"("updatedAt");
-CREATE UNIQUE INDEX "EmailScopeAssignment_normalizedEmail_key"
-  ON "EmailScopeAssignment"("normalizedEmail");
-CREATE INDEX "EmailScopeAssignment_updatedAt_idx"
-  ON "EmailScopeAssignment"("updatedAt");
-CREATE UNIQUE INDEX "EmailScopeGrant_assignmentId_scopeId_key"
-  ON "EmailScopeGrant"("assignmentId", "scopeId");
-CREATE INDEX "EmailScopeGrant_scopeId_idx" ON "EmailScopeGrant"("scopeId");
-CREATE INDEX "AdminAuditEvent_occurredAt_idx" ON "AdminAuditEvent"("occurredAt");
-CREATE INDEX "AdminAuditEvent_eventType_occurredAt_idx"
-  ON "AdminAuditEvent"("eventType", "occurredAt");
-CREATE INDEX "AdminAuditEvent_actorId_occurredAt_idx"
-  ON "AdminAuditEvent"("actorId", "occurredAt");
-CREATE INDEX "AdminAuditEvent_subjectType_subjectId_occurredAt_idx"
-  ON "AdminAuditEvent"("subjectType", "subjectId", "occurredAt");
-
-ALTER TABLE "EmailScopeGrant"
-  ADD CONSTRAINT "EmailScopeGrant_assignmentId_fkey"
-  FOREIGN KEY ("assignmentId") REFERENCES "EmailScopeAssignment"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "EmailScopeGrant"
-  ADD CONSTRAINT "EmailScopeGrant_scopeId_fkey"
-  FOREIGN KEY ("scopeId") REFERENCES "Scope"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
--- Existing downstream permissions become catalog entries. Creating a catalog
--- entry does not register it for a resource or grant it to anyone.
-INSERT INTO "Scope" (
-  "id", "key", "description", "isSystem", "version",
-  "createdAt", "updatedAt", "createdBy", "updatedBy"
-) VALUES
-  (
-    'scope-weldall-administer', 'weldall:administer',
-    'Administer Weldall scopes and email assignments.', true, 1,
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'migration', 'migration'
+ALTER TABLE "Skill"
+  ADD CONSTRAINT "Skill_slug_format" CHECK (
+    "slug" ~ '^[a-z0-9]+(?:[._-][a-z0-9]+)*$' AND char_length("slug") <= 120
   ),
-  (
-    'scope-expenses-read', 'expenses:read',
-    'Read expenses.', false, 1,
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'migration', 'migration'
-  ),
-  (
-    'scope-expenses-create', 'expenses:create',
-    'Create expenses.', false, 1,
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'migration', 'migration'
-  ),
-  (
-    'scope-expenses-delete', 'expenses:delete',
-    'Delete expenses.', false, 1,
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'migration', 'migration'
-  ),
-  (
-    'scope-expenses-write', 'expenses:write',
-    'Modify expenses.', false, 1,
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'migration', 'migration'
-  );
+  ADD CONSTRAINT "Skill_title_length" CHECK (char_length(btrim("title")) BETWEEN 1 AND 200),
+  ADD CONSTRAINT "Skill_content_length" CHECK (char_length(btrim("content")) BETWEEN 1 AND 100000),
+  ADD CONSTRAINT "Skill_required_scopes_limit" CHECK (cardinality("requiredScopes") <= 100),
+  ADD CONSTRAINT "Skill_version_positive" CHECK ("version" > 0);
 
--- Previous migration: packages/db/prisma/migrations/0006_cli_identity_scopes/migration.sql
--- Let the native CLI request the standard OIDC claims used by `weldall status`.
-UPDATE "OauthClient"
-SET
-  "scopes" = ARRAY['openid', 'profile', 'email', 'offline_access', 'weldall:scopes']::TEXT[],
-  "updatedAt" = CURRENT_TIMESTAMP
-WHERE "clientId" = 'weldall-cli';
+ALTER TABLE "CliSettings"
+  ADD CONSTRAINT "CliSettings_singleton" CHECK ("id" = 'default'),
+  ADD CONSTRAINT "CliSettings_appendix_length" CHECK (char_length("appendix") <= 100000),
+  ADD CONSTRAINT "CliSettings_version_positive" CHECK ("version" > 0);
 
-UPDATE "OauthResource"
-SET
-  "allowedScopes" = ARRAY['openid', 'profile', 'email', 'offline_access', 'weldall:scopes']::TEXT[],
-  "updatedAt" = CURRENT_TIMESTAMP
-WHERE "identifier" = 'https://weldall.seibert.localdev/api';
-
--- Previous migration: packages/db/prisma/migrations/0007_skill_registry/migration.sql
-CREATE TABLE "Skill" (
-  "id" TEXT NOT NULL,
-  "slug" TEXT NOT NULL,
-  "title" TEXT NOT NULL,
-  "content" TEXT NOT NULL,
-  "requiredScopes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-  "hidden" BOOLEAN NOT NULL DEFAULT false,
-  "version" INTEGER NOT NULL DEFAULT 1,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
-  "createdBy" TEXT NOT NULL,
-  "updatedBy" TEXT NOT NULL,
-
-  CONSTRAINT "Skill_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "Skill_slug_format" CHECK (
-    "slug" ~ '^[a-z0-9]+(?:[._-][a-z0-9]+)*$'
-    AND char_length("slug") <= 120
-  ),
-  CONSTRAINT "Skill_title_length" CHECK (
-    char_length(btrim("title")) BETWEEN 1 AND 200
-  ),
-  CONSTRAINT "Skill_content_length" CHECK (
-    char_length(btrim("content")) BETWEEN 1 AND 100000
-  ),
-  CONSTRAINT "Skill_required_scopes_limit" CHECK (
-    cardinality("requiredScopes") <= 100
-  ),
-  CONSTRAINT "Skill_version_positive" CHECK ("version" > 0)
-);
-
-CREATE UNIQUE INDEX "Skill_slug_key" ON "Skill"("slug");
-CREATE INDEX "Skill_updatedAt_idx" ON "Skill"("updatedAt");
-
--- Previous migration: packages/db/prisma/migrations/0008_cli_settings/migration.sql
-CREATE TABLE "CliSettings" (
-  "id" TEXT NOT NULL DEFAULT 'default',
-  "appendix" TEXT NOT NULL DEFAULT '',
-  "version" INTEGER NOT NULL DEFAULT 1,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
-  "createdBy" TEXT NOT NULL,
-  "updatedBy" TEXT NOT NULL,
-
-  CONSTRAINT "CliSettings_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "CliSettings_singleton" CHECK ("id" = 'default'),
-  CONSTRAINT "CliSettings_appendix_length" CHECK (char_length("appendix") <= 100000),
-  CONSTRAINT "CliSettings_version_positive" CHECK ("version" > 0)
-);
-
-INSERT INTO "CliSettings" (
-  "id",
-  "appendix",
-  "updatedAt",
-  "createdBy",
-  "updatedBy"
-) VALUES (
-  'default',
-  '',
-  CURRENT_TIMESTAMP,
-  'migration',
-  'migration'
-);
-
--- Downstream resource registry. Better Auth's "OauthResource" remains Weldall-only.
-CREATE TABLE "DownstreamResource" (
-  "id" TEXT NOT NULL,
-  "key" TEXT NOT NULL,
-  "name" TEXT NOT NULL,
-  "resourceIdentifier" TEXT NOT NULL,
-  "authorizationServer" TEXT NOT NULL,
-  "downstreamClientId" TEXT NOT NULL,
-  "enabled" BOOLEAN NOT NULL DEFAULT true,
-  "version" INTEGER NOT NULL DEFAULT 1,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
-  "createdBy" TEXT NOT NULL,
-  "updatedBy" TEXT NOT NULL,
-
-  CONSTRAINT "DownstreamResource_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "DownstreamResource_key_format" CHECK (
+ALTER TABLE "DownstreamResource"
+  ADD CONSTRAINT "DownstreamResource_key_format" CHECK (
     "key" ~ '^[a-z0-9._-]+$' AND char_length("key") <= 120
   ),
-  CONSTRAINT "DownstreamResource_name_length" CHECK (
+  ADD CONSTRAINT "DownstreamResource_name_length" CHECK (
     char_length(btrim("name")) BETWEEN 1 AND 200
   ),
-  CONSTRAINT "DownstreamResource_client_id_length" CHECK (
+  ADD CONSTRAINT "DownstreamResource_client_id_length" CHECK (
     char_length(btrim("downstreamClientId")) BETWEEN 1 AND 200
   ),
-  CONSTRAINT "DownstreamResource_version_positive" CHECK ("version" > 0)
-);
+  ADD CONSTRAINT "DownstreamResource_version_positive" CHECK ("version" > 0);
 
-CREATE TABLE "ResourceScope" (
-  "resourceId" TEXT NOT NULL,
-  "scopeId" TEXT NOT NULL,
-  CONSTRAINT "ResourceScope_pkey" PRIMARY KEY ("resourceId", "scopeId")
-);
+ALTER TABLE "DiscoveredSkillCatalog"
+  ADD CONSTRAINT "DiscoveredSkillCatalog_retry_count" CHECK ("retryCount" >= 0),
+  ADD CONSTRAINT "DiscoveredSkillCatalog_schema_version" CHECK (
+    "schemaVersion" IS NULL OR "schemaVersion" = 1
+  );
 
-CREATE TABLE "ResourceRequestPrefix" (
-  "id" TEXT NOT NULL,
-  "resourceId" TEXT NOT NULL,
-  "urlPrefix" TEXT NOT NULL,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "createdBy" TEXT NOT NULL,
-  CONSTRAINT "ResourceRequestPrefix_pkey" PRIMARY KEY ("id")
-);
+ALTER TABLE "DiscoveredSkill"
+  ADD CONSTRAINT "DiscoveredSkill_local_id" CHECK (
+    "localId" ~ '^[a-z0-9]+(?:[_-][a-z0-9]+)*$' AND char_length("localId") <= 120
+  ),
+  ADD CONSTRAINT "DiscoveredSkill_canonical_id" CHECK (
+    char_length("canonicalId") BETWEEN 3 AND 241
+  ),
+  ADD CONSTRAINT "DiscoveredSkill_title_length" CHECK (
+    char_length(btrim("title")) BETWEEN 1 AND 200
+  ),
+  ADD CONSTRAINT "DiscoveredSkill_content_length" CHECK (
+    char_length(btrim("content")) BETWEEN 1 AND 100000
+  ),
+  ADD CONSTRAINT "DiscoveredSkill_required_scopes_limit" CHECK (
+    cardinality("requiredScopes") <= 100
+  );
 
-CREATE UNIQUE INDEX "DownstreamResource_key_key" ON "DownstreamResource"("key");
-CREATE UNIQUE INDEX "DownstreamResource_resourceIdentifier_key" ON "DownstreamResource"("resourceIdentifier");
-CREATE INDEX "DownstreamResource_name_idx" ON "DownstreamResource"("name");
-CREATE INDEX "DownstreamResource_updatedAt_idx" ON "DownstreamResource"("updatedAt");
-CREATE INDEX "DownstreamResource_enabled_idx" ON "DownstreamResource"("enabled");
-CREATE INDEX "ResourceScope_scopeId_idx" ON "ResourceScope"("scopeId");
-CREATE UNIQUE INDEX "ResourceRequestPrefix_urlPrefix_key" ON "ResourceRequestPrefix"("urlPrefix");
-CREATE INDEX "ResourceRequestPrefix_resourceId_idx" ON "ResourceRequestPrefix"("resourceId");
+ALTER TABLE "GroupProvider"
+  ADD CONSTRAINT "GroupProvider_key_format" CHECK (
+    "key" ~ '^[a-z0-9][a-z0-9._-]*$' AND char_length("key") <= 120
+  ),
+  ADD CONSTRAINT "GroupProvider_name_length" CHECK (
+    char_length(btrim("name")) BETWEEN 1 AND 200
+  ),
+  ADD CONSTRAINT "GroupProvider_adapter_type" CHECK ("adapterType" IN ('management-api-v1')),
+  ADD CONSTRAINT "GroupProvider_base_url_length" CHECK (
+    char_length("baseUrl") BETWEEN 1 AND 2000
+  ),
+  ADD CONSTRAINT "GroupProvider_encrypted_token_present" CHECK (char_length("encryptedToken") > 0),
+  ADD CONSTRAINT "GroupProvider_version" CHECK ("version" > 0),
+  ADD CONSTRAINT "GroupProvider_encryption_key_version" CHECK ("encryptionKeyVersion" > 0);
 
-ALTER TABLE "ResourceScope" ADD CONSTRAINT "ResourceScope_resourceId_fkey"
-  FOREIGN KEY ("resourceId") REFERENCES "DownstreamResource"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "ResourceScope" ADD CONSTRAINT "ResourceScope_scopeId_fkey"
-  FOREIGN KEY ("scopeId") REFERENCES "Scope"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "ResourceRequestPrefix" ADD CONSTRAINT "ResourceRequestPrefix_resourceId_fkey"
-  FOREIGN KEY ("resourceId") REFERENCES "DownstreamResource"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "GroupScopeAssignment"
+  ADD CONSTRAINT "GroupScopeAssignment_group_id_length" CHECK (
+    char_length(btrim("groupId")) BETWEEN 1 AND 191
+  ),
+  ADD CONSTRAINT "GroupScopeAssignment_group_name_length" CHECK (
+    char_length(btrim("groupName")) BETWEEN 1 AND 191
+  ),
+  ADD CONSTRAINT "GroupScopeAssignment_version" CHECK ("version" > 0);
 
-INSERT INTO "DownstreamResource" (
-  "id", "key", "name", "resourceIdentifier", "authorizationServer", "downstreamClientId",
-  "enabled", "version", "createdAt", "updatedAt", "createdBy", "updatedBy"
-) VALUES (
-  'downstream-resource-expenses', 'expenses', 'Expenses',
-  'https://expenses.seibert.localdev/api', 'https://expenses.seibert.localdev',
-  'weldall-cli-at-expenses', true, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'migration', 'migration'
-);
-
-INSERT INTO "ResourceRequestPrefix" (
-  "id", "resourceId", "urlPrefix", "createdAt", "createdBy"
-) VALUES (
-  'resource-prefix-expenses-api', 'downstream-resource-expenses',
-  'https://expenses.seibert.localdev/api', CURRENT_TIMESTAMP, 'migration'
-);
-
-INSERT INTO "ResourceScope" ("resourceId", "scopeId")
-SELECT 'downstream-resource-expenses', "id"
-FROM "Scope"
-WHERE "key" IN ('expenses:read', 'expenses:create', 'expenses:delete', 'expenses:write');
+ALTER TABLE "AuditEvent"
+  ADD CONSTRAINT "AuditEvent_schema_version_positive" CHECK ("schemaVersion" > 0),
+  ADD CONSTRAINT "AuditEvent_actor_type" CHECK (
+    "actorType" IN ('user', 'oauth_client', 'workload', 'anonymous')
+  ),
+  ADD CONSTRAINT "AuditEvent_event_type" CHECK (
+    "eventType" IN (
+      'id_jag.issued', 'id_jag.denied', 'id_jag.failed',
+      'user_scopes.created', 'user_scopes.replaced', 'user_scopes.deleted',
+      'resource_scopes.created', 'resource_scopes.replaced', 'resource_scopes.deleted',
+      'cli_settings.updated', 'skill.created', 'skill.updated', 'skill.deleted',
+      'group_provider.created', 'group_provider.updated', 'group_provider.deleted',
+      'group_provider.tested', 'group_scopes.created', 'group_scopes.replaced',
+      'group_scopes.deleted'
+    )
+  ) NOT VALID,
+  ADD CONSTRAINT "AuditEvent_request_id" CHECK ("requestId" ~ '^[A-Za-z0-9._:-]{1,128}$'),
+  ADD CONSTRAINT "AuditEvent_correlation_id" CHECK (
+    "correlationId" IS NULL OR "correlationId" ~ '^[A-Za-z0-9._:-]{1,128}$'
+  ),
+  ADD CONSTRAINT "AuditEvent_outcome" CHECK ("outcome" IN ('success', 'denied', 'failed')),
+  ADD CONSTRAINT "AuditEvent_outcome_reason" CHECK (
+    ("outcome" = 'success' AND "reasonCode" IS NULL)
+    OR ("outcome" IN ('denied', 'failed') AND "reasonCode" IS NOT NULL)
+  ),
+  ADD CONSTRAINT "AuditEvent_reason_code" CHECK (
+    "reasonCode" IS NULL OR "reasonCode" IN (
+      'invalid_client', 'invalid_resource', 'scope_not_granted',
+      'invalid_dpop_proof', 'replay_detected', 'invalid_grant',
+      'invalid_request', 'internal_error', 'audit_store_unavailable'
+    )
+  ),
+  ADD CONSTRAINT "AuditEvent_metadata_object" CHECK (jsonb_typeof("metadata") = 'object'),
+  ADD CONSTRAINT "AuditEvent_subject_pair" CHECK (("subjectType" IS NULL) = ("subjectId" IS NULL));

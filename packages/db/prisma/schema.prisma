@@ -112,16 +112,21 @@ model GroupScopeGrant {
   @@index([scopeId])
 }
 
+enum SkillVisibility {
+  DEFAULT
+  HIDDEN_IF_UNALLOWED
+}
+
 model Skill {
-  id             String   @id @default(cuid())
-  slug           String   @unique
+  id             String          @id @default(cuid())
+  slug           String          @unique
   title          String
   content        String
-  requiredScopes String[] @default([])
-  hidden         Boolean  @default(false)
-  version        Int      @default(1)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  requiredScopes String[]        @default([])
+  visibility     SkillVisibility @default(DEFAULT)
+  version        Int             @default(1)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   createdBy      String
   updatedBy      String
 
@@ -139,24 +144,67 @@ model CliSettings {
 }
 
 model DownstreamResource {
-  id                  String                  @id @default(cuid())
-  key                 String                  @unique
-  name                String
-  resourceIdentifier  String                  @unique
-  authorizationServer String
-  downstreamClientId  String
-  enabled             Boolean                 @default(true)
-  version             Int                     @default(1)
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
-  createdBy           String
-  updatedBy           String
-  scopes              ResourceScope[]
-  requestPrefixes     ResourceRequestPrefix[]
+  id                    String                  @id @default(cuid())
+  key                   String                  @unique
+  name                  String
+  resourceIdentifier    String                  @unique
+  authorizationServer   String
+  downstreamClientId    String
+  enabled               Boolean                 @default(true)
+  skillDiscoveryEnabled Boolean                 @default(false)
+  version               Int                     @default(1)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  createdBy             String
+  updatedBy             String
+  scopes                ResourceScope[]
+  requestPrefixes       ResourceRequestPrefix[]
+  discoveredCatalog     DiscoveredSkillCatalog?
 
   @@index([name])
   @@index([updatedAt])
   @@index([enabled])
+}
+
+model DiscoveredSkillCatalog {
+  id                      String             @id @default(cuid())
+  resourceId              String             @unique
+  sourceResourceVersion   Int?
+  schemaVersion           Int?
+  metadataUrl             String?
+  catalogEndpoint         String?
+  lastAttemptAt           DateTime?
+  lastSuccessfulRefreshAt DateTime?
+  nextRefreshAt           DateTime           @default(now())
+  staleAfter              DateTime?
+  refreshLeaseId          String?
+  refreshLeaseUntil       DateTime?
+  retryCount              Int                @default(0)
+  lastFailureCategory     String?
+  lastFailureAt           DateTime?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  resource                DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  skills                  DiscoveredSkill[]
+
+  @@index([nextRefreshAt, refreshLeaseUntil])
+}
+
+model DiscoveredSkill {
+  id             String                 @id @default(cuid())
+  catalogId      String
+  localId        String
+  canonicalId    String                 @unique
+  title          String
+  content        String
+  requiredScopes String[]               @default([])
+  visibility     SkillVisibility        @default(DEFAULT)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  catalog        DiscoveredSkillCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@unique([catalogId, localId])
+  @@index([catalogId])
 }
 
 model ResourceScope {

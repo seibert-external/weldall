@@ -1,5 +1,6 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { initWeldall as initCore } from "./core.js";
+import { SKILL_CATALOG_PATH } from "./skills.js";
 import type { AuthContext, ScopePolicy, WeldallOptions } from "./types.js";
 
 export type WeldallVariables = { weldallAuth: AuthContext };
@@ -31,6 +32,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
       core.handlers.protectedResourceMetadata(c.req.raw),
     );
     app.get("/.well-known/jwks.json", (c) => core.handlers.jwks(c.req.raw));
+    app.get(SKILL_CATALOG_PATH, (c) => core.handlers.skills(c.req.raw));
     app.post("/oauth/token", (c) => core.handlers.token(c.req.raw));
     return app;
   };
@@ -39,4 +41,5 @@ export function initWeldall(host: string, options: WeldallOptions) {
 
 export type HonoWeldall = ReturnType<typeof initWeldall>;
 export * from "./types.js";
+export * from "./skills.js";
 export { WeldallAuthError } from "./errors.js";

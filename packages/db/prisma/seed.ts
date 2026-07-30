@@ -1,22 +1,15 @@
-import { db } from "@weldall/db";
-import { decryptProviderToken } from "./group-providers/credentials";
-import { WELDALL_RESOURCE } from "./oauth/constants";
+import { PrismaClient } from "@prisma/client";
 
-const LOCAL_WELDALL_RESOURCE = "https://weldall.seibert.localdev/api";
-const LOCAL_EXPENSES_RESOURCE = "https://expenses.seibert.localdev/api";
+const db = new PrismaClient();
+const actor = "production-seed";
 
-export async function prepareProductionDatabase(): Promise<void> {
-  const actor = "deployment-bootstrap";
+export async function seedProduction(prisma: PrismaClient = db): Promise<void> {
+  const issuer = new URL(process.env.WELDALL_ISSUER ?? "https://weldall.seibert.localdev");
+  const resourceIdentifier = `${issuer.origin}/api`;
   const oauthScopes = ["openid", "profile", "email", "offline_access", "weldall:scopes"];
 
-  await db.$transaction(async (tx) => {
-    const conflictingResource = await tx.oauthResource.findUnique({
-      where: { identifier: WELDALL_RESOURCE },
-    });
-    if (conflictingResource && conflictingResource.id !== "weldall-api") {
-      await tx.oauthResource.delete({ where: { id: conflictingResource.id } });
-    }
-    await tx.oauthClient.upsert({
+  await prisma.$transaction([
+    prisma.oauthClient.upsert({
       where: { clientId: "weldall-cli" },
       create: {
         id: "weldall-cli",
@@ -40,27 +33,27 @@ export async function prepareProductionDatabase(): Promise<void> {
         scopes: oauthScopes,
         dpopBoundAccessTokens: true,
       },
-    });
-    await tx.oauthResource.upsert({
+    }),
+    prisma.oauthResource.upsert({
       where: { id: "weldall-api" },
       create: {
         id: "weldall-api",
-        identifier: WELDALL_RESOURCE,
+        identifier: resourceIdentifier,
         name: "Weldall API",
         signingAlgorithm: "ES256",
         allowedScopes: oauthScopes,
         dpopBoundAccessTokensRequired: true,
       },
       update: {
-        identifier: WELDALL_RESOURCE,
+        identifier: resourceIdentifier,
         name: "Weldall API",
         signingAlgorithm: "ES256",
         allowedScopes: oauthScopes,
         dpopBoundAccessTokensRequired: true,
         disabled: false,
       },
-    });
-    await tx.scope.upsert({
+    }),
+    prisma.scope.upsert({
       where: { key: "weldall:administer" },
       create: {
         id: "scope-weldall-administer",
@@ -71,32 +64,17 @@ export async function prepareProductionDatabase(): Promise<void> {
         updatedBy: actor,
       },
       update: { isSystem: true, updatedBy: actor },
-    });
-    await tx.cliSettings.upsert({
+    }),
+    prisma.cliSettings.upsert({
       where: { id: "default" },
       create: { id: "default", createdBy: actor, updatedBy: actor },
       update: {},
-    });
-    if (WELDALL_RESOURCE !== LOCAL_WELDALL_RESOURCE) {
-      await tx.downstreamResource.updateMany({
-        where: {
-          resourceIdentifier: {
-            in: [LOCAL_EXPENSES_RESOURCE, "https://development-skills.seibert.localdev/api"],
-          },
-          enabled: true,
-        },
-        data: {
-          enabled: false,
-          skillDiscoveryEnabled: false,
-          version: { increment: 1 },
-          updatedBy: actor,
-        },
-      });
-    }
-  });
+    }),
+  ]);
+}
 
-  const providers = await db.groupProvider.findMany({
-    select: { id: true, encryptedToken: true, encryptionKeyVersion: true },
-  });
-  for (const provider of providers) decryptProviderToken(provider);
+try {
+  await seedProduction();
+} finally {
+  await db.$disconnect();
 }

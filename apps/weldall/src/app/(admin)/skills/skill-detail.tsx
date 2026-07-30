@@ -6,16 +6,27 @@ import type { AnyFieldApi } from "@tanstack/react-form";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Icon } from "@astryxdesign/core/Icon";
+import { HStack } from "@astryxdesign/core/Layout";
 import { MultiSelector } from "@astryxdesign/core/MultiSelector";
-import { Switch } from "@astryxdesign/core/Switch";
+import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
-import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { HerocrumbsActions, HerocrumbsTitle } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
+
+const catalogStatuses = {
+  fresh: { icon: "success", color: "success", label: "Fresh" },
+  stale: { icon: "warning", color: "warning", label: "Stale" },
+  failed: { icon: "error", color: "error", label: "Failed" },
+  expired: { icon: "error", color: "error", label: "Expired" },
+  pending: { icon: "info", color: "accent", label: "Pending" },
+  disabled: { icon: "info", color: "accent", label: "Disabled" },
+} as const;
 
 export function SkillDetail({ skillId }: { skillId: string | null }) {
   const trpc = useTRPC();
@@ -47,7 +58,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
       slug: "",
       title: "",
       requiredScopes: [] as string[],
-      hidden: false,
+      visibility: "DEFAULT" as "DEFAULT" | "HIDDEN_IF_UNALLOWED",
       content: "",
     },
     onSubmit: async ({ value }) => {
@@ -57,7 +68,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
           title: value.title.trim(),
           content: value.content.trim(),
           requiredScopes: value.requiredScopes,
-          hidden: value.hidden,
+          visibility: value.visibility,
           expectedVersion: skillQuery.data.version,
         });
       } else {
@@ -66,7 +77,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
           title: value.title.trim(),
           content: value.content.trim(),
           requiredScopes: value.requiredScopes,
-          hidden: value.hidden,
+          visibility: value.visibility,
         });
       }
       await queryClient.invalidateQueries();
@@ -80,7 +91,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
       slug: skillQuery.data.slug,
       title: skillQuery.data.title,
       requiredScopes: skillQuery.data.requiredScopes,
-      hidden: skillQuery.data.hidden,
+      visibility: skillQuery.data.visibility,
       content: skillQuery.data.content,
     });
   }, [form, skillQuery.data]);
@@ -100,34 +111,55 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
   }
 
   const scopes = scopeOptionsQuery.data ?? [];
+  const isReadOnly = skillQuery.data?.readOnly ?? false;
   return (
     <>
+      <HerocrumbsTitle title={isNew ? "Create skill" : (skillQuery.data?.title ?? "Skill")} />
       <HerocrumbsActions>
         <Button href="/skills" label="Cancel" variant="secondary" />
         <form.Subscribe selector={(state) => state.canSubmit}>
-          {(canSubmit) => (
-            <Button
-              form={formId}
-              isDisabled={!canSubmit}
-              isLoading={mutation.isPending}
-              label={isNew ? "Create skill" : "Save skill"}
-              type="submit"
-              variant="primary"
-            />
-          )}
+          {(canSubmit) =>
+            isReadOnly ? null : (
+              <Button
+                form={formId}
+                isDisabled={!canSubmit}
+                isLoading={mutation.isPending}
+                label={isNew ? "Create skill" : "Save skill"}
+                type="submit"
+                variant="primary"
+              />
+            )
+          }
         </form.Subscribe>
       </HerocrumbsActions>
 
       <div className="skill-detail-surface">
-        <div className="grid gap-1">
-          <h2 className="m-0 text-xl font-semibold">
-            {isNew ? "Create skill" : skillQuery.data?.title}
-          </h2>
-          <Text color="secondary">
-            Metadata is emitted as frontmatter; the instructions remain plain Markdown.
-          </Text>
-        </div>
-
+        {isReadOnly && skillQuery.data?.source.type === "resource" ? (
+          <div className="grid gap-1">
+            <HStack gap={2} vAlign="center">
+              <Icon icon="info" color="accent" size="sm" />
+              <Text type="body">Published by {skillQuery.data.source.name}</Text>
+            </HStack>
+            <HStack gap={2} vAlign="center">
+              <Icon
+                icon={catalogStatuses[skillQuery.data.source.catalogState].icon}
+                color={catalogStatuses[skillQuery.data.source.catalogState].color}
+                size="sm"
+              />
+              <Text type="body">
+                {`Catalog: ${catalogStatuses[skillQuery.data.source.catalogState].label}${
+                  skillQuery.data.disabled
+                    ? ". Discovery is disabled; this persisted skill is not available to users."
+                    : ""
+                }${
+                  skillQuery.data.scopeWarnings.length
+                    ? `. ${skillQuery.data.scopeWarnings.join(" · ")}`
+                    : ""
+                }${skillQuery.data.overridden ? ". Overridden by a manual skill." : ""}`}
+              </Text>
+            </HStack>
+          </div>
+        ) : null}
         {scopeOptionsQuery.error ? (
           <Banner
             container="card"
@@ -157,7 +189,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
             >
               {(field) => (
                 <TextInput
-                  isDisabled={!isNew}
+                  isDisabled={!isNew || isReadOnly}
                   isRequired
                   label="Skill ID"
                   onBlur={field.handleBlur}
@@ -178,6 +210,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
             >
               {(field) => (
                 <TextInput
+                  isDisabled={isReadOnly}
                   isRequired
                   label="Title"
                   onBlur={field.handleBlur}
@@ -193,11 +226,15 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
               {(field) => (
                 <MultiSelector
                   hasClear
+                  isDisabled={isReadOnly}
                   hasSearch
                   hasSelectAll
                   label="Required scopes"
                   onChange={field.handleChange}
-                  options={scopes.map((scope) => ({ value: scope.key, label: scope.key }))}
+                  options={scopes.map((scope) => ({
+                    value: scope.key,
+                    label: scope.key,
+                  }))}
                   placeholder="Choose scopes…"
                   renderOption={(option) => {
                     const scope = scopes.find((candidate) => candidate.key === option.value);
@@ -219,14 +256,21 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
                 />
               )}
             </form.Field>
-            <form.Field name="hidden">
+            <form.Field name="visibility">
               {(field) => (
-                <Switch
-                  description="Hide this skill completely when the user lacks any required scope."
-                  label="Hidden without required scopes"
-                  labelPosition="start"
-                  labelSpacing="spread"
-                  onChange={field.handleChange}
+                <Selector
+                  isDisabled={isReadOnly}
+                  label="Visibility"
+                  onChange={(value) =>
+                    field.handleChange(value as "DEFAULT" | "HIDDEN_IF_UNALLOWED")
+                  }
+                  options={[
+                    { value: "DEFAULT", label: "Default" },
+                    {
+                      value: "HIDDEN_IF_UNALLOWED",
+                      label: "Hidden if unallowed",
+                    },
+                  ]}
                   value={field.state.value}
                   width="100%"
                 />
@@ -241,6 +285,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
             >
               {(field) => (
                 <TextArea
+                  isDisabled={isReadOnly}
                   isRequired
                   label="Markdown instructions"
                   maxLength={100_000}

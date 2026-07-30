@@ -13,9 +13,11 @@ The Astro Starlight workspace lives in [`apps/docs`](apps/docs/README.md). Start
 1. Install Node 22.15.0 or newer, pnpm, PostgreSQL on port 5433, Caddy, and trust the Caddy local CA in macOS Keychain. The CLI requires macOS Keychain and uses Node's system CA store.
 2. Run `pnpm install --frozen-lockfile` and `pnpm secrets:generate > .env`. The generator creates a complete local configuration, including PostgreSQL and a passwordless Development IdP test identity.
 3. To enable Google, replace both `<<insert or delete line>>` placeholders in `.env`; otherwise delete both lines. Register exactly `http://localhost:3000/api/auth/callback/google`; `oAuthProxy` performs the encrypted, 60-second handoff to `https://weldall.seibert.localdev`.
-4. Run `scripts/setup-hosts.sh`, then `pnpm db:generate && pnpm db:migrate:deploy`. The greenfield baseline registers the fixed public `weldall-cli` client, seeds the global scope catalog (including `weldall:administer`), and registers the Expenses downstream resource and its trusted `/api` request prefix.
+4. Run `scripts/setup-hosts.sh`, then `pnpm db:generate && pnpm db:migrate:deploy && pnpm db:seed:development`. The greenfield baseline is schema-only. The production-safe seed registers mandatory Weldall records; the separate development seed adds Expenses and diagnostic sample data, including a discovered skill with an unknown scope.
 5. Bootstrap the first administrator before opening the UI: `pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com`. The command is idempotent only for that first assignment and is permanently disabled afterwards. Further administrators are delegated through normal scope assignments; the final administrator cannot be removed.
 6. Run `pnpm build:dev` once so the workspace package exports and CLI exist before starting the apps. This intentionally skips the production Next.js build, which would otherwise try OIDC discovery before the local Development IdP is running.
+
+To delete all local data, recreate the schema, and apply both production-safe and development seeds, run `pnpm db:reset:hard`. The command refuses to run unless `WELDALL_DEPLOYMENT_MODE=development`.
 
 Use two separate foreground terminals (never background servers). Turbo starts Weldall, Expenses, and the Development IdP together:
 
@@ -32,7 +34,7 @@ weldall login
 weldall scopes
 weldall scopes --json
 weldall skills
-weldall skills show expenses.list
+weldall skills show expenses.review
 weldall request --scope expenses:read https://expenses.seibert.localdev/api/expenses
 weldall request --method POST --scope expenses:create --json '{"description":"Train","amount":24}' https://expenses.seibert.localdev/api/expenses
 weldall request --method DELETE --scope expenses:delete --scope expenses:write https://expenses.seibert.localdev/api/expenses/expense-1
@@ -47,7 +49,7 @@ The E2E stack uses generated identities, keys, and OAuth values and destroys its
 
 ## Deployment
 
-Weldall is packaged as a single-replica Next.js container for Coolify. The container applies Prisma migrations before startup; PostgreSQL runs as a separate Coolify resource. See [the Coolify deployment guide](docs/coolify.md) for the required Coolify, OAuth, and GitHub settings.
+Weldall is packaged as a single-replica Next.js container for Coolify. The container applies schema-only Prisma migrations and runs idempotent production-safe initialization before startup; development seeds are never run in deployments. PostgreSQL runs as a separate Coolify resource. See [the Coolify deployment guide](docs/coolify.md) for the required Coolify, OAuth, and GitHub settings.
 
 ## Prototype security boundary
 
@@ -55,7 +57,7 @@ There is no DPoP nonce. Proof and one-time-grant replay state is process-local, 
 
 The fixed public `weldall-cli` client requires explicit approval for every native login. The CLI sends `prompt=consent`, the authorization route enforces that prompt server-side, and the client registration refuses to skip consent. A process with access to an existing browser session therefore cannot silently mint a new CLI session by omitting the prompt.
 
-User policy and the downstream resource registry are database-backed. `/resources` manages immutable resource keys and identifiers, authorization-server origins, downstream client IDs, trusted request prefixes, supported global scopes, and enabled state. `/scopes` manages immutable global scope keys and descriptions; `/assignments` independently replaces normalized email-to-scope sets. `/group-providers` configures generic HTTPS group providers, and `/group-assignments` maps their groups to non-system scopes. Provider tokens use write-only AES-256-GCM storage and require `WELDALL_CREDENTIAL_ENCRYPTION_KEY` (a base64-encoded 32-byte key) plus `WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION`. Provider destinations must be HTTPS origins; production deployments should additionally enforce any required network egress policy. Membership is fetched without server caching for each authorization decision. `/skills` contains the agent-facing Skill Registry. Resource changes never create or remove user grants, use optimistic locking, and are audited. Scope deletion is blocked while a skill or resource references the scope. `weldall:administer` is a protected system scope, and all admin reads and mutations run through authenticated tRPC procedures with shared authorization and request-origin middleware.
+User policy and the downstream resource registry are database-backed. `/resources` manages immutable resource keys and identifiers, authorization-server origins, downstream client IDs, trusted request prefixes, supported global scopes, and enabled state. `/scopes` manages immutable global scope keys and descriptions; `/assignments` independently replaces normalized email-to-scope sets. `/group-providers` configures generic HTTPS group providers, and `/group-assignments` maps their groups to non-system scopes. Provider tokens use write-only AES-256-GCM storage and require `WELDALL_CREDENTIAL_ENCRYPTION_KEY` (a base64-encoded 32-byte key) plus `WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION`. Provider destinations must be HTTPS origins; production deployments should additionally enforce any required network egress policy. Membership is fetched without server caching for each authorization decision. `/skills` combines editable manual skills with read-only resource-published skills persisted in PostgreSQL. Administrators can inspect catalog freshness and safe failure status, and skill discovery is independently disabled by default for every resource. Unknown or protected published scopes are flagged in the admin UI and filtered dynamically from user APIs. Resource changes never create or remove user grants, use optimistic locking, and are audited. Scope deletion is blocked while a skill or resource references the scope. `weldall:administer` is a protected system scope, and all admin reads and mutations run through authenticated tRPC procedures with shared authorization and request-origin middleware.
 
 `weldall request` resolves the complete target URL against the live registry before token exchange. Origins must match exactly and paths match on segment boundaries; query strings are allowed. The CLI never follows redirects and refuses unregistered, ambiguous, or disabled targets before sending a downstream token or request body. Human-readable `weldall scopes` output contains only service names and granted scopes; `--json` exposes the technical registry contract.
 
@@ -114,6 +116,7 @@ See [`security-testing.md`](security-testing.md) for the standards traceability 
 ```sh
 pnpm db:generate
 POSTGRES_URL=postgresql://postgres@localhost:5433/postgres pnpm db:migrate:deploy
+pnpm db:seed:development
 pnpm format:check
 pnpm lint
 pnpm typecheck

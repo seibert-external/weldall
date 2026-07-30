@@ -5,14 +5,28 @@ import { isRecord, successfulResponse } from "../http.js";
 import { withLock } from "../storage/lock.js";
 import { withAccess } from "./auth.js";
 
+export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
+export type SkillSource = { type: "admin" } | { type: "resource"; key: string; name: string };
+
 export interface SkillSummary {
   slug: string;
   title: string;
   requiredScopes: string[];
-  hidden: boolean;
+  visibility: SkillVisibility;
   available: boolean;
   missingScopes: string[];
   updatedAt: string;
+  source: SkillSource;
+}
+
+export interface SkillWarning {
+  source: string;
+  code: string;
+}
+
+export interface SkillList {
+  items: SkillSummary[];
+  warnings: SkillWarning[];
 }
 
 export interface SkillDetail extends SkillSummary {
@@ -20,17 +34,23 @@ export interface SkillDetail extends SkillSummary {
   document: string;
 }
 
+const isSource = (value: unknown): value is SkillSource =>
+  isRecord(value) &&
+  (value.type === "admin" ||
+    (value.type === "resource" && typeof value.key === "string" && typeof value.name === "string"));
+
 const isSkillSummary = (value: unknown): value is SkillSummary =>
   isRecord(value) &&
   typeof value.slug === "string" &&
   typeof value.title === "string" &&
   Array.isArray(value.requiredScopes) &&
   value.requiredScopes.every((scope) => typeof scope === "string") &&
-  typeof value.hidden === "boolean" &&
+  (value.visibility === "DEFAULT" || value.visibility === "HIDDEN_IF_UNALLOWED") &&
   typeof value.available === "boolean" &&
   Array.isArray(value.missingScopes) &&
   value.missingScopes.every((scope) => typeof scope === "string") &&
-  typeof value.updatedAt === "string";
+  typeof value.updatedAt === "string" &&
+  isSource(value.source);
 
 async function authenticatedGet(config: WeldallConfig, url: string) {
   return withLock(() =>
@@ -56,12 +76,23 @@ async function authenticatedGet(config: WeldallConfig, url: string) {
   );
 }
 
-export async function listSkills(config: WeldallConfig): Promise<SkillSummary[]> {
+export async function listSkills(config: WeldallConfig): Promise<SkillList> {
   const value = await authenticatedGet(config, config.skills);
-  if (!Array.isArray(value) || value.some((skill) => !isSkillSummary(skill))) {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.items) ||
+    value.items.some((skill) => !isSkillSummary(skill)) ||
+    !Array.isArray(value.warnings) ||
+    value.warnings.some(
+      (warning) =>
+        !isRecord(warning) ||
+        typeof warning.source !== "string" ||
+        typeof warning.code !== "string",
+    )
+  ) {
     throw new CliError("Weldall returned an invalid skill registry");
   }
-  return value;
+  return value as unknown as SkillList;
 }
 
 export async function showSkill(config: WeldallConfig, slug: string): Promise<SkillDetail> {

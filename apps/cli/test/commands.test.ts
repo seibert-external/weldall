@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { explainScope, printPermissions } from "../src/commands.js";
+import {
+  explainScope,
+  formatSkillListLine,
+  formatSkillWarning,
+  printPermissions,
+} from "../src/commands.js";
 import {
   appendixFrame,
   brandHeading,
@@ -59,6 +64,41 @@ describe("friendly resource output", () => {
     expect(text).not.toContain("https://");
     expect(text).not.toContain("private-client-shape");
     output.mockRestore();
+  });
+});
+
+describe("skill registry output", () => {
+  const skill = {
+    slug: "expenses.review",
+    title: "Review expenses",
+    requiredScopes: ["expenses:read"],
+    visibility: "DEFAULT" as const,
+    available: true,
+    missingScopes: [],
+    updatedAt: "2026-07-30T09:00:00.000Z",
+    source: { type: "resource" as const, key: "expenses", name: "Expenses" },
+  };
+
+  it("prints the skill name followed by its ID", () => {
+    expect(formatSkillListLine(skill)).toBe("Review expenses (expenses.review)");
+  });
+
+  it("explains unavailable skills and their missing scopes", () => {
+    expect(
+      formatSkillListLine({
+        ...skill,
+        available: false,
+        missingScopes: ["expenses:read", "expenses:write"],
+      }),
+    ).toBe(
+      "Review expenses (expenses.review) (not available, missing scopes: expenses:read, expenses:write)",
+    );
+  });
+
+  it("turns catalog warnings into user-facing sentences", () => {
+    expect(
+      formatSkillWarning({ source: "expenses", code: "catalog_temporarily_unavailable" }),
+    ).toBe("Skills from expenses may be outdated because the catalog could not be refreshed.");
   });
 });
 

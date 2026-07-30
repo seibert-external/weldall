@@ -54,6 +54,7 @@ const resourceInput = (
     authorizationServer: origin,
     downstreamClientId: `client-${suffix}`,
     enabled: true,
+    skillDiscoveryEnabled: false,
     scopeIds: [scopeId],
     requestPrefixes: [`${origin}/api`],
     ...overrides,
@@ -100,13 +101,17 @@ afterAll(async () => {
   await db.emailScopeAssignment.deleteMany({
     where: { normalizedEmail: { contains: runId } },
   });
-  await db.downstreamResource.deleteMany({ where: { key: { startsWith: namespace } } });
+  await db.downstreamResource.deleteMany({
+    where: { key: { startsWith: namespace } },
+  });
   await db.scope.deleteMany({ where: { key: { startsWith: namespace } } });
   await db.skill.deleteMany({ where: { slug: { startsWith: namespace } } });
   await db.auditEvent.deleteMany({
     where: { actorId: { in: [primaryUserId, secondaryUserId] } },
   });
-  await db.user.deleteMany({ where: { id: { in: [primaryUserId, secondaryUserId] } } });
+  await db.user.deleteMany({
+    where: { id: { in: [primaryUserId, secondaryUserId] } },
+  });
 });
 
 describe("admin scope service", () => {
@@ -198,7 +203,11 @@ describe("admin scope service", () => {
     );
     const rawEmail = `  ${runId}-Person@Example.com `;
     const assignment = await replaceAssignment(
-      { email: rawEmail, scopeKeys: [scope.key, scope.key], expectedVersion: null },
+      {
+        email: rawEmail,
+        scopeKeys: [scope.key, scope.key],
+        expectedVersion: null,
+      },
       primaryActor,
     );
     expect(assignment).toMatchObject({
@@ -239,7 +248,11 @@ describe("admin scope service", () => {
     );
     await expect(
       replaceAssignment(
-        { email, scopeKeys: ["expenses:delete"], expectedVersion: first!.version },
+        {
+          email,
+          scopeKeys: ["expenses:delete"],
+          expectedVersion: first!.version,
+        },
         primaryActor,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -287,7 +300,11 @@ describe("admin scope service", () => {
     for (const email of emails) {
       assignments.push(
         await replaceAssignment(
-          { email, scopeKeys: [scope.key, "expenses:read"], expectedVersion: null },
+          {
+            email,
+            scopeKeys: [scope.key, "expenses:read"],
+            expectedVersion: null,
+          },
           primaryActor,
         ),
       );
@@ -318,7 +335,9 @@ describe("admin scope service", () => {
       { key: `${namespace}:shared`, description: "Shared resource scope." },
       primaryActor,
     );
-    const adminScope = await db.scope.findUniqueOrThrow({ where: { key: "weldall:administer" } });
+    const adminScope = await db.scope.findUniqueOrThrow({
+      where: { key: "weldall:administer" },
+    });
     const origin = `https://${namespace}.example`;
     const grantCountBefore = await db.emailScopeGrant.count();
     const resource = await createResource(
@@ -420,7 +439,10 @@ describe("admin scope service", () => {
         primaryActor,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(getResource(resource.id)).resolves.toMatchObject({ enabled: false, version: 2 });
+    await expect(getResource(resource.id)).resolves.toMatchObject({
+      enabled: false,
+      version: 2,
+    });
     await expect(
       db.auditEvent.findMany({
         where: { subjectId: resource.id },
@@ -436,7 +458,9 @@ describe("admin scope service", () => {
   });
 
   it("rejects duplicate resource identities and normalized request prefixes", async () => {
-    const scope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+    const scope = await db.scope.findUniqueOrThrow({
+      where: { key: "expenses:read" },
+    });
     const resource = await createResource(resourceInput("identity", scope.id), primaryActor);
 
     await expect(
@@ -471,7 +495,9 @@ describe("admin scope service", () => {
   });
 
   it("lets only one concurrent resource update commit for an expected version", async () => {
-    const scope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+    const scope = await db.scope.findUniqueOrThrow({
+      where: { key: "expenses:read" },
+    });
     const resource = await createResource(
       resourceInput("concurrent-update", scope.id),
       primaryActor,
@@ -500,15 +526,21 @@ describe("admin scope service", () => {
   });
 
   it("serializes concurrent create and update prefix conflicts", async () => {
-    const scope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+    const scope = await db.scope.findUniqueOrThrow({
+      where: { key: "expenses:read" },
+    });
     const createPrefix = `https://${namespace}-create-race.example/api`;
     const creates = await Promise.allSettled([
       createResource(
-        resourceInput("create-race-a", scope.id, { requestPrefixes: [createPrefix] }),
+        resourceInput("create-race-a", scope.id, {
+          requestPrefixes: [createPrefix],
+        }),
         primaryActor,
       ),
       createResource(
-        resourceInput("create-race-b", scope.id, { requestPrefixes: [createPrefix] }),
+        resourceInput("create-race-b", scope.id, {
+          requestPrefixes: [createPrefix],
+        }),
         primaryActor,
       ),
     ]);
@@ -566,7 +598,7 @@ describe("admin scope service", () => {
         title: "Public test skill",
         content: "Use `weldall request --scope expenses:read https://example.com/data`.",
         requiredScopes: ["expenses:read"],
-        hidden: false,
+        visibility: "DEFAULT",
       },
       primaryActor,
     );
@@ -576,7 +608,7 @@ describe("admin scope service", () => {
         title: "Hidden test skill",
         content: "Hidden instructions.",
         requiredScopes: ["expenses:read"],
-        hidden: true,
+        visibility: "HIDDEN_IF_UNALLOWED",
       },
       primaryActor,
     );
@@ -585,12 +617,12 @@ describe("admin scope service", () => {
       total: 2,
     });
     const initiallyVisible = await listVisibleSkills(primaryEmail);
-    expect(initiallyVisible).toEqual(
+    expect(initiallyVisible.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ slug: publicSkill.slug, available: false }),
       ]),
     );
-    expect(initiallyVisible.some((skill) => skill.slug === hiddenSkill.slug)).toBe(false);
+    expect(initiallyVisible.items.some((skill) => skill.slug === hiddenSkill.slug)).toBe(false);
 
     const assignment = await getAssignmentByEmail(primaryEmail);
     const withRead = await replaceAssignment(
@@ -613,12 +645,15 @@ describe("admin scope service", () => {
         title: "Updated public skill",
         content: publicSkill.content,
         requiredScopes: [],
-        hidden: true,
+        visibility: "HIDDEN_IF_UNALLOWED",
         expectedVersion: publicSkill.version,
       },
       primaryActor,
     );
-    expect(updated).toMatchObject({ title: "Updated public skill", version: 2 });
+    expect(updated).toMatchObject({
+      title: "Updated public skill",
+      version: 2,
+    });
     await expect(
       deleteSkill({ id: updated.id, expectedVersion: publicSkill.version }, primaryActor),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -645,7 +680,7 @@ describe("admin scope service", () => {
         title: "Scope reference",
         content: "Referenced scope instructions.",
         requiredScopes: [scope.key],
-        hidden: true,
+        visibility: "HIDDEN_IF_UNALLOWED",
       },
       primaryActor,
     );
@@ -674,7 +709,11 @@ describe("admin scope service", () => {
 
     const primary = await getAssignmentByEmail(primaryEmail);
     const secondary = await replaceAssignment(
-      { email: secondaryEmail, scopeKeys: ["weldall:administer"], expectedVersion: null },
+      {
+        email: secondaryEmail,
+        scopeKeys: ["weldall:administer"],
+        expectedVersion: null,
+      },
       primaryActor,
     );
     const removedPrimary = await replaceAssignment(
@@ -692,7 +731,11 @@ describe("admin scope service", () => {
       secondaryActor,
     );
     await replaceAssignment(
-      { email: secondaryEmail, scopeKeys: [], expectedVersion: secondary!.version },
+      {
+        email: secondaryEmail,
+        scopeKeys: [],
+        expectedVersion: secondary!.version,
+      },
       primaryActor,
     );
     expect(restoredPrimary?.scopes).toContain("weldall:administer");
@@ -726,11 +769,19 @@ describe("admin scope service", () => {
     );
     const results = await Promise.allSettled([
       replaceAssignment(
-        { email: primaryEmail, scopeKeys: [], expectedVersion: primary!.version },
+        {
+          email: primaryEmail,
+          scopeKeys: [],
+          expectedVersion: primary!.version,
+        },
         primaryActor,
       ),
       replaceAssignment(
-        { email: secondaryEmail, scopeKeys: [], expectedVersion: secondary!.version },
+        {
+          email: secondaryEmail,
+          scopeKeys: [],
+          expectedVersion: secondary!.version,
+        },
         secondaryActor,
       ),
     ]);

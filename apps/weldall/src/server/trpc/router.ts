@@ -20,6 +20,7 @@ import {
   listScopeOptions,
   listScopes,
   listSkills,
+  listSkillSourceOptions,
   listUserAuditEvents,
   listUsers,
   replaceAssignment,
@@ -46,6 +47,7 @@ import {
   testGroupProvider,
   updateGroupProvider,
 } from "../group-providers/service";
+import { refreshResourceCatalog } from "../skills/catalogs";
 import type { TrpcContext } from "./context";
 
 const trpc = initTRPC.context<TrpcContext>().create();
@@ -58,7 +60,10 @@ const pageInput = {
 const adminProcedure = trpc.procedure.use(async ({ ctx, next }) => {
   const userId = ctx.session?.user.id;
   if (!userId) {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in is required." });
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Sign in is required.",
+    });
   }
   assertBrowserRequest(ctx.request);
   const user = await mapDomainErrors(() => requireAdminUser(userId));
@@ -187,6 +192,7 @@ export const appRouter = trpc.router({
               authorizationServer: z.string().max(2_000),
               downstreamClientId: z.string().max(200),
               enabled: z.boolean(),
+              skillDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
             })
@@ -202,6 +208,7 @@ export const appRouter = trpc.router({
               authorizationServer: z.string().max(2_000),
               downstreamClientId: z.string().max(200),
               enabled: z.boolean(),
+              skillDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
               expectedVersion: z.number().int().positive(),
@@ -209,6 +216,9 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) => mapDomainErrors(() => updateResource(input, ctx.adminActor))),
+      refreshSkills: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .mutation(({ input }) => refreshResourceCatalog(input.id)),
     }),
     scopes: trpc.router({
       list: adminProcedure
@@ -225,7 +235,14 @@ export const appRouter = trpc.router({
         .query(({ input }) => mapDomainErrors(() => listScopes(input))),
       options: adminProcedure.query(() => mapDomainErrors(listScopeOptions)),
       create: adminProcedure
-        .input(z.object({ key: z.string().max(160), description: z.string().max(500) }).strict())
+        .input(
+          z
+            .object({
+              key: z.string().max(160),
+              description: z.string().max(500),
+            })
+            .strict(),
+        )
         .mutation(({ input, ctx }) => mapDomainErrors(() => createScope(input, ctx.adminActor))),
       update: adminProcedure
         .input(
@@ -255,6 +272,7 @@ export const appRouter = trpc.router({
           z
             .object({
               ...pageInput,
+              source: z.string().min(1).max(191).optional(),
               sort: z
                 .enum(["title.asc", "title.desc", "updatedAt.asc", "updatedAt.desc"])
                 .default("title.asc"),
@@ -262,6 +280,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .query(({ input }) => mapDomainErrors(() => listSkills(input))),
+      sources: adminProcedure.query(() => mapDomainErrors(listSkillSourceOptions)),
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getSkill(input.id))),
@@ -273,7 +292,7 @@ export const appRouter = trpc.router({
               title: z.string().max(200),
               content: z.string().max(100_000),
               requiredScopes: z.array(z.string().max(160)).max(100),
-              hidden: z.boolean(),
+              visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
             })
             .strict(),
         )
@@ -286,7 +305,7 @@ export const appRouter = trpc.router({
               title: z.string().max(200),
               content: z.string().max(100_000),
               requiredScopes: z.array(z.string().max(160)).max(100),
-              hidden: z.boolean(),
+              visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
               expectedVersion: z.number().int().positive(),
             })
             .strict(),
@@ -512,7 +531,10 @@ export function assertBrowserRequest(request: Request): void {
     !contentType.toLowerCase().startsWith("application/json") ||
     (fetchSite && fetchSite !== "same-origin")
   ) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Invalid request origin." });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Invalid request origin.",
+    });
   }
 }
 

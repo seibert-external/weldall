@@ -22,13 +22,24 @@ export function getWeldallSigningKey() {
   return cachedKey;
 }
 
-export async function signWeldallJwt(payload: JWTPayload): Promise<string> {
+export async function signWeldallJwt(
+  payload: JWTPayload,
+  header?: string | { typ?: string; cty?: string },
+  _signingConfig?: {
+    signingKeyId?: string | undefined;
+    signingAlgorithm?: "ES256" | "EdDSA" | "ES512" | "PS256" | "RS256" | undefined;
+  },
+): Promise<string> {
+  const type =
+    typeof header === "string"
+      ? header
+      : (header?.typ ?? (typeof payload.scope === "string" ? "at+jwt" : "JWT"));
   const key = await getWeldallSigningKey();
   return new SignJWT(payload)
     .setProtectedHeader({
       alg: "ES256",
       kid: key.kid,
-      typ: typeof payload.scope === "string" ? "at+jwt" : "JWT",
+      typ: type,
     })
     .sign(await importJWK(key.privateJwk, "ES256"));
 }

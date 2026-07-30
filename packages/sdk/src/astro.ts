@@ -32,6 +32,8 @@ export function initWeldall(host: string, options: WeldallOptions) {
       core.handlers.authorizationServerMetadata(context.request)) satisfies AstroEndpoint,
     protectedResourceMetadata: ((context: AstroContext) =>
       core.handlers.protectedResourceMetadata(context.request)) satisfies AstroEndpoint,
+    skills: ((context: AstroContext) =>
+      core.handlers.skills(context.request)) satisfies AstroEndpoint,
     jwks: ((context: AstroContext) => core.handlers.jwks(context.request)) satisfies AstroEndpoint,
   };
   return { ...core, handlers, protect, getAuth };
@@ -39,4 +41,5 @@ export function initWeldall(host: string, options: WeldallOptions) {
 
 export type AstroWeldall = ReturnType<typeof initWeldall>;
 export * from "./types.js";
+export * from "./skills.js";
 export { WeldallAuthError } from "./errors.js";
