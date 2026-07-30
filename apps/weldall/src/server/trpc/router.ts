@@ -8,6 +8,7 @@ import {
   createScope,
   createSkill,
   deleteAssignment,
+  deleteResource,
   deleteScope,
   deleteSkill,
   getAssignment,
@@ -219,6 +220,16 @@ export const appRouter = trpc.router({
       refreshSkills: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .mutation(({ input }) => refreshResourceCatalog(input.id)),
+      delete: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) => mapDomainErrors(() => deleteResource(input, ctx.adminActor))),
     }),
     scopes: trpc.router({
       list: adminProcedure

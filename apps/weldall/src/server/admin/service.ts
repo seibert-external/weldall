@@ -563,6 +563,40 @@ export async function updateResource(
   }
 }
 
+export async function deleteResource(
+  input: { id: string; expectedVersion: number },
+  actor: AdminActor,
+): Promise<{ id: string }> {
+  try {
+    return await db.$transaction(
+      async (tx) => {
+        await lockResourceChanges(tx);
+        const current = await tx.downstreamResource.findUnique({
+          where: { id: input.id },
+          include: resourceInclude,
+        });
+        if (!current) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
+        assertVersion(current.version, input.expectedVersion);
+
+        const deleted = await tx.downstreamResource.deleteMany({
+          where: { id: current.id, version: input.expectedVersion },
+        });
+        if (deleted.count !== 1) {
+          throw new AdminDomainError("CONFLICT", "The resource changed. Reload and try again.");
+        }
+        await writeResourceAudit(tx, actor, "resource_scopes.deleted", current, null);
+        return { id: current.id };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (isPrismaError(error, "P2034")) {
+      throw new AdminDomainError("CONFLICT", "The resource changed. Reload and try again.");
+    }
+    throw error;
+  }
+}
+
 export async function listScopes(input: {
   page: number;
   pageSize: number;
@@ -1623,9 +1657,9 @@ function serializeResource(resource: {
 async function writeResourceAudit(
   tx: Prisma.TransactionClient,
   actor: AdminActor,
-  eventType: "resource_scopes.created" | "resource_scopes.replaced",
+  eventType: "resource_scopes.created" | "resource_scopes.replaced" | "resource_scopes.deleted",
   before: Parameters<typeof serializeResource>[0] | null,
-  after: Parameters<typeof serializeResource>[0],
+  after: Parameters<typeof serializeResource>[0] | null,
 ) {
   const snapshot = (resource: Parameters<typeof serializeResource>[0]) => ({
     key: resource.key,
@@ -1640,23 +1674,25 @@ async function writeResourceAudit(
     version: resource.version,
   });
   const beforeSnapshot = before ? snapshot(before) : null;
-  const afterSnapshot = snapshot(after);
+  const afterSnapshot = after ? snapshot(after) : null;
   const beforeScopes = beforeSnapshot?.scopeKeys ?? [];
-  const afterScopes = afterSnapshot.scopeKeys;
+  const afterScopes = afterSnapshot?.scopeKeys ?? [];
+  const resource = after ?? before;
+  if (!resource) throw new Error("Resource audit requires a before or after snapshot");
   await writeAudit(tx, actor, {
     eventType,
     subjectType: "downstream_resource",
-    subjectId: after.id,
+    subjectId: resource.id,
     metadata: {
       entityType: "registered_resource",
       source: "admin_api",
-      resourceIdentifier: after.resourceIdentifier,
+      resourceIdentifier: resource.resourceIdentifier,
       before: beforeSnapshot,
       after: afterSnapshot,
       addedScopes: afterScopes.filter((scope) => !beforeScopes.includes(scope)),
       changedScopes: [],
       removedScopes: beforeScopes.filter((scope) => !afterScopes.includes(scope)),
-      contentDigest: contentHash(JSON.stringify(afterSnapshot)),
+      contentDigest: contentHash(JSON.stringify(afterSnapshot ?? beforeSnapshot)),
     },
   });
 }

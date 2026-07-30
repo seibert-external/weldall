@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -34,6 +35,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   const queryClient = useQueryClient();
   const formId = useId();
   const isNew = resourceId === null;
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const resourceQuery = useQuery({
     ...trpc.admin.resources.get.queryOptions({ id: resourceId ?? "new" }),
     enabled: !isNew,
@@ -50,6 +52,19 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
     trpc.admin.resources.update.mutationOptions({
       onSuccess: () => operationToast.success("Resource saved", "resource-save"),
       onError: (error) => operationToast.error("Could not save resource", error, "resource-save"),
+    }),
+  );
+  const deleteMutation = useMutation(
+    trpc.admin.resources.delete.mutationOptions({
+      onSuccess: async () => {
+        operationToast.success("Resource deleted", "resource-delete");
+        await queryClient.invalidateQueries();
+        router.push("/resources");
+      },
+      onError: async (error) => {
+        operationToast.error("Could not delete resource", error, "resource-delete");
+        await queryClient.invalidateQueries();
+      },
     }),
   );
   const refreshSkillsMutation = useMutation(
@@ -157,18 +172,19 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           <HStack gap={1} vAlign="center">
             <Button
               href={`/skills?source=${encodeURIComponent(current.id)}`}
-              label={
-                "View skills" +
-                (current.catalogStatus?.skillCount &&
-                  " (" + current.catalogStatus?.skillCount + ")")
-              }
+              label={`View skills (${current.catalogStatus?.skillCount ?? 0})`}
               variant="secondary"
             />
           </HStack>
         ) : null}
         {current ? (
           <Button
-            isDisabled={!current.enabled || !current.skillDiscoveryEnabled}
+            isDisabled={
+              !current.enabled ||
+              !current.skillDiscoveryEnabled ||
+              mutation.isPending ||
+              deleteMutation.isPending
+            }
             isLoading={refreshSkillsMutation.isPending}
             label="Reload skills"
             onClick={() => refreshSkillsMutation.mutate({ id: current.id })}
@@ -176,12 +192,21 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
             variant="secondary"
           />
         ) : null}
+        {current ? (
+          <Button
+            isDisabled={mutation.isPending || refreshSkillsMutation.isPending}
+            label="Delete resource"
+            onClick={() => setIsDeleteOpen(true)}
+            type="button"
+            variant="destructive"
+          />
+        ) : null}
         <Button href="/resources" label="Cancel" variant="secondary" />
         <form.Subscribe selector={(state) => state.canSubmit}>
           {(canSubmit) => (
             <Button
               form={formId}
-              isDisabled={!canSubmit}
+              isDisabled={!canSubmit || deleteMutation.isPending || refreshSkillsMutation.isPending}
               isLoading={mutation.isPending}
               label={isNew ? "Create resource" : "Save resource"}
               type="submit"
@@ -408,6 +433,28 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           </FormLayout>
         </form>
       </div>
+      <AlertDialog
+        actionLabel="Delete resource"
+        description={
+          current
+            ? `Delete ${current.name}? Its request prefixes and discovered skills will be removed immediately.`
+            : "Delete this resource?"
+        }
+        isActionLoading={deleteMutation.isPending}
+        isOpen={isDeleteOpen}
+        onAction={() => {
+          if (current) {
+            deleteMutation.mutate({ id: current.id, expectedVersion: current.version });
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) {
+            deleteMutation.reset();
+            setIsDeleteOpen(false);
+          }
+        }}
+        title="Delete resource?"
+      />
     </>
   );
 }

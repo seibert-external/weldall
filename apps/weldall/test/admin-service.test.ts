@@ -7,6 +7,7 @@ import {
   createResource,
   createScope,
   createSkill,
+  deleteResource,
   deleteScope,
   deleteSkill,
   getAssignmentByEmail,
@@ -455,6 +456,61 @@ describe("admin scope service", () => {
         expect.objectContaining({ eventType: "resource_scopes.replaced" }),
       ]),
     );
+  });
+
+  it("deletes a resource and its discovered catalog with an audit event", async () => {
+    const scope = await db.scope.findUniqueOrThrow({
+      where: { key: "expenses:read" },
+    });
+    const resource = await createResource(
+      resourceInput("delete", scope.id, { skillDiscoveryEnabled: true }),
+      primaryActor,
+    );
+    const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
+      where: { resourceId: resource.id },
+    });
+    const discoveredSkill = await db.discoveredSkill.create({
+      data: {
+        catalogId: catalog.id,
+        localId: "delete-test",
+        canonicalId: `${resource.key}.delete-test`,
+        title: "Delete test skill",
+        content: "# Delete test skill",
+        requiredScopes: ["expenses:read"],
+        visibility: "DEFAULT",
+      },
+    });
+
+    await expect(
+      deleteResource({ id: resource.id, expectedVersion: resource.version + 1 }, primaryActor),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      deleteResource({ id: resource.id, expectedVersion: resource.version }, primaryActor),
+    ).resolves.toEqual({ id: resource.id });
+
+    await expect(getResource(resource.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(db.discoveredSkillCatalog.count({ where: { id: catalog.id } })).resolves.toBe(0);
+    await expect(db.discoveredSkill.count({ where: { id: discoveredSkill.id } })).resolves.toBe(0);
+    await expect(
+      db.resourceRequestPrefix.count({ where: { resourceId: resource.id } }),
+    ).resolves.toBe(0);
+    await expect(db.resourceScope.count({ where: { resourceId: resource.id } })).resolves.toBe(0);
+    const deletionAudits = await db.auditEvent.findMany({
+      where: {
+        eventType: "resource_scopes.deleted",
+        subjectType: "downstream_resource",
+        subjectId: resource.id,
+      },
+      select: { metadata: true },
+    });
+    expect(deletionAudits).toHaveLength(1);
+    expect(deletionAudits[0]).toMatchObject({
+      metadata: expect.objectContaining({
+        entityType: "registered_resource",
+        before: expect.objectContaining({ key: resource.key }),
+        after: null,
+      }),
+    });
   });
 
   it("rejects duplicate resource identities and normalized request prefixes", async () => {

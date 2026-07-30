@@ -317,6 +317,17 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   expect(disabledRequest.code).toBe(1);
   expect(disabledRequest.stderr).toContain("No registered resource accepts");
 
+  await page.goto("https://weldall.seibert.localdev/resources");
+  const disabledReportsRow = page.getByRole("row").filter({ hasText: "reports" });
+  await disabledReportsRow.getByRole("link", { name: "Open" }).click();
+  await expect(page.getByRole("link", { name: "View skills (0)" })).toBeVisible();
+  await page.getByRole("button", { name: "Delete resource" }).click();
+  const deleteResourceDialog = page.getByRole("alertdialog");
+  await expect(deleteResourceDialog).toContainText("Reports");
+  await deleteResourceDialog.getByRole("button", { name: "Delete resource" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
+  await expect(page.getByRole("row").filter({ hasText: "reports" })).toHaveCount(0);
+
   await page.getByRole("link", { name: "CLI", exact: true }).click();
   await expect(page.getByRole("heading", { name: "CLI", exact: true })).toBeVisible();
   const appendix = "Gude! Use Weldall for everything related to Seibert.";

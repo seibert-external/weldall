@@ -1,11 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  assertDeploymentModeMatches,
+  parseResetMode,
+  seedScriptsForMode,
+} from "./hard-reset-options";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
-
-if (process.env.WELDALL_DEPLOYMENT_MODE !== "development") {
-  throw new Error("Hard database reset is allowed only when WELDALL_DEPLOYMENT_MODE=development.");
-}
+const mode = parseResetMode(process.argv.slice(2));
+assertDeploymentModeMatches(mode, process.env.WELDALL_DEPLOYMENT_MODE);
 if (!process.env.POSTGRES_URL) {
   throw new Error("POSTGRES_URL is required.");
 }
@@ -13,11 +16,11 @@ if (!process.env.POSTGRES_URL) {
 const run = (args: string[]) =>
   execFileSync("pnpm", args, {
     cwd: packageRoot,
-    env: process.env,
+    env: { ...process.env, WELDALL_DEPLOYMENT_MODE: mode },
     stdio: "inherit",
   });
 
-console.warn("Hard-resetting the development database. All existing data will be deleted.");
+console.warn(`Hard-resetting the ${mode} database. All existing data will be deleted.`);
 run([
   "exec",
   "prisma",
@@ -28,6 +31,7 @@ run([
   "--schema",
   "prisma/schema.prisma",
 ]);
-run(["exec", "tsx", "prisma/seed.ts"]);
-run(["exec", "tsx", "prisma/seed.dev.ts"]);
-console.info("Development database reset and seeded successfully.");
+for (const seedScript of seedScriptsForMode(mode)) run(["exec", "tsx", seedScript]);
+console.info(
+  `${mode === "development" ? "Development" : "Production"} database reset and seeded successfully.`,
+);
