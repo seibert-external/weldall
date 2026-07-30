@@ -84,6 +84,11 @@ export interface AssignmentDto {
 
 export type SkillVisibilityDto = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 
+export interface SkillSourceOptionDto {
+  id: string;
+  name: string;
+}
+
 export interface SkillDto {
   id: string;
   slug: string;
@@ -815,15 +820,26 @@ export async function deleteScope(
   });
 }
 
+export async function listSkillSourceOptions(): Promise<SkillSourceOptionDto[]> {
+  return db.downstreamResource.findMany({
+    orderBy: [{ name: "asc" }, { key: "asc" }],
+    select: { id: true, name: true },
+  });
+}
+
 export async function listSkills(input: {
   page: number;
   pageSize: number;
   q?: string | undefined;
+  source?: string | undefined;
   sort?: "title.asc" | "title.desc" | "updatedAt.asc" | "updatedAt.desc" | undefined;
 }): Promise<{ items: SkillDto[]; total: number }> {
   const page = positiveInteger(input.page, 1);
   const pageSize = Math.min(positiveInteger(input.pageSize, 20), MAX_PAGE_SIZE);
   const q = input.q?.trim();
+  const source = input.source?.trim();
+  const includeManual = !source || source === "manual";
+  const includeDiscovered = source !== "manual";
   const textFilter = q
     ? {
         OR: [
@@ -832,20 +848,25 @@ export async function listSkills(input: {
         ],
       }
     : {};
-  const discoveredFilter: Prisma.DiscoveredSkillWhereInput = q
-    ? {
-        OR: [
-          { canonicalId: { contains: q, mode: "insensitive" } },
-          { title: { contains: q, mode: "insensitive" } },
-        ],
-      }
-    : {};
+  const discoveredFilter: Prisma.DiscoveredSkillWhereInput = {
+    ...(q
+      ? {
+          OR: [
+            { canonicalId: { contains: q, mode: "insensitive" as const } },
+            { title: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+    ...(source && source !== "manual" ? { catalog: { resourceId: source } } : {}),
+  };
   const [manual, discovered, scopes, manualSlugs] = await Promise.all([
-    db.skill.findMany({ where: textFilter }),
-    db.discoveredSkill.findMany({
-      where: discoveredFilter,
-      include: { catalog: { include: { resource: true } } },
-    }),
+    includeManual ? db.skill.findMany({ where: textFilter }) : Promise.resolve([]),
+    includeDiscovered
+      ? db.discoveredSkill.findMany({
+          where: discoveredFilter,
+          include: { catalog: { include: { resource: true } } },
+        })
+      : Promise.resolve([]),
     db.scope.findMany({ select: { key: true, isSystem: true } }),
     db.skill.findMany({ select: { slug: true } }),
   ]);

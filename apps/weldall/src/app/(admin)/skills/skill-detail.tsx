@@ -6,6 +6,8 @@ import type { AnyFieldApi } from "@tanstack/react-form";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Icon } from "@astryxdesign/core/Icon";
+import { HStack } from "@astryxdesign/core/Layout";
 import { MultiSelector } from "@astryxdesign/core/MultiSelector";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
@@ -14,8 +16,17 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
-import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { HerocrumbsActions, HerocrumbsTitle } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
+
+const catalogStatuses = {
+  fresh: { icon: "success", color: "success", label: "Fresh" },
+  stale: { icon: "warning", color: "warning", label: "Stale" },
+  failed: { icon: "error", color: "error", label: "Failed" },
+  expired: { icon: "error", color: "error", label: "Expired" },
+  pending: { icon: "info", color: "accent", label: "Pending" },
+  disabled: { icon: "info", color: "accent", label: "Disabled" },
+} as const;
 
 export function SkillDetail({ skillId }: { skillId: string | null }) {
   const trpc = useTRPC();
@@ -103,6 +114,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
   const isReadOnly = skillQuery.data?.readOnly ?? false;
   return (
     <>
+      <HerocrumbsTitle title={isNew ? "Create skill" : (skillQuery.data?.title ?? "Skill")} />
       <HerocrumbsActions>
         <Button href="/skills" label="Cancel" variant="secondary" />
         <form.Subscribe selector={(state) => state.canSubmit}>
@@ -122,28 +134,31 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
       </HerocrumbsActions>
 
       <div className="skill-detail-surface">
-        <div className="grid gap-1">
-          <h2 className="m-0 text-xl font-semibold">
-            {isNew ? "Create skill" : skillQuery.data?.title}
-          </h2>
-          <Text color="secondary">
-            Metadata is emitted as frontmatter; the instructions remain plain Markdown.
-          </Text>
-        </div>
-
         {isReadOnly && skillQuery.data?.source.type === "resource" ? (
-          <Banner
-            container="card"
-            status={skillQuery.data.disabled ? "warning" : "info"}
-            title={`Published by ${skillQuery.data.source.name}`}
-            description={`Catalog: ${skillQuery.data.source.catalogState}. ${
-              skillQuery.data.disabled
-                ? "Discovery is disabled; this persisted skill is not available to users. "
-                : "This discovered skill is read-only. "
-            }${skillQuery.data.scopeWarnings.join(" · ")}${
-              skillQuery.data.overridden ? " · Overridden by a manual skill." : ""
-            }`}
-          />
+          <div className="grid gap-1">
+            <HStack gap={2} vAlign="center">
+              <Icon icon="info" color="accent" size="sm" />
+              <Text type="body">Published by {skillQuery.data.source.name}</Text>
+            </HStack>
+            <HStack gap={2} vAlign="center">
+              <Icon
+                icon={catalogStatuses[skillQuery.data.source.catalogState].icon}
+                color={catalogStatuses[skillQuery.data.source.catalogState].color}
+                size="sm"
+              />
+              <Text type="body">
+                {`Catalog: ${catalogStatuses[skillQuery.data.source.catalogState].label}${
+                  skillQuery.data.disabled
+                    ? ". Discovery is disabled; this persisted skill is not available to users."
+                    : ""
+                }${
+                  skillQuery.data.scopeWarnings.length
+                    ? `. ${skillQuery.data.scopeWarnings.join(" · ")}`
+                    : ""
+                }${skillQuery.data.overridden ? ". Overridden by a manual skill." : ""}`}
+              </Text>
+            </HStack>
+          </div>
         ) : null}
         {scopeOptionsQuery.error ? (
           <Banner

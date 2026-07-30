@@ -5,6 +5,8 @@ import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
+import { HStack } from "@astryxdesign/core/Layout";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import {
   TableBody,
@@ -25,6 +27,14 @@ import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["name"]), [{ id: "name", desc: false }]);
+const discoveryStatuses = {
+  fresh: { icon: "success", color: "success", label: "Fresh" },
+  stale: { icon: "warning", color: "warning", label: "Stale" },
+  failed: { icon: "error", color: "error", label: "Failed" },
+  expired: { icon: "error", color: "error", label: "Expired" },
+  pending: { icon: "info", color: "accent", label: "Pending" },
+  disabled: { icon: "info", color: "accent", label: "Disabled" },
+} as const;
 
 export function ResourcesTable() {
   const trpc = useTRPC();
@@ -79,20 +89,17 @@ export function ResourcesTable() {
         header: "Skill discovery",
         enableSorting: false,
         cell: ({ row, getValue }) => {
-          const enabled = getValue<boolean>();
-          const state = row.original.catalogStatus?.state;
+          const state = getValue<boolean>()
+            ? (row.original.catalogStatus?.state ?? "pending")
+            : "disabled";
+          const status = discoveryStatuses[state];
           return (
-            <div className="grid gap-1">
-              <Badge
-                label={enabled ? (state ?? "Pending") : "Disabled"}
-                variant={
-                  !enabled || state === "failed" || state === "expired" ? "purple" : "neutral"
-                }
-              />
-              {row.original.catalogStatus ? (
-                <Text color="secondary">{row.original.catalogStatus.skillCount} skills</Text>
-              ) : null}
-            </div>
+            <HStack gap={2} vAlign="center">
+              <Text type="body">
+                {status.label} ({row.original.catalogStatus?.skillCount ?? 0})
+              </Text>
+              <Icon icon={status.icon} color={status.color} size="sm" />
+            </HStack>
           );
         },
       },

@@ -37,6 +37,7 @@ export class SkillTemporarilyUnavailableError extends Error {
   }
 }
 
+const ADMIN_SCOPE_KEY = "weldall:administer";
 const sortedUnique = (values: string[]): string[] => [...new Set(values)].sort();
 
 export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnvelope> {
@@ -51,6 +52,7 @@ export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnv
     effectiveScopesFor(email),
   ]);
   const grantedScopes = new Set<string>(grants);
+  const canViewCatalogIssues = grantedScopes.has(ADMIN_SCOPE_KEY);
   const scopes = new Map(scopeRows.map((scope) => [scope.key, scope.isSystem]));
   const warnings: SkillWarning[] = [];
   const discovered: VisibleSkill[] = [];
@@ -58,10 +60,14 @@ export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnv
   for (const resource of resources) {
     const catalog = resource.discoveredCatalog;
     if (!catalog?.lastSuccessfulRefreshAt) {
-      warnings.push({
-        source: resource.key,
-        code: catalog?.lastFailureCategory ? "catalog_temporarily_unavailable" : "catalog_pending",
-      });
+      if (canViewCatalogIssues) {
+        warnings.push({
+          source: resource.key,
+          code: catalog?.lastFailureCategory
+            ? "catalog_temporarily_unavailable"
+            : "catalog_pending",
+        });
+      }
       continue;
     }
     if (
@@ -69,10 +75,12 @@ export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnv
       catalog.staleAfter <= now ||
       catalog.sourceResourceVersion !== resource.version
     ) {
-      warnings.push({ source: resource.key, code: "catalog_expired" });
+      if (canViewCatalogIssues) {
+        warnings.push({ source: resource.key, code: "catalog_expired" });
+      }
       continue;
     }
-    if (catalog.lastFailureCategory) {
+    if (canViewCatalogIssues && catalog.lastFailureCategory) {
       warnings.push({
         source: resource.key,
         code: "catalog_temporarily_unavailable",
@@ -133,6 +141,7 @@ export async function getVisibleSkill(
     effectiveScopesFor(email),
   ]);
   const grantedScopes = new Set<string>(grants);
+  const canViewCatalogIssues = grantedScopes.has(ADMIN_SCOPE_KEY);
   if (manual) {
     const metadata = skillVisibility(
       { ...manual, source: { type: "admin" } as const },
@@ -164,7 +173,8 @@ export async function getVisibleSkill(
     catalog.staleAfter <= now ||
     catalog.sourceResourceVersion !== resource.version
   ) {
-    throw new SkillTemporarilyUnavailableError();
+    if (canViewCatalogIssues) throw new SkillTemporarilyUnavailableError();
+    return null;
   }
   const skill = catalog.skills[0];
   if (!skill) return null;

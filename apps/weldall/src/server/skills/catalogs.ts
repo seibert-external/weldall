@@ -215,30 +215,28 @@ export async function refreshCatalog(
     const { metadataUrl, catalogEndpoint } = await fetchMetadata(source, fetcher);
     const catalog = await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt);
     const persisted = await db.$transaction(async (tx) => {
-      const [lease, currentResource] = await Promise.all([
-        tx.discoveredSkillCatalog.findFirst({
-          where: { id: catalogId, refreshLeaseId: leaseId },
-          select: { id: true },
-        }),
-        tx.downstreamResource.findUnique({
-          where: { id: source.id },
-          select: {
-            enabled: true,
-            skillDiscoveryEnabled: true,
-            version: true,
-            key: true,
-          },
-        }),
-      ]);
-      if (!lease) return false;
+      const lease = await tx.discoveredSkillCatalog.updateMany({
+        where: { id: catalogId, refreshLeaseId: leaseId },
+        data: { refreshLeaseUntil: new Date(Date.now() + LEASE_MS) },
+      });
+      if (lease.count !== 1) return false;
+      const currentResource = await tx.downstreamResource.findUnique({
+        where: { id: source.id },
+        select: {
+          enabled: true,
+          skillDiscoveryEnabled: true,
+          version: true,
+          key: true,
+        },
+      });
       if (
         !currentResource?.enabled ||
         !currentResource.skillDiscoveryEnabled ||
         currentResource.version !== source.version ||
         currentResource.key !== source.key
       ) {
-        await tx.discoveredSkillCatalog.update({
-          where: { id: catalogId },
+        await tx.discoveredSkillCatalog.updateMany({
+          where: { id: catalogId, refreshLeaseId: leaseId },
           data: {
             refreshLeaseId: null,
             refreshLeaseUntil: null,
@@ -261,8 +259,8 @@ export async function refreshCatalog(
           })),
         });
       }
-      await tx.discoveredSkillCatalog.update({
-        where: { id: catalogId },
+      const updated = await tx.discoveredSkillCatalog.updateMany({
+        where: { id: catalogId, refreshLeaseId: leaseId },
         data: {
           sourceResourceVersion: source.version,
           schemaVersion: catalog.schemaVersion,
@@ -279,6 +277,7 @@ export async function refreshCatalog(
           lastFailureAt: null,
         },
       });
+      if (updated.count !== 1) throw new Error("Skill catalog refresh lease was lost");
       return true;
     });
     if (persisted) {
@@ -304,6 +303,54 @@ export async function refreshCatalog(
     });
     return false;
   }
+}
+
+export type ResourceCatalogRefreshOutcome =
+  "succeeded" | "failed" | "already_running" | "unavailable";
+
+export async function refreshResourceCatalog(
+  resourceId: string,
+  options: { fetcher?: typeof fetch; now?: Date } = {},
+): Promise<ResourceCatalogRefreshOutcome> {
+  const now = options.now ?? new Date();
+  const resource = await db.downstreamResource.findUnique({
+    where: { id: resourceId },
+    select: {
+      id: true,
+      key: true,
+      resourceIdentifier: true,
+      authorizationServer: true,
+      version: true,
+      enabled: true,
+      skillDiscoveryEnabled: true,
+    },
+  });
+  if (!resource?.enabled || !resource.skillDiscoveryEnabled) return "unavailable";
+
+  const catalog = await db.discoveredSkillCatalog.upsert({
+    where: { resourceId },
+    create: { resourceId, nextRefreshAt: now },
+    update: {},
+    select: { id: true },
+  });
+  const leaseId = randomUUID();
+  const claimed = await db.discoveredSkillCatalog.updateMany({
+    where: {
+      id: catalog.id,
+      OR: [{ refreshLeaseUntil: null }, { refreshLeaseUntil: { lt: now } }],
+    },
+    data: {
+      refreshLeaseId: leaseId,
+      refreshLeaseUntil: new Date(now.getTime() + LEASE_MS),
+    },
+  });
+  if (claimed.count !== 1) return "already_running";
+
+  const succeeded = await refreshCatalog(catalog.id, leaseId, resource, {
+    ...options,
+    now,
+  });
+  return succeeded ? "succeeded" : "failed";
 }
 
 export async function refreshDueCatalogs(

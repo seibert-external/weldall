@@ -6,6 +6,8 @@ import type { AnyFieldApi } from "@tanstack/react-form";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Icon } from "@astryxdesign/core/Icon";
+import { HStack } from "@astryxdesign/core/Layout";
 import { MultiSelector } from "@astryxdesign/core/MultiSelector";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
@@ -16,6 +18,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
+
+const catalogStatuses = {
+  fresh: { icon: "success", color: "success", label: "Fresh" },
+  stale: { icon: "warning", color: "warning", label: "Stale" },
+  failed: { icon: "error", color: "error", label: "Failed" },
+  expired: { icon: "error", color: "error", label: "Expired" },
+  pending: { icon: "info", color: "accent", label: "Pending" },
+  disabled: { icon: "info", color: "accent", label: "Disabled" },
+} as const;
 
 export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   const trpc = useTRPC();
@@ -39,6 +50,30 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
     trpc.admin.resources.update.mutationOptions({
       onSuccess: () => operationToast.success("Resource saved", "resource-save"),
       onError: (error) => operationToast.error("Could not save resource", error, "resource-save"),
+    }),
+  );
+  const refreshSkillsMutation = useMutation(
+    trpc.admin.resources.refreshSkills.mutationOptions({
+      onSuccess: async (outcome) => {
+        await queryClient.invalidateQueries();
+        if (outcome === "succeeded") {
+          operationToast.success("Skills reloaded", "resource-skills-refresh");
+          return;
+        }
+        const detail =
+          outcome === "already_running"
+            ? "A refresh is already running"
+            : outcome === "unavailable"
+              ? "Skill discovery is disabled for this resource"
+              : "The refresh failed; see the discovery status for details";
+        operationToast.error(
+          "Could not reload skills",
+          new Error(detail),
+          "resource-skills-refresh",
+        );
+      },
+      onError: (error) =>
+        operationToast.error("Could not reload skills", error, "resource-skills-refresh"),
     }),
   );
   const mutation = isNew ? createMutation : updateMutation;
@@ -118,6 +153,29 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   return (
     <>
       <HerocrumbsActions>
+        {current ? (
+          <HStack gap={1} vAlign="center">
+            <Button
+              href={`/skills?source=${encodeURIComponent(current.id)}`}
+              label={
+                "View skills" +
+                (current.catalogStatus?.skillCount &&
+                  " (" + current.catalogStatus?.skillCount + ")")
+              }
+              variant="secondary"
+            />
+          </HStack>
+        ) : null}
+        {current ? (
+          <Button
+            isDisabled={!current.enabled || !current.skillDiscoveryEnabled}
+            isLoading={refreshSkillsMutation.isPending}
+            label="Reload skills"
+            onClick={() => refreshSkillsMutation.mutate({ id: current.id })}
+            type="button"
+            variant="secondary"
+          />
+        ) : null}
         <Button href="/resources" label="Cancel" variant="secondary" />
         <form.Subscribe selector={(state) => state.canSubmit}>
           {(canSubmit) => (
@@ -144,32 +202,37 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           </Text>
         </div>
         {current?.catalogStatus ? (
-          <Banner
-            container="card"
-            status={
-              current.catalogStatus.state === "failed" || current.catalogStatus.state === "expired"
-                ? "warning"
-                : "info"
-            }
-            title={`Skill discovery: ${current.catalogStatus.state}`}
-            description={`Discovered skills: ${current.catalogStatus.skillCount} · Last attempt: ${
-              current.catalogStatus.lastAttemptAt
-                ? new Date(current.catalogStatus.lastAttemptAt).toLocaleString()
-                : "never"
-            } · Last successful refresh: ${
-              current.catalogStatus.lastSuccessfulRefreshAt
-                ? new Date(current.catalogStatus.lastSuccessfulRefreshAt).toLocaleString()
-                : "never"
-            }${
-              current.catalogStatus.lastFailureCategory
-                ? ` · Last failure: ${current.catalogStatus.lastFailureCategory} at ${
-                    current.catalogStatus.lastFailureAt
-                      ? new Date(current.catalogStatus.lastFailureAt).toLocaleString()
-                      : "unknown"
-                  }`
-                : ""
-            }`}
-          />
+          <div className="grid gap-1">
+            <HStack gap={2} vAlign="center">
+              <Icon
+                icon={catalogStatuses[current.catalogStatus.state].icon}
+                color={catalogStatuses[current.catalogStatus.state].color}
+                size="sm"
+              />
+              <Text type="body">
+                Skill discovery: {catalogStatuses[current.catalogStatus.state].label}
+              </Text>
+            </HStack>
+            <Text color="secondary" type="body">
+              {`Discovered skills: ${current.catalogStatus.skillCount} · Last attempt: ${
+                current.catalogStatus.lastAttemptAt
+                  ? new Date(current.catalogStatus.lastAttemptAt).toLocaleString()
+                  : "never"
+              } · Last successful refresh: ${
+                current.catalogStatus.lastSuccessfulRefreshAt
+                  ? new Date(current.catalogStatus.lastSuccessfulRefreshAt).toLocaleString()
+                  : "never"
+              }${
+                current.catalogStatus.lastFailureCategory
+                  ? ` · Last failure: ${current.catalogStatus.lastFailureCategory} at ${
+                      current.catalogStatus.lastFailureAt
+                        ? new Date(current.catalogStatus.lastFailureAt).toLocaleString()
+                        : "unknown"
+                    }`
+                  : ""
+              }`}
+            </Text>
+          </div>
         ) : null}
         {scopeOptionsQuery.error ? (
           <Banner

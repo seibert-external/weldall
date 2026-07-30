@@ -20,6 +20,7 @@ import {
   listScopeOptions,
   listScopes,
   listSkills,
+  listSkillSourceOptions,
   listUserAuditEvents,
   listUsers,
   replaceAssignment,
@@ -46,6 +47,7 @@ import {
   testGroupProvider,
   updateGroupProvider,
 } from "../group-providers/service";
+import { refreshResourceCatalog } from "../skills/catalogs";
 import type { TrpcContext } from "./context";
 
 const trpc = initTRPC.context<TrpcContext>().create();
@@ -214,6 +216,9 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) => mapDomainErrors(() => updateResource(input, ctx.adminActor))),
+      refreshSkills: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .mutation(({ input }) => refreshResourceCatalog(input.id)),
     }),
     scopes: trpc.router({
       list: adminProcedure
@@ -267,6 +272,7 @@ export const appRouter = trpc.router({
           z
             .object({
               ...pageInput,
+              source: z.string().min(1).max(191).optional(),
               sort: z
                 .enum(["title.asc", "title.desc", "updatedAt.asc", "updatedAt.desc"])
                 .default("title.asc"),
@@ -274,6 +280,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .query(({ input }) => mapDomainErrors(() => listSkills(input))),
+      sources: adminProcedure.query(() => mapDomainErrors(listSkillSourceOptions)),
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getSkill(input.id))),
