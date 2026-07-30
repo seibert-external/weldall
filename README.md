@@ -17,6 +17,8 @@ The Astro Starlight workspace lives in [`apps/docs`](apps/docs/README.md). Start
 5. Bootstrap the first administrator before opening the UI: `pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com`. The command is idempotent only for that first assignment and is permanently disabled afterwards. Further administrators are delegated through normal scope assignments; the final administrator cannot be removed.
 6. Run `pnpm build:dev` once so the workspace package exports and CLI exist before starting the apps. This intentionally skips the production Next.js build, which would otherwise try OIDC discovery before the local Development IdP is running.
 
+To delete all local data, recreate the schema, and apply both production-safe and development seeds, run `pnpm db:reset:hard`. The command refuses to run unless `WELDALL_DEPLOYMENT_MODE=development`.
+
 Use two separate foreground terminals (never background servers). Turbo starts Weldall, Expenses, and the Development IdP together:
 
 ```sh

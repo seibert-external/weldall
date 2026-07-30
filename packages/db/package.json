@@ -16,6 +16,7 @@
     "test": "vitest run --passWithNoTests",
     "generate": "prisma generate --schema prisma/schema.prisma",
     "migrate:deploy": "pnpm with-env prisma migrate deploy --schema prisma/schema.prisma",
+    "reset:hard": "pnpm with-env tsx scripts/hard-reset.ts",
     "seed:production": "pnpm with-env tsx prisma/seed.ts",
     "seed:development": "pnpm seed:production && pnpm with-env tsx prisma/seed.dev.ts",
     "with-env": "dotenv -e ../../.env --"
