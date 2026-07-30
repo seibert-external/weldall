@@ -7,7 +7,7 @@ sidebar:
 
 This walkthrough builds a small web service that lists contracts. The example uses Hono, a modern and lightweight alternative to Express. The Weldall SDK provides Hono middleware for securing its routes. Interfaces and adapters for Fetch, Next.js, and Astro are listed on the [SDKs](../sdks/) page.
 
-The work is split between two roles: application developers secure the incoming request in the downstream service. Weldall administrators register the service, assign permissions, and publish the instructions for agents.
+The work is split between two roles: application developers secure incoming requests and publish the agent instructions. Weldall administrators register the service, enable skill discovery, and assign permissions.
 
 ## Prerequisites
 
@@ -64,6 +64,18 @@ const weldall = initWeldall(weldallIssuer, {
     publicJwk: key.publicJwk,
   },
   replayStore: inMemory(),
+  skills: {
+    items: [
+      {
+        id: "list",
+        title: "List contracts",
+        requiredScopes: ["contracts:read"],
+        visibility: "HIDDEN_IF_UNALLOWED",
+        content:
+          "# List contracts\n\nRun `weldall request --scope contracts:read https://contracts.example.com/api/contracts`.",
+      },
+    ],
+  },
   allowInsecureLoopback: publicOrigin.startsWith("http://localhost"),
 });
 
@@ -86,6 +98,8 @@ app.get("/api/contracts", weldall.protect({ scopes: ["contracts:read"] }), (cont
 
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8787) });
 ```
+
+The `skills` attribute publishes the agent instructions with the service. See [SDKs](../sdks/) for the other options and framework examples.
 
 `weldall.protect` checks every incoming request before the handler reads contract data. The handler runs only when the request satisfies the `contracts:read` scope. The identity contains the stable Weldall subject and the verified email that Weldall signed into the ID-JAG and the SDK copied into the downstream access token. How the service uses that identity with its own user database remains application-specific.
 
@@ -144,35 +158,13 @@ Open **Resources**, select **Create resource**, and use these values:
 | Request prefixes     | `https://contracts.example.com/api` |
 | Scopes               | `contracts:read`                    |
 | Enabled              | on                                  |
+| Discover skills      | on                                  |
 
 The values must match the configuration in the Hono service. Weldall does not send credentials or request data to URLs outside the registered prefixes.
 
-### 3. Publish the skill
+### 3. Check skill discovery
 
-Open **Skills**, select **Create skill**, and enter:
-
-| Field           | Value               |
-| --------------- | ------------------- |
-| Skill ID        | `contracts.list`    |
-| Title           | `List contracts`    |
-| Required scopes | `contracts:read`    |
-| Visibility      | Hidden if unallowed |
-
-Use these Markdown instructions:
-
-````md
-List the company's contracts:
-
-```sh
-weldall request \
-  --scope contracts:read \
-  https://contracts.example.com/api/contracts
-```
-
-Return the ID, customer, and status for each contract.
-````
-
-The skill gives the agent the complete CLI command. The agent does not need to derive the API call itself.
+Open **Skills** and check that `contracts.list` is shown from the `contracts` resource. Weldall automatically prefixes the local skill ID `list` from the SDK configuration with the resource key.
 
 ### 4. Assign permission
 
