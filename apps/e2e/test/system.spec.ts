@@ -99,6 +99,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.goto("https://weldall.seibert.localdev/scopes");
   await expect(page.getByRole("heading", { name: "Scopes" })).toBeVisible();
   await expect(page.getByText("weldall:administer", { exact: true })).toBeVisible();
+  await expect(page.getByText("weldall:login", { exact: true })).toBeVisible();
   await expect(page.getByText("expenses:read", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Create scope" }).click();
@@ -188,6 +189,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     "expenses:read",
     "expenses:write",
     "weldall:administer",
+    "weldall:login",
   ]);
   const scopesJson = await runCli("scopes", "--json");
   expect(scopesJson, scopesJson.stderr).toMatchObject({ code: 0 });
@@ -198,6 +200,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
       "expenses:read",
       "expenses:write",
       "weldall:administer",
+      "weldall:login",
     ],
     resources: expect.arrayContaining([
       expect.objectContaining({
@@ -359,6 +362,27 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const afterLogout = await runCli("scopes");
   expect(afterLogout.code).toBe(1);
   expect(afterLogout.stderr).toContain("not logged in");
+});
+
+test("denies CLI login without weldall:login while preserving browser authentication", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+
+  const login = startCli(["login"], 60_000);
+  await page.goto(await waitForBrowserUrl());
+  await page.getByRole("button", { name: "Development login" }).click();
+  await page.getByLabel("Email").selectOption("bob@example.com");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+
+  const loginResult = await login.result;
+  expect(loginResult.code).toBe(1);
+  expect(loginResult.stderr).toMatch(/invalid[_ ]grant/i);
+
+  await page.goto("https://weldall.seibert.localdev/");
+  await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible();
 });
 
 test("publishes metadata and rejects unauthenticated or unsupported requests", async ({

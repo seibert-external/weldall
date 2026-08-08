@@ -168,7 +168,7 @@ Die Werte müssen zur Konfiguration im Hono-Service passen. Weldall gibt keine Z
 
 ### 4. Berechtigung zuweisen
 
-Öffne **Assignments** und erstelle eine Zuweisung für die E-Mail-Adresse des Testnutzers. Weise ihr den Scope `contracts:read` zu.
+Öffne **Assignments** und erstelle eine Zuweisung für die E-Mail-Adresse des Testnutzers. Weise `weldall:login` für die CLI-Anmeldung an diesem Weldall-Server sowie `contracts:read` für den Service-Zugriff zu. Weldall vergibt `weldall:login` nie automatisch über den Identity Provider; der Scope muss vor der ersten CLI-Anmeldung zugewiesen sein. Wird er entfernt, sind neue CLI-Anmeldungen, Token-Refreshes und weitere Downstream-Token-Ausstellungen gesperrt; bereits ausgestellte CLI-Access-Tokens laufen regulär ab. Browser-UI-Anmeldung und Browser-Sessions bleiben davon unberührt.
 
 ### 5. Integration testen
 

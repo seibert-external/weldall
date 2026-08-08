@@ -28,6 +28,12 @@ const devUsers = JSON.stringify([
     name: "Alice E2E",
     emailVerified: true,
   },
+  {
+    sub: "dev-bob",
+    email: "bob@example.com",
+    name: "Bob E2E",
+    emailVerified: true,
+  },
 ]);
 
 const files: Record<string, Record<string, string>> = {

@@ -23,6 +23,7 @@ import {
 import type { AuditEventType, AuditReasonCode } from "../../lib/audit";
 import { auditRequestIdentifiers, prismaAuditWriter, type AuditWriter } from "../audit/service";
 import { auth } from "../auth/auth";
+import { hasLoginScopeForUserId } from "../auth/login-policy";
 import { exchangePolicyFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
 
@@ -194,7 +195,9 @@ async function exchange(
   audit.actorType = "user";
   await validateBoundProof(request, binding);
   const user = await db.user.findUnique({ where: { id: binding.userId } });
-  if (!user?.emailVerified) throw new WeldallAuthError("invalid_grant");
+  if (!user?.emailVerified || !(await hasLoginScopeForUserId(user.id))) {
+    throw new WeldallAuthError("invalid_grant");
+  }
   const email = user.email.trim().toLowerCase();
   audit.actorEmail = email;
   const policy = await exchangePolicyFor({
@@ -446,6 +449,9 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
       !safeEqual((payload.cnf as { jkt: string }).jkt, verifiedJkt)
     )
       throw new WeldallAuthError("server_error", "provider returned an unbound token", 500);
+    if (!(await hasLoginScopeForUserId(payload.sub))) {
+      throw new WeldallAuthError("invalid_grant");
+    }
 
     const tokenHash = hash(data.refresh_token);
     if (previous) {

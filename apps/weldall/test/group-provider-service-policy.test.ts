@@ -169,12 +169,14 @@ describe("group provider administration and effective policy", () => {
     groupListGate = null;
     groupListStarted = null;
 
-    await expect(
-      createGroupAssignments(
-        { providerId: provider.id, groupIds: ["finance"], scopeKeys: ["weldall:administer"] },
-        actor,
-      ),
-    ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
+    for (const systemScope of ["weldall:administer", "weldall:login"]) {
+      await expect(
+        createGroupAssignments(
+          { providerId: provider.id, groupIds: ["finance"], scopeKeys: [systemScope] },
+          actor,
+        ),
+      ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
+    }
 
     const [assignment] = await createGroupAssignments(
       {

@@ -103,7 +103,8 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string | null
             {isNew ? "Create assignment" : "Edit assignment"}
           </h2>
           <Text color="secondary">
-            Assignments may be created before a user signs in. Saving replaces the complete scope
+            Assignments may be created before a user signs in. The weldall:login system scope is
+            required to authenticate the CLI with this server. Saving replaces the complete scope
             set.
           </Text>
         </div>
