@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, ensureSystemScopes, LOGIN_SCOPE_KEY } from "@weldall/db";
+import { denyCliConsentWithoutLoginScope } from "../src/server/auth/consent.js";
 import {
   hasLoginScopeForEmail,
   requireLoginScopeForOAuthGrant,
 } from "../src/server/auth/login-policy.js";
+import { WELDALL_CLIENT_ID, WELDALL_ISSUER } from "../src/server/oauth/constants.js";
 
 const runId = randomUUID();
 const allowedUserId = `login-allowed-${runId}`;
@@ -97,6 +99,88 @@ describe("weldall:login policy", () => {
         requireLoginScopeForOAuthGrant({ grantType, user: { id: deniedUserId } }),
       ).rejects.toMatchObject({ body: { error: "invalid_grant" } });
     }
+  });
+
+  it("returns a loopback OAuth error for accepted CLI consent without weldall:login", async () => {
+    const oauthQuery = new URLSearchParams({
+      client_id: WELDALL_CLIENT_ID,
+      redirect_uri: "http://127.0.0.1:43123/callback",
+      state: "denied-state",
+    });
+    const response = await denyCliConsentWithoutLoginScope(
+      new Request(`${WELDALL_ISSUER}/api/auth/oauth2/consent`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accept: true, oauth_query: oauthQuery.toString() }),
+      }),
+      { user: { id: deniedUserId } },
+    );
+
+    expect(response?.status).toBe(200);
+    const body = (await response?.json()) as { redirect?: unknown; url?: unknown };
+    expect(body.redirect).toBe(true);
+    expect(typeof body.url).toBe("string");
+    const callback = new URL(body.url as string);
+    expect(callback.origin).toBe("http://127.0.0.1:43123");
+    expect(callback.pathname).toBe("/callback");
+    expect(callback.searchParams.get("error")).toBe("invalid_grant");
+    expect(callback.searchParams.get("error_description")).toBe("invalid grant");
+    expect(callback.searchParams.get("iss")).toBe(WELDALL_ISSUER);
+    expect(callback.searchParams.get("state")).toBe("denied-state");
+  });
+
+  it("passes through accepted CLI consent for direct weldall:login assignments", async () => {
+    const oauthQuery = new URLSearchParams({
+      client_id: WELDALL_CLIENT_ID,
+      redirect_uri: "http://127.0.0.1:43123/callback",
+      state: "allowed-state",
+    });
+    await expect(
+      denyCliConsentWithoutLoginScope(
+        new Request(`${WELDALL_ISSUER}/api/auth/oauth2/consent`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accept: true, oauth_query: oauthQuery.toString() }),
+        }),
+        { user: { id: allowedUserId } },
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("does not alter non-CLI consent handling", async () => {
+    const oauthQuery = new URLSearchParams({
+      client_id: "browser-client",
+      redirect_uri: "https://client.example/callback",
+      state: "browser-state",
+    });
+    await expect(
+      denyCliConsentWithoutLoginScope(
+        new Request(`${WELDALL_ISSUER}/api/auth/oauth2/consent`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accept: true, oauth_query: oauthQuery.toString() }),
+        }),
+        { user: { id: deniedUserId } },
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("does not synthesize CLI consent redirects for non-loopback redirect URIs", async () => {
+    const oauthQuery = new URLSearchParams({
+      client_id: WELDALL_CLIENT_ID,
+      redirect_uri: "https://client.example/callback",
+      state: "external-state",
+    });
+    await expect(
+      denyCliConsentWithoutLoginScope(
+        new Request(`${WELDALL_ISSUER}/api/auth/oauth2/consent`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accept: true, oauth_query: oauthQuery.toString() }),
+        }),
+        { user: { id: deniedUserId } },
+      ),
+    ).resolves.toBeNull();
   });
 
   it("blocks the next CLI refresh after the scope is revoked", async () => {
