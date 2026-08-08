@@ -1,127 +1,345 @@
-# Weldall tracer bullet
+# Weldall
 
-Public native OAuth CLI → Weldall/Google → database-backed downstream resource registry → ID-JAG draft-04 → JWT-DPoP draft-01 → DB-free APIs. `better-auth` and `@better-auth/oauth-provider` are pinned to `1.7.0-rc.2`. Weldall alone uses PostgreSQL; the demo downstream services have no database.
+Weldall is an access-control system for letting employees and their software agents use company APIs without handing credentials to the agent. Employees authenticate through the organization's identity provider; administrators define scopes, assignments, resources, and agent-facing skills; the local CLI discovers those capabilities and sends DPoP-authenticated requests directly to registered services.
 
-The same environment-provided Weldall ES256 key signs OAuth access tokens, ID tokens, and ID-JAGs and is published at `/api/oauth/jwks`. Expenses uses its own independent ES256 key through the publishable [`@weldall/sdk`](packages/sdk/README.md), whose root Fetch API and Hono, Next.js, and Astro adapters are demonstrated under `examples/`. Device keys are generated per installation and stored with the rotating Weldall refresh token in macOS Keychain.
+The CLI is one important component, not the whole system:
 
-## Documentation
-
-The Astro Starlight workspace lives in [`apps/docs`](apps/docs/README.md). Start it locally with `pnpm docs:dev`.
-
-## Setup
-
-1. Install Node 22.15.0 or newer, pnpm, PostgreSQL on port 5433, Caddy, and trust the Caddy local CA in macOS Keychain. The CLI requires macOS Keychain and uses Node's system CA store.
-2. Run `pnpm install --frozen-lockfile` and `pnpm secrets:generate > .env`. The generator creates a complete local configuration, including PostgreSQL and a passwordless Development IdP test identity.
-3. To enable Google, replace both `<<insert or delete line>>` placeholders in `.env`; otherwise delete both lines. Register exactly `http://localhost:3000/api/auth/callback/google`; `oAuthProxy` performs the encrypted, 60-second handoff to `https://weldall.seibert.localdev`.
-4. Run `scripts/setup-hosts.sh`, then `pnpm db:generate && pnpm db:migrate:deploy && pnpm db:seed:development`. The greenfield baseline is schema-only. The production-safe seed registers mandatory Weldall records; the separate development seed adds Expenses and diagnostic sample data, including a discovered skill with an unknown scope.
-5. Bootstrap the first administrator before opening the UI: `pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com`. The command is idempotent only for that first assignment and is permanently disabled afterwards. Further administrators are delegated through normal scope assignments; the final administrator cannot be removed.
-6. Run `pnpm build:dev` once so the workspace package exports and CLI exist before starting the apps. This intentionally skips the production Next.js build, which would otherwise try OIDC discovery before the local Development IdP is running.
-
-To delete all local data, recreate the schema, and apply both production-safe and development seeds, run `pnpm db:reset:hard -- development`. To reset using only production-safe seed data, run `WELDALL_DEPLOYMENT_MODE=production pnpm db:reset:hard -- production --confirm-production-reset`. Production mode requires that explicit confirmation flag, and the argument must match `WELDALL_DEPLOYMENT_MODE` when it is set.
-
-Use two separate foreground terminals (never background servers). Turbo starts Weldall, Expenses, and the Development IdP together:
-
-```sh
-pnpm dev
-caddy run --config Caddyfile
+```text
+employee + browser ──sign-in──> Weldall authorization server
+administrator ──policy/admin──> Weldall web app ──> PostgreSQL
+agent ──commands──> Weldall CLI ──grants / ID-JAG──> Weldall
+                              └──token exchange + API request──> resource server + @weldall/sdk
 ```
 
-Link the built macOS CLI, then smoke-test the actual `weldall` command:
+The repository is an alpha/prototype. It implements pinned ID-JAG draft-04 and JWT Authorization Grant with DPoP draft-01 behavior. Replay protection in the current server and demo resource is process-local, so restarts clear replay state and horizontal scaling is not safe without a shared atomic replay store. See [Security and conformance testing](security-testing.md) before production use.
+
+## Major components
+
+- **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, scope policy, the resource registry, skill catalogs, assignments, and audit events.
+- **Weldall CLI** — a published, macOS-only native OAuth client. It keeps its device key and rotating session in macOS Keychain, discovers skills and grants, obtains resource-specific credentials, and sends the final API request without exposing tokens to the calling agent.
+- **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
+- **Supporting services** — the Prisma database package, a local Development IdP, an Expenses resource-server example, documentation, framework examples, and the Playwright/Docker E2E system.
+
+For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/content/docs/en/agent-run.mdx). For service integration, see [How to integrate a service](apps/docs/src/content/docs/en/service-configuration.md) and the [`@weldall/sdk` reference](packages/sdk/README.md).
+
+## Workspace map
+
+[`pnpm-workspace.yaml`](pnpm-workspace.yaml) includes every directory under `apps/*`, `examples/*`, `packages/*`, and `tooling/*`.
+
+| Workspace                                       | Purpose                                                                                                                                                               |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@weldall/cli`](apps/cli/)                     | Published macOS CLI for sign-in, capability discovery, scope inspection, and authenticated requests. See its [package README](apps/cli/README.md).                    |
+| [`@weldall/dev-idp`](apps/dev-idp/)             | Local-only Hono OpenID Connect provider that offers passwordless selection among test identities from `DEV_IDP_USERS_JSON`.                                           |
+| [`@weldall/docs`](apps/docs/)                   | Astro Starlight documentation site with German pages and English translations. See its [README](apps/docs/README.md).                                                 |
+| [`@weldall/e2e`](apps/e2e/)                     | Playwright black-box tests for the Docker Compose stack, browser authorization flow, real CLI, and protected APIs.                                                    |
+| [`@weldall/expenses`](apps/expenses/)           | Hono demo resource server protected by `@weldall/sdk`; implements read, create, and all-of-scope delete operations and publishes the `expenses.review` skill.         |
+| [`@weldall/weldall`](apps/weldall/)             | Private Next.js authorization server, employee APIs, and administration UI for users, scopes, assignments, resources, groups, skills, CLI settings, and audit events. |
+| [`@weldall/example-astro`](examples/astro/)     | Astro 7 Node SSR example using SDK middleware, request-local auth, and endpoint handlers.                                                                             |
+| [`@weldall/example-basic`](examples/basic/)     | Framework-neutral Fetch example exporting `verify` and `verifyNoThrow`.                                                                                               |
+| [`@weldall/example-hono`](examples/hono/)       | Standalone Hono example that registers SDK infrastructure routes and protects an Expenses endpoint.                                                                   |
+| [`@weldall/example-next`](examples/next/)       | Next.js 16 App Router example using Node.js route handlers and the SDK's Next.js adapter.                                                                             |
+| [`@weldall/db`](packages/db/)                   | Private Prisma package containing the PostgreSQL schema, generated client export, migrations, production initialization, and development seed data.                   |
+| [`@weldall/sdk`](packages/sdk/)                 | Published resource-server SDK and Fetch, Hono, Next.js, and Astro adapters. See its [package README](packages/sdk/README.md).                                         |
+| [`@weldall/eslint-config`](tooling/eslint/)     | Shared ESLint flat configuration for TypeScript workspaces.                                                                                                           |
+| [`@weldall/prettier-config`](tooling/prettier/) | Shared Prettier configuration, including Astro formatting support.                                                                                                    |
+| [`@weldall/tsconfig`](tooling/typescript/)      | Shared TypeScript configuration bases used by repository packages and apps.                                                                                           |
+
+## Install and use the CLI
+
+### Requirements
+
+The published CLI requires:
+
+- macOS (credentials and device keys use macOS Keychain)
+- Node.js 22.15.0 or newer
+- a reachable Weldall HTTPS issuer supplied by your administrator
+
+Install the package globally and select the Weldall host:
 
 ```sh
-(cd apps/cli && npm link)
+npm install --global @weldall/cli
+weldall --version
+weldall config set-issuer https://weldall.example.com
+weldall config get-issuer
 weldall login
+```
+
+`config set-issuer` validates authorization-server and protected-resource discovery before saving the origin. The issuer must be an HTTPS origin with no path. Resolution order is `WELDALL_ISSUER`, the macOS preference `dev.seibert.weldall-cli/Issuer`, then an interactive first-run prompt. Sessions are isolated by issuer.
+
+### Command overview
+
+Run `weldall --help` or any command with `--help` for the authoritative installed-version help.
+
+| Command                                    | What it does                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `weldall` / `weldall --help`               | Shows command help and a cached organization-provided CLI appendix.                  |
+| `weldall config set-issuer <https-origin>` | Validates and saves an issuer in macOS Preferences.                                  |
+| `weldall config get-issuer [--json]`       | Prints the effective issuer and whether it came from the environment or preferences. |
+| `weldall config reset-issuer`              | Removes the saved preference; it does not unset `WELDALL_ISSUER`.                    |
+| `weldall login`                            | Opens a browser for native OAuth login and explicit consent.                         |
+| `weldall logout`                           | Attempts remote revocation, then removes the current issuer's saved session.         |
+| `weldall status [--json]`                  | Shows the signed-in identity, assigned scopes, and available APIs.                   |
+| `weldall whoami [--json]`                  | Shows the signed-in name, verified email, issuer, and account ID.                    |
+| `weldall scopes [--json]`                  | Lists assigned scopes; JSON also exposes the live resource/grant registry.           |
+| `weldall skills [--json]`                  | Lists visible skills.                                                                |
+| `weldall skills list [--json]`             | Explicit form of `weldall skills`.                                                   |
+| `weldall skills show <skill-id> [--json]`  | Prints one complete organization- or resource-published skill document.              |
+| `weldall request [options] <url>`          | Sends an authenticated request to a registered HTTPS target.                         |
+
+A typical inspection flow is:
+
+```sh
+weldall status
+weldall whoami --json
 weldall scopes
 weldall scopes --json
 weldall skills
 weldall skills show expenses.review
-weldall request --scope expenses:read https://expenses.seibert.localdev/api/expenses
-weldall request --method POST --scope expenses:create --json '{"description":"Train","amount":24}' https://expenses.seibert.localdev/api/expenses
-weldall request --method DELETE --scope expenses:delete --scope expenses:write https://expenses.seibert.localdev/api/expenses/expense-1
-weldall logout
 ```
 
-For `pnpm --filter @weldall/cli dev ...` or direct `node apps/cli/dist/index.js ...` invocations, set `NODE_USE_SYSTEM_CA=1`; the linked `weldall` bin already starts Node with `--use-system-ca`.
+### Authenticated requests
 
-Run the hermetic browser/CLI suite with `pnpm test:e2e`. Docker Compose creates fresh signing keys and secrets, PostgreSQL, the Development IdP, Caddy, Chromium, Weldall, and Expenses, then removes containers and volumes after the run.
+Every request requires an absolute HTTPS URL and at least one repeatable `--scope` (`-s`). Supported methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS`; the default is `GET`.
 
-The E2E stack uses generated identities, keys, and OAuth values and destroys its containers and volumes after each run. `request` calls Expenses directly; Weldall is not in the API data path.
+```sh
+# Read JSON
+weldall request \
+  --scope expenses:read \
+  https://expenses.example.com/api/expenses
 
-## Deployment
+# Send JSON
+weldall request \
+  --method POST \
+  --scope expenses:create \
+  --json '{"description":"Train","amount":24}' \
+  https://expenses.example.com/api/expenses
 
-Weldall is packaged as a single-replica Next.js container for Coolify. The container applies schema-only Prisma migrations and runs idempotent production-safe initialization before startup; development seeds are never run in deployments. PostgreSQL runs as a separate Coolify resource. See [the Coolify deployment guide](docs/coolify.md) for the required Coolify, OAuth, and GitHub settings.
+# Require multiple scopes (all listed scopes are requested)
+weldall request \
+  -X DELETE \
+  -s expenses:delete \
+  -s expenses:write \
+  https://expenses.example.com/api/expenses/expense-1
+```
 
-## Prototype security boundary
+Request options are:
 
-There is no DPoP nonce. Proof and one-time-grant replay state is process-local, so each server must run as one process; restart resets replay state and horizontal scaling would partition it. The SDK store is capped at 10,000 live entries and fails closed at capacity; the patched provider store is lifetime-bounded but has no fixed entry cap. OAuth Provider rc.2 hardcodes a database-backed DPoP store, so `patches/@better-auth__oauth-provider@1.7.0-rc.2.patch` narrowly replaces its two native DPoP call sites with one module-scoped `createInMemoryDpopReplayStore()` singleton. Re-review the patch, facade response-shape assumptions, and JWT signing-hook claim shapes before changing the pinned prerelease.
+| Option                              | Meaning                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `-X, --method <method>`             | HTTP method; defaults to `GET`.                                                                              |
+| `-s, --scope <scope>`               | Required permission; repeat for multiple scopes.                                                             |
+| `-H, --header 'Name: value'`        | Additional header; repeatable. Weldall owns `Authorization`, `DPoP`, `Host`, `Content-Length`, and `Cookie`. |
+| `-d, --data <text>`                 | Raw text body.                                                                                               |
+| `-j, --json <json>`                 | Parsed JSON body.                                                                                            |
+| `-T, --upload-file <path>`          | Binary-safe raw file body; defaults to `application/octet-stream`.                                           |
+| `-F, --form 'name=value'`           | Multipart text field. Repeatable.                                                                            |
+| `-F, --form 'name=@path;type=MIME'` | Multipart file field. Weldall generates `Content-Type` and its boundary.                                     |
+| `-o, --output <path>`               | Atomically replace a file with the successful response body; use `-` for stdout.                             |
 
-The fixed public `weldall-cli` client requires explicit approval for every native login. The CLI sends `prompt=consent`, the authorization route enforces that prompt server-side, and the client registration refuses to skip consent. A process with access to an existing browser session therefore cannot silently mint a new CLI session by omitting the prompt.
+The four body modes (`--data`, `--json`, `--upload-file`, and `--form`) are mutually exclusive, and `GET`/`HEAD` cannot carry a body. Binary responses require `--output`. Target URLs cannot contain credentials or fragments. Query strings are allowed.
 
-User policy and the downstream resource registry are database-backed. `/resources` manages immutable resource keys and identifiers, authorization-server origins, downstream client IDs, trusted request prefixes, supported global scopes, and enabled state. `/scopes` manages immutable global scope keys and descriptions; `/assignments` independently replaces normalized email-to-scope sets. `/group-providers` configures generic HTTPS group providers, and `/group-assignments` maps their groups to non-system scopes. Provider tokens use write-only AES-256-GCM storage and require `WELDALL_CREDENTIAL_ENCRYPTION_KEY` (a base64-encoded 32-byte key) plus `WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION`. Provider destinations must be HTTPS origins; production deployments should additionally enforce any required network egress policy. Membership is fetched without server caching for each authorization decision. `/skills` combines editable manual skills with read-only resource-published skills persisted in PostgreSQL. Administrators can inspect catalog freshness and safe failure status, and skill discovery is independently disabled by default for every resource. Unknown or protected published scopes are flagged in the admin UI and filtered dynamically from user APIs. Resource changes never create or remove user grants, use optimistic locking, and are audited. Scope deletion is blocked while a skill or resource references the scope. `weldall:administer` is a protected system scope, and all admin reads and mutations run through authenticated tRPC procedures with shared authorization and request-origin middleware.
+Before sending a token or body, the CLI matches the URL's exact origin and path-segment prefix against one enabled Resource Registry entry, verifies that every requested scope is supported and granted, and rejects ambiguous or unregistered targets. It never follows redirects.
 
-`weldall request` resolves the complete target URL against the live registry before token exchange. Origins must match exactly and paths match on segment boundaries; query strings are allowed. The CLI never follows redirects and refuses unregistered, ambiguous, or disabled targets before sending a downstream token or request body. Human-readable `weldall scopes` output contains only service names and granted scopes; `--json` exposes the technical registry contract.
+## Local development
 
-## Changesets, CI, and releases
+### Prerequisites
 
-Published package changes are described with standard [Changesets](https://github.com/changesets/changesets):
+- macOS for the real CLI/Keychain flow
+- Node.js 22.15.0 or newer
+- pnpm 11.15.1 (the version declared in [`package.json`](package.json))
+- PostgreSQL reachable at `localhost:5433`
+- Caddy, with permission to trust its local CA and update `/etc/hosts`
+- Docker with Compose only for `pnpm test:e2e`
+
+### One-time setup
+
+From the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm secrets:generate > .env
+```
+
+The generated file enables the Development IdP and creates local OAuth, encryption, and ES256 signing secrets. For local development without Google, delete the generated `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` placeholder lines. To test Google too, replace both placeholders and register exactly `http://localhost:3000/api/auth/callback/google`.
+
+Prepare local DNS/TLS, the database, the test data, and workspace outputs:
+
+```sh
+scripts/setup-hosts.sh
+sudo caddy trust
+pnpm db:generate
+pnpm db:migrate:deploy
+pnpm db:seed:development
+pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com
+pnpm build:dev
+```
+
+The development seed includes the Expenses scopes and resource described below. `admin:bootstrap` grants the first administrator the protected `weldall:administer` scope; after that first assignment, administration is delegated through normal assignments.
+
+Start long-running processes in two foreground terminals:
+
+```sh
+# Terminal 1: Weldall, Expenses, Development IdP, and documentation
+pnpm dev
+
+# Terminal 2: local HTTPS proxy
+caddy run --config Caddyfile
+```
+
+Open `https://weldall.seibert.localdev`, choose the Development Login identity `alice@example.com`, and inspect the admin pages. The three Caddy-proxied endpoints are:
+
+- Weldall: `https://weldall.seibert.localdev`
+- Expenses: `https://expenses.seibert.localdev`
+- Development IdP: `https://dev-idp.seibert.localdev`
+
+Build and invoke the repository CLI directly:
+
+```sh
+pnpm --filter @weldall/cli build
+./apps/cli/dist/index.js --help
+./apps/cli/dist/index.js config set-issuer https://weldall.seibert.localdev
+./apps/cli/dist/index.js login
+```
+
+The built executable's shebang enables Node's system CA store. If you instead run `node apps/cli/dist/index.js` or `tsx src/index.ts`, set `NODE_USE_SYSTEM_CA=1`. On macOS, `pnpm cli:link` builds and links the same executable as `weldall`; run it before the shorter `weldall ...` examples below, or keep using `./apps/cli/dist/index.js`.
+
+### Reset the local database
+
+These commands are intentionally destructive:
+
+```sh
+# Development data: production initialization plus demo resources
+pnpm db:reset:hard -- development
+
+# Production-safe initialization only
+WELDALL_DEPLOYMENT_MODE=production \
+  pnpm db:reset:hard -- production --confirm-production-reset
+```
+
+When `WELDALL_DEPLOYMENT_MODE` is set, it must match the positional mode.
+
+## Example company workflow: controlled expense operations
+
+Imagine a company giving Alice's agent limited access to its Expenses service. This is not an invented model: it uses the repository's development seed and the policies enforced by `apps/expenses`.
+
+The seed creates four **global scopes**:
+
+| Scope                                | Protected operation                                  |
+| ------------------------------------ | ---------------------------------------------------- |
+| `expenses:read`                      | `GET /api/expenses`                                  |
+| `expenses:create`                    | `POST /api/expenses`                                 |
+| `expenses:delete` + `expenses:write` | `DELETE /api/expenses/:id`; both scopes are required |
+
+It also registers this **downstream resource**:
+
+| Resource field            | Seeded value                            |
+| ------------------------- | --------------------------------------- |
+| Key / name                | `expenses` / `Expenses`                 |
+| Resource identifier       | `https://expenses.seibert.localdev/api` |
+| Authorization server      | `https://expenses.seibert.localdev`     |
+| Downstream client ID      | `weldall-cli-at-expenses`               |
+| Request prefix            | `https://expenses.seibert.localdev/api` |
+| Supported scopes          | all four `expenses:*` scopes above      |
+| Enabled / discover skills | yes / yes                               |
+
+The Expenses service publishes a local skill ID `review`; Weldall prefixes it with the resource key and exposes `expenses.review`.
+
+1. In `https://weldall.seibert.localdev/assignments`, edit Alice's bootstrapped assignment. Keep `weldall:administer` and add only `expenses:read` and `expenses:create`.
+2. Sign in and inspect the effective policy:
+
+   ```sh
+   weldall login
+   weldall status
+   weldall scopes --json
+   weldall skills
+   weldall skills show expenses.review
+   ```
+
+3. Read and create expenses:
+
+   ```sh
+   weldall request --scope expenses:read \
+     https://expenses.seibert.localdev/api/expenses
+
+   weldall request --method POST --scope expenses:create \
+     --json '{"description":"Train","amount":24}' \
+     https://expenses.seibert.localdev/api/expenses
+   ```
+
+4. Try the delete policy while Alice lacks its scopes:
+
+   ```sh
+   weldall request --method DELETE \
+     --scope expenses:delete \
+     --scope expenses:write \
+     https://expenses.seibert.localdev/api/expenses/expense-1
+   ```
+
+   The CLI rejects the request before the Expenses handler runs because the assignment does not grant both requested scopes.
+
+5. In the assignment UI, retain Alice's existing scopes and add `expenses:delete` and `expenses:write`. Run `weldall scopes` to inspect the live change, then repeat the delete command. The resource server independently enforces the same all-of-scope policy.
+
+This flow separates capability description from authorization: the skill explains how to review expenses, the assignment grants Alice scopes, the resource limits where those scopes can be used, and the service still protects each route.
+
+## Key concepts
+
+- **Issuer** — the Weldall authorization-server HTTPS origin selected by the CLI.
+- **Scope** — a global permission key with lowercase `namespace:permission` syntax, for example `expenses:read`. A scope does nothing until it is both assigned to an identity and supported by a resource.
+- **Assignment** — a set of scopes attached directly to a normalized email address. Weldall can also union scopes from configured external group assignments; see the [group-provider HTTP contract](apps/docs/src/content/docs/en/group-provider-http-interface.md).
+- **Resource** — a registered downstream service contract: immutable key and resource identifier, authorization-server origin, downstream client ID, allowed request prefixes, supported scopes, enabled state, and optional skill discovery.
+- **Request prefix** — an allowed HTTPS origin/path prefix matched on path-segment boundaries. It constrains where the CLI may send a resource token or request data.
+- **Skill** — administrator- or resource-published Markdown instructions with required scopes. `DEFAULT` skills remain visible and report missing scopes; `HIDDEN_IF_UNALLOWED` skills are hidden until all required scopes are granted. Visibility never replaces route authorization.
+- **Effective scopes** — the sorted union of direct email grants and currently resolved group grants. Resource grants are the intersection of effective scopes and that resource's supported scopes.
+- **ID-JAG and DPoP** — Weldall issues a short-lived identity assertion for one resource, client, scope set, and device key. The resource exchanges it and requires DPoP-bound requests. The agent never receives the token material.
+
+The [`@weldall/sdk` README](packages/sdk/README.md) is the deeper reference for route protection, skill catalogs, framework adapters, signing keys, and replay stores.
+
+## Build and test
+
+After installing dependencies and generating `.env`, prepare PostgreSQL as shown in [One-time setup](#one-time-setup). The repository's standard checks are:
+
+```sh
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build:dev
+```
+
+`build:dev` builds all normal workspace outputs except the Weldall production Next.js app, whose build performs live OIDC discovery. Use `pnpm build` only when its configured issuer and identity-provider dependencies are reachable.
+
+Useful targeted commands:
+
+```sh
+pnpm --filter @weldall/cli test
+pnpm --filter @weldall/cli pack:check
+pnpm --filter @weldall/sdk test
+pnpm --filter @weldall/sdk pack:check
+pnpm --filter @weldall/docs build
+```
+
+With Docker running, the hermetic E2E command creates PostgreSQL, fresh signing material, the Development IdP, Caddy, Chromium, Weldall, Expenses, and the real CLI, then removes containers and volumes:
+
+```sh
+pnpm test:e2e
+```
+
+Set `KEEP_E2E_ARTIFACTS=1` only when you intentionally want to retain Playwright artifacts for debugging. See [`testing.md`](testing.md), [`security-testing.md`](security-testing.md), and [the CI workflow](.github/workflows/ci.yml) for the test layers and current automation.
+
+## Operations and contributing
+
+- Production deployment: [Coolify deployment guide](docs/coolify.md)
+- Audit event semantics and privacy boundary: [Audit logs](docs/audit-logs.md)
+- Documentation development: [`apps/docs/README.md`](apps/docs/README.md)
+- Resource SDK and production constraints: [`packages/sdk/README.md`](packages/sdk/README.md)
+
+Changes to either published package need a Changeset when they affect the release:
 
 ```sh
 pnpm changeset
 pnpm changeset:status
 ```
 
-Select `@weldall/sdk` and/or `@weldall/cli`, choose the SemVer bump, and commit the generated
-`.changeset/*.md` file with the pull request. Changes that do not require a package release do not
-need an empty changeset.
+Select `@weldall/cli` and/or `@weldall/sdk`, choose the SemVer bump, and commit the generated `.changeset/*.md`. Documentation, tests, and internal-only changes that do not alter a published package do not need an empty Changeset.
 
-GitHub Actions runs one conventional release flow:
-
-1. `.github/workflows/ci.yml` runs formatting, linting, types, tests, builds, package checks on Node
-   24 and the declared Node 22.15 minimum, and the Docker/Playwright E2E suite. Every job uses the
-   dedicated ephemeral GitHub-hosted runner label `weldall`; the runner image must provide Linux and
-   Docker Compose.
-2. After CI succeeds on `main`, the official `changesets/action` opens or updates one release pull
-   request containing package versions and changelogs.
-3. Merging the release pull request publishes the packages to npm and creates the standard
-   Changesets Git tags and GitHub releases.
-
-Repository configuration:
-
-- Protect `main`: require pull requests plus `verify` and `e2e`, require the branch to be current,
-  block force-pushes and deletion, and do not allow bypasses.
-- Install the Changeset bot GitHub App so reviewers are warned when a package change has no
-  changeset. As recommended by Changesets, this remains advisory because many changes need no release.
-- Keep a fine-grained `RELEASE_GITHUB_TOKEN` Actions secret restricted to this repository with
-  Contents and Pull requests read/write access. Unlike the default workflow token, it allows CI to
-  run on release pull requests created by `changesets/action`.
-- npm Trusted Publishing is configured for both public packages with organization
-  `seibert-external`, repository `weldall`, and workflow `ci.yml`. Publishing uses GitHub OIDC; no npm
-  write token is stored in GitHub. npm cannot generate public provenance attestations while the source
-  repository remains private.
-
-A new package name must exist before npm allows Trusted Publishing to be configured. Bootstrap it from
-a clean `main` checkout before merging its first Changesets release pull request:
-
-```sh
-pnpm --filter @weldall/cli pack:check
-(cd apps/cli && npm publish --access public)
-```
-
-Then configure `@weldall/cli` to trust `seibert-external/weldall` and `ci.yml` for `npm publish`.
-
-## Validation
-
-See [`security-testing.md`](security-testing.md) for the standards traceability and attack matrix.
-
-```sh
-pnpm db:generate
-POSTGRES_URL=postgresql://postgres@localhost:5433/postgres pnpm db:migrate:deploy
-pnpm db:seed:development
-pnpm format:check
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-caddy validate --config Caddyfile
-bash -n scripts/setup-hosts.sh
-```
+The published CLI and SDK packages are licensed under Apache-2.0; see [`apps/cli/LICENSE`](apps/cli/LICENSE) and [`packages/sdk/LICENSE`](packages/sdk/LICENSE).
