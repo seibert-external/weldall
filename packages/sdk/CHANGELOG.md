@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.3.0
+
+### Minor Changes
+
+- 27eddb1: Add authenticated resource skill publication, persisted Weldall discovery, source metadata, partial catalog warnings, and extensible skill visibility values.
+
 ## 0.2.1
 
 ### Patch Changes
