@@ -8,21 +8,23 @@ const prisma = {
   emailScopeGrant: { findFirst },
 } as unknown as PrismaClient;
 
-const bootstrap = vi.fn<typeof bootstrapAdmin>(async (email) =>
-  ({
-    email,
-    scopes: ["weldall:administer", "weldall:login"],
-  }) as Awaited<ReturnType<typeof bootstrapAdmin>>,
+const bootstrap = vi.fn<typeof bootstrapAdmin>(
+  async (email) =>
+    ({
+      email,
+      scopes: ["weldall:administer", "weldall:login"],
+    }) as Awaited<ReturnType<typeof bootstrapAdmin>>,
 );
 
 beforeEach(() => {
   findFirst.mockReset();
   bootstrap.mockReset();
-  bootstrap.mockImplementation(async (email) =>
-    ({
-      email,
-      scopes: ["weldall:administer", "weldall:login"],
-    }) as Awaited<ReturnType<typeof bootstrapAdmin>>,
+  bootstrap.mockImplementation(
+    async (email) =>
+      ({
+        email,
+        scopes: ["weldall:administer", "weldall:login"],
+      }) as Awaited<ReturnType<typeof bootstrapAdmin>>,
   );
 });
 
@@ -30,11 +32,7 @@ describe("configured administrator deployment bootstrap", () => {
   it("bootstraps both protected scopes when no administrator exists", async () => {
     findFirst.mockResolvedValue(null);
 
-    const assignment = await bootstrapConfiguredAdmin(
-      "fresh@example.com",
-      prisma,
-      bootstrap,
-    );
+    const assignment = await bootstrapConfiguredAdmin("fresh@example.com", prisma, bootstrap);
 
     expect(assignment?.scopes).toEqual(["weldall:administer", "weldall:login"]);
     expect(bootstrap).toHaveBeenCalledOnce();

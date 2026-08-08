@@ -1,8 +1,5 @@
 import { db } from "@weldall/db";
-import {
-  bootstrapConfiguredAdmin,
-  prepareProductionDatabase,
-} from "../server/deployment";
+import { bootstrapConfiguredAdmin, prepareProductionDatabase } from "../server/deployment";
 import { refreshDueCatalogs } from "../server/skills/catalogs";
 
 try {
