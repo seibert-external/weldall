@@ -1,15 +1,17 @@
-import { db } from "@weldall/db";
+import type { PrismaClient } from "@prisma/client";
+import { db, ensureSystemScopes } from "@weldall/db";
 import { decryptProviderToken } from "./group-providers/credentials";
 import { WELDALL_RESOURCE } from "./oauth/constants";
 
 const LOCAL_WELDALL_RESOURCE = "https://weldall.seibert.localdev/api";
 const LOCAL_EXPENSES_RESOURCE = "https://expenses.seibert.localdev/api";
 
-export async function prepareProductionDatabase(): Promise<void> {
+export async function prepareProductionDatabase(prisma: PrismaClient = db): Promise<void> {
   const actor = "deployment-bootstrap";
   const oauthScopes = ["openid", "profile", "email", "offline_access", "weldall:scopes"];
 
-  await db.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
+    await ensureSystemScopes(tx, actor);
     const conflictingResource = await tx.oauthResource.findUnique({
       where: { identifier: WELDALL_RESOURCE },
     });
@@ -60,18 +62,6 @@ export async function prepareProductionDatabase(): Promise<void> {
         disabled: false,
       },
     });
-    await tx.scope.upsert({
-      where: { key: "weldall:administer" },
-      create: {
-        id: "scope-weldall-administer",
-        key: "weldall:administer",
-        description: "Administer Weldall scopes and assignments.",
-        isSystem: true,
-        createdBy: actor,
-        updatedBy: actor,
-      },
-      update: { isSystem: true, updatedBy: actor },
-    });
     await tx.cliSettings.upsert({
       where: { id: "default" },
       create: { id: "default", createdBy: actor, updatedBy: actor },
@@ -95,7 +85,7 @@ export async function prepareProductionDatabase(): Promise<void> {
     }
   });
 
-  const providers = await db.groupProvider.findMany({
+  const providers = await prisma.groupProvider.findMany({
     select: { id: true, encryptedToken: true, encryptionKeyVersion: true },
   });
   for (const provider of providers) decryptProviderToken(provider);

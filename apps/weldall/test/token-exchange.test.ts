@@ -12,6 +12,7 @@ import {
 import {
   WELDALL_CLIENT_ID,
   WELDALL_ISSUER,
+  WELDALL_RESOURCE,
   WELDALL_REVOCATION_ENDPOINT,
   WELDALL_TOKEN_ENDPOINT,
 } from "../src/server/oauth/constants.js";
@@ -20,13 +21,13 @@ const EXPENSES_ISSUER = "https://expenses.seibert.localdev";
 const EXPENSES_RESOURCE = `${EXPENSES_ISSUER}/api`;
 const DOWNSTREAM_CLIENT_ID = "weldall-cli-at-expenses";
 
-vi.mock("../src/server/auth/auth.js", () => ({
-  auth: {
-    handler: vi.fn(async () => {
-      throw new Error("Better Auth handler is not used by token-exchange policy tests");
-    }),
-  },
-}));
+const authHandler = vi.hoisted(() =>
+  vi.fn(async () => {
+    throw new Error("Better Auth handler is not used by token-exchange policy tests");
+  }),
+);
+
+vi.mock("../src/server/auth/auth.js", () => ({ auth: { handler: authHandler } }));
 
 const userId = "weldall-token-exchange-test-user";
 const email = "token-exchange-test@example.com";
@@ -51,7 +52,8 @@ beforeAll(async () => {
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(issuerKey.publicJwk),
     WELDALL_SIGNING_KID: "weldall-token-exchange-test",
   });
-  const { db } = await import("@weldall/db");
+  const { db, ensureSystemScopes, LOGIN_SCOPE_KEY } = await import("@weldall/db");
+  await ensureSystemScopes(db, "token-exchange-test");
   await db.user.upsert({
     where: { id: userId },
     update: { email, emailVerified: true },
@@ -73,7 +75,10 @@ beforeAll(async () => {
       updatedBy: "token-exchange-test",
     },
   });
-  const readScope = await db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } });
+  const [readScope, loginScope] = await Promise.all([
+    db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } }),
+    db.scope.findUniqueOrThrow({ where: { key: LOGIN_SCOPE_KEY } }),
+  ]);
   await db.downstreamResource.deleteMany({ where: { key: "token-exchange-shared" } });
   await db.downstreamResource.create({
     data: {
@@ -91,13 +96,13 @@ beforeAll(async () => {
     },
   });
   await db.emailScopeGrant.deleteMany({ where: { assignmentId: assignment.id } });
-  await db.emailScopeGrant.create({
-    data: {
+  await db.emailScopeGrant.createMany({
+    data: [readScope, loginScope].map((scope) => ({
       id: randomUUID(),
       assignmentId: assignment.id,
-      scopeId: readScope.id,
+      scopeId: scope.id,
       createdBy: "token-exchange-test",
-    },
+    })),
   });
   const tokenHash = createHash("sha256").update(refreshToken, "ascii").digest("base64url");
   await db.oauthRefreshToken.upsert({
@@ -222,6 +227,118 @@ describe("Weldall token exchange", () => {
     expect(serializedAudit).not.toContain(body.access_token);
     expect(serializedAudit).not.toContain(proof);
     expect(serializedAudit).not.toContain(refreshToken);
+  });
+
+  it("blocks ID-JAG issuance after the server login scope is revoked", async () => {
+    const { db, LOGIN_SCOPE_KEY } = await import("@weldall/db");
+    const loginScope = await db.scope.findUniqueOrThrow({ where: { key: LOGIN_SCOPE_KEY } });
+    const assignment = await db.emailScopeAssignment.findUniqueOrThrow({
+      where: { normalizedEmail: email },
+    });
+    await db.emailScopeGrant.deleteMany({
+      where: { assignmentId: assignment.id, scopeId: loginScope.id },
+    });
+    try {
+      const proof = await createDpopProof({
+        ...deviceKey,
+        method: "POST",
+        url: WELDALL_TOKEN_ENDPOINT,
+      });
+      const { tokenFacade } = await import("../src/server/oauth/facade.js");
+      const response = await tokenFacade(
+        new Request(WELDALL_TOKEN_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            dpop: proof,
+          },
+          body: new URLSearchParams({
+            grant_type: TOKEN_EXCHANGE_GRANT,
+            requested_token_type: ID_JAG_TOKEN_TYPE,
+            audience: EXPENSES_ISSUER,
+            resource: EXPENSES_RESOURCE,
+            scope: "expenses:read",
+            subject_token: refreshToken,
+            subject_token_type: REFRESH_TOKEN_TYPE,
+            client_id: WELDALL_CLIENT_ID,
+          }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: "invalid_grant" });
+    } finally {
+      await db.emailScopeGrant.create({
+        data: {
+          id: randomUUID(),
+          assignmentId: assignment.id,
+          scopeId: loginScope.id,
+          createdBy: "token-exchange-test",
+        },
+      });
+    }
+  });
+
+  it("returns invalid_grant when a revoked user attempts CLI refresh", async () => {
+    const { db, LOGIN_SCOPE_KEY } = await import("@weldall/db");
+    const loginScope = await db.scope.findUniqueOrThrow({ where: { key: LOGIN_SCOPE_KEY } });
+    const assignment = await db.emailScopeAssignment.findUniqueOrThrow({
+      where: { normalizedEmail: email },
+    });
+    const now = Math.floor(Date.now() / 1_000);
+    const { signWeldallJwt } = await import("../src/server/oauth/jwt.js");
+    const providerAccessToken = await signWeldallJwt({
+      iss: WELDALL_ISSUER,
+      sub: userId,
+      aud: WELDALL_RESOURCE,
+      client_id: WELDALL_CLIENT_ID,
+      scope: "openid offline_access weldall:scopes",
+      cnf: { jkt: deviceKey.jkt },
+      iat: now,
+      exp: now + 300,
+    });
+    await db.emailScopeGrant.deleteMany({
+      where: { assignmentId: assignment.id, scopeId: loginScope.id },
+    });
+    try {
+      authHandler.mockResolvedValueOnce(
+        Response.json({
+          access_token: providerAccessToken,
+          refresh_token: "replacement-refresh-token-not-returned",
+          token_type: "DPoP",
+        }),
+      );
+      const proof = await createDpopProof({
+        ...deviceKey,
+        method: "POST",
+        url: WELDALL_TOKEN_ENDPOINT,
+      });
+      const { tokenFacade } = await import("../src/server/oauth/facade.js");
+      const response = await tokenFacade(
+        new Request(WELDALL_TOKEN_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            dpop: proof,
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: refreshToken,
+            client_id: WELDALL_CLIENT_ID,
+          }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: "invalid_grant" });
+    } finally {
+      await db.emailScopeGrant.create({
+        data: {
+          id: randomUUID(),
+          assignmentId: assignment.id,
+          scopeId: loginScope.id,
+          createdBy: "token-exchange-test",
+        },
+      });
+    }
   });
 
   it("does not create a second success event when a request ID is retried", async () => {

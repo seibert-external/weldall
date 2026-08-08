@@ -5,6 +5,7 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "@weldall/db";
 import { WELDALL_CLIENT_ID, WELDALL_ISSUER, WELDALL_RESOURCE } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
+import { requireLoginScopeForOAuthGrant } from "./login-policy";
 import { resolveDeploymentMode, resolveLoginProviders } from "./providers";
 const required = (n: string) => {
   const v = process.env[n];
@@ -85,6 +86,7 @@ export const auth = betterAuth({
       silenceWarnings: { oauthAuthServerConfig: true, openidConfig: true },
       consentPage: "/consent",
       scopes: cliScopes,
+      customTokenResponseFields: requireLoginScopeForOAuthGrant,
       dpop: { proofMaxAgeSeconds: 60, signingAlgorithms: ["ES256"] },
       cachedTrustedClients: new Set([WELDALL_CLIENT_ID]),
       enforcePerClientResources: false,

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@weldall/db";
 import {
   assertAdminCanBeRemoved,
+  bootstrapAdmin,
   countVerifiedAdminEmails,
   createResource,
   createScope,
@@ -336,9 +337,11 @@ describe("admin scope service", () => {
       { key: `${namespace}:shared`, description: "Shared resource scope." },
       primaryActor,
     );
-    const adminScope = await db.scope.findUniqueOrThrow({
-      where: { key: "weldall:administer" },
+    const systemScopes = await db.scope.findMany({
+      where: { key: { in: ["weldall:administer", "weldall:login"] } },
+      orderBy: { key: "asc" },
     });
+    expect(systemScopes).toHaveLength(2);
     const origin = `https://${namespace}.example`;
     const grantCountBefore = await db.emailScopeGrant.count();
     const resource = await createResource(
@@ -377,21 +380,23 @@ describe("admin scope service", () => {
         primaryActor,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(
-      createResource(
-        {
-          key: `${namespace}-system`,
-          name: "System scope resource",
-          resourceIdentifier: "https://system.example/resource",
-          authorizationServer: "https://system.example",
-          downstreamClientId: "system-client",
-          enabled: true,
-          scopeIds: [adminScope.id],
-          requestPrefixes: ["https://system.example/api"],
-        },
-        primaryActor,
-      ),
-    ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
+    for (const [index, systemScope] of systemScopes.entries()) {
+      await expect(
+        createResource(
+          {
+            key: `${namespace}-system-${index}`,
+            name: "System scope resource",
+            resourceIdentifier: `https://system-${index}.example/resource`,
+            authorizationServer: `https://system-${index}.example`,
+            downstreamClientId: `system-client-${index}`,
+            enabled: true,
+            scopeIds: [systemScope.id],
+            requestPrefixes: [`https://system-${index}.example/api`],
+          },
+          primaryActor,
+        ),
+      ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
+    }
     await expect(
       createResource(
         {
@@ -749,13 +754,21 @@ describe("admin scope service", () => {
     ).resolves.toMatchObject({ id: scope.id });
   });
 
-  it("protects the built-in administrator scope", async () => {
-    const adminScope = await db.scope.findUniqueOrThrow({
-      where: { key: "weldall:administer" },
+  it.each(["weldall:administer", "weldall:login"])(
+    "protects the built-in %s scope",
+    async (key) => {
+      const scope = await db.scope.findUniqueOrThrow({ where: { key } });
+      await expect(
+        deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
+      ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
+    },
+  );
+
+  it("does not use bootstrap to restore a revoked login scope", async () => {
+    await expect(bootstrapAdmin(primaryEmail)).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(getAssignmentByEmail(primaryEmail)).resolves.toMatchObject({
+      scopes: ["weldall:administer"],
     });
-    await expect(
-      deleteScope({ id: adminScope.id, expectedVersion: adminScope.version }, primaryActor),
-    ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
   });
 
   it("protects the last administrator and allows an explicit handover", async () => {

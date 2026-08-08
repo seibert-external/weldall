@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { db, Prisma } from "@weldall/db";
+import { ADMIN_SCOPE_KEY, db, LOGIN_SCOPE_KEY, Prisma } from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
@@ -10,7 +10,7 @@ import { z } from "zod";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
 import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
 
-export const ADMIN_SCOPE_KEY = "weldall:administer";
+export { ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY } from "@weldall/db";
 export const MAX_ASSIGNMENT_SCOPES = 100;
 export const MAX_PAGE_SIZE = 100;
 
@@ -1206,88 +1206,93 @@ export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
     requestId: randomUUID(),
   };
 
-  return db.$transaction(async (tx) => {
-    const adminScope = await tx.scope.findUnique({
-      where: { key: ADMIN_SCOPE_KEY },
-    });
-    if (!adminScope?.isSystem) {
-      throw new AdminDomainError("NOT_FOUND", "The built-in administrator scope is missing.");
-    }
-    const existing = await tx.emailScopeAssignment.findUnique({
-      where: { normalizedEmail },
-      include: { grants: { include: { scope: { select: { key: true } } } } },
-    });
-    if (existing?.grants.some((grant) => grant.scope.key === ADMIN_SCOPE_KEY)) {
-      return serializeAssignment(existing);
-    }
-    if (
-      await tx.emailScopeGrant.findFirst({
-        where: { scopeId: adminScope.id },
-        select: { id: true },
-      })
-    ) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        "Bootstrap is disabled after the first administrator exists.",
-      );
-    }
-
-    const assignment = existing
-      ? await tx.emailScopeAssignment.update({
-          where: { id: existing.id },
-          data: {
-            version: { increment: 1 },
-            updatedBy: actor.id,
-            grants: {
-              create: {
-                id: randomUUID(),
-                scopeId: adminScope.id,
-                createdBy: actor.id,
-              },
-            },
-          },
-          include: {
-            grants: { include: { scope: { select: { key: true } } } },
-          },
+  return db.$transaction(
+    async (tx) => {
+      const requiredScopes = await tx.scope.findMany({
+        where: { key: { in: [ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY] }, isSystem: true },
+      });
+      if (requiredScopes.length !== 2) {
+        throw new AdminDomainError("NOT_FOUND", "The built-in bootstrap scopes are missing.");
+      }
+      const adminScope = requiredScopes.find((scope) => scope.key === ADMIN_SCOPE_KEY)!;
+      const existing = await tx.emailScopeAssignment.findUnique({
+        where: { normalizedEmail },
+        include: { grants: { include: { scope: { select: { key: true } } } } },
+      });
+      const beforeScopes = existing
+        ? sortedUnique(existing.grants.map((grant) => grant.scope.key))
+        : [];
+      const hasAdminScope = beforeScopes.includes(ADMIN_SCOPE_KEY);
+      const hasLoginScope = beforeScopes.includes(LOGIN_SCOPE_KEY);
+      if (hasAdminScope) {
+        if (hasLoginScope) return serializeAssignment(existing!);
+        throw new AdminDomainError(
+          "CONFLICT",
+          "Bootstrap is disabled after the first administrator exists.",
+        );
+      }
+      if (
+        await tx.emailScopeGrant.findFirst({
+          where: { scopeId: adminScope.id },
+          select: { id: true },
         })
-      : await tx.emailScopeAssignment.create({
-          data: {
-            normalizedEmail,
-            createdBy: actor.id,
-            updatedBy: actor.id,
-            grants: {
-              create: {
-                id: randomUUID(),
-                scopeId: adminScope.id,
-                createdBy: actor.id,
-              },
+      ) {
+        throw new AdminDomainError(
+          "CONFLICT",
+          "Bootstrap is disabled after the first administrator exists.",
+        );
+      }
+
+      const newGrants = requiredScopes
+        .filter((scope) => !beforeScopes.includes(scope.key))
+        .map((scope) => ({
+          id: randomUUID(),
+          scopeId: scope.id,
+          createdBy: actor.id,
+        }));
+      const assignment = existing
+        ? await tx.emailScopeAssignment.update({
+            where: { id: existing.id },
+            data: {
+              version: { increment: 1 },
+              updatedBy: actor.id,
+              grants: { create: newGrants },
             },
-          },
-          include: {
-            grants: { include: { scope: { select: { key: true } } } },
-          },
-        });
-    const beforeScopes = existing
-      ? sortedUnique(existing.grants.map((grant) => grant.scope.key))
-      : [];
-    const afterScopes = sortedUnique(assignment.grants.map((grant) => grant.scope.key));
-    await writeAudit(tx, actor, {
-      eventType: beforeScopes.length ? "user_scopes.replaced" : "user_scopes.created",
-      subjectType: "email_scope_assignment",
-      subjectId: assignment.id,
-      metadata: {
-        normalizedEmail,
-        beforeScopes,
-        afterScopes,
-        addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),
-        removedScopes: [],
-        source: "deployment_bootstrap",
-        versionBefore: existing?.version ?? 0,
-        versionAfter: assignment.version,
-      },
-    });
-    return serializeAssignment(assignment);
-  });
+            include: {
+              grants: { include: { scope: { select: { key: true } } } },
+            },
+          })
+        : await tx.emailScopeAssignment.create({
+            data: {
+              normalizedEmail,
+              createdBy: actor.id,
+              updatedBy: actor.id,
+              grants: { create: newGrants },
+            },
+            include: {
+              grants: { include: { scope: { select: { key: true } } } },
+            },
+          });
+      const afterScopes = sortedUnique(assignment.grants.map((grant) => grant.scope.key));
+      await writeAudit(tx, actor, {
+        eventType: beforeScopes.length ? "user_scopes.replaced" : "user_scopes.created",
+        subjectType: "email_scope_assignment",
+        subjectId: assignment.id,
+        metadata: {
+          normalizedEmail,
+          beforeScopes,
+          afterScopes,
+          addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),
+          removedScopes: [],
+          source: "deployment_bootstrap",
+          versionBefore: existing?.version ?? 0,
+          versionAfter: assignment.version,
+        },
+      });
+      return serializeAssignment(assignment);
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
 }
 
 async function replaceAssignmentInTransaction(
