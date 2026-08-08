@@ -66,7 +66,7 @@ Register this exact Google OAuth redirect URI:
 https://<WELDALL-HOST>/api/auth/callback/google
 ```
 
-The container validates its environment, applies Prisma migrations, bootstraps the configured initial administrator idempotently, and then starts Weldall. Once another administrator should take over, delegate access in the Admin UI before changing or removing `WELDALL_BOOTSTRAP_ADMIN_EMAIL`.
+The container validates its environment, applies Prisma migrations, bootstraps the configured initial administrator with `weldall:login` and `weldall:administer`, and then starts Weldall. Bootstrap reruns are idempotent only while that first assignment still has both protected scopes; they do not restore revoked CLI login. Once another administrator should take over, delegate both required scopes in the Admin UI before changing or removing `WELDALL_BOOTSTRAP_ADMIN_EMAIL`.
 
 ## 4. Configure GitHub
 
@@ -92,5 +92,7 @@ They are normally inherited from the `seibert-external` organization. Only add t
 3. Confirm every issuer and endpoint uses the production hostname.
 4. Sign in through Google with the bootstrap administrator email.
 5. Run `weldall config set-issuer https://<WELDALL-HOST>` and complete `weldall login`.
+
+Before non-bootstrap users run `weldall login`, assign `weldall:login` directly to their email address in the Admin UI. Weldall does not derive CLI access from Google or group membership.
 
 Weldall currently uses process-local replay protection, so horizontal scaling beyond one replica is not safe yet.
