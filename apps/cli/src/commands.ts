@@ -384,7 +384,7 @@ const skillsShowCommand = define({
     },
     json: jsonArgument,
   },
-  examples: "weldall skills show expenses.list\nweldall skills show expenses.list --json",
+  examples: "weldall skills show expenses.review\nweldall skills show expenses.review --json",
   run: async (context) => {
     const skill = await showSkill(await resolveWeldallConfig(), context.values.skill);
     if (context.values.json) jsonOutput(skill);
