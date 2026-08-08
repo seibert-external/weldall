@@ -51,7 +51,7 @@ weldall status
 weldall whoami
 weldall scopes
 weldall skills
-weldall skills show expenses.list
+weldall skills show expenses.review
 weldall request --scope expenses:read https://expenses.example.com/api/expenses
 weldall request -X PUT --scope files:write --upload-file ./report.pdf \
   -H 'Content-Type: application/pdf' https://files.example.com/api/report.pdf
