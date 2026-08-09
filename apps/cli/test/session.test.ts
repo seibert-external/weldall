@@ -61,6 +61,27 @@ const stubJwks = (...keys: Array<{ key: DpopKeyPair; kid: string }>) =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe("native login", () => {
+  it("explains when the weldall:login scope is missing", async () => {
+    const key = await generateEs256KeyPair();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: "invalid_grant",
+            error_description: "the weldall:login scope must be assigned to your account",
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    await expect(
+      tokenRequest(config, new URLSearchParams({ grant_type: "authorization_code" }), key),
+    ).rejects.toThrow(
+      "invalid_grant: the weldall:login scope must be assigned to your account",
+    );
+  });
+
   it("never follows redirects while sending token credentials", async () => {
     const key = await generateEs256KeyPair();
     const fetcher = vi.fn(async () => Response.json({ error: "invalid_request" }, { status: 400 }));

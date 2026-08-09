@@ -379,7 +379,9 @@ test("denies CLI login without weldall:login while preserving browser authentica
 
   const loginResult = await login.result;
   expect(loginResult.code).toBe(1);
-  expect(loginResult.stderr).toMatch(/invalid[_ ]grant/i);
+  expect(loginResult.stderr).toContain(
+    "the weldall:login scope must be assigned to your account",
+  );
 
   await page.goto("https://weldall.seibert.localdev/");
   await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible();

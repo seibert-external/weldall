@@ -97,7 +97,12 @@ describe("weldall:login policy", () => {
       ).resolves.toEqual({});
       await expect(
         requireLoginScopeForOAuthGrant({ grantType, user: { id: deniedUserId } }),
-      ).rejects.toMatchObject({ body: { error: "invalid_grant" } });
+      ).rejects.toMatchObject({
+        body: {
+          error: "invalid_grant",
+          error_description: "the weldall:login scope must be assigned to your account",
+        },
+      });
     }
   });
 

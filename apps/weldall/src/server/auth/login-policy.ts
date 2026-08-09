@@ -34,6 +34,6 @@ export async function requireLoginScopeForOAuthGrant(input: {
   if (typeof userId === "string" && (await hasLoginScopeForUserId(userId))) return {};
   throw new APIError("BAD_REQUEST", {
     error: "invalid_grant",
-    error_description: "invalid grant",
+    error_description: "the weldall:login scope must be assigned to your account",
   });
 }
