@@ -77,9 +77,7 @@ describe("native login", () => {
     );
     await expect(
       tokenRequest(config, new URLSearchParams({ grant_type: "authorization_code" }), key),
-    ).rejects.toThrow(
-      "invalid_grant: the weldall:login scope must be assigned to your account",
-    );
+    ).rejects.toThrow("invalid_grant: the weldall:login scope must be assigned to your account");
   });
 
   it("never follows redirects while sending token credentials", async () => {
