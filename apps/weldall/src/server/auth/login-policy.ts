@@ -1,6 +1,9 @@
 import { APIError } from "better-auth/api";
 import { db, LOGIN_SCOPE_KEY } from "@weldall/db";
 
+export const LOGIN_SCOPE_REQUIRED_DESCRIPTION =
+  "the weldall:login scope must be assigned to your account";
+
 export async function hasLoginScopeForEmail(email: string): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return false;
@@ -34,6 +37,6 @@ export async function requireLoginScopeForOAuthGrant(input: {
   if (typeof userId === "string" && (await hasLoginScopeForUserId(userId))) return {};
   throw new APIError("BAD_REQUEST", {
     error: "invalid_grant",
-    error_description: "the weldall:login scope must be assigned to your account",
+    error_description: LOGIN_SCOPE_REQUIRED_DESCRIPTION,
   });
 }

@@ -1,5 +1,5 @@
 import { WELDALL_CLIENT_ID, WELDALL_ISSUER } from "../oauth/constants";
-import { hasLoginScopeForUserId } from "./login-policy";
+import { LOGIN_SCOPE_REQUIRED_DESCRIPTION, hasLoginScopeForUserId } from "./login-policy";
 
 const authorizePath = "/api/auth/oauth2/authorize";
 const consentPath = "/api/auth/oauth2/consent";
@@ -47,7 +47,7 @@ function oauthErrorUrl(query: URLSearchParams): string | null {
     return null;
   }
   callback.searchParams.set("error", "invalid_grant");
-  callback.searchParams.set("error_description", "invalid grant");
+  callback.searchParams.set("error_description", LOGIN_SCOPE_REQUIRED_DESCRIPTION);
   callback.searchParams.set("iss", WELDALL_ISSUER);
   const state = query.get("state");
   if (state) callback.searchParams.set("state", state);

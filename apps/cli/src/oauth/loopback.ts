@@ -27,8 +27,11 @@ export async function loopback(
     const issuers = url.searchParams.getAll("iss");
     const codes = url.searchParams.getAll("code");
     const errors = url.searchParams.getAll("error");
+    const descriptions = url.searchParams.getAll("error_description");
     const hasSingleResult =
       (codes.length === 1 && errors.length === 0) || (codes.length === 0 && errors.length === 1);
+    const hasValidErrorDescription =
+      descriptions.length <= 1 && (descriptions.length === 0 || errors.length === 1);
     if (
       settled ||
       request.method !== "GET" ||
@@ -38,7 +41,8 @@ export async function loopback(
       !safeEqual(states[0], state) ||
       issuers.length !== 1 ||
       issuers[0] !== expectedIssuer ||
-      !hasSingleResult
+      !hasSingleResult ||
+      !hasValidErrorDescription
     ) {
       response.writeHead(400).end("Invalid callback");
       return;
@@ -48,7 +52,9 @@ export async function loopback(
     clearTimeout(timer);
     if (errors.length === 1) {
       response.writeHead(400).end("Authorization failed");
-      reject(new Error(errors[0] || "authorization failed"));
+      const error = errors[0] || "authorization failed";
+      const description = descriptions[0];
+      reject(new Error(description ? `${error}: ${description}` : error));
     } else {
       response.end("Weldall login complete. You may close this window.");
       resolve(codes[0]!);

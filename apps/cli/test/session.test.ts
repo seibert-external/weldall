@@ -139,6 +139,21 @@ describe("native login", () => {
     expect((await fetch(base)).status).toBe(200);
     await expect(callback.code).resolves.toBe("authorization-code");
   });
+
+  it("preserves OAuth error descriptions from the callback", async () => {
+    const callback = await loopback("expected-state", "https://issuer.example", 2_000);
+    const denied = new URL(callback.redirectUri);
+    denied.searchParams.set("error", "invalid_grant");
+    denied.searchParams.set("error_description", "the weldall:login scope must be assigned");
+    denied.searchParams.set("state", "expected-state");
+    denied.searchParams.set("iss", "https://issuer.example");
+
+    const code = expect(callback.code).rejects.toThrow(
+      "invalid_grant: the weldall:login scope must be assigned",
+    );
+    expect((await fetch(denied)).status).toBe(400);
+    await code;
+  });
 });
 
 describe("refresh rotation", () => {

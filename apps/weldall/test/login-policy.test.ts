@@ -129,7 +129,9 @@ describe("weldall:login policy", () => {
     expect(callback.origin).toBe("http://127.0.0.1:43123");
     expect(callback.pathname).toBe("/callback");
     expect(callback.searchParams.get("error")).toBe("invalid_grant");
-    expect(callback.searchParams.get("error_description")).toBe("invalid grant");
+    expect(callback.searchParams.get("error_description")).toBe(
+      "the weldall:login scope must be assigned to your account",
+    );
     expect(callback.searchParams.get("iss")).toBe(WELDALL_ISSUER);
     expect(callback.searchParams.get("state")).toBe("denied-state");
   });
