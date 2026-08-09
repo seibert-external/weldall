@@ -25,6 +25,7 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
+import { sortScopeKeys } from "./sort-scope-keys";
 
 const sortingParser = createSortingParser(new Set(["email", "updatedAt"]), [
   { id: "email", desc: false },
@@ -69,7 +70,7 @@ export function AssignmentsTable() {
         enableSorting: false,
         cell: ({ getValue }) => (
           <div className="flex max-w-[44rem] flex-wrap gap-1">
-            {getValue<string[]>().map((scope) => (
+            {sortScopeKeys(getValue<string[]>()).map((scope) => (
               <Badge
                 key={scope}
                 label={scope}
