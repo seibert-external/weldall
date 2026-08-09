@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
-import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Pagination } from "@astryxdesign/core/Pagination";
@@ -25,7 +24,7 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
-import { sortScopeKeys } from "./sort-scope-keys";
+import { ScopeBadges } from "./scope-badges";
 
 const sortingParser = createSortingParser(new Set(["email", "updatedAt"]), [
   { id: "email", desc: false },
@@ -68,17 +67,7 @@ export function AssignmentsTable() {
         accessorKey: "scopes",
         header: "Scopes",
         enableSorting: false,
-        cell: ({ getValue }) => (
-          <div className="flex max-w-[44rem] flex-wrap gap-1">
-            {sortScopeKeys(getValue<string[]>()).map((scope) => (
-              <Badge
-                key={scope}
-                label={scope}
-                variant={scope === "weldall:administer" ? "purple" : "neutral"}
-              />
-            ))}
-          </div>
-        ),
+        cell: ({ getValue }) => <ScopeBadges scopes={getValue<string[]>()} />,
       },
       {
         accessorKey: "updatedAt",
