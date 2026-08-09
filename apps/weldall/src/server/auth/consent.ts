@@ -46,7 +46,7 @@ function oauthErrorUrl(query: URLSearchParams): string | null {
   ) {
     return null;
   }
-  callback.searchParams.set("error", "invalid_grant");
+  callback.searchParams.set("error", "access_denied");
   callback.searchParams.set("error_description", LOGIN_SCOPE_REQUIRED_DESCRIPTION);
   callback.searchParams.set("iss", WELDALL_ISSUER);
   const state = query.get("state");

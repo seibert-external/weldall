@@ -128,7 +128,7 @@ describe("weldall:login policy", () => {
     const callback = new URL(body.url as string);
     expect(callback.origin).toBe("http://127.0.0.1:43123");
     expect(callback.pathname).toBe("/callback");
-    expect(callback.searchParams.get("error")).toBe("invalid_grant");
+    expect(callback.searchParams.get("error")).toBe("access_denied");
     expect(callback.searchParams.get("error_description")).toBe(
       "the weldall:login scope must be assigned to your account",
     );
