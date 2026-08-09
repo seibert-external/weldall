@@ -61,6 +61,25 @@ const stubJwks = (...keys: Array<{ key: DpopKeyPair; kid: string }>) =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe("native login", () => {
+  it("explains when the weldall:login scope is missing", async () => {
+    const key = await generateEs256KeyPair();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: "invalid_grant",
+            error_description: "the weldall:login scope must be assigned to your account",
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    await expect(
+      tokenRequest(config, new URLSearchParams({ grant_type: "authorization_code" }), key),
+    ).rejects.toThrow("invalid_grant: the weldall:login scope must be assigned to your account");
+  });
+
   it("never follows redirects while sending token credentials", async () => {
     const key = await generateEs256KeyPair();
     const fetcher = vi.fn(async () => Response.json({ error: "invalid_request" }, { status: 400 }));
@@ -117,6 +136,21 @@ describe("native login", () => {
     expect((await fetch(base, { method: "POST" })).status).toBe(400);
     expect((await fetch(base)).status).toBe(200);
     await expect(callback.code).resolves.toBe("authorization-code");
+  });
+
+  it("preserves OAuth error descriptions from the callback", async () => {
+    const callback = await loopback("expected-state", "https://issuer.example", 2_000);
+    const denied = new URL(callback.redirectUri);
+    denied.searchParams.set("error", "invalid_grant");
+    denied.searchParams.set("error_description", "the weldall:login scope must be assigned");
+    denied.searchParams.set("state", "expected-state");
+    denied.searchParams.set("iss", "https://issuer.example");
+
+    const code = expect(callback.code).rejects.toThrow(
+      "invalid_grant: the weldall:login scope must be assigned",
+    );
+    expect((await fetch(denied)).status).toBe(400);
+    await code;
   });
 });
 
