@@ -556,9 +556,6 @@ async function loadAssignmentScopes(tx: Prisma.TransactionClient, scopeKeys: str
   if (scopes.length !== scopeKeys.length) {
     throw new AdminDomainError("INVALID_SCOPE", "One or more scopes do not exist.");
   }
-  if (scopes.some((scope) => scope.isSystem)) {
-    throw new AdminDomainError("SYSTEM_SCOPE", "System scopes cannot be assigned to groups.");
-  }
   return scopes;
 }
 

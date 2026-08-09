@@ -93,6 +93,6 @@ They are normally inherited from the `seibert-external` organization. Only add t
 4. Sign in through Google with the bootstrap administrator email.
 5. Run `weldall config set-issuer https://<WELDALL-HOST>` and complete `weldall login`.
 
-Before non-bootstrap users run `weldall login`, assign `weldall:login` directly to their email address in the Admin UI. Weldall does not derive CLI access from Google or group membership.
+Before non-bootstrap users run `weldall login`, assign `weldall:login` to their email address or to a matching provider group in the Admin UI. Weldall does not derive CLI access from Google alone. Group-derived access is resolved live and fails closed when the provider is disabled, unavailable, changed during resolution, or no longer reports the membership; direct grants remain independent.
 
 Weldall currently uses process-local replay protection, so horizontal scaling beyond one replica is not safe yet.

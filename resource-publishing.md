@@ -330,7 +330,7 @@ The combined canonical ID has a bounded length and is treated as an opaque ident
 
 ## Multi-resource skills
 
-A publisher may require any non-system global scope, whether or not that scope is supported by the publishing resource.
+A publisher may require any registered global scope, including a protected system scope, whether or not that scope is supported by the publishing resource.
 
 Example catalog entry:
 
@@ -381,14 +381,13 @@ Resource catalog scopes are interpreted as global scope keys.
 A remote skill is eligible only when:
 
 - every scope has valid namespace:permission syntax;
-- every scope exists in Weldall’s global Scope Registry;
-- no required scope is a protected system scope.
+- every scope exists in Weldall’s global Scope Registry.
 
-Required scopes do not need to belong to or be supported by the publisher.
+Required scopes do not need to belong to or be supported by the publisher. Protected system scopes are valid skill requirements and are identified by live Scope metadata rather than by a key-prefix guess.
 
-Unknown global scopes do not get created automatically. Structurally valid skills are persisted exactly as published, but skills with unknown or protected system scopes are filtered out when user-facing APIs read them. Scope validity is derived from the live Scope Registry rather than stored as quarantine state, so registering a previously unknown scope activates the persisted skill without another resource fetch.
+Unknown global scopes do not get created automatically. Structurally valid skills are persisted exactly as published, but skills with unknown scopes are filtered out when user-facing APIs read them. Scope validity is derived from the live Scope Registry rather than stored as quarantine state, so registering a previously unknown scope activates the persisted skill without another resource fetch.
 
-The admin UI computes and displays unknown or protected scope warnings on discovered skill rows. These conditions are also logged using scope keys and publisher identifiers without logging skill content. Development seeds include a discovered skill with a syntactically valid unknown scope so this state remains visible and testable.
+The admin UI computes and displays unknown-scope warnings on discovered skill rows. These conditions are also logged using scope keys and publisher identifiers without logging skill content. Development seeds include a discovered skill with a syntactically valid unknown scope so this state remains visible and testable.
 
 ## Manual skills and override behavior
 
@@ -798,9 +797,9 @@ The Skill Registry becomes a combined operational view:
 
 - manual skills remain editable and are labeled `Manual`;
 - resource-published skills are read-only and link to their publisher resource;
-- discovered rows show canonical ID, visibility, freshness, discovery-disabled state, unknown/protected scope warnings, and manual-override status;
+- discovered rows show canonical ID, visibility, freshness, discovery-disabled state, unknown-scope warnings, and manual-override status;
 - details show persisted Markdown and required scopes without allowing edits;
-- unknown/protected scope warnings are computed by joining against the current Scope Registry, not stored on discovered rows.
+- unknown-scope warnings are computed by joining against the current Scope Registry, not stored on discovered rows.
 
 This discovered-skill visibility is required for initial delivery, not deferred follow-up work.
 
@@ -834,7 +833,7 @@ A failure in one publisher must not prevent manual skills or other valid publish
 - JWT algorithm, type, key ID, issuer, audience, timestamps, purpose, resource, and jti are validated strictly.
 - User identities and grants are never sent during catalog discovery.
 - Catalog responses cannot create scopes, grants, resources, or request prefixes.
-- Resource-published skills requiring Weldall system scopes are never returned by user-facing APIs.
+- Resource-published skills may require protected Weldall system scopes and use the same live effective-scope evaluation as manual skills.
 - Markdown is never executed or rendered as MDX.
 - CLI output is terminal-sanitized.
 - Resource request prefixes remain authoritative for outbound requests.
@@ -853,7 +852,7 @@ Emit structured events or logs for:
 - invalid metadata;
 - invalid catalog;
 - assertion rejection at the SDK endpoint;
-- unknown/protected scope filtering;
+- unknown-scope filtering;
 - catalog stale and catalog expired;
 - manual override collision.
 
@@ -933,7 +932,7 @@ Do not log catalog content or signed assertions.
 - Merge resource catalogs by canonical ID.
 - Apply manual override precedence.
 - Validate required scopes against the current global registry.
-- Filter unknown and system scopes dynamically at read time and expose computed admin warnings.
+- Filter unknown scopes dynamically at read time and expose computed admin warnings; accept registered system scopes as requirements.
 - Evaluate user visibility with current effective scopes.
 - Compose normalized Markdown documents.
 - Return source and partial-result metadata.
@@ -967,7 +966,7 @@ Do not log catalog content or signed assertions.
 - required scopes may be unsupported by the publisher.
 - required scopes may be supported by several target resources.
 - unknown scopes remain persisted but are filtered from user APIs and flagged in admin UI.
-- system scopes remain persisted but are filtered from user APIs and flagged in admin UI.
+- registered system scopes remain available through user APIs without an admin warning.
 - registering an unknown scope activates the persisted skill without another fetch.
 
 ### Metadata discovery
@@ -1039,7 +1038,7 @@ Use PostgreSQL, a fake clock, and injected fetch/scheduler:
 - a multi-resource skill is visible from one global grant.
 - partial publisher failure does not remove valid sources.
 - detail lookup for a source without a successful persisted catalog returns temporary unavailability rather than false not-found.
-- unknown/protected scope status is computed at read time and shown only to administrators.
+- unknown-scope status is computed at read time and shown only to administrators.
 
 ### SDK adapters
 
@@ -1071,7 +1070,7 @@ For Fetch, Hono, Next.js, and Astro:
 - Approved resources advertise and serve authenticated skill catalogs through the SDK.
 - Weldall authenticates with a short-lived ES256 assertion validated through its public JWKS.
 - Catalog requests contain no user identity or grants.
-- Resource-published skills may require any registered non-system global scope.
+- Resource-published skills may require any registered global scope, including protected system scopes.
 - Skills may document operations across multiple resources.
 - Scope keys continue to enforce lowercase namespace:permission.
 - Every outbound CLI request still validates the selected target resource and its supported scopes.
@@ -1080,7 +1079,7 @@ For Fetch, Hono, Next.js, and Astro:
 - Discovered catalogs and complete skill documents are stored in PostgreSQL; no process-memory catalog cache exists.
 - Catalogs become due every 10 minutes and are refreshed through database-coordinated work scheduled with `after()` and startup/deployment sweeps.
 - Failed fetches are structurally logged, visible as safe resource-level status in the admin UI, and preserve last-known-good catalogs for at most 24 hours.
-- Administrators can inspect read-only discovered skills, freshness, failures, overrides, and dynamically computed unknown/protected scope warnings.
+- Administrators can inspect read-only discovered skills, freshness, failures, overrides, and dynamically computed unknown-scope warnings.
 - Disabling discovery or a resource excludes persisted skills from user APIs without hiding them from administrators.
 - Greenfield migrations are squashed; deployment-safe and development-only seeds are separate, and the development seed covers the unknown-scope case.
 - Fetch, Hono, Next.js, and Astro SDK integrations expose the same protocol.

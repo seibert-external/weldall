@@ -168,7 +168,7 @@ Open **Skills** and check that `contracts.list` is shown from the `contracts` re
 
 ### 4. Assign permission
 
-Open **Assignments** and create an assignment for the test user's email address. Assign `weldall:login` so the user may authenticate the CLI with this Weldall server, plus `contracts:read` for the service capability. Weldall never grants `weldall:login` automatically from the identity provider; assign it before the user's first CLI login. Removing it blocks new CLI login, token refresh, and further downstream token issuance, while already-issued CLI access tokens expire normally. Browser UI login and browser sessions are unaffected.
+Assign `weldall:login` and `contracts:read` to the test user, either under **Assignments** for the user's email address or under **Group assignments** for a matching provider group. Weldall never grants `weldall:login` automatically from the identity provider; assign it before the user's first CLI login. Group-derived scopes are resolved live and fail closed when the provider is unavailable or no longer reports the membership. Removing the effective login scope blocks new CLI login, token refresh, and further downstream token issuance, while already-issued CLI access tokens expire normally. Browser UI login and browser sessions are unaffected.
 
 ### 5. Test the integration
 

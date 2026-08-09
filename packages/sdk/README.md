@@ -120,7 +120,7 @@ The API route still needs its own `protect` policy. Instructions never grant acc
 
 When skill discovery is enabled for the resource, Weldall reads its protected-resource metadata and follows `weldall_skills_endpoint`. Catalog requests use a short-lived, audience- and resource-bound service assertion. Employee tokens and identities are not sent to the catalog endpoint.
 
-The SDK validates each catalog before returning it. IDs must be unique local IDs, required scopes use `namespace:permission` syntax, and a catalog may contain at most 100 skills or 1 MiB of JSON. Weldall validates the response again before storing it and withholds skills that use unknown or protected scopes.
+The SDK validates each catalog before returning it. IDs must be unique local IDs, required scopes use `namespace:permission` syntax, and a catalog may contain at most 100 skills or 1 MiB of JSON. Weldall validates the response again before storing it and withholds skills that use unknown scopes; registered protected system scopes are valid requirements.
 
 ## Routes
 

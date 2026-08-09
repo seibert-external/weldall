@@ -87,7 +87,7 @@ skills: {
 
 The provider receives no employee identity. It must return the same catalog for every caller.
 
-`DEFAULT` keeps a skill visible and reports missing scopes. `HIDDEN_IF_UNALLOWED` hides it unless the employee has every required scope. Visibility controls discovery, not authorization: the API route still needs its own protection policy, and skill instructions never grant access. Required scopes must already exist in Weldall; unknown or protected scopes are withheld from users and shown as warnings to administrators.
+`DEFAULT` keeps a skill visible and reports missing scopes. `HIDDEN_IF_UNALLOWED` hides it unless the employee has every required scope. Visibility controls discovery, not authorization: the API route still needs its own protection policy, and skill instructions never grant access. Required scopes, including protected system scopes, must already exist in Weldall; unknown scopes are withheld from users and shown as warnings to administrators.
 
 The Hono adapter mounts the catalog route through `weldall.registerRoutes(app)`. Fetch, Next.js, and Astro integrations must expose `weldall.handlers.skills` at `/.well-known/weldall-skills` alongside the OAuth metadata, token, and JWKS handlers.
 

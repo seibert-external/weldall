@@ -28,8 +28,10 @@ The environment variable is an ephemeral override and is never persisted. The is
 HTTPS origin. Weldall validates authorization-server and protected-resource discovery before using or
 saving it.
 
-Before `weldall login` can complete, a Weldall administrator must directly assign the user's email
-the `weldall:login` scope for that server. Identity-provider sign-in alone does not grant CLI access.
+Before `weldall login` can complete, a Weldall administrator must assign the user the
+`weldall:login` scope for that server, either directly by email or through a matching provider group.
+Identity-provider sign-in alone does not grant CLI access, and group-derived access is resolved live
+and fails closed when its provider is unavailable or no longer reports the membership.
 
 ```sh
 weldall config set-issuer https://weldall.example.com

@@ -162,7 +162,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       />
     );
   }
-  const scopeOptions = (scopeOptionsQuery.data ?? []).filter((scope) => !scope.isSystem);
+  const scopeOptions = scopeOptionsQuery.data ?? [];
   const current = resourceQuery.data;
 
   return (

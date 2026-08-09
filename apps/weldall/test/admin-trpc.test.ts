@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import { WELDALL_ISSUER } from "../src/server/oauth/constants.js";
 import { ADMIN_SCOPE_KEY } from "../src/server/admin/service.js";
+import { createGroupProvider, updateGroupProvider } from "../src/server/group-providers/service.js";
 import type { TrpcContext } from "../src/server/trpc/context.js";
 import { appRouter, assertBrowserRequest } from "../src/server/trpc/router.js";
 
@@ -14,10 +15,31 @@ const normalEmail = `trpc-normal-${runId}@example.com`;
 const affectedEmail = `trpc-affected-${runId}@example.com`;
 let assignmentId: string;
 let adminScopeId: string;
+let adminProviderUnavailable = false;
 
 describe("admin tRPC middleware", () => {
   beforeAll(async () => {
     process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = String(input);
+      if (adminProviderUnavailable) return new Response(null, { status: 503 });
+      if (url.includes("/api/management/users/?mail=")) {
+        return Response.json(
+          url.includes(encodeURIComponent(adminEmail))
+            ? [{ username: "group-admin", email: adminEmail, is_active: true }]
+            : [],
+        );
+      }
+      if (url.endsWith("/api/management/users/group-admin/")) {
+        return Response.json({
+          username: "group-admin",
+          email: adminEmail,
+          is_active: true,
+          groups: ["admins"],
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
     const adminScope = await db.scope.findUniqueOrThrow({
       where: { key: ADMIN_SCOPE_KEY },
     });
@@ -102,6 +124,7 @@ describe("admin tRPC middleware", () => {
   });
 
   afterAll(async () => {
+    vi.unstubAllGlobals();
     await db.emailScopeAssignment.deleteMany({
       where: { normalizedEmail: { in: [adminEmail, normalEmail] } },
     });
@@ -162,15 +185,55 @@ describe("admin tRPC middleware", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("checks the live assignment on every procedure call", async () => {
+  it("authorizes group-derived administration and checks revocation fail-closed", async () => {
     await expect(caller(adminUserId).admin.status()).resolves.toMatchObject({
       authenticated: true,
       email: adminEmail,
     });
-    await db.emailScopeGrant.deleteMany({ where: { assignmentId } });
-    await expect(caller(adminUserId).admin.status()).rejects.toMatchObject({
-      code: "FORBIDDEN",
+    let provider = await createGroupProvider(
+      {
+        key: `trpc-${runId}-admin-provider`,
+        name: "tRPC admin provider",
+        adapterType: "management-api-v1",
+        baseUrl: "https://trpc-admin-provider.example",
+        token: "trpc-admin-token",
+        enabled: true,
+      },
+      { id: adminUserId, email: adminEmail, requestId: `trpc-${runId}-admin-provider` },
+    );
+    const groupAssignment = await db.groupScopeAssignment.create({
+      data: {
+        providerId: provider.id,
+        groupId: "admins",
+        groupName: "Admins",
+        createdBy: adminUserId,
+        updatedBy: adminUserId,
+        grants: { create: { scopeId: adminScopeId, createdBy: adminUserId } },
+      },
     });
+    await db.emailScopeGrant.deleteMany({ where: { assignmentId } });
+    await expect(caller(adminUserId).admin.status()).resolves.toMatchObject({
+      authenticated: true,
+      email: adminEmail,
+    });
+
+    adminProviderUnavailable = true;
+    await expect(caller(adminUserId).admin.status()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    adminProviderUnavailable = false;
+    provider = await updateGroupProvider(
+      {
+        id: provider.id,
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        enabled: false,
+        expectedVersion: provider.version,
+      },
+      { id: adminUserId, email: adminEmail, requestId: `trpc-${runId}-disable-provider` },
+    );
+    await expect(caller(adminUserId).admin.status()).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await db.groupScopeAssignment.delete({ where: { id: groupAssignment.id } });
+    await db.groupProvider.delete({ where: { id: provider.id } });
     await db.emailScopeGrant.create({
       data: {
         id: randomUUID(),
@@ -179,6 +242,16 @@ describe("admin tRPC middleware", () => {
         createdBy: "admin-trpc-test",
       },
     });
+  });
+
+  it("exposes protected system scopes through assignment option APIs", async () => {
+    const options = await caller(adminUserId).admin.scopes.options();
+    expect(options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "weldall:administer", isSystem: true }),
+        expect.objectContaining({ key: "weldall:login", isSystem: true }),
+      ]),
+    );
   });
 
   it("filters and stably paginates audit events for administrators", async () => {

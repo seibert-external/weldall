@@ -47,13 +47,13 @@ Audience und DPoP verhindern zwar eine Wiederverwendung des Tokens beim echten E
 
 ## Verantwortlichkeiten
 
-| Bereich | Verantwortlich für |
-| --- | --- |
-| Skill Registry | Fachliche Anleitungen, konkrete Request-URLs, Payload-Beispiele |
+| Bereich           | Verantwortlich für                                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Skill Registry    | Fachliche Anleitungen, konkrete Request-URLs, Payload-Beispiele                                                       |
 | Resource Registry | OAuth Resource-Identifier, Authorization Server, Downstream Client-ID, erlaubte Request-Bereiche, unterstützte Scopes |
-| Scope Registry | Globale fachliche Berechtigungen und Beschreibungen |
-| Assignments | Zuweisung globaler Scopes an Benutzer |
-| Zielservice | Prüfung von Audience, Scopes, Access Token und DPoP-Proof |
+| Scope Registry    | Globale fachliche Berechtigungen und Beschreibungen                                                                   |
+| Assignments       | Zuweisung globaler Scopes an Benutzer                                                                                 |
+| Zielservice       | Prüfung von Audience, Scopes, Access Token und DPoP-Proof                                                             |
 
 Skills dürfen die Resource Registry weder überschreiben noch erweitern.
 
@@ -120,7 +120,7 @@ Mehrere Präfixe pro Resource erlauben getrennte API-Basen oder kontrollierte Mi
 - `resourceIdentifier` ist eine absolute HTTPS-URI ohne Credentials oder Fragment und global eindeutig.
 - `authorizationServer` ist ein exakter HTTPS-Origin ohne Pfad, Query, Fragment oder Credentials.
 - `downstreamClientId` ist nicht leer und besitzt eine begrenzte Länge.
-- System-Scopes wie `weldall:administer` können keiner Downstream-Resource zugeordnet werden.
+- Geschützte System-Scopes wie `weldall:administer` können als unterstützte Scopes einer Downstream-Resource zugeordnet werden; ihr `isSystem`-Metadatum schützt weiterhin die Scope-Definition.
 - Alle Scope-IDs müssen existieren.
 - Unbekannte Eingabefelder werden abgelehnt.
 
@@ -349,7 +349,7 @@ Die Expenses-Konstanten dürfen im Demo-Service und in dessen Tests verbleiben. 
 - Resource mit mehreren Scopes und Präfixen erstellen.
 - denselben Scope mehreren Resources zuordnen.
 - doppelte Keys und Resource-Identifier ablehnen.
-- System-Scope-Zuordnung ablehnen.
+- System-Scope-Zuordnung bei Create und Update akzeptieren und in Registry sowie Token Exchange ausgeben.
 - unbekannte Scope-IDs ablehnen.
 - identische und überlappende Präfixe ablehnen.
 - stale `expectedVersion` ablehnen.

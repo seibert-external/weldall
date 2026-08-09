@@ -124,6 +124,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByLabel("Downstream client ID").fill("weldall-cli-at-reports");
   await page.getByLabel("Request prefixes").fill("https://reports.seibert.localdev/api");
   await page.getByRole("button", { name: "Supported scopes" }).click();
+  await expect(page.getByRole("option", { name: "weldall:login" })).toBeVisible();
+  await expect(page.getByRole("option", { name: "weldall:administer" })).toBeVisible();
   await page.getByRole("option", { name: "expenses:read" }).click();
   await page.getByRole("button", { name: "Create resource" }).click();
   await expect(page.getByRole("row").filter({ hasText: "reports" })).toBeVisible();
@@ -164,6 +166,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("link", { name: "Create group assignment" }).click();
   await expect(page).toHaveURL("https://weldall.seibert.localdev/group-assignments/new");
   await expect(page.getByRole("heading", { name: "Create group assignment" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /^weldall:login/ })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /^weldall:administer/ })).toBeVisible();
   await page.getByRole("link", { name: "Cancel" }).click();
 
   await page.getByRole("link", { name: "Skill registry" }).click();
@@ -172,6 +176,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByLabel("Skill ID").fill("expenses.list");
   await page.getByLabel("Title").fill("List expenses");
   await page.getByRole("button", { name: "Required scopes" }).click();
+  await expect(page.getByRole("option", { name: /weldall:login/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /weldall:administer/ })).toBeVisible();
   await page.getByRole("option", { name: /expenses:read/ }).click();
   await page
     .getByLabel("Markdown instructions")

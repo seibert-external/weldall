@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { db, type OAuthDeviceRefreshBinding } from "@weldall/db";
+import { db, LOGIN_SCOPE_KEY, type OAuthDeviceRefreshBinding } from "@weldall/db";
 import { decodeJwt } from "jose";
 import {
   ID_JAG_TOKEN_TYPE,
@@ -24,7 +24,7 @@ import type { AuditEventType, AuditReasonCode } from "../../lib/audit";
 import { auditRequestIdentifiers, prismaAuditWriter, type AuditWriter } from "../audit/service";
 import { auth } from "../auth/auth";
 import { hasLoginScopeForUserId } from "../auth/login-policy";
-import { exchangePolicyFor } from "../policy/resources";
+import { exchangePolicyRequiringSystemScopeFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
 
 const hash = (value: string) => createHash("sha256").update(value, "ascii").digest("base64url");
@@ -195,16 +195,17 @@ async function exchange(
   audit.actorType = "user";
   await validateBoundProof(request, binding);
   const user = await db.user.findUnique({ where: { id: binding.userId } });
-  if (!user?.emailVerified || !(await hasLoginScopeForUserId(user.id))) {
-    throw new WeldallAuthError("invalid_grant");
-  }
+  if (!user?.emailVerified) throw new WeldallAuthError("invalid_grant");
   const email = user.email.trim().toLowerCase();
   audit.actorEmail = email;
-  const policy = await exchangePolicyFor({
+  const decision = await exchangePolicyRequiringSystemScopeFor({
     email: user.email,
     resourceIdentifier,
     authorizationServer: audience,
+    requiredSystemScope: LOGIN_SCOPE_KEY,
   });
+  if (!decision.authorized) throw new WeldallAuthError("invalid_grant");
+  const policy = decision.policy;
   if (!policy) throw new WeldallAuthError("invalid_target");
   const scopes = [...new Set(requiredString(form, "scope").split(" ").filter(Boolean))].sort();
   if (

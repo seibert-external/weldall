@@ -1,4 +1,4 @@
-import { db } from "@weldall/db";
+import { ADMIN_SCOPE_KEY, db } from "@weldall/db";
 import { effectiveScopesFor } from "../policy/resources";
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
@@ -37,7 +37,6 @@ export class SkillTemporarilyUnavailableError extends Error {
   }
 }
 
-const ADMIN_SCOPE_KEY = "weldall:administer";
 const sortedUnique = (values: string[]): string[] => [...new Set(values)].sort();
 
 export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnvelope> {
@@ -48,12 +47,12 @@ export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnv
       where: { enabled: true, skillDiscoveryEnabled: true },
       include: { discoveredCatalog: { include: { skills: true } } },
     }),
-    db.scope.findMany({ select: { key: true, isSystem: true } }),
+    db.scope.findMany({ select: { key: true } }),
     effectiveScopesFor(email),
   ]);
   const grantedScopes = new Set<string>(grants);
   const canViewCatalogIssues = grantedScopes.has(ADMIN_SCOPE_KEY);
-  const scopes = new Map(scopeRows.map((scope) => [scope.key, scope.isSystem]));
+  const scopes = new Set(scopeRows.map((scope) => scope.key));
   const warnings: SkillWarning[] = [];
   const discovered: VisibleSkill[] = [];
 
@@ -162,7 +161,7 @@ export async function getVisibleSkill(
         },
       },
     }),
-    db.scope.findMany({ select: { key: true, isSystem: true } }),
+    db.scope.findMany({ select: { key: true } }),
   ]);
   if (!resource?.enabled || !resource.skillDiscoveryEnabled) return null;
   const catalog = resource.discoveredCatalog;
@@ -178,7 +177,7 @@ export async function getVisibleSkill(
   }
   const skill = catalog.skills[0];
   if (!skill) return null;
-  const scopes = new Map(scopeRows.map((scope) => [scope.key, scope.isSystem]));
+  const scopes = new Set(scopeRows.map((scope) => scope.key));
   const invalidScopes = ineligibleScopes(skill.requiredScopes, scopes);
   if (invalidScopes.length) {
     console.warn("Discovered skill filtered by scope registry", {
@@ -203,11 +202,8 @@ export async function getVisibleSkill(
   return skillDetail(metadata, skill.content);
 }
 
-function ineligibleScopes(
-  requiredScopes: string[],
-  scopes: ReadonlyMap<string, boolean>,
-): string[] {
-  return requiredScopes.filter((scope) => !scopes.has(scope) || scopes.get(scope) === true);
+function ineligibleScopes(requiredScopes: string[], scopes: ReadonlySet<string>): string[] {
+  return requiredScopes.filter((scope) => !scopes.has(scope));
 }
 
 function skillVisibility(
