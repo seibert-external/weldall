@@ -58,13 +58,15 @@ weldall.registerRoutes(app);
 
 app.get("/api/contracts", weldall.protect({ scopes: ["contracts:read"] }), (context) => {
   const auth = weldall.getAuth(context);
-  return context.json({ requestedBy: auth.identity.email, contracts: [] });
+  const requestedBy =
+    auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email;
+  return context.json({ requestedBy, contracts: [] });
 });
 
 serve({ fetch: app.fetch, port: 8787 });
 ```
 
-`registerRoutes` mounts the token, metadata, JWKS, and skill catalog endpoints. `protect` rejects the request before your handler runs. `getAuth` returns the verified subject, email, granted scopes, token ID, and client ID.
+`registerRoutes` mounts the token, metadata, JWKS, and skill catalog endpoints. `protect` rejects the request before your handler runs. `getAuth` returns a discriminated identity with common subject, granted scopes, token ID, and client ID fields; narrow `auth.identity.type` before reading user-only fields such as email.
 
 Call `await weldall.ready()` during startup if you want Weldall discovery to fail early. Otherwise discovery happens when it is first needed.
 
