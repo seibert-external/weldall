@@ -104,7 +104,7 @@ Targets use `initWorkloadVerifier` from the root package, or `initWorkloadAuth` 
 
 The SDK validates protected `typ=weldall-workload+jwt`, exact Weldall issuer and single audience, `workload:<client_id>` subject, `client_id`/`azp`, workload discriminators, five-minute lifetime, scopes, `cnf.jkt`, and a fresh DPoP proof containing the request method, URL, access-token hash, and matching key. User access tokens and ID-JAGs cannot pass this verifier.
 
-Private keys are never registration data. Keep them out of Weldall, manifests, repositories, examples, errors, and logs. Rotate by overlapping registered public keys and then revoking the old key. Client/grant/key revocation blocks new issuance immediately; an already-issued token can remain valid until its five-minute expiry.
+Private keys are never registration data. Keep them out of Weldall, manifests, repositories, examples, errors, and logs. Rotate by overlapping registered public keys and then revoking the old key. Client access removal, allowlist replacement, and key revocation block new issuance immediately; an already-issued token can remain valid until its five-minute expiry.
 
 ## Publish skills
 

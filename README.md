@@ -1,6 +1,6 @@
 # Weldall
 
-Weldall is an access-control system for letting employees, software agents, and backend workloads use company APIs without handing credentials to the agent. Employees authenticate through the organization's identity provider; workloads authenticate as their own registered identities; administrators define scopes, assignments, resources, workload grants, and agent-facing skills; the local CLI discovers those capabilities and sends DPoP-authenticated requests directly to registered services.
+Weldall is an access-control system for letting employees, software agents, and backend workloads use company APIs without handing credentials to the agent. Employees authenticate through the organization's identity provider; workloads authenticate as their own registered identities; administrators define scopes, assignments, resources, workload access with independent resource and scope allowlists, and agent-facing skills; the local CLI discovers those capabilities and sends DPoP-authenticated requests directly to registered services.
 
 The CLI is one important component, not the whole system:
 
