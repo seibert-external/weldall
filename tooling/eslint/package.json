@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "exports": "./index.js",
+  "scripts": {
+    "lint": "eslint ../.."
+  },
   "dependencies": {
     "eslint": "^9.39.5",
     "typescript-eslint": "^8.57.1"
