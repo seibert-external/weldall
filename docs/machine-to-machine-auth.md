@@ -58,11 +58,11 @@ The access token protected header is `typ=weldall-machine+jwt`. Its signed claim
 | Claim                         | Meaning                                                       |
 | ----------------------------- | ------------------------------------------------------------- |
 | `iss`                         | Weldall HTTPS issuer                                          |
-| `sub`                         | `machine:<client_id>` stable non-user namespace              |
-| `client_id`, `azp`            | authenticated machine client ID                              |
+| `sub`                         | `machine:<client_id>` stable non-user namespace               |
+| `client_id`, `azp`            | authenticated machine client ID                               |
 | `aud`                         | one string, exactly the registered target resource identifier |
 | `scope`                       | the selected, resource-supported requested scopes             |
-| `identity_type`, `token_type` | both `machine`                                               |
+| `identity_type`, `token_type` | both `machine`                                                |
 | `iat`, `exp`                  | integer issue/expiry, at most 300 seconds apart               |
 | `jti`                         | unique token identifier                                       |
 | `cnf.jkt`                     | RFC 7638 thumbprint of the sender key                         |
