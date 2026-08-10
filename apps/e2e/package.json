@@ -6,7 +6,7 @@
   "scripts": {
     "test:e2e": "playwright test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@weldall/tsconfig": "workspace:*",

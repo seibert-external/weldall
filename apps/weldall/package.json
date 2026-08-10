@@ -9,9 +9,9 @@
     "dev": "pnpm with-env next dev -p 3000",
     "start": "pnpm with-env next start -p 3000",
     "with-env": "dotenv -e ../../.env --",
-    "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm with-env vitest run --fileParallelism=false"
+    "test": "pnpm with-env vitest run --fileParallelism=false",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
     "@astryxdesign/core": "0.1.4",

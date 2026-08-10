@@ -55,7 +55,7 @@ jobs:
       - name: Verify source
         run: |
           pnpm format:check
-          pnpm lint
+          pnpm check
           pnpm typecheck
           pnpm test
 

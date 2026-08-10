@@ -5,7 +5,7 @@
   "type": "module",
   "exports": "./index.js",
   "scripts": {
-    "lint": "eslint ../.."
+    "check": "eslint ../.."
   },
   "dependencies": {
     "eslint": "^9.39.5",
