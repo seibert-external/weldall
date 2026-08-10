@@ -5,16 +5,16 @@ sidebar:
   label: Workload-Authentifizierung
 ---
 
-Weldall unterstützt OAuth 2.0 Client Credentials für Backend-Workloads. Eine Workload authentisiert sich mit RFC 7523 `private_key_jwt` als eigene Identität; sie meldet keinen Menschen an und verwendet nicht den öffentlichen Client `weldall-cli`. Weldall liefert ein fünf Minuten gültiges JWT für genau eine registrierte Ressource und ausschließlich explizit freigegebene Scopes.
+Weldall unterstützt OAuth 2.0 Client Credentials für Backend-Workloads. Eine Workload authentisiert sich mit RFC 7523 `private_key_jwt` als eigene Identität; sie meldet keinen Menschen an und verwendet nicht den öffentlichen Client `weldall-cli`. Weldall liefert ein fünf Minuten gültiges JWT für genau eine ausgewählte Ressource und ausschließlich ausgewählte Scopes, die diese Ressource unterstützt.
 
 ## Expenses A registrieren
 
 1. Scopes anlegen und Expenses B unter **Resources** registrieren.
 2. Ein ES256-P-256-Schlüsselpaar im Secret-System der Workload erzeugen. Der private JWK bleibt dort.
 3. Unter **Workload clients** `expenses-a`, den öffentlichen JWK und eine eindeutige `kid` registrieren.
-4. Einen expliziten Grant für Expenses B anlegen und nur die benötigten Scopes auswählen.
+4. Unter **Workload access** Expenses B bei **Resources** und die benötigten Einträge bei **Scopes** auswählen.
 
-Die Registrierung einer Workload, Ressource oder eines unterstützten Scopes vergibt noch keine Berechtigung. Weldall lehnt private JWKs ab und unterstützt weder Client Secrets noch entfernte Client-JWKS-URLs.
+Ressourcen und Scopes werden unabhängig ausgewählt. Die Registrierung einer Workload, Ressource oder eines unterstützten Scopes vergibt noch keine Berechtigung; eine Token-Anfrage benötigt eine ausgewählte Ressource, ausgewählte Scopes und die Unterstützung aller angeforderten Scopes durch diese Ressource. Weldall lehnt private JWKs ab und unterstützt weder Client Secrets noch entfernte Client-JWKS-URLs.
 
 ## Token anfordern
 
@@ -62,7 +62,7 @@ Workload-Tokens verwenden `typ=weldall-workload+jwt` sowie die signierten Claims
 
 ## Rotation und Widerruf
 
-Zuerst den neuen öffentlichen Schlüssel registrieren, dann den privaten Schlüssel ausrollen, während einer Übergangszeit beide Schlüssel akzeptieren und schließlich den alten Schlüssel widerrufen. Alternativ können Schlüssel ablaufen, Clients deaktiviert oder Ressourcengrants widerrufen werden. Das stoppt neue Token-Ausstellung sofort; bereits ausgestellte Tokens laufen spätestens nach fünf Minuten ab.
+Zuerst den neuen öffentlichen Schlüssel registrieren, dann den privaten Schlüssel ausrollen, während einer Übergangszeit beide Schlüssel akzeptieren und schließlich den alten Schlüssel widerrufen. Registrierte Schlüssel sind sofort aktiv und bleiben bis zum Widerruf gültig. Alternativ können Clients deaktiviert oder ihre Workload-Zugriffsauswahl entfernt werden. Das stoppt neue Token-Ausstellung sofort; bereits ausgestellte Tokens laufen spätestens nach fünf Minuten ab.
 
 Lifecycle-, Ausstellungs- und Ablehnungsereignisse erscheinen unter **Audit logs**, ohne Assertions, Tokens, Proofs, private Daten oder JWK-Koordinaten.
 

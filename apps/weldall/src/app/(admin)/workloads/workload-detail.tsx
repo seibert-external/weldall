@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { MultiSelector } from "@astryxdesign/core/MultiSelector";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
@@ -22,24 +23,38 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
     ...trpc.admin.workloadClients.get.queryOptions({ id: workloadId ?? "new" }),
     enabled: !isNew,
   });
-  const resourceOptions = useQuery(trpc.admin.workloadClients.resourceOptions.queryOptions());
+  const accessOptions = useQuery(trpc.admin.workloadClients.accessOptions.queryOptions());
   const [clientId, setClientId] = useState("");
   const [name, setName] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [kid, setKid] = useState("");
   const [publicJwk, setPublicJwk] = useState("");
-  const [notBefore, setNotBefore] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
-  const [resourceId, setResourceId] = useState("");
+  const [resourceIds, setResourceIds] = useState<string[]>([]);
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
+  const serverClientId = workload.data?.clientId;
+  const serverName = workload.data?.name;
+  const serverEnabled = workload.data?.enabled;
+  const serverResourceIds = workload.data
+    ? JSON.stringify([...workload.data.access.resourceIds].sort())
+    : undefined;
+  const serverScopeIds = workload.data
+    ? JSON.stringify([...workload.data.access.scopeIds].sort())
+    : undefined;
 
   useEffect(() => {
-    if (!workload.data) return;
-    setClientId(workload.data.clientId);
-    setName(workload.data.name);
-    setEnabled(workload.data.enabled);
-  }, [workload.data]);
+    if (serverClientId === undefined || serverName === undefined || serverEnabled === undefined)
+      return;
+    setClientId(serverClientId);
+    setName(serverName);
+    setEnabled(serverEnabled);
+  }, [serverClientId, serverName, serverEnabled]);
+
+  useEffect(() => {
+    if (serverResourceIds === undefined || serverScopeIds === undefined) return;
+    setResourceIds(JSON.parse(serverResourceIds) as string[]);
+    setScopeIds(JSON.parse(serverScopeIds) as string[]);
+  }, [serverResourceIds, serverScopeIds]);
 
   const invalidate = async () => queryClient.invalidateQueries();
   const create = useMutation(
@@ -58,8 +73,6 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
       onSuccess: async () => {
         setKid("");
         setPublicJwk("");
-        setNotBefore("");
-        setExpiresAt("");
         await invalidate();
       },
     }),
@@ -67,31 +80,25 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
   const revokeKey = useMutation(
     trpc.admin.workloadClients.revokeKey.mutationOptions({ onSuccess: invalidate }),
   );
-  const replaceGrant = useMutation(
-    trpc.admin.workloadClients.replaceGrant.mutationOptions({
-      onSuccess: async () => {
-        setScopeIds([]);
-        await invalidate();
-      },
-    }),
+  const replaceAccess = useMutation(
+    trpc.admin.workloadClients.replaceAccess.mutationOptions({ onSuccess: invalidate }),
   );
 
-  const selectedResource = resourceOptions.data?.find((resource) => resource.id === resourceId);
   const error =
     localError ??
     create.error?.message ??
     update.error?.message ??
     registerKey.error?.message ??
     revokeKey.error?.message ??
-    replaceGrant.error?.message ??
+    replaceAccess.error?.message ??
     workload.error?.message ??
-    resourceOptions.error?.message;
+    accessOptions.error?.message;
   const pending =
     create.isPending ||
     update.isPending ||
     registerKey.isPending ||
     revokeKey.isPending ||
-    replaceGrant.isPending;
+    replaceAccess.isPending;
 
   const parseJwk = () => {
     try {
@@ -103,10 +110,6 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
       return null;
     }
   };
-  const keyDates = () => ({
-    ...(notBefore ? { notBefore: new Date(notBefore).toISOString() } : {}),
-    ...(expiresAt ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
-  });
   const submit = async () => {
     setLocalError(null);
     if (isNew) {
@@ -115,8 +118,8 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
       await create.mutateAsync({
         clientId: clientId.trim(),
         name: name.trim(),
-        key: { kid: kid.trim(), publicJwk: jwk, ...keyDates() },
-        grants: resourceId ? [{ resourceId, scopeIds }] : [],
+        key: { kid: kid.trim(), publicJwk: jwk },
+        access: { resourceIds, scopeIds },
       });
       return;
     }
@@ -137,17 +140,15 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
       clientId: workload.data.id,
       kid: kid.trim(),
       publicJwk: jwk,
-      ...keyDates(),
     });
   };
-  const saveGrant = async () => {
-    if (!workload.data || !resourceId) return;
-    const current = workload.data.grants.find((grant) => grant.resourceId === resourceId);
-    await replaceGrant.mutateAsync({
+  const saveAccess = async () => {
+    if (!workload.data) return;
+    await replaceAccess.mutateAsync({
       clientId: workload.data.id,
-      resourceId,
+      resourceIds,
       scopeIds,
-      expectedVersion: current?.version ?? null,
+      expectedVersion: workload.data.version,
     });
   };
 
@@ -214,12 +215,8 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
       <KeyEditor
         kid={kid}
         publicJwk={publicJwk}
-        notBefore={notBefore}
-        expiresAt={expiresAt}
         setKid={setKid}
         setPublicJwk={setPublicJwk}
-        setNotBefore={setNotBefore}
-        setExpiresAt={setExpiresAt}
         {...(!isNew ? { onRegister: rotate } : {})}
         pending={pending}
       />
@@ -236,13 +233,13 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
                 <div className="flex items-center gap-2">
                   <code>{key.kid}</code>
                   <Badge
-                    label={key.revokedAt ? "Revoked" : "Active/dated"}
+                    label={key.revokedAt ? "Revoked" : "Active"}
                     variant={key.revokedAt ? "purple" : "neutral"}
                   />
                 </div>
                 <Text color="secondary">
-                  Thumbprint {key.thumbprint} · Active {new Date(key.notBefore).toLocaleString()} ·
-                  Expires {key.expiresAt ? new Date(key.expiresAt).toLocaleString() : "never"}
+                  Thumbprint {key.thumbprint} · Registered{" "}
+                  {new Date(key.createdAt).toLocaleString()}
                 </Text>
               </div>
               {!key.revokedAt ? (
@@ -261,96 +258,52 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
 
       <section className="grid gap-4 rounded-md border p-5">
         <div>
-          <h2 className="m-0 text-xl font-semibold">Explicit resource grant</h2>
+          <h2 className="m-0 text-xl font-semibold">Workload access</h2>
           <Text color="secondary">
-            A registered resource or scope grants nothing until it is selected here.
+            Select resources and scopes independently. A token is issued only when the requested
+            resource supports every requested scope.
           </Text>
         </div>
-        <label className="grid gap-1 text-sm font-medium">
-          Resource
-          <select
-            className="rounded-md border bg-transparent p-2"
-            onChange={(event) => {
-              const nextResourceId = event.target.value;
-              setResourceId(nextResourceId);
-              setScopeIds(
-                workload.data?.grants.find((grant) => grant.resourceId === nextResourceId)
-                  ?.scopeIds ?? [],
-              );
-            }}
-            value={resourceId}
-          >
-            <option value="">No resource</option>
-            {resourceOptions.data?.map((resource) => (
-              <option key={resource.id} value={resource.id}>
-                {resource.name} — {resource.resourceIdentifier}
-              </option>
-            ))}
-          </select>
-        </label>
-        {selectedResource ? (
-          <div className="grid gap-2">
-            <span className="text-sm font-medium">Granted scopes</span>
-            {selectedResource.scopes.map((scope) => (
-              <label className="flex items-center gap-2" key={scope.id}>
-                <input
-                  checked={scopeIds.includes(scope.id)}
-                  onChange={(event) =>
-                    setScopeIds((current) =>
-                      event.target.checked
-                        ? [...current, scope.id]
-                        : current.filter((value) => value !== scope.id),
-                    )
-                  }
-                  type="checkbox"
-                />
-                {scope.key}
-              </label>
-            ))}
-          </div>
-        ) : null}
+        <MultiSelector
+          hasClear
+          hasSearch
+          hasSelectAll
+          label="Resources"
+          onChange={setResourceIds}
+          options={(accessOptions.data?.resources ?? []).map((resource) => ({
+            value: resource.id,
+            label: `${resource.name} — ${resource.resourceIdentifier}${resource.enabled ? "" : " (disabled)"}`,
+            disabled: !resource.enabled && !resourceIds.includes(resource.id),
+          }))}
+          placeholder="Choose resources…"
+          searchPlaceholder="Find resources…"
+          triggerDisplay="badges"
+          value={resourceIds}
+          width="100%"
+        />
+        <MultiSelector
+          hasClear
+          hasSearch
+          hasSelectAll
+          label="Scopes"
+          onChange={setScopeIds}
+          options={(accessOptions.data?.scopes ?? []).map((scope) => ({
+            value: scope.id,
+            label: scope.key,
+          }))}
+          placeholder="Choose scopes…"
+          searchPlaceholder="Find scopes…"
+          triggerDisplay="badges"
+          value={scopeIds}
+          width="100%"
+        />
         {!isNew ? (
           <Button
-            isDisabled={!resourceId || pending}
-            label={scopeIds.length ? "Replace grant" : "Revoke grant"}
-            onClick={() => void saveGrant()}
-            variant={scopeIds.length ? "primary" : "destructive"}
+            isDisabled={pending}
+            label="Save access"
+            onClick={() => void saveAccess()}
+            variant="primary"
           />
-        ) : null}
-        {!isNew && workload.data?.grants.length ? (
-          <div className="grid gap-2">
-            {workload.data.grants.map((grant) => (
-              <div
-                className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
-                key={grant.id}
-              >
-                <div>
-                  <strong>{grant.resourceName}</strong>{" "}
-                  <Badge
-                    label={grant.enabled ? "Granted" : "Revoked"}
-                    variant={grant.enabled ? "neutral" : "purple"}
-                  />
-                  <div className="mt-1 text-sm">{grant.scopeKeys.join(", ") || "No scopes"}</div>
-                </div>
-                {grant.enabled ? (
-                  <Button
-                    isDisabled={pending}
-                    label="Revoke grant"
-                    onClick={() =>
-                      replaceGrant.mutate({
-                        clientId: workload.data!.id,
-                        resourceId: grant.resourceId,
-                        scopeIds: [],
-                        expectedVersion: grant.version,
-                      })
-                    }
-                    size="sm"
-                    variant="destructive"
-                  />
-                ) : null}
-              </div>
-            ))}
-          </div>
         ) : null}
       </section>
     </>
@@ -360,16 +313,11 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
 function KeyEditor(props: {
   kid: string;
   publicJwk: string;
-  notBefore: string;
-  expiresAt: string;
   setKid: (value: string) => void;
   setPublicJwk: (value: string) => void;
-  setNotBefore: (value: string) => void;
-  setExpiresAt: (value: string) => void;
   onRegister?: () => Promise<void>;
   pending: boolean;
 }) {
-  const dateType = useMemo(() => "datetime-local" as const, []);
   return (
     <section className="grid gap-4 rounded-md border p-5">
       <div>
@@ -377,7 +325,8 @@ function KeyEditor(props: {
           {props.onRegister ? "Rotate key" : "Initial public key"}
         </h2>
         <Text color="secondary">
-          Register an ES256 P-256 public JWK. Rotation supports overlapping activation windows.
+          Register an ES256 P-256 public JWK. New keys are active immediately, and overlapping keys
+          support rotation until the old key is revoked.
         </Text>
       </div>
       <TextInput
@@ -396,26 +345,6 @@ function KeyEditor(props: {
         rows={5}
         value={props.publicJwk}
       />
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="grid gap-1 text-sm font-medium">
-          Active from
-          <input
-            className="rounded-md border bg-transparent p-2"
-            onChange={(event) => props.setNotBefore(event.target.value)}
-            type={dateType}
-            value={props.notBefore}
-          />
-        </label>
-        <label className="grid gap-1 text-sm font-medium">
-          Expires (optional)
-          <input
-            className="rounded-md border bg-transparent p-2"
-            onChange={(event) => props.setExpiresAt(event.target.value)}
-            type={dateType}
-            value={props.expiresAt}
-          />
-        </label>
-      </div>
       {props.onRegister ? (
         <Button
           isDisabled={props.pending}

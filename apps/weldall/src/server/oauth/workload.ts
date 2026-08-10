@@ -139,7 +139,6 @@ export async function issueWorkloadToken(
   } catch {
     throw new WeldallAuthError("invalid_client");
   }
-  const authenticationTime = new Date();
   if (
     claims.aud !== WELDALL_TOKEN_ENDPOINT ||
     !Number.isInteger(claims.iat) ||
@@ -149,8 +148,6 @@ export async function issueWorkloadToken(
     typeof claims.jti !== "string" ||
     !claims.jti ||
     claims.jti.length > 128 ||
-    authenticatedKey.notBefore > authenticationTime ||
-    (authenticatedKey.expiresAt !== null && authenticatedKey.expiresAt <= authenticationTime) ||
     authenticatedKey.revokedAt !== null
   )
     throw new WeldallAuthError("invalid_client");
@@ -177,9 +174,9 @@ export async function issueWorkloadToken(
   );
 
   return db.$transaction(async (tx) => {
-    // These row locks establish a total order with client/key/grant/resource lifecycle writes.
-    // If a lifecycle change commits first, the state below is read after it; if issuance locks
-    // first, that token commits before the lifecycle change can commit.
+    // These row locks establish a total order with client, key, access-policy, and resource
+    // lifecycle writes. If a lifecycle change commits first, the state below is read after it;
+    // if issuance locks first, that token commits before the lifecycle change can commit.
     const lockedIdentity = await tx.$queryRaw<Array<{ clientId: string; keyId: string }>>`
       SELECT c."id" AS "clientId", k."id" AS "keyId"
       FROM "WorkloadClient" c
@@ -190,8 +187,9 @@ export async function issueWorkloadToken(
     if (lockedIdentity.length !== 1) throw new WeldallAuthError("invalid_client");
     const locked = lockedIdentity[0]!;
 
-    // Resource deletion locks the resource row before cascading to grant rows. Keep the
-    // same order here so issuance cannot hold a grant while waiting for its resource.
+    // Lock the requested resource before its allowlist row. Resource deletion and supported-scope
+    // replacement use the same resource lock, while access replacement must first update the
+    // already share-locked client row.
     const lockedResources = await tx.$queryRaw<Array<{ resourceId: string }>>`
       SELECT r."id" AS "resourceId"
       FROM "DownstreamResource" r
@@ -201,33 +199,29 @@ export async function issueWorkloadToken(
     if (lockedResources.length !== 1) throw new WeldallAuthError("invalid_target");
     const lockedResource = lockedResources[0]!;
 
-    const lockedGrants = await tx.$queryRaw<Array<{ grantId: string }>>`
-      SELECT g."id" AS "grantId"
-      FROM "WorkloadResourceGrant" g
-      WHERE g."workloadClientId" = ${locked.clientId}
-        AND g."resourceId" = ${lockedResource.resourceId}
-      FOR SHARE OF g
+    const lockedAccess = await tx.$queryRaw<Array<{ resourceId: string }>>`
+      SELECT a."resourceId"
+      FROM "WorkloadAllowedResource" a
+      WHERE a."workloadClientId" = ${locked.clientId}
+        AND a."resourceId" = ${lockedResource.resourceId}
+      FOR SHARE OF a
     `;
-    // A missing grant locks no row. Reject from this statement snapshot rather than
-    // allowing a later READ COMMITTED query to observe an unlocked grant phantom.
-    if (lockedGrants.length !== 1) throw new WeldallAuthError("invalid_target");
-    const lockedGrant = lockedGrants[0]!;
+    // A missing allowlist row locks nothing. Reject from this statement snapshot rather than
+    // allowing a later READ COMMITTED query to observe a newly selected resource phantom.
+    if (lockedAccess.length !== 1) throw new WeldallAuthError("invalid_target");
 
     const client = await tx.workloadClient.findUnique({
       where: { id: locked.clientId },
       include: {
         keys: { where: { id: locked.keyId } },
-        grants: {
-          where: { id: lockedGrant.grantId },
-          include: {
-            resource: { include: { scopes: true } },
-            scopes: { include: { scope: true } },
-          },
+        allowedResources: {
+          where: { resourceId: lockedResource.resourceId },
+          include: { resource: { include: { scopes: { include: { scope: true } } } } },
         },
+        allowedScopes: { include: { scope: true } },
       },
     });
     const key = client?.keys[0];
-    const finalTime = new Date();
     if (
       !client ||
       !client.enabled ||
@@ -236,28 +230,20 @@ export async function issueWorkloadToken(
       key.id !== authenticatedKey.id ||
       key.thumbprint !== authenticatedKey.thumbprint ||
       !isDeepStrictEqual(key.publicJwk, authenticatedKey.publicJwk) ||
-      key.notBefore > finalTime ||
-      (key.expiresAt !== null && key.expiresAt <= finalTime) ||
       key.revokedAt !== null
     )
       throw new WeldallAuthError("invalid_client");
 
-    const grant = client.grants[0];
+    const allowedResource = client.allowedResources[0];
     if (
-      !grant ||
-      !grant.enabled ||
-      grant.revokedAt ||
-      !grant.resource.enabled ||
-      grant.resource.resourceIdentifier !== resourceIdentifier
+      !allowedResource ||
+      !allowedResource.resource.enabled ||
+      allowedResource.resource.resourceIdentifier !== resourceIdentifier
     )
       throw new WeldallAuthError("invalid_target");
-    const supported = new Set(grant.resource.scopes.map(({ scopeId }) => scopeId));
-    const grantedScopes = new Map(
-      grant.scopes
-        .filter(({ scopeId }) => supported.has(scopeId))
-        .map(({ scope }) => [scope.key, scope.key]),
-    );
-    if (scopes.some((scope) => !grantedScopes.has(scope)))
+    const allowedScopes = new Set(client.allowedScopes.map(({ scope }) => scope.key));
+    const supportedScopes = new Set(allowedResource.resource.scopes.map(({ scope }) => scope.key));
+    if (scopes.some((scope) => !allowedScopes.has(scope) || !supportedScopes.has(scope)))
       throw new WeldallAuthError("invalid_scope");
 
     const issuedAt = Math.floor(Date.now() / 1_000);
@@ -269,7 +255,7 @@ export async function issueWorkloadToken(
         sub: `workload:${client.clientId}`,
         client_id: client.clientId,
         azp: client.clientId,
-        aud: grant.resource.resourceIdentifier,
+        aud: allowedResource.resource.resourceIdentifier,
         scope: scopes.join(" "),
         identity_type: "workload",
         token_type: "workload",
@@ -295,7 +281,7 @@ export async function issueWorkloadToken(
           metadata: {
             clientId: client.clientId,
             kid: key.kid,
-            audience: grant.resource.resourceIdentifier,
+            audience: allowedResource.resource.resourceIdentifier,
             requestedScopes: context.requestedScopes,
             grantedScopes: scopes,
             jti,

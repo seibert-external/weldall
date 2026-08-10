@@ -13,8 +13,8 @@ Schema version 1 defines these core events:
 - `workload_token.denied`: an expected workload authentication or policy decision rejected the request.
 - `workload_token.failed`: an internal dependency, signing, or audit-store failure prevented workload token issuance.
 - `workload_client.created|updated|deactivated`: a registered machine identity changed.
-- `workload_client_key.registered|revoked`: a workload public key changed.
-- `workload_grant.replaced|revoked`: a workload-to-resource grant changed.
+- `workload_key.registered|revoked`: a workload public key changed.
+- `workload_access.replaced`: a workload's selected resources and scopes changed atomically.
 - `user_scopes.created|replaced|deleted`: an email grant changed.
 - `resource_scopes.created|replaced|deleted`: a registered resource or scope definition changed.
 

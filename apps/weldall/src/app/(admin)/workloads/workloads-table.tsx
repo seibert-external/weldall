@@ -32,7 +32,8 @@ export function WorkloadsTable() {
               <th className="p-3">Client ID</th>
               <th className="p-3">Status</th>
               <th className="p-3">Keys</th>
-              <th className="p-3">Grants</th>
+              <th className="p-3">Resources</th>
+              <th className="p-3">Scopes</th>
               <th className="p-3" />
             </tr>
           </thead>
@@ -50,7 +51,8 @@ export function WorkloadsTable() {
                   />
                 </td>
                 <td className="p-3">{client.keys.filter((key) => !key.revokedAt).length}</td>
-                <td className="p-3">{client.grants.filter((grant) => grant.enabled).length}</td>
+                <td className="p-3">{client.access.resourceIds.length}</td>
+                <td className="p-3">{client.access.scopeIds.length}</td>
                 <td className="p-3 text-right">
                   <Button
                     href={`/workloads/${client.id}`}

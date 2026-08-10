@@ -5,16 +5,16 @@ sidebar:
   label: Workload authentication
 ---
 
-Weldall supports OAuth 2.0 client credentials for backend workloads. A workload authenticates as itself with RFC 7523 `private_key_jwt`; it does not log in a person or reuse the public `weldall-cli` client. Weldall returns a five-minute JWT for exactly one registered resource and only explicitly granted scopes.
+Weldall supports OAuth 2.0 client credentials for backend workloads. A workload authenticates as itself with RFC 7523 `private_key_jwt`; it does not log in a person or reuse the public `weldall-cli` client. Weldall returns a five-minute JWT for exactly one selected resource and only selected scopes that the resource supports.
 
 ## Register Expenses A
 
 1. Create the scopes and register Expenses B under **Resources**.
 2. Generate an ES256 P-256 key in your workload secret system. Keep the private JWK there.
 3. Open **Workload clients**, select **Register workload**, and enter `expenses-a`, the public JWK, and a unique `kid`.
-4. Add an explicit grant for Expenses B and select only the required scopes.
+4. Under **Workload access**, select Expenses B under **Resources** and the required entries under **Scopes**.
 
-Registering a workload, resource, or supported scope alone grants no access. Weldall rejects private JWKs and does not support client secrets or remote client JWKS URLs.
+Resources and scopes are selected independently. Registering a workload, resource, or supported scope alone provides no access; a token request needs a selected resource, selected scopes, and support for every requested scope on that resource. Weldall rejects private JWKs and does not support client secrets or remote client JWKS URLs.
 
 ## Request a token
 
@@ -62,7 +62,7 @@ Workload tokens use protected `typ=weldall-workload+jwt` and signed `identity_ty
 
 ## Rotate or revoke
 
-Register the new public key before deploying its private counterpart, allow both keys during rollout, then revoke the old key. You can also expire a key, deactivate the client, or revoke its resource grant. These actions stop new issuance immediately. Existing tokens expire within five minutes.
+Register the new public key before deploying its private counterpart, allow both keys during rollout, then revoke the old key. Registered keys are active immediately and remain valid until revoked. You can also deactivate the client or remove its workload access. These actions stop new issuance immediately. Existing tokens expire within five minutes.
 
 Lifecycle, issuance, and rejection events are visible under **Audit logs** without assertions, tokens, proofs, private material, or public-key coordinates.
 

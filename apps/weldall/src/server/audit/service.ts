@@ -61,15 +61,14 @@ const workloadKeyMetadata = z
     clientId: z.string().min(1).max(128),
     kid: z.string().min(1).max(128),
     thumbprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    notBefore: z.string().datetime(),
-    expiresAt: z.string().datetime().nullable(),
     revokedAt: z.string().datetime().nullable(),
   })
   .strict();
-const workloadGrantMetadata = z
+const workloadAccessMetadata = z
   .object({
     clientId: z.string().min(1).max(128),
-    resourceIdentifier: z.string().min(1).max(2_000),
+    beforeResources: stringArray,
+    afterResources: stringArray,
     beforeScopes: scopeArray,
     afterScopes: scopeArray,
     versionBefore: z.number().int().nonnegative(),
@@ -236,8 +235,7 @@ const metadataSchemas = {
   "workload_client.deactivated": workloadClientMetadata,
   "workload_key.registered": workloadKeyMetadata,
   "workload_key.revoked": workloadKeyMetadata,
-  "workload_grants.replaced": workloadGrantMetadata,
-  "workload_grants.revoked": workloadGrantMetadata,
+  "workload_access.replaced": workloadAccessMetadata,
   "workload_token.issued": workloadTokenIssuedMetadata,
   "workload_token.denied": workloadTokenRequestedMetadata,
   "workload_token.failed": workloadTokenRequestedMetadata,

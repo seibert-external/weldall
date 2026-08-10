@@ -477,28 +477,6 @@ export async function updateResource(
         assertVersion(current.version, input.expectedVersion);
         const scopes = await validateResourceScopes(tx, parsed.scopeIds);
         await assertNoCrossResourcePrefixOverlap(tx, parsed.requestPrefixes, current.id);
-        const nextScopeIds = new Set(parsed.scopeIds);
-        const removedScopeIds = current.scopes
-          .map(({ scope }) => scope.id)
-          .filter((scopeId) => !nextScopeIds.has(scopeId));
-        if (removedScopeIds.length) {
-          const referencedGrant = await tx.workloadResourceScope.findFirst({
-            where: {
-              scopeId: { in: removedScopeIds },
-              grant: { resourceId: current.id },
-            },
-            include: {
-              scope: { select: { key: true } },
-              grant: { include: { client: { select: { clientId: true } } } },
-            },
-          });
-          if (referencedGrant) {
-            throw new AdminDomainError(
-              "CONFLICT",
-              `Scope ${referencedGrant.scope.key} is granted to workload ${referencedGrant.grant.client.clientId}. Replace or revoke that workload grant first.`,
-            );
-          }
-        }
         const before = current;
         const unchanged =
           current.name === parsed.name &&
@@ -592,14 +570,14 @@ export async function deleteResource(
         });
         if (!current) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
         assertVersion(current.version, input.expectedVersion);
-        const activeWorkloadGrant = await tx.workloadResourceGrant.findFirst({
-          where: { resourceId: current.id, enabled: true, revokedAt: null },
+        const workloadAccess = await tx.workloadAllowedResource.findFirst({
+          where: { resourceId: current.id },
           include: { client: { select: { clientId: true } } },
         });
-        if (activeWorkloadGrant) {
+        if (workloadAccess) {
           throw new AdminDomainError(
             "CONFLICT",
-            `Resource ${current.key} is granted to workload ${activeWorkloadGrant.client.clientId}. Revoke that workload grant first.`,
+            `Resource ${current.key} is selected by workload ${workloadAccess.client.clientId}. Remove it from workload access first.`,
           );
         }
 
@@ -787,14 +765,14 @@ export async function deleteScope(
         `Scope ${current.key} is supported by resource ${referencedByResource.resource.key}. Update that resource first.`,
       );
     }
-    const referencedByWorkload = await tx.workloadResourceScope.findFirst({
+    const referencedByWorkload = await tx.workloadAllowedScope.findFirst({
       where: { scopeId: current.id },
-      include: { grant: { include: { client: { select: { clientId: true } } } } },
+      include: { client: { select: { clientId: true } } },
     });
     if (referencedByWorkload) {
       throw new AdminDomainError(
         "CONFLICT",
-        `Scope ${current.key} is granted to workload ${referencedByWorkload.grant.client.clientId}. Replace or revoke that workload grant first.`,
+        `Scope ${current.key} is selected by workload ${referencedByWorkload.client.clientId}. Remove it from workload access first.`,
       );
     }
 

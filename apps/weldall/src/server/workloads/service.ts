@@ -8,16 +8,16 @@ const clientIdPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const kidPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const include = {
   keys: { orderBy: [{ createdAt: "desc" as const }, { kid: "asc" as const }] },
-  grants: {
-    orderBy: { createdAt: "asc" as const },
+  allowedResources: {
     include: {
       resource: { select: { id: true, key: true, name: true, resourceIdentifier: true } },
-      scopes: { include: { scope: { select: { id: true, key: true } } } },
     },
   },
+  allowedScopes: { include: { scope: { select: { id: true, key: true } } } },
 } satisfies Prisma.WorkloadClientInclude;
 
 type WorkloadWithRelations = Prisma.WorkloadClientGetPayload<{ include: typeof include }>;
+type WorkloadAccessInput = { resourceIds: string[]; scopeIds: string[] };
 
 export interface WorkloadClientDto {
   id: string;
@@ -33,23 +33,20 @@ export interface WorkloadClientDto {
     kid: string;
     publicJwk: JWK;
     thumbprint: string;
-    notBefore: string;
-    expiresAt: string | null;
     revokedAt: string | null;
     createdAt: string;
   }>;
-  grants: Array<{
-    id: string;
-    resourceId: string;
-    resourceKey: string;
-    resourceName: string;
-    resourceIdentifier: string;
-    enabled: boolean;
-    revokedAt: string | null;
-    version: number;
+  access: {
+    resourceIds: string[];
+    resources: Array<{
+      id: string;
+      key: string;
+      name: string;
+      resourceIdentifier: string;
+    }>;
     scopeIds: string[];
     scopeKeys: string[];
-  }>;
+  };
 }
 
 export async function listWorkloadClients(): Promise<WorkloadClientDto[]> {
@@ -62,56 +59,42 @@ export async function getWorkloadClient(id: string): Promise<WorkloadClientDto> 
   return serialize(client);
 }
 
-export async function listWorkloadResourceOptions(): Promise<
-  Array<{
+export async function listWorkloadAccessOptions(): Promise<{
+  resources: Array<{
     id: string;
     name: string;
     resourceIdentifier: string;
-    scopes: Array<{ id: string; key: string }>;
-  }>
-> {
-  const resources = await db.downstreamResource.findMany({
-    where: { enabled: true },
-    orderBy: [{ name: "asc" }, { key: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      resourceIdentifier: true,
-      scopes: { include: { scope: { select: { id: true, key: true } } } },
-    },
-  });
-  return resources.map((resource) => ({
-    id: resource.id,
-    name: resource.name,
-    resourceIdentifier: resource.resourceIdentifier,
-    scopes: resource.scopes
-      .map(({ scope }) => scope)
-      .sort((left, right) => left.key.localeCompare(right.key)),
-  }));
+    enabled: boolean;
+  }>;
+  scopes: Array<{ id: string; key: string }>;
+}> {
+  const [resources, scopes] = await Promise.all([
+    db.downstreamResource.findMany({
+      orderBy: [{ name: "asc" }, { key: "asc" }],
+      select: { id: true, name: true, resourceIdentifier: true, enabled: true },
+    }),
+    db.scope.findMany({ orderBy: { key: "asc" }, select: { id: true, key: true } }),
+  ]);
+  return { resources, scopes };
 }
 
 export async function createWorkloadClient(
   input: {
     clientId: string;
     name: string;
-    key: {
-      kid: string;
-      publicJwk: unknown;
-      notBefore?: Date | undefined;
-      expiresAt?: Date | null | undefined;
-    };
-    grants: Array<{ resourceId: string; scopeIds: string[] }>;
+    key: { kid: string; publicJwk: unknown };
+    access: WorkloadAccessInput;
   },
   actor: AdminActor,
 ): Promise<WorkloadClientDto> {
   const clientId = parseClientId(input.clientId);
   const name = parseName(input.name);
   const key = await parseKey(input.key);
-  validateGrantShape(input.grants, false);
+  validateAccessShape(input.access);
   try {
     return await db.$transaction(async (tx) => {
       await lockResourceChanges(tx);
-      const grants = await validateGrants(input.grants, tx, false);
+      const access = await validateAccess(input.access, tx);
       const client = await tx.workloadClient.create({
         data: {
           clientId,
@@ -123,19 +106,13 @@ export async function createWorkloadClient(
               kid: key.kid,
               publicJwk: key.publicJwk as Prisma.InputJsonObject,
               thumbprint: key.thumbprint,
-              notBefore: key.notBefore,
-              expiresAt: key.expiresAt,
               createdBy: actor.id,
             },
           },
-          grants: {
-            create: grants.map((grant) => ({
-              resourceId: grant.resourceId,
-              createdBy: actor.id,
-              updatedBy: actor.id,
-              scopes: { create: grant.scopeIds.map((scopeId) => ({ scopeId })) },
-            })),
+          allowedResources: {
+            create: access.resourceIds.map((resourceId) => ({ resourceId })),
           },
+          allowedScopes: { create: access.scopeIds.map((scopeId) => ({ scopeId })) },
         },
         include,
       });
@@ -158,11 +135,7 @@ export async function createWorkloadClient(
         keyAudit("workload_key.registered", client, client.keys[0]!, actor),
         tx,
       );
-      for (const grant of client.grants)
-        await prismaAuditWriter.write(
-          grantAudit("workload_grants.replaced", client, grant, [], actor),
-          tx,
-        );
+      await prismaAuditWriter.write(accessAudit(client, emptyAccess(), 0, actor), tx);
       return serialize(client);
     });
   } catch (error) {
@@ -215,13 +188,7 @@ export async function updateWorkloadClient(
 }
 
 export async function registerWorkloadKey(
-  input: {
-    clientId: string;
-    kid: string;
-    publicJwk: unknown;
-    notBefore?: Date | undefined;
-    expiresAt?: Date | null | undefined;
-  },
+  input: { clientId: string; kid: string; publicJwk: unknown },
   actor: AdminActor,
 ): Promise<WorkloadClientDto> {
   const key = await parseKey(input);
@@ -235,8 +202,6 @@ export async function registerWorkloadKey(
           kid: key.kid,
           publicJwk: key.publicJwk as Prisma.InputJsonObject,
           thumbprint: key.thumbprint,
-          notBefore: key.notBefore,
-          expiresAt: key.expiresAt,
           createdBy: actor.id,
         },
       });
@@ -280,88 +245,57 @@ export async function revokeWorkloadKey(
   });
 }
 
-export async function replaceWorkloadGrant(
-  input: {
-    clientId: string;
-    resourceId: string;
-    scopeIds: string[];
-    expectedVersion: number | null;
-  },
+export async function replaceWorkloadAccess(
+  input: { clientId: string; resourceIds: string[]; scopeIds: string[]; expectedVersion: number },
   actor: AdminActor,
 ): Promise<WorkloadClientDto> {
-  const rawGrant = { resourceId: input.resourceId, scopeIds: input.scopeIds };
-  validateGrantShape([rawGrant], true);
+  validateAccessShape(input);
   return db.$transaction(async (tx) => {
     await lockResourceChanges(tx);
-    const [grantInput] = await validateGrants([rawGrant], tx, true);
-    if (!grantInput) throw new AdminDomainError("INVALID_RESOURCE", "Resource grant is required.");
-    const client = await tx.workloadClient.findUnique({ where: { id: input.clientId } });
-    if (!client) throw new AdminDomainError("NOT_FOUND", "Workload client not found.");
-    const current = await tx.workloadResourceGrant.findUnique({
-      where: {
-        workloadClientId_resourceId: {
-          workloadClientId: client.id,
-          resourceId: grantInput.resourceId,
-        },
-      },
-      include: { scopes: { include: { scope: true } }, resource: true },
-    });
-    if ((current?.version ?? null) !== input.expectedVersion)
-      throw new AdminDomainError("CONFLICT", "The workload grant changed. Reload and try again.");
-    const before = current?.scopes.map(({ scope }) => scope.key).sort() ?? [];
-    const revoke = grantInput.scopeIds.length === 0;
-    const grant = current
-      ? await tx.workloadResourceGrant.update({
-          where: { id: current.id },
-          data: {
-            enabled: !revoke,
-            revokedAt: revoke ? new Date() : null,
-            updatedBy: actor.id,
-            version: { increment: 1 },
-            scopes: {
-              deleteMany: {},
-              create: grantInput.scopeIds.map((scopeId) => ({ scopeId })),
-            },
-          },
-          include: {
-            resource: true,
-            scopes: { include: { scope: true } },
-          },
-        })
-      : await tx.workloadResourceGrant.create({
-          data: {
-            workloadClientId: client.id,
-            resourceId: grantInput.resourceId,
-            enabled: !revoke,
-            revokedAt: revoke ? new Date() : null,
-            createdBy: actor.id,
-            updatedBy: actor.id,
-            scopes: { create: grantInput.scopeIds.map((scopeId) => ({ scopeId })) },
-          },
-          include: { resource: true, scopes: { include: { scope: true } } },
-        });
-    await prismaAuditWriter.write(
-      grantAudit(
-        revoke ? "workload_grants.revoked" : "workload_grants.replaced",
-        client,
-        grant,
-        before,
-        actor,
-      ),
+    const current = await tx.workloadClient.findUnique({ where: { id: input.clientId }, include });
+    if (!current) throw new AdminDomainError("NOT_FOUND", "Workload client not found.");
+    const access = await validateAccess(
+      input,
       tx,
+      new Set(current.allowedResources.map(({ resourceId }) => resourceId)),
     );
-    return serialize(
-      await tx.workloadClient.findUniqueOrThrow({ where: { id: client.id }, include }),
-    );
+    if (current.version !== input.expectedVersion)
+      throw new AdminDomainError("CONFLICT", "The workload access changed. Reload and try again.");
+    const before = accessSnapshot(current);
+    const unchanged =
+      sameStrings(before.resourceIdentifiers, access.resourceIdentifiers) &&
+      sameStrings(before.scopeKeys, access.scopeKeys);
+    if (unchanged) return serialize(current);
+
+    const changed = await tx.workloadClient.updateMany({
+      where: { id: current.id, version: input.expectedVersion },
+      data: { updatedBy: actor.id, version: { increment: 1 } },
+    });
+    if (changed.count !== 1)
+      throw new AdminDomainError("CONFLICT", "The workload access changed. Reload and try again.");
+    await tx.workloadAllowedResource.deleteMany({ where: { workloadClientId: current.id } });
+    await tx.workloadAllowedScope.deleteMany({ where: { workloadClientId: current.id } });
+    if (access.resourceIds.length)
+      await tx.workloadAllowedResource.createMany({
+        data: access.resourceIds.map((resourceId) => ({
+          workloadClientId: current.id,
+          resourceId,
+        })),
+      });
+    if (access.scopeIds.length)
+      await tx.workloadAllowedScope.createMany({
+        data: access.scopeIds.map((scopeId) => ({ workloadClientId: current.id, scopeId })),
+      });
+    const client = await tx.workloadClient.findUniqueOrThrow({
+      where: { id: current.id },
+      include,
+    });
+    await prismaAuditWriter.write(accessAudit(client, before, current.version, actor), tx);
+    return serialize(client);
   });
 }
 
-async function parseKey(input: {
-  kid: string;
-  publicJwk: unknown;
-  notBefore?: Date | undefined;
-  expiresAt?: Date | null | undefined;
-}) {
+async function parseKey(input: { kid: string; publicJwk: unknown }) {
   const kid = input.kid.trim();
   if (!kidPattern.test(kid))
     throw new AdminDomainError(
@@ -389,71 +323,50 @@ async function parseKey(input: {
     alg: "ES256",
     use: "sig",
   };
-  const notBefore = input.notBefore ?? new Date();
-  const expiresAt = input.expiresAt ?? null;
-  if (!Number.isFinite(notBefore.getTime()) || (expiresAt && !Number.isFinite(expiresAt.getTime())))
-    throw new AdminDomainError("INVALID_RESOURCE", "Key dates are invalid.");
-  if (expiresAt && expiresAt <= notBefore)
-    throw new AdminDomainError("INVALID_RESOURCE", "Key expiry must be after activation.");
   return {
     kid,
     publicJwk,
     thumbprint: await calculateJwkThumbprint(publicJwk, "sha256"),
-    notBefore,
-    expiresAt,
   };
 }
 
-function validateGrantShape(
-  grants: Array<{ resourceId: string; scopeIds: string[] }>,
-  allowRevocation: boolean,
-): void {
+function validateAccessShape(access: WorkloadAccessInput): void {
   if (
-    grants.length > 100 ||
-    new Set(grants.map(({ resourceId }) => resourceId)).size !== grants.length
+    access.resourceIds.length > 100 ||
+    new Set(access.resourceIds).size !== access.resourceIds.length
   )
-    throw new AdminDomainError("INVALID_RESOURCE", "Each resource may have one workload grant.");
-  if (
-    grants.some(
-      (grant) =>
-        grant.scopeIds.length > 100 ||
-        (!allowRevocation && grant.scopeIds.length === 0) ||
-        new Set(grant.scopeIds).size !== grant.scopeIds.length,
-    )
-  )
-    throw new AdminDomainError(
-      "INVALID_SCOPE",
-      allowRevocation
-        ? "Grant scopes must be unique."
-        : "A new workload grant needs at least one unique scope.",
-    );
+    throw new AdminDomainError("INVALID_RESOURCE", "Selected resources must be unique.");
+  if (access.scopeIds.length > 100 || new Set(access.scopeIds).size !== access.scopeIds.length)
+    throw new AdminDomainError("INVALID_SCOPE", "Selected scopes must be unique.");
 }
 
-async function validateGrants(
-  grants: Array<{ resourceId: string; scopeIds: string[] }>,
-  client: Prisma.TransactionClient,
-  allowDisabledRevocation: boolean,
+async function validateAccess(
+  access: WorkloadAccessInput,
+  tx: Prisma.TransactionClient,
+  retainedDisabledResourceIds: ReadonlySet<string> = new Set(),
 ) {
-  const result = [];
-  for (const grant of grants) {
-    const resource = await client.downstreamResource.findUnique({
-      where: { id: grant.resourceId },
-      include: { scopes: { select: { scopeId: true } } },
-    });
-    if (
-      !resource ||
-      (!resource.enabled && !(allowDisabledRevocation && grant.scopeIds.length === 0))
-    )
-      throw new AdminDomainError("INVALID_RESOURCE", "Choose an enabled resource.");
-    const supported = new Set(resource.scopes.map(({ scopeId }) => scopeId));
-    if (grant.scopeIds.some((scopeId) => !supported.has(scopeId)))
-      throw new AdminDomainError(
-        "INVALID_SCOPE",
-        "Every granted scope must be supported by that resource.",
-      );
-    result.push({ resourceId: resource.id, scopeIds: [...grant.scopeIds] });
-  }
-  return result;
+  const [resources, scopes] = await Promise.all([
+    tx.downstreamResource.findMany({
+      where: { id: { in: access.resourceIds } },
+      select: { id: true, resourceIdentifier: true, enabled: true },
+    }),
+    tx.scope.findMany({
+      where: { id: { in: access.scopeIds } },
+      select: { id: true, key: true },
+    }),
+  ]);
+  if (resources.length !== access.resourceIds.length)
+    throw new AdminDomainError("INVALID_RESOURCE", "Choose registered resources.");
+  if (resources.some(({ id, enabled }) => !enabled && !retainedDisabledResourceIds.has(id)))
+    throw new AdminDomainError("INVALID_RESOURCE", "Choose enabled resources.");
+  if (scopes.length !== access.scopeIds.length)
+    throw new AdminDomainError("INVALID_SCOPE", "Choose registered scopes.");
+  return {
+    resourceIds: [...access.resourceIds].sort(),
+    resourceIdentifiers: resources.map(({ resourceIdentifier }) => resourceIdentifier).sort(),
+    scopeIds: [...access.scopeIds].sort(),
+    scopeKeys: scopes.map(({ key }) => key).sort(),
+  };
 }
 
 async function lockResourceChanges(tx: Prisma.TransactionClient): Promise<void> {
@@ -478,6 +391,12 @@ function parseName(value: string): string {
 }
 
 function serialize(client: WorkloadWithRelations): WorkloadClientDto {
+  const resources = client.allowedResources
+    .map(({ resource }) => resource)
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const scopes = client.allowedScopes
+    .map(({ scope }) => scope)
+    .sort((left, right) => left.key.localeCompare(right.key));
   return {
     id: client.id,
     clientId: client.clientId,
@@ -492,23 +411,15 @@ function serialize(client: WorkloadWithRelations): WorkloadClientDto {
       kid: key.kid,
       publicJwk: key.publicJwk as JWK,
       thumbprint: key.thumbprint,
-      notBefore: key.notBefore.toISOString(),
-      expiresAt: key.expiresAt?.toISOString() ?? null,
       revokedAt: key.revokedAt?.toISOString() ?? null,
       createdAt: key.createdAt.toISOString(),
     })),
-    grants: client.grants.map((grant) => ({
-      id: grant.id,
-      resourceId: grant.resource.id,
-      resourceKey: grant.resource.key,
-      resourceName: grant.resource.name,
-      resourceIdentifier: grant.resource.resourceIdentifier,
-      enabled: grant.enabled,
-      revokedAt: grant.revokedAt?.toISOString() ?? null,
-      version: grant.version,
-      scopeIds: grant.scopes.map(({ scope }) => scope.id).sort(),
-      scopeKeys: grant.scopes.map(({ scope }) => scope.key).sort(),
-    })),
+    access: {
+      resourceIds: resources.map(({ id }) => id),
+      resources,
+      scopeIds: scopes.map(({ id }) => id),
+      scopeKeys: scopes.map(({ key }) => key),
+    },
   };
 }
 
@@ -529,14 +440,7 @@ function clientMetadata(client: {
 function keyAudit(
   eventType: "workload_key.registered" | "workload_key.revoked",
   client: { id: string; clientId: string },
-  key: {
-    id: string;
-    kid: string;
-    thumbprint: string;
-    notBefore: Date;
-    expiresAt: Date | null;
-    revokedAt: Date | null;
-  },
+  key: { id: string; kid: string; thumbprint: string; revokedAt: Date | null },
   actor: AdminActor,
 ) {
   return {
@@ -553,42 +457,54 @@ function keyAudit(
       clientId: client.clientId,
       kid: key.kid,
       thumbprint: key.thumbprint,
-      notBefore: key.notBefore.toISOString(),
-      expiresAt: key.expiresAt?.toISOString() ?? null,
       revokedAt: key.revokedAt?.toISOString() ?? null,
     },
   };
 }
 
-function grantAudit(
-  eventType: "workload_grants.replaced" | "workload_grants.revoked",
-  client: { clientId: string },
-  grant: {
-    id: string;
-    version: number;
-    resource: { resourceIdentifier: string };
-    scopes: Array<{ scope: { key: string } }>;
-  },
-  beforeScopes: string[],
+function accessSnapshot(client: WorkloadWithRelations) {
+  return {
+    resourceIdentifiers: client.allowedResources
+      .map(({ resource }) => resource.resourceIdentifier)
+      .sort(),
+    scopeKeys: client.allowedScopes.map(({ scope }) => scope.key).sort(),
+  };
+}
+
+function emptyAccess() {
+  return { resourceIdentifiers: [] as string[], scopeKeys: [] as string[] };
+}
+
+function accessAudit(
+  client: WorkloadWithRelations,
+  before: ReturnType<typeof emptyAccess>,
+  versionBefore: number,
   actor: AdminActor,
 ) {
   return {
-    eventType,
+    eventType: "workload_access.replaced" as const,
     actorType: "user" as const,
     actorId: actor.id,
     ...(actor.email ? { actorEmail: actor.email } : {}),
     requestId: actor.requestId,
     ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
     outcome: "success" as const,
-    subjectType: "workload_grant",
-    subjectId: grant.id,
+    subjectType: "workload_client",
+    subjectId: client.id,
     metadata: {
       clientId: client.clientId,
-      resourceIdentifier: grant.resource.resourceIdentifier,
-      beforeScopes,
-      afterScopes: grant.scopes.map(({ scope }) => scope.key).sort(),
-      versionBefore: Math.max(0, grant.version - 1),
-      versionAfter: grant.version,
+      beforeResources: before.resourceIdentifiers,
+      afterResources: client.allowedResources
+        .map(({ resource }) => resource.resourceIdentifier)
+        .sort(),
+      beforeScopes: before.scopeKeys,
+      afterScopes: client.allowedScopes.map(({ scope }) => scope.key).sort(),
+      versionBefore,
+      versionAfter: client.version,
     },
   };
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

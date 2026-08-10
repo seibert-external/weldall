@@ -29,8 +29,8 @@ import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/res
 import {
   createWorkloadClient,
   getWorkloadClient,
-  listWorkloadResourceOptions,
-  replaceWorkloadGrant,
+  listWorkloadAccessOptions,
+  replaceWorkloadAccess,
 } from "../src/server/workloads/service.js";
 import { getVisibleSkill, listVisibleSkills } from "../src/server/skills/service.js";
 
@@ -512,7 +512,7 @@ describe("admin scope service", () => {
     );
   });
 
-  it("requires explicit workload grant revocation before resource scope or resource removal", async () => {
+  it("requires explicit workload access removal before selected resource or scope deletion", async () => {
     const scope = await createScope(
       { key: `${namespace}:workload`, description: "Workload lifecycle scope." },
       primaryActor,
@@ -521,14 +521,10 @@ describe("admin scope service", () => {
       resourceInput("workload-lifecycle", scope.id),
       primaryActor,
     );
-    await expect(listWorkloadResourceOptions()).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: resource.id,
-          scopes: [expect.objectContaining({ id: scope.id, key: scope.key })],
-        }),
-      ]),
-    );
+    await expect(listWorkloadAccessOptions()).resolves.toMatchObject({
+      resources: expect.arrayContaining([expect.objectContaining({ id: resource.id })]),
+      scopes: expect.arrayContaining([expect.objectContaining({ id: scope.id, key: scope.key })]),
+    });
     const key = await generateEs256KeyPair();
     const clientId = `${namespace}-workload-lifecycle`;
     const workload = await createWorkloadClient(
@@ -536,44 +532,37 @@ describe("admin scope service", () => {
         clientId,
         name: "Workload lifecycle test",
         key: { kid: "current", publicJwk: key.publicJwk },
-        grants: [{ resourceId: resource.id, scopeIds: [scope.id] }],
+        access: { resourceIds: [resource.id], scopeIds: [scope.id] },
       },
       primaryActor,
     );
 
-    await expect(
-      updateResource(
-        {
-          id: resource.id,
-          name: resource.name,
-          authorizationServer: resource.authorizationServer,
-          downstreamClientId: resource.downstreamClientId,
-          enabled: true,
-          scopeIds: [],
-          requestPrefixes: resource.requestPrefixes,
-          expectedVersion: resource.version,
-        },
-        primaryActor,
-      ),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    resource = await updateResource(
+      {
+        id: resource.id,
+        name: resource.name,
+        authorizationServer: resource.authorizationServer,
+        downstreamClientId: resource.downstreamClientId,
+        enabled: true,
+        scopeIds: [],
+        requestPrefixes: resource.requestPrefixes,
+        expectedVersion: resource.version,
+      },
+      primaryActor,
+    );
     await expect(
       deleteResource({ id: resource.id, expectedVersion: resource.version }, primaryActor),
     ).rejects.toMatchObject({ code: "CONFLICT" });
 
-    // Simulate a pre-fix stale row and prove scope deletion reports a domain conflict,
-    // rather than surfacing the WorkloadResourceScope foreign-key error.
-    await db.resourceScope.delete({
-      where: { resourceId_scopeId: { resourceId: resource.id, scopeId: scope.id } },
-    });
     await expect(
       deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(
       deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
-    ).rejects.toThrow("granted to workload");
+    ).rejects.toThrow("selected by workload");
 
-    // A disabled resource is hidden from new-grant options, but an existing grant must
-    // remain explicitly revocable without temporarily reopening token issuance.
+    // Disabled resources remain visible so administrators can remove existing access
+    // without temporarily reopening token issuance.
     resource = await updateResource(
       {
         id: resource.id,
@@ -587,21 +576,22 @@ describe("admin scope service", () => {
       },
       primaryActor,
     );
-    await expect(listWorkloadResourceOptions()).resolves.not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: resource.id })]),
-    );
-    const grant = workload.grants[0]!;
-    await replaceWorkloadGrant(
+    await expect(listWorkloadAccessOptions()).resolves.toMatchObject({
+      resources: expect.arrayContaining([
+        expect.objectContaining({ id: resource.id, enabled: false }),
+      ]),
+    });
+    await replaceWorkloadAccess(
       {
         clientId: workload.id,
-        resourceId: resource.id,
+        resourceIds: [],
         scopeIds: [],
-        expectedVersion: grant.version,
+        expectedVersion: workload.version,
       },
       primaryActor,
     );
     await expect(getWorkloadClient(workload.id)).resolves.toMatchObject({
-      grants: [expect.objectContaining({ enabled: false, scopeIds: [] })],
+      access: { resourceIds: [], scopeIds: [] },
     });
 
     await expect(

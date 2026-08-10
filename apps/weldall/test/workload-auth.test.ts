@@ -27,6 +27,7 @@ const resourceOrigin = new URL(resourceIdentifier).origin;
 const actorId = `workload-admin-${randomUUID()}`;
 const readScopeKey = `expenses-test:read-${randomUUID()}`;
 const createScopeKey = `expenses-test:create-${randomUUID()}`;
+const unselectedScopeKey = `expenses-test:unselected-${randomUUID()}`;
 let issuerKey: DpopKeyPair;
 let expensesAKey: DpopKeyPair;
 let workloadDatabaseId: string;
@@ -47,7 +48,7 @@ beforeAll(async () => {
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"),
   });
   const { db } = await import("@weldall/db");
-  const [readScope, createScope] = await Promise.all([
+  const [readScope, createScope, unselectedScope] = await Promise.all([
     db.scope.create({
       data: {
         key: readScopeKey,
@@ -64,6 +65,14 @@ beforeAll(async () => {
         updatedBy: actorId,
       },
     }),
+    db.scope.create({
+      data: {
+        key: unselectedScopeKey,
+        description: "Unselected Expenses B scope",
+        createdBy: actorId,
+        updatedBy: actorId,
+      },
+    }),
   ]);
   readScopeId = readScope.id;
   const resource = await db.downstreamResource.create({
@@ -75,7 +84,13 @@ beforeAll(async () => {
       downstreamClientId: `expenses-b-${randomUUID()}`,
       createdBy: actorId,
       updatedBy: actorId,
-      scopes: { create: [{ scopeId: readScope.id }, { scopeId: createScope.id }] },
+      scopes: {
+        create: [
+          { scopeId: readScope.id },
+          { scopeId: createScope.id },
+          { scopeId: unselectedScope.id },
+        ],
+      },
       requestPrefixes: { create: { urlPrefix: resourceIdentifier, createdBy: actorId } },
     },
   });
@@ -86,7 +101,7 @@ beforeAll(async () => {
       clientId,
       name: "Expenses A",
       key: { kid: "expenses-a-current", publicJwk: expensesAKey.publicJwk },
-      grants: [{ resourceId, scopeIds: [readScope.id] }],
+      access: { resourceIds: [resourceId], scopeIds: [readScope.id, createScope.id] },
     },
     { id: actorId, requestId: `create-${randomUUID()}` },
   );
@@ -105,7 +120,9 @@ afterAll(async () => {
   await db.downstreamResource.deleteMany({
     where: { resourceIdentifier: { in: [resourceIdentifier, lockOrderResourceIdentifier] } },
   });
-  await db.scope.deleteMany({ where: { key: { in: [readScopeKey, createScopeKey] } } });
+  await db.scope.deleteMany({
+    where: { key: { in: [readScopeKey, createScopeKey, unselectedScopeKey] } },
+  });
 });
 
 async function facadeFetch(input: string | URL | Request, init?: RequestInit) {
@@ -295,11 +312,49 @@ describe("Expenses A to Expenses B workload authentication", () => {
     expect(serialized).not.toContain(expensesAKey.privateJwk.d);
   });
 
-  it("rejects ungranted scope, wrong resource, invalid assertion signature, and wrong DPoP key", async () => {
-    await expect(obtain([createScopeKey])).rejects.toMatchObject({ code: "invalid_scope" });
+  it("rejects a resource-supported scope that is not selected for the workload", async () => {
+    await expect(obtain([unselectedScopeKey])).rejects.toMatchObject({ code: "invalid_scope" });
+  });
+
+  it("rejects an unselected resource", async () => {
+    const { db } = await import("@weldall/db");
+    const unselectedResource = await db.downstreamResource.create({
+      data: {
+        key: `expenses-unselected-${randomUUID()}`,
+        name: "Unselected workload target",
+        resourceIdentifier: `https://expenses-unselected-${randomUUID()}.example/api`,
+        authorizationServer: "https://expenses-unselected.example",
+        downstreamClientId: `expenses-unselected-${randomUUID()}`,
+        createdBy: actorId,
+        updatedBy: actorId,
+        scopes: { create: { scopeId: readScopeId } },
+        requestPrefixes: {
+          create: {
+            urlPrefix: `https://expenses-unselected-${randomUUID()}.example/api`,
+            createdBy: actorId,
+          },
+        },
+      },
+    });
     await expect(
-      obtain([readScopeKey], "https://wrong-expenses.example/api"),
-    ).rejects.toMatchObject({ code: "invalid_target" });
+      obtain([readScopeKey], unselectedResource.resourceIdentifier),
+    ).rejects.toMatchObject({
+      code: "invalid_target",
+    });
+    await db.downstreamResource.delete({ where: { id: unselectedResource.id } });
+  });
+
+  it("rejects a selected scope that is unsupported by the requested resource", async () => {
+    const { db } = await import("@weldall/db");
+    const createScope = await db.scope.findUniqueOrThrow({ where: { key: createScopeKey } });
+    await db.resourceScope.delete({
+      where: { resourceId_scopeId: { resourceId, scopeId: createScope.id } },
+    });
+    await expect(obtain([createScopeKey])).rejects.toMatchObject({ code: "invalid_scope" });
+    await db.resourceScope.create({ data: { resourceId, scopeId: createScope.id } });
+  });
+
+  it("rejects invalid assertion signatures and wrong DPoP keys", async () => {
     const attacker = await generateEs256KeyPair();
     await expect(obtain([readScopeKey], resourceIdentifier, attacker)).rejects.toMatchObject({
       code: "invalid_client",
@@ -314,37 +369,35 @@ describe("Expenses A to Expenses B workload authentication", () => {
     });
   });
 
-  it("treats resource and scope registration as non-authorizing after grant revocation", async () => {
-    const { getWorkloadClient, replaceWorkloadGrant } =
+  it("treats resource and scope registration as non-authorizing after access replacement", async () => {
+    const { getWorkloadClient, replaceWorkloadAccess } =
       await import("../src/server/workloads/service.js");
     const before = await getWorkloadClient(workloadDatabaseId);
-    const grant = before.grants.find((candidate) => candidate.resourceId === resourceId)!;
-    await replaceWorkloadGrant(
+    await replaceWorkloadAccess(
       {
         clientId: workloadDatabaseId,
-        resourceId,
-        scopeIds: [],
-        expectedVersion: grant.version,
+        resourceIds: [],
+        scopeIds: before.access.scopeIds,
+        expectedVersion: before.version,
       },
-      { id: actorId, requestId: `revoke-grant-${randomUUID()}` },
+      { id: actorId, requestId: `remove-access-${randomUUID()}` },
     );
     await expect(obtain()).rejects.toMatchObject({ code: "invalid_target" });
-    const revoked = await getWorkloadClient(workloadDatabaseId);
-    await replaceWorkloadGrant(
+    const removed = await getWorkloadClient(workloadDatabaseId);
+    await replaceWorkloadAccess(
       {
         clientId: workloadDatabaseId,
-        resourceId,
-        scopeIds: [readScopeId],
-        expectedVersion: revoked.grants.find((candidate) => candidate.resourceId === resourceId)!
-          .version,
+        resourceIds: [resourceId],
+        scopeIds: removed.access.scopeIds,
+        expectedVersion: removed.version,
       },
-      { id: actorId, requestId: `restore-grant-${randomUUID()}` },
+      { id: actorId, requestId: `restore-access-${randomUUID()}` },
     );
   });
 
-  it("does not let an absent grant become visible after its lock statement", async () => {
+  it("does not let absent resource access become visible after its lock statement", async () => {
     const { db } = await import("@weldall/db");
-    await db.workloadResourceGrant.delete({
+    await db.workloadAllowedResource.delete({
       where: {
         workloadClientId_resourceId: { workloadClientId: workloadDatabaseId, resourceId },
       },
@@ -364,26 +417,28 @@ describe("Expenses A to Expenses B workload authentication", () => {
     expect(denied.status).toBe(400);
     await expect(denied.json()).resolves.toMatchObject({ error: "invalid_target" });
 
-    const { replaceWorkloadGrant } = await import("../src/server/workloads/service.js");
-    await replaceWorkloadGrant(
+    const { getWorkloadClient, replaceWorkloadAccess } =
+      await import("../src/server/workloads/service.js");
+    const current = await getWorkloadClient(workloadDatabaseId);
+    await replaceWorkloadAccess(
       {
         clientId: workloadDatabaseId,
-        resourceId,
-        scopeIds: [readScopeId],
-        expectedVersion: null,
+        resourceIds: [resourceId],
+        scopeIds: current.access.scopeIds,
+        expectedVersion: current.version,
       },
-      { id: actorId, requestId: `restore-absent-grant-${randomUUID()}` },
+      { id: actorId, requestId: `restore-absent-access-${randomUUID()}` },
     );
-    // A later grant applies only to a fresh issuance transaction; the denied request
-    // above cannot continue and observe the new row under READ COMMITTED. Its authenticated
-    // proof was durably consumed despite that denial.
+    // Later access applies only to a fresh issuance transaction; the denied request above
+    // cannot continue and observe the new row under READ COMMITTED. Its authenticated proof
+    // was durably consumed despite that denial.
     const replay = await rawRequest(assertion, proof);
     expect(replay.status).toBe(400);
     await expect(replay.json()).resolves.toMatchObject({ error: "invalid_dpop_proof" });
     await expect(obtain()).resolves.toMatchObject({ tokenType: "DPoP" });
   });
 
-  it("locks a revoked grant after its resource during concurrent resource deletion", async () => {
+  it("locks an unselected resource during concurrent resource deletion", async () => {
     const { db } = await import("@weldall/db");
     const resource = await db.downstreamResource.create({
       data: {
@@ -398,16 +453,6 @@ describe("Expenses A to Expenses B workload authentication", () => {
         requestPrefixes: {
           create: { urlPrefix: lockOrderResourceIdentifier, createdBy: actorId },
         },
-      },
-    });
-    await db.workloadResourceGrant.create({
-      data: {
-        workloadClientId: workloadDatabaseId,
-        resourceId: resource.id,
-        enabled: false,
-        revokedAt: new Date(),
-        createdBy: actorId,
-        updatedBy: actorId,
       },
     });
     const assertion = await createWorkloadClientAssertion({
@@ -503,7 +548,72 @@ describe("Expenses A to Expenses B workload authentication", () => {
     });
   });
 
-  it("rejects disabled clients and expired or revoked keys", async () => {
+  it("orders in-flight issuance before a concurrent access-policy replacement", async () => {
+    const assertion = await createWorkloadClientAssertion({
+      clientId,
+      tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
+      kid: "expenses-a-current",
+      privateJwk: expensesAKey.privateJwk,
+    });
+    const proof = await createDpopProof({
+      ...expensesAKey,
+      method: "POST",
+      url: WELDALL_TOKEN_ENDPOINT,
+    });
+    let releaseAudit!: () => void;
+    const auditReleased = new Promise<void>((resolve) => {
+      releaseAudit = resolve;
+    });
+    let auditEntered!: () => void;
+    const enteredAudit = new Promise<void>((resolve) => {
+      auditEntered = resolve;
+    });
+    const { tokenFacadeWithAuditWriter } = await import("../src/server/oauth/facade.js");
+    const issuance = tokenFacadeWithAuditWriter(workloadTokenRequest(assertion, proof), {
+      async write(event) {
+        if (event.eventType === "workload_token.issued") {
+          auditEntered();
+          await auditReleased;
+        }
+      },
+    });
+    await enteredAudit;
+
+    const { getWorkloadClient, replaceWorkloadAccess } =
+      await import("../src/server/workloads/service.js");
+    const before = await getWorkloadClient(workloadDatabaseId);
+    let replacementCommitted = false;
+    const replacement = replaceWorkloadAccess(
+      {
+        clientId: workloadDatabaseId,
+        resourceIds: [],
+        scopeIds: [],
+        expectedVersion: before.version,
+      },
+      { id: actorId, requestId: `concurrent-access-${randomUUID()}` },
+    ).then((value) => {
+      replacementCommitted = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(replacementCommitted).toBe(false);
+    releaseAudit();
+    expect((await issuance).status).toBe(200);
+    const removed = await replacement;
+    expect(replacementCommitted).toBe(true);
+
+    await replaceWorkloadAccess(
+      {
+        clientId: workloadDatabaseId,
+        resourceIds: [resourceId],
+        scopeIds: before.access.scopeIds,
+        expectedVersion: removed.version,
+      },
+      { id: actorId, requestId: `restore-concurrent-access-${randomUUID()}` },
+    );
+  });
+
+  it("rejects disabled clients and revoked keys", async () => {
     const { db } = await import("@weldall/db");
     await db.workloadClient.update({
       where: { id: workloadDatabaseId },
@@ -517,15 +627,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
 
     await db.workloadClientKey.update({
       where: { id: workloadKeyId },
-      data: {
-        notBefore: new Date(Date.now() - 60_000),
-        expiresAt: new Date(Date.now() - 1_000),
-      },
-    });
-    await expect(obtain()).rejects.toMatchObject({ code: "invalid_client" });
-    await db.workloadClientKey.update({
-      where: { id: workloadKeyId },
-      data: { expiresAt: null, revokedAt: new Date() },
+      data: { revokedAt: new Date() },
     });
     await expect(obtain()).rejects.toMatchObject({ code: "invalid_client" });
     await db.workloadClientKey.update({ where: { id: workloadKeyId }, data: { revokedAt: null } });
@@ -606,7 +708,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
       method: "POST",
       url: WELDALL_TOKEN_ENDPOINT,
     });
-    const denied = await rawRequest(assertion, proof, createScopeKey);
+    const denied = await rawRequest(assertion, proof, unselectedScopeKey);
     expect(denied.status).toBe(400);
     await expect(denied.json()).resolves.toMatchObject({ error: "invalid_scope" });
 
@@ -764,7 +866,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
           clientId: duplicateKeyClientId,
           name: "Duplicate key workload",
           key: { kid: "duplicate-key", publicJwk: expensesAKey.publicJwk },
-          grants: [],
+          access: { resourceIds: [], scopeIds: [] },
         },
         { id: actorId, requestId: `duplicate-key-${randomUUID()}` },
       ),

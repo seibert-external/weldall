@@ -52,10 +52,10 @@ import { refreshResourceCatalog } from "../skills/catalogs";
 import {
   createWorkloadClient,
   getWorkloadClient,
+  listWorkloadAccessOptions,
   listWorkloadClients,
-  listWorkloadResourceOptions,
   registerWorkloadKey,
-  replaceWorkloadGrant,
+  replaceWorkloadAccess,
   revokeWorkloadKey,
   updateWorkloadClient,
 } from "../workloads/service";
@@ -179,7 +179,7 @@ export const appRouter = trpc.router({
     }),
     workloadClients: trpc.router({
       list: adminProcedure.query(() => mapDomainErrors(listWorkloadClients)),
-      resourceOptions: adminProcedure.query(() => mapDomainErrors(listWorkloadResourceOptions)),
+      accessOptions: adminProcedure.query(() => mapDomainErrors(listWorkloadAccessOptions)),
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getWorkloadClient(input.id))),
@@ -193,29 +193,14 @@ export const appRouter = trpc.router({
                 .object({
                   kid: z.string().max(128),
                   publicJwk: z.unknown(),
-                  notBefore: z
-                    .string()
-                    .datetime()
-                    .transform((value) => new Date(value))
-                    .optional(),
-                  expiresAt: z
-                    .string()
-                    .datetime()
-                    .transform((value) => new Date(value))
-                    .nullable()
-                    .optional(),
                 })
                 .strict(),
-              grants: z
-                .array(
-                  z
-                    .object({
-                      resourceId: z.string().min(1).max(191),
-                      scopeIds: z.array(z.string().min(1).max(191)).max(100),
-                    })
-                    .strict(),
-                )
-                .max(100),
+              access: z
+                .object({
+                  resourceIds: z.array(z.string().min(1).max(191)).max(100),
+                  scopeIds: z.array(z.string().min(1).max(191)).max(100),
+                })
+                .strict(),
             })
             .strict(),
         )
@@ -243,17 +228,6 @@ export const appRouter = trpc.router({
               clientId: z.string().min(1).max(191),
               kid: z.string().max(128),
               publicJwk: z.unknown(),
-              notBefore: z
-                .string()
-                .datetime()
-                .transform((value) => new Date(value))
-                .optional(),
-              expiresAt: z
-                .string()
-                .datetime()
-                .transform((value) => new Date(value))
-                .nullable()
-                .optional(),
             })
             .strict(),
         )
@@ -269,19 +243,19 @@ export const appRouter = trpc.router({
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() => revokeWorkloadKey(input, ctx.adminActor)),
         ),
-      replaceGrant: adminProcedure
+      replaceAccess: adminProcedure
         .input(
           z
             .object({
               clientId: z.string().min(1).max(191),
-              resourceId: z.string().min(1).max(191),
+              resourceIds: z.array(z.string().min(1).max(191)).max(100),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
-              expectedVersion: z.number().int().positive().nullable(),
+              expectedVersion: z.number().int().positive(),
             })
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => replaceWorkloadGrant(input, ctx.adminActor)),
+          mapDomainErrors(() => replaceWorkloadAccess(input, ctx.adminActor)),
         ),
     }),
     resources: trpc.router({
