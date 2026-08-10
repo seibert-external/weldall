@@ -25,6 +25,7 @@ Weldall's upstream login handling.
 | JWK thumbprints and key-intent metadata                    | RFC 7638 / RFC 7517     | Official RFC 7638 vector, mismatch and JOSE metadata tests     |
 | ID-JAG signature, target, client, scope and device binding | ID-JAG draft-04         | OAuth, CLI and Expenses tests                                  |
 | JWT-DPoP grant and one-time ID-JAG use                     | JWT-DPoP draft-01       | Expenses integration tests and Docker E2E request              |
+| Workload `private_key_jwt` and direct access-token profile | RFC 7523 / RFC 9449     | Workload auth and SDK target tests                             |
 | Refresh rotation and family revocation                     | OAuth security BCP      | Weldall token-exchange tests                                   |
 | Authorization-server metadata                              | RFC 8414                | Expenses and Docker E2E metadata tests                         |
 | Registered URL origin and path-boundary enforcement        | Weldall security policy | URL unit matrix, CLI fetch-order tests and Docker E2E          |
@@ -50,6 +51,7 @@ Weldall's upstream login handling.
 - Unauthenticated and Bearer-style Expenses API requests
 - Unregistered origins, `/api-attacker`, ambiguous prefixes, disabled resources and redirects
 - Resource/scope mismatch, unsupported scopes and grants shared across registered resources
+- Workload client assertion replay, token-endpoint DPoP replay, wrong keys, disabled clients, revoked keys, unselected resources, unselected scopes and resource-unsupported scopes
 
 ## Security findings with regression coverage
 
