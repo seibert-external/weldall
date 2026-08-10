@@ -2,29 +2,30 @@
 
 ## Decision
 
-The MVP uses **access tokens issued directly by Weldall**. A workload authenticates to Weldall's existing OAuth token endpoint with the OAuth 2.0 client credentials grant and RFC 7523 `private_key_jwt`. Weldall returns a five-minute, resource-bound, DPoP-constrained JWT. The existing interactive flow remains unchanged: users still use the public `weldall-cli`, and Weldall still brokers their ID-JAG to a resource authorization server which issues a local user token.
+The MVP uses **access tokens issued directly by Weldall**. A machine authenticates to Weldall's existing OAuth token endpoint with the OAuth 2.0 client credentials grant and RFC 7523 `private_key_jwt`. Weldall returns a five-minute, resource-bound, DPoP-constrained JWT. The existing interactive flow remains unchanged: users still use the public `weldall-cli`, and Weldall still brokers their ID-JAG to a resource authorization server which issues a local user token.
 
 The alternatives were considered:
 
-- A **broker** best preserves a target's independent authorization domain, and matches the user ID-JAG flow. It would require another assertion profile, another exchange, and workload-aware local token claims at every target.
-- A **hybrid** can support both direct and brokered workload tokens, but adds issuer selection and policy-equivalence surface without an MVP use case.
-- **Direct issuance** reuses Weldall's signing key/JWKS and explicit resource registry, produces a standard client-credentials response, and removes one exchange. Target services opt in through the separate workload verifier.
+- A **broker** best preserves a target's independent authorization domain, and matches the user ID-JAG flow. It would require another assertion profile, another exchange, and machine-aware local token claims at every target.
+- A **hybrid** can support both direct and brokered machine tokens, but adds issuer selection and policy-equivalence surface without an MVP use case.
+- **Direct issuance** reuses Weldall's signing key/JWKS and explicit resource registry, produces a standard client-credentials response, and removes one exchange. The existing resource verifier recognizes the distinct machine token profile by its protected token type.
 
-A future resource that needs its own authorization domain can add a workload assertion/broker profile without changing workload subjects or access policy. RFC 8693 user delegation is a separate future flow. Client credentials never impersonate a user and no workload token contains user or email claims.
+A future resource that needs its own authorization domain can add a machine assertion/broker profile without changing machine subjects or access policy. RFC 8693 user delegation is a separate future flow. Client credentials never impersonate a user and no machine token contains user or email claims.
 
 ## Registration and authorization
 
 Product-owned records keep the concepts separate:
 
-- `WorkloadClient` is the stable identity. Its OAuth `client_id` is immutable.
-- `WorkloadClientKey` stores one inline public ES256/P-256 JWK, `kid`, thumbprint, and revocation state. Keys are active immediately and remain valid until revoked. Thumbprints are globally unique so one private key cannot represent two workload identities. Multiple active keys provide rotation overlap.
-- `WorkloadAllowedResource` selects registered target resources independently.
-- `WorkloadAllowedScope` selects global scopes independently.
-- `WorkloadAssertionReplay` atomically consumes client assertions and token-endpoint DPoP proofs.
+- `MachineClient` is the stable identity. Its OAuth `client_id` is immutable.
+- `MachineClientKey` stores one inline public ES256/P-256 JWK, `kid`, thumbprint, and revocation state. Keys are active immediately and remain valid until revoked. Thumbprints are globally unique so one private key cannot represent two machine identities. Multiple active keys provide rotation overlap.
+- `MachineAllowedResource` selects registered target resources independently.
+- `MachineAllowedScope` selects global scopes independently.
 
-Creating a client, resource, or scope never creates access. The requested resource and every requested scope must be selected for the workload, and the requested resource must support every requested scope. A selected scope need not be supported by every selected resource; compatibility is checked at issuance.
+Client assertions and token-endpoint DPoP proofs are consumed by Weldall's bounded process-local replay store before policy evaluation. Replay markers survive later policy or audit failures within that process, but restart with the process and are not shared between replicas.
 
-Remote client JWKS and metadata URLs are intentionally unsupported. Administrators paste only public JWK material into the protected admin UI/API. This avoids a client-metadata SSRF path. Private keys belong in a workload secret store, KMS, or platform identity facility; they must not be put in Weldall, a manifest, source control, logs, or examples.
+Creating a client, resource, or scope never creates access. The requested resource and every requested scope must be selected for the machine, and the requested resource must support every requested scope. A selected scope need not be supported by every selected resource; compatibility is checked at issuance.
+
+Remote client JWKS and metadata URLs are intentionally unsupported. Administrators paste only public JWK material into the protected admin UI/API. This avoids a client-metadata SSRF path. Private keys belong in a machine secret store, KMS, or platform identity facility; they must not be put in Weldall, a manifest, source control, logs, or examples.
 
 ## Token request
 
@@ -50,18 +51,18 @@ The request also carries a `DPoP` header. The client assertion is ES256 with pro
 
 Assertions, tokens, proofs, and JWK coordinates are not included in audit events or errors.
 
-## Workload token profile
+## Machine token profile
 
-The access token protected header is `typ=weldall-workload+jwt`. Its signed claims are:
+The access token protected header is `typ=weldall-machine+jwt`. Its signed claims are:
 
 | Claim                         | Meaning                                                       |
 | ----------------------------- | ------------------------------------------------------------- |
 | `iss`                         | Weldall HTTPS issuer                                          |
-| `sub`                         | `workload:<client_id>` stable non-user namespace              |
-| `client_id`, `azp`            | authenticated workload client ID                              |
+| `sub`                         | `machine:<client_id>` stable non-user namespace              |
+| `client_id`, `azp`            | authenticated machine client ID                              |
 | `aud`                         | one string, exactly the registered target resource identifier |
 | `scope`                       | the selected, resource-supported requested scopes             |
-| `identity_type`, `token_type` | both `workload`                                               |
+| `identity_type`, `token_type` | both `machine`                                               |
 | `iat`, `exp`                  | integer issue/expiry, at most 300 seconds apart               |
 | `jti`                         | unique token identifier                                       |
 | `cnf.jkt`                     | RFC 7638 thumbprint of the sender key                         |
@@ -70,16 +71,11 @@ The response uses `token_type=DPoP`, `expires_in=300`, and has no refresh token.
 
 ## Target validation
 
-`@weldall/sdk` exposes `initWorkloadVerifier` and Hono's `initWorkloadAuth`. Workload verification is separate from the existing human `AuthContext`; it never makes email optional or accepts a user token as a workload token. A target configures:
+Every `initWeldall` resource verifier accepts both resource-local user tokens and direct machine tokens. Routes keep using the same `verify`/`protect` scope policy and receive one discriminated `AuthContext`: `identityType` and `identity.type` are either `user` or `machine`. A route only narrows the identity when it needs profile-specific fields such as user email or machine `clientId`; there is no separate machine middleware, opt-in, or client allowlist.
 
-- exact Weldall issuer and exact resource identifier;
-- supported scopes and route-required scopes;
-- an explicit local allowlist of workload client IDs;
-- an atomic replay store (the verifier refuses disabled replay protection).
+The verifier dispatches exactly once from the protected JWT `typ`: resource-local `at+jwt` uses the resource's signing domain, while `weldall-machine+jwt` uses pinned Weldall discovery/JWKS. Unknown token types, ID-JAGs, old profiles, and claim-shape confusion are rejected without fallback. Both profiles then share exact audience, route-scope, sender thumbprint, DPoP `htu`/`htm`/`ath`, freshness, and error handling.
 
-The verifier pins Weldall discovery and JWKS to the configured same origin, rejects redirects and unsafe JWKS URLs, validates ES256/`kid`/token type/issuer/single audience/expiry/identity/scopes, and then validates request DPoP `htu`, `htm`, `ath`, sender thumbprint, freshness, and one-time proof `jti`. An access token may be used for multiple calls; every call needs a fresh proof.
-
-Use a shared atomic `ReplayStore` for horizontally scaled targets. `inMemory()` is suitable only for a single development process.
+With an enabled `ReplayStore`, every resource request needs a fresh DPoP proof and replay is rejected atomically. `replayStore: "disabled"` remains an explicit supported configuration and skips resource-side replay consumption; deployments choosing it accept the resulting replay risk. `inMemory()` is bounded and process-local, so its markers clear on restart and are not shared between replicas.
 
 ## Rotation, deactivation, and audit
 
@@ -89,4 +85,4 @@ Audit event families cover client create/update/deactivation, key registration/r
 
 ## Deliberate non-goals and extension points
 
-The MVP has no client secrets, remote JWKS, mTLS, workload federation, self-service registration, user impersonation, or delegated token exchange. Federation can later authenticate into the same stable `WorkloadClient` and access model. A brokered workload assertion can reuse the same subject and claim discriminator. Delegated user calls must use an explicit RFC 8693-style flow and a distinct delegated token profile; they must never be inferred from client credentials.
+The MVP has no client secrets, remote JWKS, mTLS, machine federation, self-service registration, user impersonation, or delegated token exchange. Federation can later authenticate into the same stable `MachineClient` and access model. A brokered machine assertion can reuse the same subject and claim discriminator. Delegated user calls must use an explicit RFC 8693-style flow and a distinct delegated token profile; they must never be inferred from client credentials.

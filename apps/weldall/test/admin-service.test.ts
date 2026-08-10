@@ -27,11 +27,11 @@ import {
 } from "../src/server/admin/service.js";
 import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/resources.js";
 import {
-  createWorkloadClient,
-  getWorkloadClient,
-  listWorkloadAccessOptions,
-  replaceWorkloadAccess,
-} from "../src/server/workloads/service.js";
+  createMachineClient,
+  getMachineClient,
+  listMachineAccessOptions,
+  replaceMachineAccess,
+} from "../src/server/machines/service.js";
 import { getVisibleSkill, listVisibleSkills } from "../src/server/skills/service.js";
 
 const runId = randomUUID().replaceAll("-", "");
@@ -111,7 +111,7 @@ afterAll(async () => {
   await db.emailScopeAssignment.deleteMany({
     where: { normalizedEmail: { contains: runId } },
   });
-  await db.workloadClient.deleteMany({
+  await db.machineClient.deleteMany({
     where: { clientId: { startsWith: namespace } },
   });
   await db.downstreamResource.deleteMany({
@@ -512,25 +512,22 @@ describe("admin scope service", () => {
     );
   });
 
-  it("requires explicit workload access removal before selected resource or scope deletion", async () => {
+  it("requires explicit machine access removal before selected resource or scope deletion", async () => {
     const scope = await createScope(
-      { key: `${namespace}:workload`, description: "Workload lifecycle scope." },
+      { key: `${namespace}:machine`, description: "Machine lifecycle scope." },
       primaryActor,
     );
-    let resource = await createResource(
-      resourceInput("workload-lifecycle", scope.id),
-      primaryActor,
-    );
-    await expect(listWorkloadAccessOptions()).resolves.toMatchObject({
+    let resource = await createResource(resourceInput("machine-lifecycle", scope.id), primaryActor);
+    await expect(listMachineAccessOptions()).resolves.toMatchObject({
       resources: expect.arrayContaining([expect.objectContaining({ id: resource.id })]),
       scopes: expect.arrayContaining([expect.objectContaining({ id: scope.id, key: scope.key })]),
     });
     const key = await generateEs256KeyPair();
-    const clientId = `${namespace}-workload-lifecycle`;
-    const workload = await createWorkloadClient(
+    const clientId = `${namespace}-machine-lifecycle`;
+    const machine = await createMachineClient(
       {
         clientId,
-        name: "Workload lifecycle test",
+        name: "Machine lifecycle test",
         key: { kid: "current", publicJwk: key.publicJwk },
         access: { resourceIds: [resource.id], scopeIds: [scope.id] },
       },
@@ -559,7 +556,7 @@ describe("admin scope service", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(
       deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
-    ).rejects.toThrow("selected by workload");
+    ).rejects.toThrow("selected by machine");
 
     // Disabled resources remain visible so administrators can remove existing access
     // without temporarily reopening token issuance.
@@ -576,21 +573,21 @@ describe("admin scope service", () => {
       },
       primaryActor,
     );
-    await expect(listWorkloadAccessOptions()).resolves.toMatchObject({
+    await expect(listMachineAccessOptions()).resolves.toMatchObject({
       resources: expect.arrayContaining([
         expect.objectContaining({ id: resource.id, enabled: false }),
       ]),
     });
-    await replaceWorkloadAccess(
+    await replaceMachineAccess(
       {
-        clientId: workload.id,
+        clientId: machine.id,
         resourceIds: [],
         scopeIds: [],
-        expectedVersion: workload.version,
+        expectedVersion: machine.version,
       },
       primaryActor,
     );
-    await expect(getWorkloadClient(workload.id)).resolves.toMatchObject({
+    await expect(getMachineClient(machine.id)).resolves.toMatchObject({
       access: { resourceIds: [], scopeIds: [] },
     });
 

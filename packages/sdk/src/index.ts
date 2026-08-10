@@ -8,7 +8,7 @@ export * from "./dpop.js";
 export * from "./jwt.js";
 export * from "./id-jag.js";
 export * from "./resource-as.js";
-export * from "./workload.js";
+export * from "./machine.js";
 export * from "./resource-registry.js";
 export * from "./skills.js";
 export * from "./core.js";

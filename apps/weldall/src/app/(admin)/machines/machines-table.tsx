@@ -8,19 +8,19 @@ import { useQuery } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 
-export function WorkloadsTable() {
+export function MachinesTable() {
   const trpc = useTRPC();
-  const query = useQuery(trpc.admin.workloadClients.list.queryOptions());
+  const query = useQuery(trpc.admin.machineClients.list.queryOptions());
   return (
     <>
       <HerocrumbsActions>
-        <Button href="/workloads/new" label="Register workload" variant="primary" />
+        <Button href="/machines/new" label="Register machine" variant="primary" />
       </HerocrumbsActions>
       {query.error ? (
         <Banner
           container="card"
           status="error"
-          title="Could not load workloads"
+          title="Could not load machines"
           description={query.error.message}
         />
       ) : null}
@@ -55,7 +55,7 @@ export function WorkloadsTable() {
                 <td className="p-3">{client.access.scopeIds.length}</td>
                 <td className="p-3 text-right">
                   <Button
-                    href={`/workloads/${client.id}`}
+                    href={`/machines/${client.id}`}
                     label="Open"
                     size="sm"
                     variant="secondary"
@@ -67,7 +67,7 @@ export function WorkloadsTable() {
         </table>
       </div>
       {!query.isPending && !query.data?.length ? (
-        <Text color="secondary">No workload clients are registered.</Text>
+        <Text color="secondary">No machine clients are registered.</Text>
       ) : null}
     </>
   );

@@ -1,0 +1,77 @@
+---
+title: Machine authentication
+description: Let one backend call another with a stable, key-authenticated Weldall identity.
+sidebar:
+  label: Machine authentication
+---
+
+Weldall supports OAuth 2.0 client credentials for backend machines. A machine authenticates as itself with RFC 7523 `private_key_jwt`; it does not log in a person or reuse the public `weldall-cli` client. Weldall returns a five-minute JWT for exactly one selected resource and only selected scopes that the resource supports.
+
+## Register Expenses A
+
+1. Create the scopes and register Expenses B under **Resources**.
+2. Generate an ES256 P-256 key in your machine secret system. Keep the private JWK there.
+3. Open **Machine clients**, select **Register machine**, and enter `expenses-a`, the public JWK, and a unique `kid`.
+4. Under **Machine access**, select Expenses B under **Resources** and the required entries under **Scopes**.
+
+Resources and scopes are selected independently. Registering a machine, resource, or supported scope alone provides no access; a token request needs a selected resource, selected scopes, and support for every requested scope on that resource. Weldall rejects private JWKs and does not support client secrets or remote client JWKS URLs.
+
+## Request a token
+
+The SDK creates the short-lived assertion and matching DPoP proof:
+
+```ts
+import { requestMachineToken } from "@weldall/sdk";
+
+const token = await requestMachineToken({
+  issuer: "https://weldall.example.com",
+  clientId: "expenses-a",
+  resource: "https://expenses-b.example.com/api",
+  scopes: ["expenses-b:read"],
+  kid: process.env.MACHINE_KEY_ID!,
+  key: loadKeyFromSecretStore(),
+});
+```
+
+Private keys must come from a secret store, KMS, or platform credential facility. Never put one in Weldall, application manifests, source control, or logs. The response contains no refresh token.
+
+## Protect Expenses B
+
+```ts
+import { inMemory } from "@weldall/sdk";
+import { initWeldall, type WeldallVariables } from "@weldall/sdk/hono";
+import { Hono } from "hono";
+
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://expenses-b.example.com/api",
+  publicOrigin: "https://expenses-b.example.com",
+  clientId: "expenses-b",
+  supportedScopes: ["expenses-b:read"],
+  signingKey: loadExpensesBSigningKey(),
+  replayStore: inMemory(),
+});
+
+const app = new Hono<{ Variables: WeldallVariables }>();
+app.get("/api/expenses", weldall.protect({ scopes: ["expenses-b:read"] }), (context) => {
+  const auth = weldall.getAuth(context);
+  return context.json({
+    caller: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
+  });
+});
+```
+
+The ordinary `initWeldall` verifier accepts machine tokens by default. Routes declare only scopes; they use the discriminated identity only when response or business logic differs between users and machines. The verifier dispatches exactly once by protected token type, then checks the exact issuer and single audience, five-minute machine expiry, `machine:<client_id>` subject, machine markers, scopes, key binding, HTTP method/URL/token hash, and DPoP.
+
+Machine tokens use protected `typ=weldall-machine+jwt` and signed `identity_type=machine` / `token_type=machine`. They contain no user email and cannot be confused with resource-local user tokens. Client credentials never impersonate a user.
+
+## Rotate or revoke
+
+Register the new public key before deploying its private counterpart, allow both keys during rollout, then revoke the old key. Registered keys are active immediately and remain valid until revoked. You can also deactivate the client or remove its machine access. These actions stop new issuance immediately. Existing tokens expire within five minutes.
+
+Lifecycle, issuance, and rejection events are visible under **Audit logs** without assertions, tokens, proofs, private material, or public-key coordinates.
+
+## Security and future flows
+
+Remote machine JWKS URLs are deliberately unsupported, avoiding a client-metadata SSRF path. `inMemory()` replay markers are bounded and process-local. The explicit `replayStore: "disabled"` mode is valid and skips resource-side replay consumption; deployments choosing it accept the resulting replay risk. Weldall's token-endpoint proof and assertion replay markers are also process-local and clear on restart.
+
+Weldall issues machine tokens directly for the MVP. The interactive user flow remains brokered through ID-JAG and resource-local tokens. Machine federation, self-service registration, brokered machine assertions, and explicit RFC 8693 delegated-user token exchange are compatible later extensions, but are not part of client credentials.

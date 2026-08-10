@@ -56,44 +56,36 @@ export type ScopePolicy = {
   anyScopes?: readonly string[];
 };
 
-export type AuthIdentity = {
+export type UserPrincipal = {
+  type: "user";
   subject: string;
   email: string;
   emailVerified: true;
 };
-export type AuthContext = {
-  identity: AuthIdentity;
-  subject: string;
-  email: string;
-  emailVerified: true;
-  scopes: readonly string[];
-  tokenId: string;
-  clientId: string;
-};
-
-export type WorkloadIdentity = {
-  type: "workload";
+export type MachinePrincipal = {
+  type: "machine";
   subject: string;
   clientId: string;
 };
-export type WorkloadAuthContext = {
-  identity: WorkloadIdentity;
-  identityType: "workload";
-  subject: string;
-  clientId: string;
-  scopes: readonly string[];
-  tokenId: string;
-};
-
-export type WorkloadVerifierOptions = {
-  resource: string;
-  publicOrigin: string;
-  supportedScopes: readonly string[];
-  /** Target-local allowlist; a valid token alone never selects a trusted caller. */
-  allowedClientIds: readonly string[];
-  replayStore: ReplayStore;
-  discoveryTimeoutMs?: number;
-};
+export type AuthContext =
+  | {
+      identityType: "user";
+      identity: UserPrincipal;
+      subject: string;
+      email: string;
+      emailVerified: true;
+      clientId: string;
+      scopes: readonly string[];
+      tokenId: string;
+    }
+  | {
+      identityType: "machine";
+      identity: MachinePrincipal;
+      subject: string;
+      clientId: string;
+      scopes: readonly string[];
+      tokenId: string;
+    };
 
 export type VerifyResult =
   | { ok: true; auth: AuthContext }

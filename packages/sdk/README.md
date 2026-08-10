@@ -85,24 +85,26 @@ const result = await weldall.verifyNoThrow(request);
 
 `verify` throws `WeldallAuthError`. `verifyNoThrow` returns either `{ ok: true, auth }` or `{ ok: false, error, response }`.
 
-## Workload-to-workload requests
+## Machine-to-machine requests
 
-Workloads use a separate identity and verifier; user `AuthContext` remains unchanged. Request a direct, five-minute Weldall token with an ES256 private key loaded from a secret store:
+Machines use a distinct token profile and a discriminated principal in the existing resource verifier. Request a direct, five-minute Weldall token with an ES256 private key loaded from a secret store:
 
 ```ts
-const token = await requestWorkloadToken({
+const token = await requestMachineToken({
   issuer: "https://weldall.example.com",
   clientId: "expenses-a",
   resource: "https://expenses-b.example.com/api",
   scopes: ["expenses-b:read"],
-  kid: process.env.WORKLOAD_KEY_ID!,
-  key: loadWorkloadKey(),
+  kid: process.env.MACHINE_KEY_ID!,
+  key: loadMachineKey(),
 });
 ```
 
-Targets use `initWorkloadVerifier` from the root package, or `initWorkloadAuth` / `protectWorkload` / `getWorkloadAuth` from `@weldall/sdk/hono`. Configuration requires an exact resource, supported scopes, an explicit caller allowlist, and an atomic `ReplayStore`. Workload verification refuses `"disabled"` replay protection. Use a shared replay store when the target has more than one process.
+Targets keep using `initWeldall`, `verify` / `verifyNoThrow`, and the existing framework adapters such as Hono's `protect` / `getAuth`. Machine tokens are accepted by default with no machine opt-in or caller allowlist; routes authorize only `scopes` / `anyScopes`. `AuthContext.identityType` and `AuthContext.identity.type` discriminate `user` from `machine`, so user-only fields such as email require narrowing.
 
-The SDK validates protected `typ=weldall-workload+jwt`, exact Weldall issuer and single audience, `workload:<client_id>` subject, `client_id`/`azp`, workload discriminators, five-minute lifetime, scopes, `cnf.jkt`, and a fresh DPoP proof containing the request method, URL, access-token hash, and matching key. User access tokens and ID-JAGs cannot pass this verifier.
+The SDK dispatches exactly once by protected token type. It validates `typ=weldall-machine+jwt`, the exact Weldall issuer and single audience, `machine:<client_id>` subject, `client_id`/`azp`, machine discriminators, five-minute lifetime, scopes, `cnf.jkt`, and a DPoP proof containing the request method, URL, access-token hash, and matching key. User access tokens, ID-JAGs, unknown profiles, and claim-shape confusion cannot fall back into machine validation.
+
+When a `ReplayStore` is configured, each resource request needs a fresh proof. The explicit `replayStore: "disabled"` mode is also valid and skips resource-side replay consumption; deployments choosing it accept that replay risk.
 
 Private keys are never registration data. Keep them out of Weldall, manifests, repositories, examples, errors, and logs. Rotate by overlapping registered public keys and then revoking the old key. Client access removal, allowlist replacement, and key revocation block new issuance immediately; an already-issued token can remain valid until its five-minute expiry.
 
@@ -238,13 +240,11 @@ Add equivalent `GET` endpoint files for authorization-server metadata, protected
 
 Use a stable ES256 signing key. Generating a key at startup invalidates verification after a restart. For KMS or Vault, provide a signing-key provider with `current()` and `jwks()` methods.
 
-Use a shared atomic `ReplayStore` when more than one service instance is running. `inMemory()` is process-local, clears on restart, and defaults to 10,000 live entries. It is suitable for development and single-process evaluation, not horizontal deployment.
-
-`ReplayStore.consume(key, expiresAt)` must return `true` only for the first consume. Store failures fail closed. Skill publishing cannot be combined with `replayStore: "disabled"`.
+`inMemory()` is bounded to 10,000 live entries by default, process-local, and clears on restart. The prototype does not provide safe multi-instance replay coordination. A configured `ReplayStore` must return `true` only for the first `consume(key, expiresAt)` and failures fail closed. The explicit `replayStore: "disabled"` mode skips resource-request replay consumption; skill publishing still cannot use that mode.
 
 Keep `resource`, `publicOrigin`, the deployed routes, and the resource registered in Weldall aligned exactly. Set `allowInsecureLoopback: true` only for local loopback development.
 
-The current protocol boundary has no DPoP nonce negotiation. Plan key rotation, shared replay storage, restart behavior, draft upgrades, and independent conformance testing before production rollout.
+The current protocol boundary has no DPoP nonce negotiation. Plan key rotation, replay and restart behavior, draft upgrades, and independent conformance testing before production rollout.
 
 ## License
 

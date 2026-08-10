@@ -9,12 +9,12 @@ Schema version 1 defines these core events:
 - `id_jag.issued`: a valid ID-JAG was generated, durably audited, and released for the HTTP response. It does not prove that the client received the response.
 - `id_jag.denied`: an expected authentication or policy decision rejected the request.
 - `id_jag.failed`: an internal dependency, signing, or audit-store failure prevented issuance.
-- `workload_token.issued`: a valid workload access token was generated, durably audited, and released for the HTTP response.
-- `workload_token.denied`: an expected workload authentication or policy decision rejected the request.
-- `workload_token.failed`: an internal dependency, signing, or audit-store failure prevented workload token issuance.
-- `workload_client.created|updated|deactivated`: a registered machine identity changed.
-- `workload_key.registered|revoked`: a workload public key changed.
-- `workload_access.replaced`: a workload's selected resources and scopes changed atomically.
+- `machine_token.issued`: a valid machine access token was generated, durably audited, and released for the HTTP response.
+- `machine_token.denied`: an expected machine authentication or policy decision rejected the request.
+- `machine_token.failed`: an internal dependency, signing, or audit-store failure prevented machine token issuance.
+- `machine_client.created|updated|deactivated`: a registered machine identity changed.
+- `machine_key.registered|revoked`: a machine public key changed.
+- `machine_access.replaced`: a machine's selected resources and scopes changed atomically.
 - `user_scopes.created|replaced|deleted`: an email grant changed.
 - `resource_scopes.created|replaced|deleted`: a registered resource or scope definition changed.
 
@@ -24,7 +24,7 @@ Request and correlation IDs accept only 1–128 ASCII letters, digits, dots, und
 
 ## Issuance fail-closed policy
 
-Weldall signs an ID-JAG or workload access token, writes the matching `*.issued` event, and returns the token only after the audit insert succeeds. If the audit store is unavailable, no token is returned. ID-JAG issuance uses a hash of the verified actor context, request ID, and event type as the unique issuance deduplication key, so a retry cannot create a second successful issuance event without allowing one actor to reserve another actor's request ID.
+Weldall signs an ID-JAG or machine access token, writes the matching `*.issued` event, and returns the token only after the audit insert succeeds. If the audit store is unavailable, no token is returned. ID-JAG issuance uses a hash of the verified actor context, request ID, and event type as the unique issuance deduplication key, so a retry cannot create a second successful issuance event without allowing one actor to reserve another actor's request ID.
 
 Denied requests store only safely parsed audience, resource, and scope values plus already verified actor/client data. Audit records never include ID-JAGs, access or refresh tokens, subject tokens, DPoP proofs, authorization codes, secrets, private keys, request headers, or raw request bodies. The DPoP JKT is intentionally not retained.
 

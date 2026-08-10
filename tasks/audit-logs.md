@@ -138,7 +138,7 @@ Auch Änderungen am Ressourcen- und Scope-Katalog aus `resource-registration-and
 - hinzugefügte, geänderte und entfernte Scopes,
 - Quelle der Änderung, z. B. `admin_api`, `weldall_up`, `static_manifest_import` oder `migration`,
 - Manifest-/OpenAPI-Version bzw. Content-Digest,
-- Actor oder bei Deployment-Imports eine eindeutige Workload-/Deployment-Identität.
+- Actor oder bei Deployment-Imports eine eindeutige Machine-/Deployment-Identität.
 
 Geheime Endpunktdefinitionen oder vollständige OpenAPI-Dokumente werden nicht unkontrolliert in Audit-Metadaten kopiert. Stattdessen werden sichere Diffs und Content-Digests gespeichert.
 

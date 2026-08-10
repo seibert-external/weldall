@@ -8,7 +8,7 @@ Künftig soll auch Anwendungscode sicher auf andere Anwendungen zugreifen könne
 
 ## Ziel
 
-Ein sicheres Machine-to-Machine-Modell entwerfen und umsetzen, mit dem sich Workloads bei Weldall als eigene Identitäten authentisieren und zielgerichtete, kurzlebige Access Tokens für andere Services erhalten können.
+Ein sicheres Machine-to-Machine-Modell entwerfen und umsetzen, mit dem sich Machines bei Weldall als eigene Identitäten authentisieren und zielgerichtete, kurzlebige Access Tokens für andere Services erhalten können.
 
 Dabei müssen Maschinenidentitäten, menschliche Benutzer und delegierte Benutzerzugriffe klar voneinander unterscheidbar bleiben.
 
@@ -34,7 +34,7 @@ Diese Variante kann eine spätere Ausbaustufe sein, muss in der Architektur aber
 
 ### Automatisierung und CI
 
-CI-Jobs, Cronjobs und andere nicht-interaktive Workloads benötigen ebenfalls eine eigene Identität, klar begrenzte Scopes und eine sichere Credential-Verteilung.
+CI-Jobs, Cronjobs und andere nicht-interaktive Machines benötigen ebenfalls eine eigene Identität, klar begrenzte Scopes und eine sichere Credential-Verteilung.
 
 ## Zu entscheidende Architektur
 
@@ -48,13 +48,13 @@ Folgende Modelle vergleichen und die Entscheidung dokumentieren:
 
 Es ist insbesondere zu klären, wie sich M2M in den bestehenden ID-JAG- und JWT-DPoP-Flow einfügt und ob dieser für reine Service-Identitäten vereinfacht werden kann.
 
-### Authentisierung der Workload
+### Authentisierung der Machine
 
 Mögliche Verfahren:
 
-- `private_key_jwt` mit einem pro Workload registrierten Schlüsselpaar,
+- `private_key_jwt` mit einem pro Machine registrierten Schlüsselpaar,
 - gegenseitiges TLS (mTLS),
-- föderierte Workload-Identitäten, z. B. aus Kubernetes oder einer Cloud-Plattform,
+- föderierte Machine-Identitäten, z. B. aus Kubernetes oder einer Cloud-Plattform,
 - für ein eng begrenztes MVP ein Client Secret mit definierter Rotation.
 
 Langfristig sollten langlebige, kopierbare Client Secrets vermieden werden. Credentials dürfen nicht in Ressource-Manifeste oder das Repository eingecheckt werden.
@@ -79,10 +79,10 @@ Für delegierte Benutzerzugriffe ist stattdessen OAuth Token Exchange zu prüfen
 
 ## Identitäts- und Berechtigungsmodell
 
-- Jede Anwendung erhält eine stabile, eindeutige Client- bzw. Workload-Identität.
-- Menschliche Benutzer und Workloads verwenden unterschiedliche Subject Namespaces und Token-Claims.
+- Jede Anwendung erhält eine stabile, eindeutige Client- bzw. Machine-Identität.
+- Menschliche Benutzer und Machines verwenden unterschiedliche Subject Namespaces und Token-Claims.
 - Ressourcen definieren, welche Scopes sie unterstützen.
-- Eine separate Policy definiert, welche Workload welche Scopes für welche Ressource erhalten darf.
+- Eine separate Policy definiert, welche Machine welche Scopes für welche Ressource erhalten darf.
 - Die Registrierung eines Clients oder Scopes erzeugt keine automatische Berechtigung.
 - Tokens sind an genau die angeforderte Zielressource gebunden (`aud`/`resource`).
 - Der Zielservice autorisiert anhand der Service-Identität und Scopes; ein gültiges Token allein bedeutet nicht Vollzugriff.
@@ -92,7 +92,7 @@ Beispiel einer statischen MVP-Policy:
 
 ```yaml
 apiVersion: weldall.dev/v1alpha1
-kind: WorkloadClient
+kind: MachineClient
 metadata:
   name: expenses-a
 spec:
@@ -113,12 +113,12 @@ Das konkrete Manifestformat ist mit der Aufgabe zur Ressourcenregistrierung abzu
 Ein M2M-Token sollte mindestens eindeutig und validierbar abbilden:
 
 - Weldall als Issuer (`iss`),
-- die Workload als Subject (`sub`) und/oder autorisierten Client (`client_id`/`azp`),
+- die Machine als Subject (`sub`) und/oder autorisierten Client (`client_id`/`azp`),
 - genau den Zielservice als Audience (`aud`),
 - gewährte Scopes,
 - kurze Gültigkeit sowie `iat`, `exp` und `jti`,
 - gegebenenfalls eine Schlüsselbindung über DPoP oder mTLS (`cnf`),
-- eine eindeutige Unterscheidung zwischen Workload-, Benutzer- und delegierten Tokens.
+- eine eindeutige Unterscheidung zwischen Machine-, Benutzer- und delegierten Tokens.
 
 Claims und Semantik müssen dokumentiert werden, damit Zielservices keine unsicheren Annahmen treffen.
 
@@ -138,7 +138,7 @@ Claims und Semantik müssen dokumentiert werden, damit Zielservices keine unsich
 
 ## MVP-Vorschlag
 
-- Statisch konfigurierte vertrauliche Workload-Clients und Grants.
+- Statisch konfigurierte vertrauliche Machine-Clients und Grants.
 - Client-Credentials-Grant für „Service handelt als sich selbst“.
 - Bevorzugt `private_key_jwt`; alternativ ein klar als vorläufig dokumentiertes Client Secret.
 - Kurzlebige, audience-gebundene JWT Access Tokens.
@@ -149,7 +149,7 @@ Claims und Semantik müssen dokumentiert werden, damit Zielservices keine unsich
 ## Spätere Ausbaustufen
 
 - Self-Service-Registrierung über eine abgesicherte Admin-API bzw. `weldall up`.
-- Workload Identity Federation für Kubernetes und Cloud-Plattformen.
+- Machine Identity Federation für Kubernetes und Cloud-Plattformen.
 - OAuth Token Exchange für explizite On-Behalf-Of-Szenarien.
 - Automatische Schlüsselrotation, Client-Deaktivierung und Notfall-Widerruf.
 - Feingranulare Grant-Verwaltung nach Umgebung, Tenant oder Organisation.
@@ -158,11 +158,11 @@ Claims und Semantik müssen dokumentiert werden, damit Zielservices keine unsich
 ## Akzeptanzkriterien
 
 - Die Entscheidung zwischen direkt ausgestellten Tokens, Broker-Modell und Hybrid ist dokumentiert.
-- Expenses A kann sich ohne menschlichen Login als eigene Workload authentisieren.
+- Expenses A kann sich ohne menschlichen Login als eigene Machine authentisieren.
 - Expenses A erhält ausschließlich ein kurzlebiges Token für Expenses B und die explizit erlaubten Scopes.
-- Expenses B validiert Issuer, Audience, Ablauf, Workload-Identität und Scopes.
+- Expenses B validiert Issuer, Audience, Ablauf, Machine-Identität und Scopes.
 - Nicht erlaubte Scopes, eine falsche Audience, ungültige Client-Credentials und Replay-Versuche werden abgelehnt.
-- Das Token ist eindeutig als Workload-Token erkennbar und kann nicht mit einem Benutzer-Token verwechselt werden.
+- Das Token ist eindeutig als Machine-Token erkennbar und kann nicht mit einem Benutzer-Token verwechselt werden.
 - Der bestehende interaktive CLI-Flow funktioniert unverändert weiter.
 - Credentials können rotiert bzw. ein Client kann deaktiviert werden.
 - Ein End-to-End-Test deckt erfolgreichen und abgelehnten Zugriff von Expenses A auf Expenses B ab.

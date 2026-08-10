@@ -6,6 +6,7 @@ import { WeldallDiscovery } from "./discovery.js";
 import { verifyStrictDpop } from "./dpop.js";
 import { WeldallAuthError, oauthErrorResponse } from "./errors.js";
 import { hasVerifiedEmail } from "./identity.js";
+import { MACHINE_TOKEN_LIFETIME_SECONDS, MACHINE_TOKEN_TYP } from "./machine.js";
 import { parseScope } from "./scope.js";
 import { consumeReplay } from "./replay.js";
 import { loadSkillCatalog, SKILL_ASSERTION_TYPE, SKILL_CATALOG_PATH } from "./skills.js";
@@ -24,6 +25,7 @@ import type {
 } from "./types.js";
 
 const scopePattern = /^[\x21\x23-\x5b\x5d-\x7e]+$/;
+const machineClientPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const uniqueScopes = (values: readonly string[], label: string): string[] => {
   if (
     !Array.isArray(values) ||
@@ -306,19 +308,10 @@ export function initWeldall(host: string, options: WeldallOptions) {
     }
   };
 
-  const verify = async (request: Request, policy: ScopePolicy = {}): Promise<AuthContext> => {
-    const required = uniqueScopes(policy.scopes ?? [], "policy.scopes");
-    const any = uniqueScopes(policy.anyScopes ?? [], "policy.anyScopes");
-    const authorization = request.headers.get("authorization");
-    const match = authorization?.match(/^DPoP ([^\s,]+)$/);
-    const proof = request.headers.get("dpop");
-    if (!match || !proof || proof.includes(","))
-      throw new WeldallAuthError("invalid_token", "DPoP authorization required", 401);
-    const accessToken = match[1]!;
-    let payload: JWTPayload;
+  const verifyUserToken = async (accessToken: string): Promise<JWTPayload> => {
     try {
       const keys = await validatedJwks(signing);
-      ({ payload } = await jwtVerify(
+      const { payload } = await jwtVerify(
         accessToken,
         async (header) => {
           if (
@@ -340,27 +333,98 @@ export function initWeldall(host: string, options: WeldallOptions) {
           maxTokenAge: "10m",
           clockTolerance: 5,
         },
-      ));
+      );
+      return payload;
     } catch (error) {
       if (error instanceof WeldallAuthError) throw error;
       throw new WeldallAuthError("invalid_token", "access token validation failed", 401);
     }
+  };
+
+  const verifyMachineToken = async (accessToken: string): Promise<JWTPayload> => {
+    const validate = async (refresh: boolean) => {
+      const { kid, jwk } = await discovery.getSigningKey(accessToken, MACHINE_TOKEN_TYP, refresh);
+      const result = await jwtVerify(accessToken, await importJWK(jwk, "ES256"), {
+        algorithms: ["ES256"],
+        issuer: hostUrl.origin,
+        audience: resource,
+        requiredClaims: ["iss", "sub", "aud", "exp", "iat", "jti"],
+        maxTokenAge: "5m",
+        clockTolerance: 5,
+      });
+      if (decodeProtectedHeader(accessToken).kid !== kid) throw new Error("kid");
+      return result.payload;
+    };
+    try {
+      return await validate(false);
+    } catch (firstError) {
+      if (firstError instanceof WeldallAuthError && firstError.code === "temporarily_unavailable")
+        throw firstError;
+      try {
+        return await validate(true);
+      } catch (error) {
+        if (error instanceof WeldallAuthError && error.code === "temporarily_unavailable")
+          throw error;
+        throw new WeldallAuthError("invalid_token", "machine token validation failed", 401);
+      }
+    }
+  };
+
+  const verify = async (request: Request, policy: ScopePolicy = {}): Promise<AuthContext> => {
+    const required = uniqueScopes(policy.scopes ?? [], "policy.scopes");
+    const any = uniqueScopes(policy.anyScopes ?? [], "policy.anyScopes");
+    const authorization = request.headers.get("authorization");
+    const match = authorization?.match(/^DPoP ([^\s,]+)$/);
+    const proof = request.headers.get("dpop");
+    if (!match || !proof || proof.includes(","))
+      throw new WeldallAuthError("invalid_token", "DPoP authorization required", 401);
+    const accessToken = match[1]!;
+    let profile: "user" | "machine";
+    try {
+      const header = decodeProtectedHeader(accessToken);
+      if (header.typ === "at+jwt") profile = "user";
+      else if (header.typ === MACHINE_TOKEN_TYP) profile = "machine";
+      else throw new Error("unsupported typ");
+    } catch {
+      throw new WeldallAuthError("invalid_token", "unsupported access token profile", 401);
+    }
+    const payload =
+      profile === "user"
+        ? await verifyUserToken(accessToken)
+        : await verifyMachineToken(accessToken);
     const granted = parseScope(payload.scope);
     const cnf = payload.cnf as { jkt?: unknown } | undefined;
+    const profileClaimsValid =
+      profile === "user"
+        ? payload.client_id === clientId &&
+          hasVerifiedEmail(payload) &&
+          typeof payload.sub === "string" &&
+          !payload.sub.startsWith("machine:") &&
+          payload.identity_type === undefined &&
+          payload.token_type === undefined
+        : typeof payload.client_id === "string" &&
+          machineClientPattern.test(payload.client_id) &&
+          payload.sub === `machine:${payload.client_id}` &&
+          payload.azp === payload.client_id &&
+          payload.identity_type === "machine" &&
+          payload.token_type === "machine" &&
+          payload.email === undefined &&
+          payload.email_verified === undefined;
     if (
       payload.aud !== resource ||
-      payload.client_id !== clientId ||
       typeof payload.sub !== "string" ||
       !payload.sub ||
-      !hasVerifiedEmail(payload) ||
+      !profileClaimsValid ||
       typeof payload.jti !== "string" ||
       payload.jti.length < 1 ||
       payload.jti.length > 128 ||
       !Number.isInteger(payload.iat) ||
       !Number.isInteger(payload.exp) ||
       (payload.exp as number) <= (payload.iat as number) ||
-      (payload.exp as number) - (payload.iat as number) > 600 ||
+      (payload.exp as number) - (payload.iat as number) >
+        (profile === "user" ? 600 : MACHINE_TOKEN_LIFETIME_SECONDS) ||
       !granted ||
+      granted.some((scope) => !supportedScopes.includes(scope)) ||
       !isSha256JwkThumbprint(cnf?.jkt)
     )
       throw new WeldallAuthError("invalid_token", "invalid access token claims", 401);
@@ -387,14 +451,27 @@ export function initWeldall(host: string, options: WeldallOptions) {
         ...required,
         ...any,
       ]);
-    return {
-      identity: {
+    if (profile === "machine") {
+      const machineClientId = payload.client_id as string;
+      return {
+        identityType: "machine",
+        identity: { type: "machine", subject: payload.sub, clientId: machineClientId },
         subject: payload.sub,
-        email: payload.email,
+        clientId: machineClientId,
+        scopes: granted,
+        tokenId: payload.jti,
+      };
+    }
+    return {
+      identityType: "user",
+      identity: {
+        type: "user",
+        subject: payload.sub,
+        email: payload.email as string,
         emailVerified: true,
       },
       subject: payload.sub,
-      email: payload.email,
+      email: payload.email as string,
       emailVerified: true,
       scopes: granted,
       tokenId: payload.jti,

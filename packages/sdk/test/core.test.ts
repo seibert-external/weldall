@@ -327,10 +327,12 @@ describe("exchange and verification", () => {
       anyScopes: ["write", "admin"],
     });
     expect(auth).toMatchObject({
+      identityType: "user",
       subject: "user-1",
       email: "user@example.com",
       emailVerified: true,
       identity: {
+        type: "user",
         subject: "user-1",
         email: "user@example.com",
         emailVerified: true,

@@ -14,16 +14,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 
-export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
+export function MachineDetail({ machineId }: { machineId: string | null }) {
   const trpc = useTRPC();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const isNew = workloadId === null;
-  const workload = useQuery({
-    ...trpc.admin.workloadClients.get.queryOptions({ id: workloadId ?? "new" }),
+  const isNew = machineId === null;
+  const machine = useQuery({
+    ...trpc.admin.machineClients.get.queryOptions({ id: machineId ?? "new" }),
     enabled: !isNew,
   });
-  const accessOptions = useQuery(trpc.admin.workloadClients.accessOptions.queryOptions());
+  const accessOptions = useQuery(trpc.admin.machineClients.accessOptions.queryOptions());
   const [clientId, setClientId] = useState("");
   const [name, setName] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -32,14 +32,14 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
   const [resourceIds, setResourceIds] = useState<string[]>([]);
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
-  const serverClientId = workload.data?.clientId;
-  const serverName = workload.data?.name;
-  const serverEnabled = workload.data?.enabled;
-  const serverResourceIds = workload.data
-    ? JSON.stringify([...workload.data.access.resourceIds].sort())
+  const serverClientId = machine.data?.clientId;
+  const serverName = machine.data?.name;
+  const serverEnabled = machine.data?.enabled;
+  const serverResourceIds = machine.data
+    ? JSON.stringify([...machine.data.access.resourceIds].sort())
     : undefined;
-  const serverScopeIds = workload.data
-    ? JSON.stringify([...workload.data.access.scopeIds].sort())
+  const serverScopeIds = machine.data
+    ? JSON.stringify([...machine.data.access.scopeIds].sort())
     : undefined;
 
   useEffect(() => {
@@ -58,18 +58,18 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
 
   const invalidate = async () => queryClient.invalidateQueries();
   const create = useMutation(
-    trpc.admin.workloadClients.create.mutationOptions({
+    trpc.admin.machineClients.create.mutationOptions({
       onSuccess: async (created) => {
         await invalidate();
-        router.push(`/workloads/${created.id}`);
+        router.push(`/machines/${created.id}`);
       },
     }),
   );
   const update = useMutation(
-    trpc.admin.workloadClients.update.mutationOptions({ onSuccess: invalidate }),
+    trpc.admin.machineClients.update.mutationOptions({ onSuccess: invalidate }),
   );
   const registerKey = useMutation(
-    trpc.admin.workloadClients.registerKey.mutationOptions({
+    trpc.admin.machineClients.registerKey.mutationOptions({
       onSuccess: async () => {
         setKid("");
         setPublicJwk("");
@@ -78,10 +78,10 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
     }),
   );
   const revokeKey = useMutation(
-    trpc.admin.workloadClients.revokeKey.mutationOptions({ onSuccess: invalidate }),
+    trpc.admin.machineClients.revokeKey.mutationOptions({ onSuccess: invalidate }),
   );
   const replaceAccess = useMutation(
-    trpc.admin.workloadClients.replaceAccess.mutationOptions({ onSuccess: invalidate }),
+    trpc.admin.machineClients.replaceAccess.mutationOptions({ onSuccess: invalidate }),
   );
 
   const error =
@@ -91,7 +91,7 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
     registerKey.error?.message ??
     revokeKey.error?.message ??
     replaceAccess.error?.message ??
-    workload.error?.message ??
+    machine.error?.message ??
     accessOptions.error?.message;
   const pending =
     create.isPending ||
@@ -123,43 +123,43 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
       });
       return;
     }
-    if (!workload.data) return;
+    if (!machine.data) return;
     await update.mutateAsync({
-      id: workload.data.id,
+      id: machine.data.id,
       name: name.trim(),
       enabled,
-      expectedVersion: workload.data.version,
+      expectedVersion: machine.data.version,
     });
   };
   const rotate = async () => {
-    if (!workload.data) return;
+    if (!machine.data) return;
     setLocalError(null);
     const jwk = parseJwk();
     if (!jwk) return;
     await registerKey.mutateAsync({
-      clientId: workload.data.id,
+      clientId: machine.data.id,
       kid: kid.trim(),
       publicJwk: jwk,
     });
   };
   const saveAccess = async () => {
-    if (!workload.data) return;
+    if (!machine.data) return;
     await replaceAccess.mutateAsync({
-      clientId: workload.data.id,
+      clientId: machine.data.id,
       resourceIds,
       scopeIds,
-      expectedVersion: workload.data.version,
+      expectedVersion: machine.data.version,
     });
   };
 
-  if (!isNew && workload.isPending) return <Text color="secondary">Loading workload…</Text>;
+  if (!isNew && machine.isPending) return <Text color="secondary">Loading machine…</Text>;
   return (
     <>
       <HerocrumbsActions>
-        <Button href="/workloads" label="Back" variant="secondary" />
+        <Button href="/machines" label="Back" variant="secondary" />
         <Button
           isDisabled={pending}
-          label={isNew ? "Register workload" : "Save workload"}
+          label={isNew ? "Register machine" : "Save machine"}
           onClick={() => void submit()}
           variant="primary"
         />
@@ -168,17 +168,17 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
         <Banner
           container="card"
           status="error"
-          title="Workload operation failed"
+          title="Machine operation failed"
           description={error}
         />
       ) : null}
       <section className="grid gap-4 rounded-md border p-5">
         <div>
           <h2 className="m-0 text-xl font-semibold">
-            {isNew ? "Register workload client" : workload.data?.name}
+            {isNew ? "Register machine client" : machine.data?.name}
           </h2>
           <Text color="secondary">
-            Workloads authenticate with registered public keys. Weldall never stores private key
+            Machines authenticate with registered public keys. Weldall never stores private key
             material.
           </Text>
         </div>
@@ -221,10 +221,10 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
         pending={pending}
       />
 
-      {!isNew && workload.data ? (
+      {!isNew && machine.data ? (
         <section className="grid gap-3 rounded-md border p-5">
           <h2 className="m-0 text-xl font-semibold">Registered keys</h2>
-          {workload.data.keys.map((key) => (
+          {machine.data.keys.map((key) => (
             <div
               className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
               key={key.id}
@@ -246,7 +246,7 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
                 <Button
                   isDisabled={pending}
                   label="Revoke"
-                  onClick={() => revokeKey.mutate({ clientId: workload.data!.id, keyId: key.id })}
+                  onClick={() => revokeKey.mutate({ clientId: machine.data!.id, keyId: key.id })}
                   size="sm"
                   variant="destructive"
                 />
@@ -258,7 +258,7 @@ export function WorkloadDetail({ workloadId }: { workloadId: string | null }) {
 
       <section className="grid gap-4 rounded-md border p-5">
         <div>
-          <h2 className="m-0 text-xl font-semibold">Workload access</h2>
+          <h2 className="m-0 text-xl font-semibold">Machine access</h2>
           <Text color="secondary">
             Select resources and scopes independently. A token is issued only when the requested
             resource supports every requested scope.

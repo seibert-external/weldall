@@ -26,7 +26,7 @@ import { auth } from "../auth/auth";
 import { hasLoginScopeForUserId } from "../auth/login-policy";
 import { exchangePolicyRequiringSystemScopeFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
-import { auditWorkloadFailure, issueWorkloadToken, workloadAuditContext } from "./workload";
+import { auditMachineFailure, issueMachineToken, machineAuditContext } from "./machine";
 
 const hash = (value: string) => createHash("sha256").update(value, "ascii").digest("base64url");
 const confirmationJkt = (value: unknown): string | undefined => {
@@ -374,14 +374,14 @@ export function tokenFacade(request: Request) {
 
 export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: AuditWriter) {
   let exchangeAudit: ExchangeAuditContext | undefined;
-  let workloadAudit: ReturnType<typeof workloadAuditContext> | undefined;
+  let machineAudit: ReturnType<typeof machineAuditContext> | undefined;
   try {
     const form = await oauthForm(request);
     const grantTypeValue = form.get("grant_type");
     if (grantTypeValue === TOKEN_EXCHANGE_GRANT) {
       exchangeAudit = createExchangeAuditContext(request, form);
     } else if (grantTypeValue === "client_credentials") {
-      workloadAudit = workloadAuditContext(request, form);
+      machineAudit = machineAuditContext(request, form);
     }
     rejectDuplicateParameters(form);
     const grantType = requiredString(form, "grant_type");
@@ -389,7 +389,7 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
       return await exchange(request, form, exchangeAudit!, auditWriter);
     }
     if (grantType === "client_credentials") {
-      return await issueWorkloadToken(request, form, workloadAudit!, auditWriter);
+      return await issueMachineToken(request, form, machineAudit!, auditWriter, replay);
     }
 
     let previous: OAuthDeviceRefreshBinding | null = null;
@@ -515,7 +515,7 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
     return response;
   } catch (error) {
     if (exchangeAudit) await auditExchangeFailure(exchangeAudit, error, auditWriter);
-    if (workloadAudit) await auditWorkloadFailure(workloadAudit, error, auditWriter);
+    if (machineAudit) await auditMachineFailure(machineAudit, error, auditWriter);
     return oauthErrorResponse(error);
   }
 }

@@ -3,16 +3,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SignJWT, importJWK, type JWTPayload } from "jose";
 import {
   PRIVATE_KEY_JWT_ASSERTION_TYPE,
-  WORKLOAD_TOKEN_TYP,
+  MACHINE_TOKEN_TYP,
   createDpopProof,
-  createWorkloadClientAssertion,
+  createMachineClientAssertion,
   generateEs256KeyPair,
   inMemory,
-  initWorkloadVerifier,
-  requestWorkloadToken,
+  initWeldall,
+  requestMachineToken,
   type DpopKeyPair,
 } from "@weldall/sdk";
-import { createExpensesBWorkloadApp } from "../../expenses/src/workload.js";
 import { WELDALL_ISSUER, WELDALL_TOKEN_ENDPOINT } from "../src/server/oauth/constants.js";
 
 vi.mock("../src/server/auth/auth.js", () => ({
@@ -24,19 +23,21 @@ const duplicateKeyClientId = `expenses-duplicate-${randomUUID()}`;
 const resourceIdentifier = `https://expenses-b-${randomUUID()}.example/api`;
 const lockOrderResourceIdentifier = `https://expenses-lock-${randomUUID()}.example/api`;
 const resourceOrigin = new URL(resourceIdentifier).origin;
-const actorId = `workload-admin-${randomUUID()}`;
+const actorId = `machine-admin-${randomUUID()}`;
 const readScopeKey = `expenses-test:read-${randomUUID()}`;
 const createScopeKey = `expenses-test:create-${randomUUID()}`;
 const unselectedScopeKey = `expenses-test:unselected-${randomUUID()}`;
 let issuerKey: DpopKeyPair;
+let resourceSigningKey: DpopKeyPair;
 let expensesAKey: DpopKeyPair;
-let workloadDatabaseId: string;
-let workloadKeyId: string;
+let machineDatabaseId: string;
+let machineKeyId: string;
 let resourceId: string;
 let readScopeId: string;
 
 beforeAll(async () => {
   issuerKey = await generateEs256KeyPair();
+  resourceSigningKey = await generateEs256KeyPair();
   expensesAKey = await generateEs256KeyPair();
   Object.assign(process.env, {
     POSTGRES_URL: process.env.POSTGRES_URL ?? "postgresql://postgres@localhost:5433/postgres",
@@ -44,7 +45,7 @@ beforeAll(async () => {
     OAUTH_PROXY_SECRET: "test-oauth-proxy-secret-at-least-32-characters",
     WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(issuerKey.privateJwk),
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(issuerKey.publicJwk),
-    WELDALL_SIGNING_KID: "workload-e2e-weldall",
+    WELDALL_SIGNING_KID: "machine-e2e-weldall",
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"),
   });
   const { db } = await import("@weldall/db");
@@ -78,7 +79,7 @@ beforeAll(async () => {
   const resource = await db.downstreamResource.create({
     data: {
       key: `expenses-b-${randomUUID()}`,
-      name: "Expenses B workload target",
+      name: "Expenses B machine target",
       resourceIdentifier,
       authorizationServer: resourceOrigin,
       downstreamClientId: `expenses-b-${randomUUID()}`,
@@ -95,8 +96,8 @@ beforeAll(async () => {
     },
   });
   resourceId = resource.id;
-  const { createWorkloadClient } = await import("../src/server/workloads/service.js");
-  const client = await createWorkloadClient(
+  const { createMachineClient } = await import("../src/server/machines/service.js");
+  const client = await createMachineClient(
     {
       clientId,
       name: "Expenses A",
@@ -105,8 +106,8 @@ beforeAll(async () => {
     },
     { id: actorId, requestId: `create-${randomUUID()}` },
   );
-  workloadDatabaseId = client.id;
-  workloadKeyId = client.keys[0]!.id;
+  machineDatabaseId = client.id;
+  machineKeyId = client.keys[0]!.id;
 });
 
 afterAll(async () => {
@@ -114,7 +115,7 @@ afterAll(async () => {
   await db.auditEvent.deleteMany({
     where: { OR: [{ actorId }, { actorId: clientId }, { clientId }] },
   });
-  await db.workloadClient.deleteMany({
+  await db.machineClient.deleteMany({
     where: { clientId: { in: [clientId, duplicateKeyClientId] } },
   });
   await db.downstreamResource.deleteMany({
@@ -137,7 +138,7 @@ async function obtain(
   key = expensesAKey,
   kid = "expenses-a-current",
 ) {
-  return requestWorkloadToken({
+  return requestMachineToken({
     issuer: WELDALL_ISSUER,
     clientId,
     resource,
@@ -161,16 +162,21 @@ function targetVerifier() {
         });
       if (url === `${WELDALL_ISSUER}/api/oauth/jwks`)
         return Response.json({
-          keys: [{ ...issuerKey.publicJwk, kid: "workload-e2e-weldall", alg: "ES256", use: "sig" }],
+          keys: [{ ...issuerKey.publicJwk, kid: "machine-e2e-weldall", alg: "ES256", use: "sig" }],
         });
       return new Response(null, { status: 404 });
     }),
   );
-  return initWorkloadVerifier(WELDALL_ISSUER, {
+  return initWeldall(WELDALL_ISSUER, {
     resource: resourceIdentifier,
     publicOrigin: resourceOrigin,
+    clientId: "expenses-b",
     supportedScopes: [readScopeKey, createScopeKey],
-    allowedClientIds: [clientId],
+    signingKey: {
+      kid: "expenses-b-signing",
+      privateJwk: resourceSigningKey.privateJwk,
+      publicJwk: resourceSigningKey.publicJwk,
+    },
     replayStore: inMemory({ suppressWarning: true }),
   });
 }
@@ -203,7 +209,7 @@ async function customAssertion(
     .sign(await importJWK(expensesAKey.privateJwk, "ES256"));
 }
 
-function workloadTokenRequest(
+function machineTokenRequest(
   assertion: string,
   proof: string,
   scopes = readScopeKey,
@@ -236,83 +242,39 @@ async function rawRequest(
   requestId?: string,
 ) {
   const { tokenFacade } = await import("../src/server/oauth/facade.js");
-  return tokenFacade(workloadTokenRequest(assertion, proof, scopes, resource, requestId));
+  return tokenFacade(machineTokenRequest(assertion, proof, scopes, resource, requestId));
 }
 
-describe("Expenses A to Expenses B workload authentication", () => {
+describe("Expenses A to Expenses B machine authentication", () => {
   it("registers Expenses A, obtains a token from Weldall, and enforces it at Expenses B", async () => {
     const issued = await obtain();
-    targetVerifier();
-    const deleteScope = `${readScopeKey}:delete`;
-    const expensesB = createExpensesBWorkloadApp({
-      weldallIssuer: WELDALL_ISSUER,
-      resource: resourceIdentifier,
-      publicOrigin: resourceOrigin,
-      allowedClientIds: [clientId],
-      replayStore: inMemory({ suppressWarning: true }),
-      readScope: readScopeKey,
-      createScope: createScopeKey,
-      deleteScope,
+    const expensesB = targetVerifier();
+    const accepted = await expensesB.verify(await targetRequest(issued.accessToken), {
+      scopes: [readScopeKey],
     });
-    const readUrl = `${resourceIdentifier}/internal/expenses`;
-    const readProof = await createDpopProof({
-      ...expensesAKey,
-      method: "GET",
-      url: readUrl,
-      accessToken: issued.accessToken,
-    });
-    const accepted = await expensesB.request("/api/internal/expenses", {
-      headers: { authorization: `DPoP ${issued.accessToken}`, dpop: readProof },
-    });
-    expect(accepted.status).toBe(200);
-    await expect(accepted.json()).resolves.toMatchObject({
-      caller: clientId,
-      identityType: "workload",
+    expect(accepted).toMatchObject({
+      clientId,
+      identityType: "machine",
+      identity: { type: "machine", clientId },
     });
     expect(issued.scope).toBe(readScopeKey);
 
-    const createProof = await createDpopProof({
-      ...expensesAKey,
-      method: "POST",
-      url: readUrl,
-      accessToken: issued.accessToken,
-    });
-    expect(
-      (
-        await expensesB.request("/api/internal/expenses", {
-          method: "POST",
-          headers: { authorization: `DPoP ${issued.accessToken}`, dpop: createProof },
-        })
-      ).status,
-    ).toBe(403);
-    const deleteUrl = `${readUrl}/expense-b-1`;
-    const deleteProof = await createDpopProof({
-      ...expensesAKey,
-      method: "DELETE",
-      url: deleteUrl,
-      accessToken: issued.accessToken,
-    });
-    expect(
-      (
-        await expensesB.request("/api/internal/expenses/expense-b-1", {
-          method: "DELETE",
-          headers: { authorization: `DPoP ${issued.accessToken}`, dpop: deleteProof },
-        })
-      ).status,
-    ).toBe(403);
+    await expect(
+      expensesB.verify(await targetRequest(issued.accessToken), { scopes: [createScopeKey] }),
+    ).rejects.toMatchObject({ code: "insufficient_scope", status: 403 });
 
     const { db } = await import("@weldall/db");
     const event = await db.auditEvent.findFirstOrThrow({
-      where: { actorId: clientId, eventType: "workload_token.issued" },
+      where: { actorId: clientId, eventType: "machine_token.issued" },
       orderBy: { occurredAt: "desc" },
     });
-    expect(event).toMatchObject({ actorType: "workload", clientId, outcome: "success" });
+    expect(event).toMatchObject({ actorType: "machine", clientId, outcome: "success" });
     const serialized = JSON.stringify(event);
     expect(serialized).not.toContain(issued.accessToken);
     expect(serialized).not.toContain(expensesAKey.privateJwk.d);
   });
 
-  it("rejects a resource-supported scope that is not selected for the workload", async () => {
+  it("rejects a resource-supported scope that is not selected for the machine", async () => {
     await expect(obtain([unselectedScopeKey])).rejects.toMatchObject({ code: "invalid_scope" });
   });
 
@@ -321,7 +283,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
     const unselectedResource = await db.downstreamResource.create({
       data: {
         key: `expenses-unselected-${randomUUID()}`,
-        name: "Unselected workload target",
+        name: "Unselected machine target",
         resourceIdentifier: `https://expenses-unselected-${randomUUID()}.example/api`,
         authorizationServer: "https://expenses-unselected.example",
         downstreamClientId: `expenses-unselected-${randomUUID()}`,
@@ -370,12 +332,12 @@ describe("Expenses A to Expenses B workload authentication", () => {
   });
 
   it("treats resource and scope registration as non-authorizing after access replacement", async () => {
-    const { getWorkloadClient, replaceWorkloadAccess } =
-      await import("../src/server/workloads/service.js");
-    const before = await getWorkloadClient(workloadDatabaseId);
-    await replaceWorkloadAccess(
+    const { getMachineClient, replaceMachineAccess } =
+      await import("../src/server/machines/service.js");
+    const before = await getMachineClient(machineDatabaseId);
+    await replaceMachineAccess(
       {
-        clientId: workloadDatabaseId,
+        clientId: machineDatabaseId,
         resourceIds: [],
         scopeIds: before.access.scopeIds,
         expectedVersion: before.version,
@@ -383,10 +345,10 @@ describe("Expenses A to Expenses B workload authentication", () => {
       { id: actorId, requestId: `remove-access-${randomUUID()}` },
     );
     await expect(obtain()).rejects.toMatchObject({ code: "invalid_target" });
-    const removed = await getWorkloadClient(workloadDatabaseId);
-    await replaceWorkloadAccess(
+    const removed = await getMachineClient(machineDatabaseId);
+    await replaceMachineAccess(
       {
-        clientId: workloadDatabaseId,
+        clientId: machineDatabaseId,
         resourceIds: [resourceId],
         scopeIds: removed.access.scopeIds,
         expectedVersion: removed.version,
@@ -397,12 +359,12 @@ describe("Expenses A to Expenses B workload authentication", () => {
 
   it("does not let absent resource access become visible after its lock statement", async () => {
     const { db } = await import("@weldall/db");
-    await db.workloadAllowedResource.delete({
+    await db.machineAllowedResource.delete({
       where: {
-        workloadClientId_resourceId: { workloadClientId: workloadDatabaseId, resourceId },
+        machineClientId_resourceId: { machineClientId: machineDatabaseId, resourceId },
       },
     });
-    const assertion = await createWorkloadClientAssertion({
+    const assertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -417,12 +379,12 @@ describe("Expenses A to Expenses B workload authentication", () => {
     expect(denied.status).toBe(400);
     await expect(denied.json()).resolves.toMatchObject({ error: "invalid_target" });
 
-    const { getWorkloadClient, replaceWorkloadAccess } =
-      await import("../src/server/workloads/service.js");
-    const current = await getWorkloadClient(workloadDatabaseId);
-    await replaceWorkloadAccess(
+    const { getMachineClient, replaceMachineAccess } =
+      await import("../src/server/machines/service.js");
+    const current = await getMachineClient(machineDatabaseId);
+    await replaceMachineAccess(
       {
-        clientId: workloadDatabaseId,
+        clientId: machineDatabaseId,
         resourceIds: [resourceId],
         scopeIds: current.access.scopeIds,
         expectedVersion: current.version,
@@ -431,7 +393,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
     );
     // Later access applies only to a fresh issuance transaction; the denied request above
     // cannot continue and observe the new row under READ COMMITTED. Its authenticated proof
-    // was durably consumed despite that denial.
+    // remains consumed within this process despite that denial.
     const replay = await rawRequest(assertion, proof);
     expect(replay.status).toBe(400);
     await expect(replay.json()).resolves.toMatchObject({ error: "invalid_dpop_proof" });
@@ -455,7 +417,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
         },
       },
     });
-    const assertion = await createWorkloadClientAssertion({
+    const assertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -483,7 +445,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
   }, 10_000);
 
   it("orders in-flight issuance before a concurrent key revocation commit", async () => {
-    const assertion = await createWorkloadClientAssertion({
+    const assertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -518,7 +480,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
       }),
       {
         async write(event) {
-          if (event.eventType === "workload_token.issued") {
+          if (event.eventType === "machine_token.issued") {
             auditEntered();
             await auditReleased;
           }
@@ -526,10 +488,10 @@ describe("Expenses A to Expenses B workload authentication", () => {
       },
     );
     await enteredAudit;
-    const { revokeWorkloadKey } = await import("../src/server/workloads/service.js");
+    const { revokeMachineKey } = await import("../src/server/machines/service.js");
     let revocationCommitted = false;
-    const revocation = revokeWorkloadKey(
-      { clientId: workloadDatabaseId, keyId: workloadKeyId },
+    const revocation = revokeMachineKey(
+      { clientId: machineDatabaseId, keyId: machineKeyId },
       { id: actorId, requestId: `concurrent-revoke-${randomUUID()}` },
     ).then((value) => {
       revocationCommitted = true;
@@ -542,14 +504,14 @@ describe("Expenses A to Expenses B workload authentication", () => {
     await revocation;
     expect(revocationCommitted).toBe(true);
     const { db } = await import("@weldall/db");
-    await db.workloadClientKey.update({
-      where: { id: workloadKeyId },
+    await db.machineClientKey.update({
+      where: { id: machineKeyId },
       data: { revokedAt: null, revokedBy: null },
     });
   });
 
   it("orders in-flight issuance before a concurrent access-policy replacement", async () => {
-    const assertion = await createWorkloadClientAssertion({
+    const assertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -569,9 +531,9 @@ describe("Expenses A to Expenses B workload authentication", () => {
       auditEntered = resolve;
     });
     const { tokenFacadeWithAuditWriter } = await import("../src/server/oauth/facade.js");
-    const issuance = tokenFacadeWithAuditWriter(workloadTokenRequest(assertion, proof), {
+    const issuance = tokenFacadeWithAuditWriter(machineTokenRequest(assertion, proof), {
       async write(event) {
-        if (event.eventType === "workload_token.issued") {
+        if (event.eventType === "machine_token.issued") {
           auditEntered();
           await auditReleased;
         }
@@ -579,13 +541,13 @@ describe("Expenses A to Expenses B workload authentication", () => {
     });
     await enteredAudit;
 
-    const { getWorkloadClient, replaceWorkloadAccess } =
-      await import("../src/server/workloads/service.js");
-    const before = await getWorkloadClient(workloadDatabaseId);
+    const { getMachineClient, replaceMachineAccess } =
+      await import("../src/server/machines/service.js");
+    const before = await getMachineClient(machineDatabaseId);
     let replacementCommitted = false;
-    const replacement = replaceWorkloadAccess(
+    const replacement = replaceMachineAccess(
       {
-        clientId: workloadDatabaseId,
+        clientId: machineDatabaseId,
         resourceIds: [],
         scopeIds: [],
         expectedVersion: before.version,
@@ -602,9 +564,9 @@ describe("Expenses A to Expenses B workload authentication", () => {
     const removed = await replacement;
     expect(replacementCommitted).toBe(true);
 
-    await replaceWorkloadAccess(
+    await replaceMachineAccess(
       {
-        clientId: workloadDatabaseId,
+        clientId: machineDatabaseId,
         resourceIds: [resourceId],
         scopeIds: before.access.scopeIds,
         expectedVersion: removed.version,
@@ -615,30 +577,30 @@ describe("Expenses A to Expenses B workload authentication", () => {
 
   it("rejects disabled clients and revoked keys", async () => {
     const { db } = await import("@weldall/db");
-    await db.workloadClient.update({
-      where: { id: workloadDatabaseId },
+    await db.machineClient.update({
+      where: { id: machineDatabaseId },
       data: { enabled: false, deactivatedAt: new Date() },
     });
     await expect(obtain()).rejects.toMatchObject({ code: "invalid_client" });
-    await db.workloadClient.update({
-      where: { id: workloadDatabaseId },
+    await db.machineClient.update({
+      where: { id: machineDatabaseId },
       data: { enabled: true, deactivatedAt: null },
     });
 
-    await db.workloadClientKey.update({
-      where: { id: workloadKeyId },
+    await db.machineClientKey.update({
+      where: { id: machineKeyId },
       data: { revokedAt: new Date() },
     });
     await expect(obtain()).rejects.toMatchObject({ code: "invalid_client" });
-    await db.workloadClientKey.update({ where: { id: workloadKeyId }, data: { revokedAt: null } });
+    await db.machineClientKey.update({ where: { id: machineKeyId }, data: { revokedAt: null } });
   });
 
   it("rejects malformed private_key_jwt claims and headers without leaking assertions", async () => {
     const now = Math.floor(Date.now() / 1_000);
     const assertions = [
       await customAssertion({ aud: "https://wrong.example/token" }),
-      await customAssertion({ iss: "other-workload" }),
-      await customAssertion({ sub: "other-workload" }),
+      await customAssertion({ iss: "other-machine" }),
+      await customAssertion({ sub: "other-machine" }),
       await customAssertion({ aud: [WELDALL_TOKEN_ENDPOINT, "https://other.example/token"] }),
       await customAssertion({ iat: now + 120, exp: now + 180 }),
       await customAssertion({ iat: now, exp: now + 61 }),
@@ -658,7 +620,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
     const { db } = await import("@weldall/db");
     const audits = await db.auditEvent.findMany({
       where: {
-        eventType: "workload_token.denied",
+        eventType: "machine_token.denied",
         metadata: { path: ["clientId"], equals: clientId },
       },
       orderBy: { occurredAt: "desc" },
@@ -683,10 +645,10 @@ describe("Expenses A to Expenses B workload authentication", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "invalid_target" });
     const { db } = await import("@weldall/db");
     const audit = await db.auditEvent.findFirstOrThrow({
-      where: { requestId, eventType: "workload_token.denied" },
+      where: { requestId, eventType: "machine_token.denied" },
     });
     expect(audit).toMatchObject({
-      actorType: "workload",
+      actorType: "machine",
       actorId: clientId,
       clientId,
       subjectType: null,
@@ -697,7 +659,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
   });
 
   it("keeps replay markers after an authenticated policy denial", async () => {
-    const assertion = await createWorkloadClientAssertion({
+    const assertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -727,7 +689,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
   });
 
   it("keeps replay markers when successful issuance later fails its audit write", async () => {
-    const assertion = await createWorkloadClientAssertion({
+    const assertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -739,7 +701,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
       url: WELDALL_TOKEN_ENDPOINT,
     });
     const { tokenFacadeWithAuditWriter } = await import("../src/server/oauth/facade.js");
-    const auditFailure = await tokenFacadeWithAuditWriter(workloadTokenRequest(assertion, proof), {
+    const auditFailure = await tokenFacadeWithAuditWriter(machineTokenRequest(assertion, proof), {
       async write() {
         throw new Error("audit unavailable");
       },
@@ -761,10 +723,10 @@ describe("Expenses A to Expenses B workload authentication", () => {
     await expect(assertionReplay.json()).resolves.toMatchObject({ error: "invalid_client" });
   });
 
-  it("completes parallel issuance without nested replay-pool acquisition", async () => {
+  it("completes parallel issuance with process-local replay protection", async () => {
     const responses = await Promise.all(
       Array.from({ length: 16 }, async () => {
-        const assertion = await createWorkloadClientAssertion({
+        const assertion = await createMachineClientAssertion({
           clientId,
           tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
           kid: "expenses-a-current",
@@ -782,7 +744,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
   });
 
   it("atomically rejects assertion replay and token-endpoint DPoP replay", async () => {
-    const assertion = await createWorkloadClientAssertion({
+    const assertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -803,7 +765,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
     expect(assertionReplay.status).toBe(400);
     await expect(assertionReplay.json()).resolves.toMatchObject({ error: "invalid_client" });
 
-    const secondAssertion = await createWorkloadClientAssertion({
+    const secondAssertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -815,7 +777,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
       url: WELDALL_TOKEN_ENDPOINT,
     });
     expect((await rawRequest(secondAssertion, replayedProof)).status).toBe(200);
-    const thirdAssertion = await createWorkloadClientAssertion({
+    const thirdAssertion = await createMachineClientAssertion({
       clientId,
       tokenEndpoint: WELDALL_TOKEN_ENDPOINT,
       kid: "expenses-a-current",
@@ -829,7 +791,7 @@ describe("Expenses A to Expenses B workload authentication", () => {
     const replayAudit = await db.auditEvent.findFirstOrThrow({
       where: {
         clientId,
-        eventType: "workload_token.denied",
+        eventType: "machine_token.denied",
         reasonCode: "replay_detected",
       },
       orderBy: { occurredAt: "desc" },
@@ -838,18 +800,18 @@ describe("Expenses A to Expenses B workload authentication", () => {
     expect(JSON.stringify(replayAudit)).not.toContain(replayedProof);
   });
 
-  it("issues the documented distinct workload token profile", async () => {
+  it("issues the documented distinct machine token profile", async () => {
     const issued = await obtain();
     const { decodeJwt, decodeProtectedHeader } = await import("jose");
-    expect(decodeProtectedHeader(issued.accessToken).typ).toBe(WORKLOAD_TOKEN_TYP);
+    expect(decodeProtectedHeader(issued.accessToken).typ).toBe(MACHINE_TOKEN_TYP);
     expect(decodeJwt(issued.accessToken)).toMatchObject({
       iss: WELDALL_ISSUER,
-      sub: `workload:${clientId}`,
+      sub: `machine:${clientId}`,
       client_id: clientId,
       azp: clientId,
       aud: resourceIdentifier,
-      identity_type: "workload",
-      token_type: "workload",
+      identity_type: "machine",
+      token_type: "machine",
       scope: readScopeKey,
       cnf: { jkt: expensesAKey.jkt },
       iat: expect.any(Number),
@@ -858,13 +820,13 @@ describe("Expenses A to Expenses B workload authentication", () => {
     });
   });
 
-  it("prevents one public key from representing two workload identities", async () => {
-    const { createWorkloadClient } = await import("../src/server/workloads/service.js");
+  it("prevents one public key from representing two machine identities", async () => {
+    const { createMachineClient } = await import("../src/server/machines/service.js");
     await expect(
-      createWorkloadClient(
+      createMachineClient(
         {
           clientId: duplicateKeyClientId,
-          name: "Duplicate key workload",
+          name: "Duplicate key machine",
           key: { kid: "duplicate-key", publicJwk: expensesAKey.publicJwk },
           access: { resourceIds: [], scopeIds: [] },
         },
@@ -873,17 +835,17 @@ describe("Expenses A to Expenses B workload authentication", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
     const { db } = await import("@weldall/db");
     await expect(
-      db.workloadClient.count({ where: { clientId: duplicateKeyClientId } }),
+      db.machineClient.count({ where: { clientId: duplicateKeyClientId } }),
     ).resolves.toBe(0);
   });
 
   it("supports overlapping rotation and explicit retirement of the old key", async () => {
     const replacement = await generateEs256KeyPair();
-    const { registerWorkloadKey, revokeWorkloadKey } =
-      await import("../src/server/workloads/service.js");
-    await registerWorkloadKey(
+    const { registerMachineKey, revokeMachineKey } =
+      await import("../src/server/machines/service.js");
+    await registerMachineKey(
       {
-        clientId: workloadDatabaseId,
+        clientId: machineDatabaseId,
         kid: "expenses-a-next",
         publicJwk: replacement.publicJwk,
       },
@@ -894,8 +856,8 @@ describe("Expenses A to Expenses B workload authentication", () => {
       obtain([readScopeKey], resourceIdentifier, replacement, "expenses-a-next"),
     ).resolves.toMatchObject({ tokenType: "DPoP" });
 
-    await revokeWorkloadKey(
-      { clientId: workloadDatabaseId, keyId: workloadKeyId },
+    await revokeMachineKey(
+      { clientId: machineDatabaseId, keyId: machineKeyId },
       { id: actorId, requestId: `retire-${randomUUID()}` },
     );
     await expect(obtain()).rejects.toMatchObject({ code: "invalid_client" });

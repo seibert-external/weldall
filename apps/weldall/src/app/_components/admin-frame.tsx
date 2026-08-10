@@ -79,10 +79,10 @@ export function AdminFrame({ children }: { children: ReactNode }) {
             </div>
             <SideNavSection title="Administration" isHeaderHidden>
               <SideNavItem
-                label="Workload clients"
-                href="/workloads"
-                icon={WorkloadIcon}
-                isSelected={selected("/workloads")}
+                label="Machine clients"
+                href="/machines"
+                icon={MachineIcon}
+                isSelected={selected("/machines")}
               />
               <SideNavItem
                 label="Resources"
@@ -189,7 +189,7 @@ function CliIcon(props: IconProps) {
   );
 }
 
-function WorkloadIcon(props: IconProps) {
+function MachineIcon(props: IconProps) {
   return (
     <IconBase {...props}>
       <rect x="4" y="6" width="16" height="12" rx="2" />

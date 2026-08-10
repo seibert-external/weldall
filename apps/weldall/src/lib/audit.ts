@@ -2,15 +2,15 @@ export const AUDIT_EVENT_TYPES = [
   "id_jag.issued",
   "id_jag.denied",
   "id_jag.failed",
-  "workload_client.created",
-  "workload_client.updated",
-  "workload_client.deactivated",
-  "workload_key.registered",
-  "workload_key.revoked",
-  "workload_access.replaced",
-  "workload_token.issued",
-  "workload_token.denied",
-  "workload_token.failed",
+  "machine_client.created",
+  "machine_client.updated",
+  "machine_client.deactivated",
+  "machine_key.registered",
+  "machine_key.revoked",
+  "machine_access.replaced",
+  "machine_token.issued",
+  "machine_token.denied",
+  "machine_token.failed",
   "user_scopes.created",
   "user_scopes.replaced",
   "user_scopes.deleted",
@@ -31,7 +31,7 @@ export const AUDIT_EVENT_TYPES = [
 ] as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
-export type AuditActorType = "user" | "oauth_client" | "workload" | "anonymous";
+export type AuditActorType = "user" | "oauth_client" | "machine" | "anonymous";
 export type AuditOutcome = "success" | "denied" | "failed";
 export type AuditReasonCode =
   | "invalid_client"

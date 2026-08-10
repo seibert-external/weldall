@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { extendOAuthMetadata } from "../src/server/oauth/metadata.js";
 
-describe("OAuth authorization-server workload metadata", () => {
-  it("advertises workload authentication while preserving interactive capabilities", () => {
+describe("OAuth authorization-server machine metadata", () => {
+  it("advertises machine authentication while preserving interactive capabilities", () => {
     expect(
       extendOAuthMetadata({
         issuer: "https://weldall.example",

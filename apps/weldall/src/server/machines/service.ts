@@ -14,12 +14,12 @@ const include = {
     },
   },
   allowedScopes: { include: { scope: { select: { id: true, key: true } } } },
-} satisfies Prisma.WorkloadClientInclude;
+} satisfies Prisma.MachineClientInclude;
 
-type WorkloadWithRelations = Prisma.WorkloadClientGetPayload<{ include: typeof include }>;
-type WorkloadAccessInput = { resourceIds: string[]; scopeIds: string[] };
+type MachineWithRelations = Prisma.MachineClientGetPayload<{ include: typeof include }>;
+type MachineAccessInput = { resourceIds: string[]; scopeIds: string[] };
 
-export interface WorkloadClientDto {
+export interface MachineClientDto {
   id: string;
   clientId: string;
   name: string;
@@ -49,17 +49,17 @@ export interface WorkloadClientDto {
   };
 }
 
-export async function listWorkloadClients(): Promise<WorkloadClientDto[]> {
-  return (await db.workloadClient.findMany({ orderBy: { name: "asc" }, include })).map(serialize);
+export async function listMachineClients(): Promise<MachineClientDto[]> {
+  return (await db.machineClient.findMany({ orderBy: { name: "asc" }, include })).map(serialize);
 }
 
-export async function getWorkloadClient(id: string): Promise<WorkloadClientDto> {
-  const client = await db.workloadClient.findUnique({ where: { id }, include });
-  if (!client) throw new AdminDomainError("NOT_FOUND", "Workload client not found.");
+export async function getMachineClient(id: string): Promise<MachineClientDto> {
+  const client = await db.machineClient.findUnique({ where: { id }, include });
+  if (!client) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
   return serialize(client);
 }
 
-export async function listWorkloadAccessOptions(): Promise<{
+export async function listMachineAccessOptions(): Promise<{
   resources: Array<{
     id: string;
     name: string;
@@ -78,15 +78,15 @@ export async function listWorkloadAccessOptions(): Promise<{
   return { resources, scopes };
 }
 
-export async function createWorkloadClient(
+export async function createMachineClient(
   input: {
     clientId: string;
     name: string;
     key: { kid: string; publicJwk: unknown };
-    access: WorkloadAccessInput;
+    access: MachineAccessInput;
   },
   actor: AdminActor,
-): Promise<WorkloadClientDto> {
+): Promise<MachineClientDto> {
   const clientId = parseClientId(input.clientId);
   const name = parseName(input.name);
   const key = await parseKey(input.key);
@@ -95,7 +95,7 @@ export async function createWorkloadClient(
     return await db.$transaction(async (tx) => {
       await lockResourceChanges(tx);
       const access = await validateAccess(input.access, tx);
-      const client = await tx.workloadClient.create({
+      const client = await tx.machineClient.create({
         data: {
           clientId,
           name,
@@ -118,21 +118,21 @@ export async function createWorkloadClient(
       });
       await prismaAuditWriter.write(
         {
-          eventType: "workload_client.created",
+          eventType: "machine_client.created",
           actorType: "user",
           actorId: actor.id,
           ...(actor.email ? { actorEmail: actor.email } : {}),
           requestId: actor.requestId,
           ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
           outcome: "success",
-          subjectType: "workload_client",
+          subjectType: "machine_client",
           subjectId: client.id,
           metadata: clientMetadata(client),
         },
         tx,
       );
       await prismaAuditWriter.write(
-        keyAudit("workload_key.registered", client, client.keys[0]!, actor),
+        keyAudit("machine_key.registered", client, client.keys[0]!, actor),
         tx,
       );
       await prismaAuditWriter.write(accessAudit(client, emptyAccess(), 0, actor), tx);
@@ -145,17 +145,17 @@ export async function createWorkloadClient(
   }
 }
 
-export async function updateWorkloadClient(
+export async function updateMachineClient(
   input: { id: string; name: string; enabled: boolean; expectedVersion: number },
   actor: AdminActor,
-): Promise<WorkloadClientDto> {
+): Promise<MachineClientDto> {
   const name = parseName(input.name);
   return db.$transaction(async (tx) => {
-    const current = await tx.workloadClient.findUnique({ where: { id: input.id } });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Workload client not found.");
+    const current = await tx.machineClient.findUnique({ where: { id: input.id } });
+    if (!current) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
     if (current.version !== input.expectedVersion)
-      throw new AdminDomainError("CONFLICT", "The workload client changed. Reload and try again.");
-    const changed = await tx.workloadClient.updateMany({
+      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
+    const changed = await tx.machineClient.updateMany({
       where: { id: input.id, version: input.expectedVersion },
       data: {
         name,
@@ -166,18 +166,18 @@ export async function updateWorkloadClient(
       },
     });
     if (changed.count !== 1)
-      throw new AdminDomainError("CONFLICT", "The workload client changed. Reload and try again.");
-    const client = await tx.workloadClient.findUniqueOrThrow({ where: { id: input.id }, include });
+      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
+    const client = await tx.machineClient.findUniqueOrThrow({ where: { id: input.id }, include });
     await prismaAuditWriter.write(
       {
-        eventType: input.enabled ? "workload_client.updated" : "workload_client.deactivated",
+        eventType: input.enabled ? "machine_client.updated" : "machine_client.deactivated",
         actorType: "user",
         actorId: actor.id,
         ...(actor.email ? { actorEmail: actor.email } : {}),
         requestId: actor.requestId,
         ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
         outcome: "success",
-        subjectType: "workload_client",
+        subjectType: "machine_client",
         subjectId: client.id,
         metadata: clientMetadata(client),
       },
@@ -187,30 +187,27 @@ export async function updateWorkloadClient(
   });
 }
 
-export async function registerWorkloadKey(
+export async function registerMachineKey(
   input: { clientId: string; kid: string; publicJwk: unknown },
   actor: AdminActor,
-): Promise<WorkloadClientDto> {
+): Promise<MachineClientDto> {
   const key = await parseKey(input);
   try {
     return await db.$transaction(async (tx) => {
-      const client = await tx.workloadClient.findUnique({ where: { id: input.clientId } });
-      if (!client) throw new AdminDomainError("NOT_FOUND", "Workload client not found.");
-      const created = await tx.workloadClientKey.create({
+      const client = await tx.machineClient.findUnique({ where: { id: input.clientId } });
+      if (!client) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
+      const created = await tx.machineClientKey.create({
         data: {
-          workloadClientId: client.id,
+          machineClientId: client.id,
           kid: key.kid,
           publicJwk: key.publicJwk as Prisma.InputJsonObject,
           thumbprint: key.thumbprint,
           createdBy: actor.id,
         },
       });
-      await prismaAuditWriter.write(
-        keyAudit("workload_key.registered", client, created, actor),
-        tx,
-      );
+      await prismaAuditWriter.write(keyAudit("machine_key.registered", client, created, actor), tx);
       return serialize(
-        await tx.workloadClient.findUniqueOrThrow({ where: { id: client.id }, include }),
+        await tx.machineClient.findUniqueOrThrow({ where: { id: client.id }, include }),
       );
     });
   } catch (error) {
@@ -220,73 +217,73 @@ export async function registerWorkloadKey(
   }
 }
 
-export async function revokeWorkloadKey(
+export async function revokeMachineKey(
   input: { clientId: string; keyId: string },
   actor: AdminActor,
-): Promise<WorkloadClientDto> {
+): Promise<MachineClientDto> {
   return db.$transaction(async (tx) => {
     const [client, key] = await Promise.all([
-      tx.workloadClient.findUnique({ where: { id: input.clientId } }),
-      tx.workloadClientKey.findUnique({ where: { id: input.keyId } }),
+      tx.machineClient.findUnique({ where: { id: input.clientId } }),
+      tx.machineClientKey.findUnique({ where: { id: input.keyId } }),
     ]);
-    if (!client || !key || key.workloadClientId !== client.id)
-      throw new AdminDomainError("NOT_FOUND", "Workload key not found.");
+    if (!client || !key || key.machineClientId !== client.id)
+      throw new AdminDomainError("NOT_FOUND", "Machine key not found.");
     const revoked = key.revokedAt
       ? key
-      : await tx.workloadClientKey.update({
+      : await tx.machineClientKey.update({
           where: { id: key.id },
           data: { revokedAt: new Date(), revokedBy: actor.id },
         });
     if (!key.revokedAt)
-      await prismaAuditWriter.write(keyAudit("workload_key.revoked", client, revoked, actor), tx);
+      await prismaAuditWriter.write(keyAudit("machine_key.revoked", client, revoked, actor), tx);
     return serialize(
-      await tx.workloadClient.findUniqueOrThrow({ where: { id: client.id }, include }),
+      await tx.machineClient.findUniqueOrThrow({ where: { id: client.id }, include }),
     );
   });
 }
 
-export async function replaceWorkloadAccess(
+export async function replaceMachineAccess(
   input: { clientId: string; resourceIds: string[]; scopeIds: string[]; expectedVersion: number },
   actor: AdminActor,
-): Promise<WorkloadClientDto> {
+): Promise<MachineClientDto> {
   validateAccessShape(input);
   return db.$transaction(async (tx) => {
     await lockResourceChanges(tx);
-    const current = await tx.workloadClient.findUnique({ where: { id: input.clientId }, include });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Workload client not found.");
+    const current = await tx.machineClient.findUnique({ where: { id: input.clientId }, include });
+    if (!current) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
     const access = await validateAccess(
       input,
       tx,
       new Set(current.allowedResources.map(({ resourceId }) => resourceId)),
     );
     if (current.version !== input.expectedVersion)
-      throw new AdminDomainError("CONFLICT", "The workload access changed. Reload and try again.");
+      throw new AdminDomainError("CONFLICT", "The machine access changed. Reload and try again.");
     const before = accessSnapshot(current);
     const unchanged =
       sameStrings(before.resourceIdentifiers, access.resourceIdentifiers) &&
       sameStrings(before.scopeKeys, access.scopeKeys);
     if (unchanged) return serialize(current);
 
-    const changed = await tx.workloadClient.updateMany({
+    const changed = await tx.machineClient.updateMany({
       where: { id: current.id, version: input.expectedVersion },
       data: { updatedBy: actor.id, version: { increment: 1 } },
     });
     if (changed.count !== 1)
-      throw new AdminDomainError("CONFLICT", "The workload access changed. Reload and try again.");
-    await tx.workloadAllowedResource.deleteMany({ where: { workloadClientId: current.id } });
-    await tx.workloadAllowedScope.deleteMany({ where: { workloadClientId: current.id } });
+      throw new AdminDomainError("CONFLICT", "The machine access changed. Reload and try again.");
+    await tx.machineAllowedResource.deleteMany({ where: { machineClientId: current.id } });
+    await tx.machineAllowedScope.deleteMany({ where: { machineClientId: current.id } });
     if (access.resourceIds.length)
-      await tx.workloadAllowedResource.createMany({
+      await tx.machineAllowedResource.createMany({
         data: access.resourceIds.map((resourceId) => ({
-          workloadClientId: current.id,
+          machineClientId: current.id,
           resourceId,
         })),
       });
     if (access.scopeIds.length)
-      await tx.workloadAllowedScope.createMany({
-        data: access.scopeIds.map((scopeId) => ({ workloadClientId: current.id, scopeId })),
+      await tx.machineAllowedScope.createMany({
+        data: access.scopeIds.map((scopeId) => ({ machineClientId: current.id, scopeId })),
       });
-    const client = await tx.workloadClient.findUniqueOrThrow({
+    const client = await tx.machineClient.findUniqueOrThrow({
       where: { id: current.id },
       include,
     });
@@ -330,7 +327,7 @@ async function parseKey(input: { kid: string; publicJwk: unknown }) {
   };
 }
 
-function validateAccessShape(access: WorkloadAccessInput): void {
+function validateAccessShape(access: MachineAccessInput): void {
   if (
     access.resourceIds.length > 100 ||
     new Set(access.resourceIds).size !== access.resourceIds.length
@@ -341,7 +338,7 @@ function validateAccessShape(access: WorkloadAccessInput): void {
 }
 
 async function validateAccess(
-  access: WorkloadAccessInput,
+  access: MachineAccessInput,
   tx: Prisma.TransactionClient,
   retainedDisabledResourceIds: ReadonlySet<string> = new Set(),
 ) {
@@ -376,7 +373,7 @@ async function lockResourceChanges(tx: Prisma.TransactionClient): Promise<void> 
 function parseClientId(value: string): string {
   const clientId = value.trim();
   if (!clientIdPattern.test(clientId) || clientId === "weldall-cli")
-    throw new AdminDomainError("INVALID_RESOURCE", "Enter a safe, unique workload client ID.");
+    throw new AdminDomainError("INVALID_RESOURCE", "Enter a safe, unique machine client ID.");
   return clientId;
 }
 
@@ -385,12 +382,12 @@ function parseName(value: string): string {
   if (!name || name.length > 200)
     throw new AdminDomainError(
       "INVALID_RESOURCE",
-      "Workload names must contain 1 to 200 characters.",
+      "Machine names must contain 1 to 200 characters.",
     );
   return name;
 }
 
-function serialize(client: WorkloadWithRelations): WorkloadClientDto {
+function serialize(client: MachineWithRelations): MachineClientDto {
   const resources = client.allowedResources
     .map(({ resource }) => resource)
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -438,7 +435,7 @@ function clientMetadata(client: {
 }
 
 function keyAudit(
-  eventType: "workload_key.registered" | "workload_key.revoked",
+  eventType: "machine_key.registered" | "machine_key.revoked",
   client: { id: string; clientId: string },
   key: { id: string; kid: string; thumbprint: string; revokedAt: Date | null },
   actor: AdminActor,
@@ -451,7 +448,7 @@ function keyAudit(
     requestId: actor.requestId,
     ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
     outcome: "success" as const,
-    subjectType: "workload_key",
+    subjectType: "machine_key",
     subjectId: key.id,
     metadata: {
       clientId: client.clientId,
@@ -462,7 +459,7 @@ function keyAudit(
   };
 }
 
-function accessSnapshot(client: WorkloadWithRelations) {
+function accessSnapshot(client: MachineWithRelations) {
   return {
     resourceIdentifiers: client.allowedResources
       .map(({ resource }) => resource.resourceIdentifier)
@@ -476,20 +473,20 @@ function emptyAccess() {
 }
 
 function accessAudit(
-  client: WorkloadWithRelations,
+  client: MachineWithRelations,
   before: ReturnType<typeof emptyAccess>,
   versionBefore: number,
   actor: AdminActor,
 ) {
   return {
-    eventType: "workload_access.replaced" as const,
+    eventType: "machine_access.replaced" as const,
     actorType: "user" as const,
     actorId: actor.id,
     ...(actor.email ? { actorEmail: actor.email } : {}),
     requestId: actor.requestId,
     ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
     outcome: "success" as const,
-    subjectType: "workload_client",
+    subjectType: "machine_client",
     subjectId: client.id,
     metadata: {
       clientId: client.clientId,

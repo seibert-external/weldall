@@ -50,15 +50,15 @@ import {
 } from "../group-providers/service";
 import { refreshResourceCatalog } from "../skills/catalogs";
 import {
-  createWorkloadClient,
-  getWorkloadClient,
-  listWorkloadAccessOptions,
-  listWorkloadClients,
-  registerWorkloadKey,
-  replaceWorkloadAccess,
-  revokeWorkloadKey,
-  updateWorkloadClient,
-} from "../workloads/service";
+  createMachineClient,
+  getMachineClient,
+  listMachineAccessOptions,
+  listMachineClients,
+  registerMachineKey,
+  replaceMachineAccess,
+  revokeMachineKey,
+  updateMachineClient,
+} from "../machines/service";
 import type { TrpcContext } from "./context";
 
 const trpc = initTRPC.context<TrpcContext>().create();
@@ -177,12 +177,12 @@ export const appRouter = trpc.router({
           mapDomainErrors(() => updateCliSettings(input, ctx.adminActor)),
         ),
     }),
-    workloadClients: trpc.router({
-      list: adminProcedure.query(() => mapDomainErrors(listWorkloadClients)),
-      accessOptions: adminProcedure.query(() => mapDomainErrors(listWorkloadAccessOptions)),
+    machineClients: trpc.router({
+      list: adminProcedure.query(() => mapDomainErrors(listMachineClients)),
+      accessOptions: adminProcedure.query(() => mapDomainErrors(listMachineAccessOptions)),
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
-        .query(({ input }) => mapDomainErrors(() => getWorkloadClient(input.id))),
+        .query(({ input }) => mapDomainErrors(() => getMachineClient(input.id))),
       create: adminProcedure
         .input(
           z
@@ -205,7 +205,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => createWorkloadClient(input, ctx.adminActor)),
+          mapDomainErrors(() => createMachineClient(input, ctx.adminActor)),
         ),
       update: adminProcedure
         .input(
@@ -219,7 +219,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => updateWorkloadClient(input, ctx.adminActor)),
+          mapDomainErrors(() => updateMachineClient(input, ctx.adminActor)),
         ),
       registerKey: adminProcedure
         .input(
@@ -232,7 +232,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => registerWorkloadKey(input, ctx.adminActor)),
+          mapDomainErrors(() => registerMachineKey(input, ctx.adminActor)),
         ),
       revokeKey: adminProcedure
         .input(
@@ -241,7 +241,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => revokeWorkloadKey(input, ctx.adminActor)),
+          mapDomainErrors(() => revokeMachineKey(input, ctx.adminActor)),
         ),
       replaceAccess: adminProcedure
         .input(
@@ -255,7 +255,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => replaceWorkloadAccess(input, ctx.adminActor)),
+          mapDomainErrors(() => replaceMachineAccess(input, ctx.adminActor)),
         ),
     }),
     resources: trpc.router({

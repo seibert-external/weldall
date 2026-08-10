@@ -570,14 +570,14 @@ export async function deleteResource(
         });
         if (!current) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
         assertVersion(current.version, input.expectedVersion);
-        const workloadAccess = await tx.workloadAllowedResource.findFirst({
+        const machineAccess = await tx.machineAllowedResource.findFirst({
           where: { resourceId: current.id },
           include: { client: { select: { clientId: true } } },
         });
-        if (workloadAccess) {
+        if (machineAccess) {
           throw new AdminDomainError(
             "CONFLICT",
-            `Resource ${current.key} is selected by workload ${workloadAccess.client.clientId}. Remove it from workload access first.`,
+            `Resource ${current.key} is selected by machine ${machineAccess.client.clientId}. Remove it from machine access first.`,
           );
         }
 
@@ -765,14 +765,14 @@ export async function deleteScope(
         `Scope ${current.key} is supported by resource ${referencedByResource.resource.key}. Update that resource first.`,
       );
     }
-    const referencedByWorkload = await tx.workloadAllowedScope.findFirst({
+    const referencedByMachine = await tx.machineAllowedScope.findFirst({
       where: { scopeId: current.id },
       include: { client: { select: { clientId: true } } },
     });
-    if (referencedByWorkload) {
+    if (referencedByMachine) {
       throw new AdminDomainError(
         "CONFLICT",
-        `Scope ${current.key} is selected by workload ${referencedByWorkload.client.clientId}. Remove it from workload access first.`,
+        `Scope ${current.key} is selected by machine ${referencedByMachine.client.clientId}. Remove it from machine access first.`,
       );
     }
 
@@ -1467,7 +1467,7 @@ async function writeAudit(
   await prismaAuditWriter.write(
     {
       eventType: event.eventType,
-      actorType: actor.id === "deployment-bootstrap" ? "workload" : "user",
+      actorType: actor.id === "deployment-bootstrap" ? "machine" : "user",
       actorId: actor.id,
       ...(actor.email ? { actorEmail: normalizeEmail(actor.email) } : {}),
       requestId: actor.requestId,

@@ -95,4 +95,4 @@ They are normally inherited from the `seibert-external` organization. Only add t
 
 Before non-bootstrap users run `weldall login`, assign `weldall:login` to their email address or to a matching provider group in the Admin UI. Weldall does not derive CLI access from Google alone. Group-derived access is resolved live and fails closed when the provider is disabled, unavailable, changed during resolution, or no longer reports the membership; direct grants remain independent.
 
-Weldall's interactive OAuth and ID-JAG endpoints still use process-local replay protection, so horizontal scaling beyond one replica is not safe yet. Workload token issuance uses database-backed replay protection, but it does not remove the single-replica requirement for the rest of Weldall.
+Weldall's interactive OAuth, ID-JAG, and machine client-credentials endpoints use process-local replay protection, so horizontal scaling beyond one replica is not safe yet. Proof and assertion markers clear on restart and are not shared between replicas.

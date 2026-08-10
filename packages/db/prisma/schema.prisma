@@ -20,19 +20,19 @@ model User {
 }
 
 model Scope {
-  id                  String                 @id @default(cuid())
-  key                 String                 @unique
-  description         String
-  isSystem            Boolean                @default(false)
-  version             Int                    @default(1)
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
-  createdBy           String
-  updatedBy           String
-  grants              EmailScopeGrant[]
-  groupGrants         GroupScopeGrant[]
-  resources           ResourceScope[]
-  allowedForWorkloads WorkloadAllowedScope[]
+  id                 String                @id @default(cuid())
+  key                String                @unique
+  description        String
+  isSystem           Boolean               @default(false)
+  version            Int                   @default(1)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  createdBy          String
+  updatedBy          String
+  grants             EmailScopeGrant[]
+  groupGrants        GroupScopeGrant[]
+  resources          ResourceScope[]
+  allowedForMachines MachineAllowedScope[]
 
   @@index([updatedAt])
 }
@@ -145,23 +145,23 @@ model CliSettings {
 }
 
 model DownstreamResource {
-  id                    String                    @id @default(cuid())
-  key                   String                    @unique
+  id                    String                   @id @default(cuid())
+  key                   String                   @unique
   name                  String
-  resourceIdentifier    String                    @unique
+  resourceIdentifier    String                   @unique
   authorizationServer   String
   downstreamClientId    String
-  enabled               Boolean                   @default(true)
-  skillDiscoveryEnabled Boolean                   @default(false)
-  version               Int                       @default(1)
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  enabled               Boolean                  @default(true)
+  skillDiscoveryEnabled Boolean                  @default(false)
+  version               Int                      @default(1)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
   createdBy             String
   updatedBy             String
   scopes                ResourceScope[]
   requestPrefixes       ResourceRequestPrefix[]
   discoveredCatalog     DiscoveredSkillCatalog?
-  allowedForWorkloads   WorkloadAllowedResource[]
+  allowedForMachines    MachineAllowedResource[]
 
   @@index([name])
   @@index([updatedAt])
@@ -230,72 +230,59 @@ model ResourceRequestPrefix {
   @@index([resourceId])
 }
 
-model WorkloadClient {
-  id               String                    @id @default(cuid())
-  clientId         String                    @unique
+model MachineClient {
+  id               String                   @id @default(cuid())
+  clientId         String                   @unique
   name             String
-  enabled          Boolean                   @default(true)
+  enabled          Boolean                  @default(true)
   deactivatedAt    DateTime?
-  version          Int                       @default(1)
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
+  version          Int                      @default(1)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
   createdBy        String
   updatedBy        String
-  keys             WorkloadClientKey[]
-  allowedResources WorkloadAllowedResource[]
-  allowedScopes    WorkloadAllowedScope[]
-  assertions       WorkloadAssertionReplay[]
+  keys             MachineClientKey[]
+  allowedResources MachineAllowedResource[]
+  allowedScopes    MachineAllowedScope[]
 
   @@index([enabled])
   @@index([updatedAt])
 }
 
-model WorkloadClientKey {
-  id               String         @id @default(cuid())
-  workloadClientId String
-  kid              String
-  publicJwk        Json
-  thumbprint       String         @unique
-  revokedAt        DateTime?
-  createdAt        DateTime       @default(now())
-  createdBy        String
-  revokedBy        String?
-  client           WorkloadClient @relation(fields: [workloadClientId], references: [id], onDelete: Cascade)
+model MachineClientKey {
+  id              String        @id @default(cuid())
+  machineClientId String
+  kid             String
+  publicJwk       Json
+  thumbprint      String        @unique
+  revokedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  createdBy       String
+  revokedBy       String?
+  client          MachineClient @relation(fields: [machineClientId], references: [id], onDelete: Cascade)
 
-  @@unique([workloadClientId, kid])
-  @@index([workloadClientId, revokedAt], map: "WorkloadClientKey_active_idx")
+  @@unique([machineClientId, kid])
+  @@index([machineClientId, revokedAt], map: "MachineClientKey_active_idx")
 }
 
-model WorkloadAllowedResource {
-  workloadClientId String
-  resourceId       String
-  client           WorkloadClient     @relation(fields: [workloadClientId], references: [id], onDelete: Cascade)
-  resource         DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+model MachineAllowedResource {
+  machineClientId String
+  resourceId      String
+  client          MachineClient      @relation(fields: [machineClientId], references: [id], onDelete: Cascade)
+  resource        DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
 
-  @@id([workloadClientId, resourceId])
+  @@id([machineClientId, resourceId])
   @@index([resourceId])
 }
 
-model WorkloadAllowedScope {
-  workloadClientId String
-  scopeId          String
-  client           WorkloadClient @relation(fields: [workloadClientId], references: [id], onDelete: Cascade)
-  scope            Scope          @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+model MachineAllowedScope {
+  machineClientId String
+  scopeId         String
+  client          MachineClient @relation(fields: [machineClientId], references: [id], onDelete: Cascade)
+  scope           Scope         @relation(fields: [scopeId], references: [id], onDelete: Restrict)
 
-  @@id([workloadClientId, scopeId])
+  @@id([machineClientId, scopeId])
   @@index([scopeId])
-}
-
-model WorkloadAssertionReplay {
-  id               String         @id @default(cuid())
-  assertionHash    String         @unique
-  workloadClientId String
-  expiresAt        DateTime
-  createdAt        DateTime       @default(now())
-  client           WorkloadClient @relation(fields: [workloadClientId], references: [id], onDelete: Cascade)
-
-  @@index([expiresAt])
-  @@index([workloadClientId, createdAt], map: "WorkloadAssertionReplay_client_created_idx")
 }
 
 model AuditEvent {

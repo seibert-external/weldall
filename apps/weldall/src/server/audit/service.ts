@@ -48,7 +48,7 @@ const idJagIssuedMetadata = z
 const idJagDeniedMetadata = z.object(idJagRequestedMetadata).strict();
 const idJagFailedMetadata = z.object(idJagRequestedMetadata).strict();
 
-const workloadClientMetadata = z
+const machineClientMetadata = z
   .object({
     clientId: z.string().min(1).max(128),
     name: z.string().min(1).max(200),
@@ -56,7 +56,7 @@ const workloadClientMetadata = z
     version: z.number().int().positive(),
   })
   .strict();
-const workloadKeyMetadata = z
+const machineKeyMetadata = z
   .object({
     clientId: z.string().min(1).max(128),
     kid: z.string().min(1).max(128),
@@ -64,7 +64,7 @@ const workloadKeyMetadata = z
     revokedAt: z.string().datetime().nullable(),
   })
   .strict();
-const workloadAccessMetadata = z
+const machineAccessMetadata = z
   .object({
     clientId: z.string().min(1).max(128),
     beforeResources: stringArray,
@@ -75,7 +75,7 @@ const workloadAccessMetadata = z
     versionAfter: z.number().int().positive(),
   })
   .strict();
-const workloadTokenRequestedMetadata = z
+const machineTokenRequestedMetadata = z
   .object({
     clientId: z.string().min(1).max(128).nullable(),
     kid: z.string().min(1).max(128).nullable(),
@@ -83,7 +83,7 @@ const workloadTokenRequestedMetadata = z
     requestedScopes: scopeArray,
   })
   .strict();
-const workloadTokenIssuedMetadata = workloadTokenRequestedMetadata.extend({
+const machineTokenIssuedMetadata = machineTokenRequestedMetadata.extend({
   clientId: z.string().min(1).max(128),
   kid: z.string().min(1).max(128),
   audience: z.string().min(1).max(2_000),
@@ -230,15 +230,15 @@ const metadataSchemas = {
   "id_jag.issued": idJagIssuedMetadata,
   "id_jag.denied": idJagDeniedMetadata,
   "id_jag.failed": idJagFailedMetadata,
-  "workload_client.created": workloadClientMetadata,
-  "workload_client.updated": workloadClientMetadata,
-  "workload_client.deactivated": workloadClientMetadata,
-  "workload_key.registered": workloadKeyMetadata,
-  "workload_key.revoked": workloadKeyMetadata,
-  "workload_access.replaced": workloadAccessMetadata,
-  "workload_token.issued": workloadTokenIssuedMetadata,
-  "workload_token.denied": workloadTokenRequestedMetadata,
-  "workload_token.failed": workloadTokenRequestedMetadata,
+  "machine_client.created": machineClientMetadata,
+  "machine_client.updated": machineClientMetadata,
+  "machine_client.deactivated": machineClientMetadata,
+  "machine_key.registered": machineKeyMetadata,
+  "machine_key.revoked": machineKeyMetadata,
+  "machine_access.replaced": machineAccessMetadata,
+  "machine_token.issued": machineTokenIssuedMetadata,
+  "machine_token.denied": machineTokenRequestedMetadata,
+  "machine_token.failed": machineTokenRequestedMetadata,
   "user_scopes.created": userScopesMetadata,
   "user_scopes.replaced": userScopesMetadata,
   "user_scopes.deleted": userScopesMetadata,
@@ -261,7 +261,7 @@ const metadataSchemas = {
 const auditInputSchema = z
   .object({
     eventType: z.enum(AUDIT_EVENT_TYPES),
-    actorType: z.enum(["user", "oauth_client", "workload", "anonymous"]),
+    actorType: z.enum(["user", "oauth_client", "machine", "anonymous"]),
     actorId: safeText,
     actorEmail: z.string().email().max(320).optional(),
     clientId: z.string().min(1).max(200).optional(),

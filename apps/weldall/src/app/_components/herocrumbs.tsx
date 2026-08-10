@@ -25,7 +25,7 @@ type AdminRoute =
   | "audit"
   | "cli"
   | "resources"
-  | "workloads"
+  | "machines"
   | "scopes"
   | "assignments"
   | "group-assignments"
@@ -43,8 +43,8 @@ const designs = {
     light: { from: "rgb(130, 65, 0)", to: "rgb(255, 214, 153)" },
     dark: { from: "rgb(70, 36, 8)", to: "rgb(113, 70, 26)" },
   },
-  workloads: {
-    title: "Workload clients",
+  machines: {
+    title: "Machine clients",
     light: { from: "rgb(23, 91, 94)", to: "rgb(183, 244, 238)" },
     dark: { from: "rgb(12, 49, 52)", to: "rgb(25, 88, 88)" },
   },
@@ -95,7 +95,7 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
   const route = useMemo<AdminRoute>(() => {
     if (pathname.startsWith("/audit")) return "audit";
     if (pathname.startsWith("/cli")) return "cli";
-    if (pathname.startsWith("/workloads")) return "workloads";
+    if (pathname.startsWith("/machines")) return "machines";
     if (pathname.startsWith("/resources")) return "resources";
     if (pathname.startsWith("/assignments")) return "assignments";
     if (pathname.startsWith("/group-assignments")) return "group-assignments";

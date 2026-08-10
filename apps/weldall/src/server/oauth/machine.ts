@@ -1,11 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { db, Prisma } from "@weldall/db";
+import { db } from "@weldall/db";
 import {
   PRIVATE_KEY_JWT_ASSERTION_TYPE,
-  WORKLOAD_TOKEN_LIFETIME_SECONDS,
-  WORKLOAD_TOKEN_TYP,
+  MACHINE_TOKEN_LIFETIME_SECONDS,
+  MACHINE_TOKEN_TYP,
   WeldallAuthError,
+  consumeReplay,
   verifyStrictDpop,
   type ReplayStore,
 } from "@weldall/sdk";
@@ -20,7 +21,7 @@ const scopePattern = /^[\x21\x23-\x5b\x5d-\x7e]{1,160}$/;
 
 type Context = ReturnType<typeof auditRequestIdentifiers> & {
   actorId: string;
-  actorType: "anonymous" | "workload";
+  actorType: "anonymous" | "machine";
   clientId: string | null;
   kid: string | null;
   audience: string | null;
@@ -34,7 +35,7 @@ function required(form: FormData, name: string): string {
   return value;
 }
 
-export function workloadAuditContext(request: Request, form: FormData): Context {
+export function machineAuditContext(request: Request, form: FormData): Context {
   const rawClient = form.get("client_id");
   const rawResource = form.get("resource");
   const rawScope = form.get("scope");
@@ -62,11 +63,12 @@ function safeAuditString(value: FormDataEntryValue | null, maxLength: number): s
     : null;
 }
 
-export async function issueWorkloadToken(
+export async function issueMachineToken(
   request: Request,
   form: FormData,
   context: Context,
   auditWriter: AuditWriter,
+  replay: ReplayStore,
 ): Promise<Response> {
   const allowedParameters = new Set([
     "grant_type",
@@ -105,10 +107,9 @@ export async function issueWorkloadToken(
     throw new WeldallAuthError("invalid_client");
   }
 
-  // Authenticate and durably consume replay markers before opening an interactive
-  // transaction. This avoids nested pool acquisition while preserving replay state
-  // across all later policy denials, audit failures, and transaction rollbacks.
-  const authenticatedClient = await db.workloadClient.findUnique({
+  // Consume process-local replay markers before opening an interactive transaction.
+  // This preserves them across later policy denials, audit failures, and rollbacks.
+  const authenticatedClient = await db.machineClient.findUnique({
     where: { clientId },
     include: { keys: { where: { kid } } },
   });
@@ -153,24 +154,24 @@ export async function issueWorkloadToken(
     throw new WeldallAuthError("invalid_client");
 
   context.actorId = authenticatedClient.clientId;
-  context.actorType = "workload";
+  context.actorType = "machine";
   context.clientId = authenticatedClient.clientId;
   context.kid = authenticatedKey.kid;
 
   const proof = request.headers.get("dpop");
   if (!proof || proof.includes(",")) throw new WeldallAuthError("invalid_dpop_proof");
-  const replayStore = prismaReplayStore(authenticatedClient.id, db);
   await verifyStrictDpop(proof, {
     method: "POST",
     url: WELDALL_TOKEN_ENDPOINT,
-    replay: replayStore,
+    replay,
     expectedJkt: authenticatedKey.thumbprint,
   });
-  await consumeAssertion(
-    replayStore,
-    authenticatedClient.clientId,
-    claims.jti,
-    claims.exp as number,
+  await consumeReplay(
+    replay,
+    "machine-assertion",
+    `${authenticatedClient.clientId}:${claims.jti}`,
+    new Date(((claims.exp as number) + 6) * 1_000),
+    { code: "invalid_client", message: "client assertion was already used" },
   );
 
   return db.$transaction(async (tx) => {
@@ -179,8 +180,8 @@ export async function issueWorkloadToken(
     // if issuance locks first, that token commits before the lifecycle change can commit.
     const lockedIdentity = await tx.$queryRaw<Array<{ clientId: string; keyId: string }>>`
       SELECT c."id" AS "clientId", k."id" AS "keyId"
-      FROM "WorkloadClient" c
-      JOIN "WorkloadClientKey" k ON k."workloadClientId" = c."id"
+      FROM "MachineClient" c
+      JOIN "MachineClientKey" k ON k."machineClientId" = c."id"
       WHERE c."clientId" = ${clientId} AND k."kid" = ${kid}
       FOR SHARE OF c, k
     `;
@@ -201,8 +202,8 @@ export async function issueWorkloadToken(
 
     const lockedAccess = await tx.$queryRaw<Array<{ resourceId: string }>>`
       SELECT a."resourceId"
-      FROM "WorkloadAllowedResource" a
-      WHERE a."workloadClientId" = ${locked.clientId}
+      FROM "MachineAllowedResource" a
+      WHERE a."machineClientId" = ${locked.clientId}
         AND a."resourceId" = ${lockedResource.resourceId}
       FOR SHARE OF a
     `;
@@ -210,7 +211,7 @@ export async function issueWorkloadToken(
     // allowing a later READ COMMITTED query to observe a newly selected resource phantom.
     if (lockedAccess.length !== 1) throw new WeldallAuthError("invalid_target");
 
-    const client = await tx.workloadClient.findUnique({
+    const client = await tx.machineClient.findUnique({
       where: { id: locked.clientId },
       include: {
         keys: { where: { id: locked.keyId } },
@@ -247,36 +248,36 @@ export async function issueWorkloadToken(
       throw new WeldallAuthError("invalid_scope");
 
     const issuedAt = Math.floor(Date.now() / 1_000);
-    const expiresAt = issuedAt + WORKLOAD_TOKEN_LIFETIME_SECONDS;
+    const expiresAt = issuedAt + MACHINE_TOKEN_LIFETIME_SECONDS;
     const jti = randomUUID();
     const token = await signWeldallJwt(
       {
         iss: WELDALL_ISSUER,
-        sub: `workload:${client.clientId}`,
+        sub: `machine:${client.clientId}`,
         client_id: client.clientId,
         azp: client.clientId,
         aud: allowedResource.resource.resourceIdentifier,
         scope: scopes.join(" "),
-        identity_type: "workload",
-        token_type: "workload",
+        identity_type: "machine",
+        token_type: "machine",
         cnf: { jkt: key.thumbprint },
         iat: issuedAt,
         exp: expiresAt,
         jti,
       },
-      { typ: WORKLOAD_TOKEN_TYP },
+      { typ: MACHINE_TOKEN_TYP },
     );
     try {
       await auditWriter.write(
         {
-          eventType: "workload_token.issued",
-          actorType: "workload",
+          eventType: "machine_token.issued",
+          actorType: "machine",
           actorId: client.clientId,
           clientId: client.clientId,
           requestId: context.requestId,
           ...(context.correlationId ? { correlationId: context.correlationId } : {}),
           outcome: "success",
-          subjectType: "workload_access_token",
+          subjectType: "machine_access_token",
           subjectId: jti,
           metadata: {
             clientId: client.clientId,
@@ -298,7 +299,7 @@ export async function issueWorkloadToken(
       {
         access_token: token,
         token_type: "DPoP",
-        expires_in: WORKLOAD_TOKEN_LIFETIME_SECONDS,
+        expires_in: MACHINE_TOKEN_LIFETIME_SECONDS,
         scope: scopes.join(" "),
       },
       { headers: { "cache-control": "no-store", pragma: "no-cache" } },
@@ -306,7 +307,7 @@ export async function issueWorkloadToken(
   });
 }
 
-export async function auditWorkloadFailure(
+export async function auditMachineFailure(
   context: Context,
   error: unknown,
   auditWriter: AuditWriter,
@@ -314,10 +315,10 @@ export async function auditWorkloadFailure(
   const failed = !(error instanceof WeldallAuthError) || error.status >= 500;
   try {
     await auditWriter.write({
-      eventType: failed ? "workload_token.failed" : "workload_token.denied",
+      eventType: failed ? "machine_token.failed" : "machine_token.denied",
       actorType: context.actorType,
       actorId: context.actorId,
-      ...(context.actorType === "workload" && context.clientId
+      ...(context.actorType === "machine" && context.clientId
         ? { clientId: context.clientId }
         : {}),
       requestId: context.requestId,
@@ -333,50 +334,8 @@ export async function auditWorkloadFailure(
       },
     });
   } catch {
-    console.error("Workload token audit write failed");
+    console.error("Machine token audit write failed");
   }
-}
-
-function prismaReplayStore(
-  workloadClientId: string,
-  client: Prisma.TransactionClient,
-): ReplayStore {
-  return {
-    async consume(value, expiresAt) {
-      const assertionHash = createHash("sha256").update(value, "utf8").digest("base64url");
-      try {
-        await client.workloadAssertionReplay.create({
-          data: { assertionHash, workloadClientId, expiresAt },
-        });
-        await client.workloadAssertionReplay.deleteMany({
-          where: { expiresAt: { lt: new Date(Date.now() - 60_000) } },
-        });
-        return true;
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
-          return false;
-        throw error;
-      }
-    },
-  };
-}
-
-async function consumeAssertion(
-  replayStore: ReplayStore,
-  clientId: string,
-  jti: string,
-  exp: number,
-): Promise<void> {
-  const key = `assertion:${clientId}:${jti}`;
-  const first = await replayStore.consume(key, new Date((exp + 6) * 1_000));
-  if (!first)
-    throw new WeldallAuthError(
-      "invalid_client",
-      "client assertion was already used",
-      400,
-      [],
-      "replay_detected",
-    );
 }
 
 function reason(error: unknown): AuditReasonCode {
