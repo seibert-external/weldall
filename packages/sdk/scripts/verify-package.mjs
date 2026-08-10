@@ -38,6 +38,8 @@ try {
     "package/LICENSE",
     "package/dist/index.js",
     "package/dist/index.d.ts",
+    "package/dist/workload.js",
+    "package/dist/workload.d.ts",
     "package/dist/hono.js",
     "package/dist/next.js",
     "package/dist/astro.js",

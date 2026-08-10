@@ -29,9 +29,10 @@ model Scope {
   updatedAt   DateTime          @updatedAt
   createdBy   String
   updatedBy   String
-  grants      EmailScopeGrant[]
-  groupGrants GroupScopeGrant[]
-  resources   ResourceScope[]
+  grants         EmailScopeGrant[]
+  groupGrants    GroupScopeGrant[]
+  resources      ResourceScope[]
+  workloadGrants WorkloadResourceScope[]
 
   @@index([updatedAt])
 }
@@ -160,6 +161,7 @@ model DownstreamResource {
   scopes                ResourceScope[]
   requestPrefixes       ResourceRequestPrefix[]
   discoveredCatalog     DiscoveredSkillCatalog?
+  workloadGrants        WorkloadResourceGrant[]
 
   @@index([name])
   @@index([updatedAt])
@@ -226,6 +228,84 @@ model ResourceRequestPrefix {
   resource   DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
 
   @@index([resourceId])
+}
+
+model WorkloadClient {
+  id            String                    @id @default(cuid())
+  clientId      String                    @unique
+  name          String
+  enabled       Boolean                   @default(true)
+  deactivatedAt DateTime?
+  version       Int                       @default(1)
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  createdBy     String
+  updatedBy     String
+  keys          WorkloadClientKey[]
+  grants        WorkloadResourceGrant[]
+  assertions    WorkloadAssertionReplay[]
+
+  @@index([enabled])
+  @@index([updatedAt])
+}
+
+model WorkloadClientKey {
+  id               String         @id @default(cuid())
+  workloadClientId String
+  kid              String
+  publicJwk        Json
+  thumbprint       String         @unique
+  notBefore        DateTime       @default(now())
+  expiresAt        DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime       @default(now())
+  createdBy        String
+  revokedBy        String?
+  client           WorkloadClient @relation(fields: [workloadClientId], references: [id], onDelete: Cascade)
+
+  @@unique([workloadClientId, kid])
+  @@index([workloadClientId, notBefore, expiresAt, revokedAt], map: "WorkloadClientKey_active_idx")
+}
+
+model WorkloadResourceGrant {
+  id               String                  @id @default(cuid())
+  workloadClientId String
+  resourceId       String
+  enabled          Boolean                 @default(true)
+  revokedAt        DateTime?
+  version          Int                     @default(1)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  createdBy        String
+  updatedBy        String
+  client           WorkloadClient          @relation(fields: [workloadClientId], references: [id], onDelete: Cascade)
+  resource         DownstreamResource      @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  scopes           WorkloadResourceScope[]
+
+  @@unique([workloadClientId, resourceId], map: "WorkloadResourceGrant_client_resource_key")
+  @@index([resourceId, enabled])
+}
+
+model WorkloadResourceScope {
+  grantId String
+  scopeId String
+  grant   WorkloadResourceGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  scope   Scope                 @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([grantId, scopeId])
+  @@index([scopeId])
+}
+
+model WorkloadAssertionReplay {
+  id               String         @id @default(cuid())
+  assertionHash    String         @unique
+  workloadClientId String
+  expiresAt        DateTime
+  createdAt        DateTime       @default(now())
+  client           WorkloadClient @relation(fields: [workloadClientId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([workloadClientId, createdAt], map: "WorkloadAssertionReplay_client_created_idx")
 }
 
 model AuditEvent {

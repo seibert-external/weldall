@@ -48,6 +48,52 @@ const idJagIssuedMetadata = z
 const idJagDeniedMetadata = z.object(idJagRequestedMetadata).strict();
 const idJagFailedMetadata = z.object(idJagRequestedMetadata).strict();
 
+const workloadClientMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128),
+    name: z.string().min(1).max(200),
+    enabled: z.boolean(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+const workloadKeyMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128),
+    kid: z.string().min(1).max(128),
+    thumbprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    notBefore: z.string().datetime(),
+    expiresAt: z.string().datetime().nullable(),
+    revokedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+const workloadGrantMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128),
+    resourceIdentifier: z.string().min(1).max(2_000),
+    beforeScopes: scopeArray,
+    afterScopes: scopeArray,
+    versionBefore: z.number().int().nonnegative(),
+    versionAfter: z.number().int().positive(),
+  })
+  .strict();
+const workloadTokenRequestedMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128).nullable(),
+    kid: z.string().min(1).max(128).nullable(),
+    audience: z.string().max(2_000).nullable(),
+    requestedScopes: scopeArray,
+  })
+  .strict();
+const workloadTokenIssuedMetadata = workloadTokenRequestedMetadata.extend({
+  clientId: z.string().min(1).max(128),
+  kid: z.string().min(1).max(128),
+  audience: z.string().min(1).max(2_000),
+  grantedScopes: scopeArray.min(1),
+  jti: z.string().min(1).max(128),
+  issuedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+});
+
 const userScopesMetadata = z
   .object({
     normalizedEmail: z.string().email().max(320),
@@ -185,6 +231,16 @@ const metadataSchemas = {
   "id_jag.issued": idJagIssuedMetadata,
   "id_jag.denied": idJagDeniedMetadata,
   "id_jag.failed": idJagFailedMetadata,
+  "workload_client.created": workloadClientMetadata,
+  "workload_client.updated": workloadClientMetadata,
+  "workload_client.deactivated": workloadClientMetadata,
+  "workload_key.registered": workloadKeyMetadata,
+  "workload_key.revoked": workloadKeyMetadata,
+  "workload_grants.replaced": workloadGrantMetadata,
+  "workload_grants.revoked": workloadGrantMetadata,
+  "workload_token.issued": workloadTokenIssuedMetadata,
+  "workload_token.denied": workloadTokenRequestedMetadata,
+  "workload_token.failed": workloadTokenRequestedMetadata,
   "user_scopes.created": userScopesMetadata,
   "user_scopes.replaced": userScopesMetadata,
   "user_scopes.deleted": userScopesMetadata,

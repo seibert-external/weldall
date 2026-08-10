@@ -71,6 +71,30 @@ export type AuthContext = {
   clientId: string;
 };
 
+export type WorkloadIdentity = {
+  type: "workload";
+  subject: string;
+  clientId: string;
+};
+export type WorkloadAuthContext = {
+  identity: WorkloadIdentity;
+  identityType: "workload";
+  subject: string;
+  clientId: string;
+  scopes: readonly string[];
+  tokenId: string;
+};
+
+export type WorkloadVerifierOptions = {
+  resource: string;
+  publicOrigin: string;
+  supportedScopes: readonly string[];
+  /** Target-local allowlist; a valid token alone never selects a trusted caller. */
+  allowedClientIds: readonly string[];
+  replayStore: ReplayStore;
+  discoveryTimeoutMs?: number;
+};
+
 export type VerifyResult =
   | { ok: true; auth: AuthContext }
   | {

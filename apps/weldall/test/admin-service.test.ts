@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@weldall/db";
+import { generateEs256KeyPair } from "@weldall/sdk";
 import {
   assertAdminCanBeRemoved,
   bootstrapAdmin,
@@ -25,6 +26,12 @@ import {
   type AdminActor,
 } from "../src/server/admin/service.js";
 import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/resources.js";
+import {
+  createWorkloadClient,
+  getWorkloadClient,
+  listWorkloadResourceOptions,
+  replaceWorkloadGrant,
+} from "../src/server/workloads/service.js";
 import { getVisibleSkill, listVisibleSkills } from "../src/server/skills/service.js";
 
 const runId = randomUUID().replaceAll("-", "");
@@ -103,6 +110,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.emailScopeAssignment.deleteMany({
     where: { normalizedEmail: { contains: runId } },
+  });
+  await db.workloadClient.deleteMany({
+    where: { clientId: { startsWith: namespace } },
   });
   await db.downstreamResource.deleteMany({
     where: { key: { startsWith: namespace } },
@@ -500,6 +510,106 @@ describe("admin scope service", () => {
         expect.objectContaining({ eventType: "resource_scopes.replaced" }),
       ]),
     );
+  });
+
+  it("requires explicit workload grant revocation before resource scope or resource removal", async () => {
+    const scope = await createScope(
+      { key: `${namespace}:workload`, description: "Workload lifecycle scope." },
+      primaryActor,
+    );
+    let resource = await createResource(
+      resourceInput("workload-lifecycle", scope.id),
+      primaryActor,
+    );
+    await expect(listWorkloadResourceOptions()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: resource.id,
+          scopes: [expect.objectContaining({ id: scope.id, key: scope.key })],
+        }),
+      ]),
+    );
+    const key = await generateEs256KeyPair();
+    const clientId = `${namespace}-workload-lifecycle`;
+    const workload = await createWorkloadClient(
+      {
+        clientId,
+        name: "Workload lifecycle test",
+        key: { kid: "current", publicJwk: key.publicJwk },
+        grants: [{ resourceId: resource.id, scopeIds: [scope.id] }],
+      },
+      primaryActor,
+    );
+
+    await expect(
+      updateResource(
+        {
+          id: resource.id,
+          name: resource.name,
+          authorizationServer: resource.authorizationServer,
+          downstreamClientId: resource.downstreamClientId,
+          enabled: true,
+          scopeIds: [],
+          requestPrefixes: resource.requestPrefixes,
+          expectedVersion: resource.version,
+        },
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      deleteResource({ id: resource.id, expectedVersion: resource.version }, primaryActor),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    // Simulate a pre-fix stale row and prove scope deletion reports a domain conflict,
+    // rather than surfacing the WorkloadResourceScope foreign-key error.
+    await db.resourceScope.delete({
+      where: { resourceId_scopeId: { resourceId: resource.id, scopeId: scope.id } },
+    });
+    await expect(
+      deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
+    ).rejects.toThrow("granted to workload");
+
+    // A disabled resource is hidden from new-grant options, but an existing grant must
+    // remain explicitly revocable without temporarily reopening token issuance.
+    resource = await updateResource(
+      {
+        id: resource.id,
+        name: resource.name,
+        authorizationServer: resource.authorizationServer,
+        downstreamClientId: resource.downstreamClientId,
+        enabled: false,
+        scopeIds: [scope.id],
+        requestPrefixes: resource.requestPrefixes,
+        expectedVersion: resource.version,
+      },
+      primaryActor,
+    );
+    await expect(listWorkloadResourceOptions()).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: resource.id })]),
+    );
+    const grant = workload.grants[0]!;
+    await replaceWorkloadGrant(
+      {
+        clientId: workload.id,
+        resourceId: resource.id,
+        scopeIds: [],
+        expectedVersion: grant.version,
+      },
+      primaryActor,
+    );
+    await expect(getWorkloadClient(workload.id)).resolves.toMatchObject({
+      grants: [expect.objectContaining({ enabled: false, scopeIds: [] })],
+    });
+
+    await expect(
+      deleteResource({ id: resource.id, expectedVersion: resource.version }, primaryActor),
+    ).resolves.toEqual({ id: resource.id });
+    await expect(
+      deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
+    ).resolves.toMatchObject({ id: scope.id });
   });
 
   it("deletes a resource and its discovered catalog with an audit event", async () => {

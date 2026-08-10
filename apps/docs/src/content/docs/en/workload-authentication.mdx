@@ -1,0 +1,73 @@
+---
+title: Workload authentication
+description: Let one backend call another with a stable, key-authenticated Weldall identity.
+sidebar:
+  label: Workload authentication
+---
+
+Weldall supports OAuth 2.0 client credentials for backend workloads. A workload authenticates as itself with RFC 7523 `private_key_jwt`; it does not log in a person or reuse the public `weldall-cli` client. Weldall returns a five-minute JWT for exactly one registered resource and only explicitly granted scopes.
+
+## Register Expenses A
+
+1. Create the scopes and register Expenses B under **Resources**.
+2. Generate an ES256 P-256 key in your workload secret system. Keep the private JWK there.
+3. Open **Workload clients**, select **Register workload**, and enter `expenses-a`, the public JWK, and a unique `kid`.
+4. Add an explicit grant for Expenses B and select only the required scopes.
+
+Registering a workload, resource, or supported scope alone grants no access. Weldall rejects private JWKs and does not support client secrets or remote client JWKS URLs.
+
+## Request a token
+
+The SDK creates the short-lived assertion and matching DPoP proof:
+
+```ts
+import { requestWorkloadToken } from "@weldall/sdk";
+
+const token = await requestWorkloadToken({
+  issuer: "https://weldall.example.com",
+  clientId: "expenses-a",
+  resource: "https://expenses-b.example.com/api",
+  scopes: ["expenses-b:read"],
+  kid: process.env.WORKLOAD_KEY_ID!,
+  key: loadKeyFromSecretStore(),
+});
+```
+
+Private keys must come from a secret store, KMS, or platform credential facility. Never put one in Weldall, application manifests, source control, or logs. The response contains no refresh token.
+
+## Protect Expenses B
+
+```ts
+import { inMemory } from "@weldall/sdk";
+import { initWorkloadAuth, type WorkloadVariables } from "@weldall/sdk/hono";
+import { Hono } from "hono";
+
+const workloads = initWorkloadAuth("https://weldall.example.com", {
+  resource: "https://expenses-b.example.com/api",
+  publicOrigin: "https://expenses-b.example.com",
+  supportedScopes: ["expenses-b:read"],
+  allowedClientIds: ["expenses-a"],
+  replayStore: inMemory(), // use a shared atomic store in a scaled deployment
+});
+
+const app = new Hono<{ Variables: WorkloadVariables }>();
+app.get("/api/expenses", workloads.protectWorkload({ scopes: ["expenses-b:read"] }), (context) =>
+  context.json({ caller: workloads.getWorkloadAuth(context).clientId }),
+);
+```
+
+For each request, create a fresh DPoP proof with the workload key and access-token hash. The verifier checks Weldall issuer and pinned JWKS, the exact single audience, five-minute expiry, `workload:<client_id>` subject, workload token/type markers, target allowlist, scopes, key binding, HTTP method/URL/token hash, and proof replay.
+
+Workload tokens use protected `typ=weldall-workload+jwt` and signed `identity_type=workload` / `token_type=workload`. They contain no user email and cannot be accepted by the user-token verifier. Client credentials never impersonate a user.
+
+## Rotate or revoke
+
+Register the new public key before deploying its private counterpart, allow both keys during rollout, then revoke the old key. You can also expire a key, deactivate the client, or revoke its resource grant. These actions stop new issuance immediately. Existing tokens expire within five minutes.
+
+Lifecycle, issuance, and rejection events are visible under **Audit logs** without assertions, tokens, proofs, private material, or public-key coordinates.
+
+## Security and future flows
+
+Remote workload JWKS URLs are deliberately unsupported, avoiding a client-metadata SSRF path. In a horizontally scaled target, `ReplayStore.consume` must be backed by a shared atomic database/cache; the process-local `inMemory()` store is for development only.
+
+Weldall issues workload tokens directly for the MVP. The interactive user flow remains brokered through ID-JAG and resource-local tokens. Workload federation, self-service registration, brokered workload assertions, and explicit RFC 8693 delegated-user token exchange are compatible later extensions, but are not part of client credentials.

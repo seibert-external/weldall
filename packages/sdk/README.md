@@ -85,6 +85,27 @@ const result = await weldall.verifyNoThrow(request);
 
 `verify` throws `WeldallAuthError`. `verifyNoThrow` returns either `{ ok: true, auth }` or `{ ok: false, error, response }`.
 
+## Workload-to-workload requests
+
+Workloads use a separate identity and verifier; user `AuthContext` remains unchanged. Request a direct, five-minute Weldall token with an ES256 private key loaded from a secret store:
+
+```ts
+const token = await requestWorkloadToken({
+  issuer: "https://weldall.example.com",
+  clientId: "expenses-a",
+  resource: "https://expenses-b.example.com/api",
+  scopes: ["expenses-b:read"],
+  kid: process.env.WORKLOAD_KEY_ID!,
+  key: loadWorkloadKey(),
+});
+```
+
+Targets use `initWorkloadVerifier` from the root package, or `initWorkloadAuth` / `protectWorkload` / `getWorkloadAuth` from `@weldall/sdk/hono`. Configuration requires an exact resource, supported scopes, an explicit caller allowlist, and an atomic `ReplayStore`. Workload verification refuses `"disabled"` replay protection. Use a shared replay store when the target has more than one process.
+
+The SDK validates protected `typ=weldall-workload+jwt`, exact Weldall issuer and single audience, `workload:<client_id>` subject, `client_id`/`azp`, workload discriminators, five-minute lifetime, scopes, `cnf.jkt`, and a fresh DPoP proof containing the request method, URL, access-token hash, and matching key. User access tokens and ID-JAGs cannot pass this verifier.
+
+Private keys are never registration data. Keep them out of Weldall, manifests, repositories, examples, errors, and logs. Rotate by overlapping registered public keys and then revoking the old key. Client/grant/key revocation blocks new issuance immediately; an already-issued token can remain valid until its five-minute expiry.
+
 ## Publish skills
 
 Skills live with the API they describe. Configure static items or load them from a local source:
