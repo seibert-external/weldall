@@ -410,7 +410,7 @@ Die Antwort ist gleichzeitig die Resource Registry der CLI:
 ]
 ```
 
-Resource-Definitionen, Präfixe und unterstützte Scopes stammen aus der Downstream-Registry in PostgreSQL. `grantedScopes` wird unabhängig davon ausschließlich aus den versionierten Benutzer-Assignments abgeleitet. Jede aktive Resource wird ausgegeben; System-Scopes wie `weldall:administer` können keiner Downstream-Resource zugeordnet werden.
+Resource-Definitionen, Präfixe und unterstützte Scopes stammen aus der Downstream-Registry in PostgreSQL. `grantedScopes` wird unabhängig davon aus direkten E-Mail-Assignments und live aufgelösten Provider-Gruppen abgeleitet. Jede aktive Resource wird ausgegeben; auch geschützte System-Scopes wie `weldall:administer` können als unterstützte Scopes konfiguriert werden. Provider-Fehler, Deaktivierung, Versionsänderungen oder entfernte Mitgliedschaften entziehen gruppenbasierte Scopes fail-closed, während unabhängige direkte Grants erhalten bleiben.
 
 ## 6. `weldall request`
 

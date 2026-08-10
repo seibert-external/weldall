@@ -160,7 +160,7 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
     );
   }
 
-  const scopes = (scopesQuery.data ?? []).filter((scope) => !scope.isSystem);
+  const scopes = scopesQuery.data ?? [];
   const loadError =
     (isNew ? (providersQuery.error ?? assignedGroupIdsQuery.error ?? groupSearchError) : null) ??
     scopesQuery.error ??

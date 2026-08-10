@@ -24,6 +24,7 @@ import {
   updateSkill,
   type AdminActor,
 } from "../src/server/admin/service.js";
+import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/resources.js";
 import { getVisibleSkill, listVisibleSkills } from "../src/server/skills/service.js";
 
 const runId = randomUUID().replaceAll("-", "");
@@ -380,23 +381,61 @@ describe("admin scope service", () => {
         primaryActor,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
-    for (const [index, systemScope] of systemScopes.entries()) {
-      await expect(
-        createResource(
-          {
-            key: `${namespace}-system-${index}`,
-            name: "System scope resource",
-            resourceIdentifier: `https://system-${index}.example/resource`,
-            authorizationServer: `https://system-${index}.example`,
-            downstreamClientId: `system-client-${index}`,
-            enabled: true,
-            scopeIds: [systemScope.id],
-            requestPrefixes: [`https://system-${index}.example/api`],
-          },
-          primaryActor,
-        ),
-      ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
-    }
+    const systemOrigin = `https://${namespace}-system.example`;
+    let systemResource = await createResource(
+      {
+        key: `${namespace}-system`,
+        name: "System scope resource",
+        resourceIdentifier: `${systemOrigin}/resource`,
+        authorizationServer: systemOrigin,
+        downstreamClientId: "system-client",
+        enabled: true,
+        scopeIds: [systemScopes[0]!.id],
+        requestPrefixes: [`${systemOrigin}/api`],
+      },
+      primaryActor,
+    );
+    expect(systemResource.scopeKeys).toEqual(["weldall:administer"]);
+    await expect(resourceRegistryFor(primaryEmail)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: systemResource.key,
+          supportedScopes: ["weldall:administer"],
+          grantedScopes: ["weldall:administer"],
+        }),
+      ]),
+    );
+    await expect(
+      exchangePolicyFor({
+        email: primaryEmail,
+        resourceIdentifier: systemResource.resourceIdentifier,
+        authorizationServer: systemResource.authorizationServer,
+      }),
+    ).resolves.toMatchObject({
+      supportedScopes: ["weldall:administer"],
+      grantedScopes: ["weldall:administer"],
+    });
+    systemResource = await updateResource(
+      {
+        id: systemResource.id,
+        name: systemResource.name,
+        authorizationServer: systemResource.authorizationServer,
+        downstreamClientId: systemResource.downstreamClientId,
+        enabled: true,
+        scopeIds: [systemScopes[1]!.id],
+        requestPrefixes: systemResource.requestPrefixes,
+        expectedVersion: systemResource.version,
+      },
+      primaryActor,
+    );
+    expect(systemResource).toMatchObject({ version: 2, scopeKeys: ["weldall:login"] });
+    await expect(
+      exchangePolicyFor({
+        email: primaryEmail,
+        resourceIdentifier: systemResource.resourceIdentifier,
+        authorizationServer: systemResource.authorizationServer,
+      }),
+    ).resolves.toMatchObject({ supportedScopes: ["weldall:login"], grantedScopes: [] });
     await expect(
       createResource(
         {
@@ -658,11 +697,15 @@ describe("admin scope service", () => {
         slug: `${namespace}.public`,
         title: "Public test skill",
         content: "Use `weldall request --scope expenses:read https://example.com/data`.",
-        requiredScopes: ["expenses:read"],
+        requiredScopes: ["expenses:read", "weldall:administer"],
         visibility: "DEFAULT",
       },
       primaryActor,
     );
+    expect(publicSkill).toMatchObject({
+      requiredScopes: ["expenses:read", "weldall:administer"],
+      scopeWarnings: [],
+    });
     const hiddenSkill = await createSkill(
       {
         slug: `${namespace}.hidden`,
@@ -698,6 +741,12 @@ describe("admin scope service", () => {
       slug: hiddenSkill.slug,
       available: true,
       document: expect.stringContaining("requiredScopes:"),
+    });
+    await expect(getVisibleSkill(primaryEmail, publicSkill.slug)).resolves.toMatchObject({
+      slug: publicSkill.slug,
+      requiredScopes: ["expenses:read", "weldall:administer"],
+      available: true,
+      missingScopes: [],
     });
 
     const updated = await updateSkill(

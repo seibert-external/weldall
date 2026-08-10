@@ -1,11 +1,13 @@
 import { db, Prisma } from "@weldall/db";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
-import { normalizeEmail } from "../admin/service";
+import { z } from "zod";
 import { decryptProviderToken } from "../group-providers/credentials";
 import { createGroupProviderAdapter } from "../group-providers/registry";
 import { scopeKeySchema, type ScopeKey } from "./scope-key";
+import { isProtectedSystemScope } from "./system-scopes";
 
 const sortedUnique = <T extends string>(values: T[]): T[] => [...new Set(values)].sort();
+const emailSchema = z.string().trim().toLowerCase().email().max(320);
 
 interface ResolvedProviderMembership {
   providerId: string;
@@ -14,11 +16,35 @@ interface ResolvedProviderMembership {
 }
 
 export async function effectiveScopesFor(email: string): Promise<ScopeKey[]> {
-  const normalizedEmail = normalizeEmail(email);
+  const normalizedEmail = normalizePolicyEmail(email);
   const memberships = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction((tx) => loadEffectiveScopes(tx, normalizedEmail, memberships), {
     isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
   });
+}
+
+export async function hasEffectiveSystemScopeFor(
+  email: string,
+  scopeKey: string,
+): Promise<boolean> {
+  const normalizedEmail = normalizePolicyEmail(email);
+  const memberships = await resolveProviderMemberships(normalizedEmail);
+  return db.$transaction(
+    async (tx) => {
+      const [scope, effectiveScopes] = await Promise.all([
+        tx.scope.findUnique({
+          where: { key: scopeKey },
+          select: { key: true, isSystem: true },
+        }),
+        loadEffectiveScopes(tx, normalizedEmail, memberships),
+      ]);
+      return (
+        isProtectedSystemScope(scope, scopeKey) &&
+        effectiveScopes.some((effectiveScope) => effectiveScope === scopeKey)
+      );
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
 }
 
 export async function assignedScopesFor(email: string): Promise<ScopeKey[]> {
@@ -26,7 +52,7 @@ export async function assignedScopesFor(email: string): Promise<ScopeKey[]> {
 }
 
 export async function resourceRegistryFor(email: string): Promise<ResourceRegistryEntry[]> {
-  const normalizedEmail = normalizeEmail(email);
+  const normalizedEmail = normalizePolicyEmail(email);
   const memberships = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction(
     async (tx) => {
@@ -62,24 +88,66 @@ export async function resourceRegistryFor(email: string): Promise<ResourceRegist
   );
 }
 
-export async function exchangePolicyFor(input: {
-  email: string;
-  resourceIdentifier: string;
-  authorizationServer: string;
-}): Promise<{
+export interface ExchangePolicy {
   resourceIdentifier: string;
   authorizationServer: string;
   downstreamClientId: string;
   supportedScopes: string[];
   grantedScopes: string[];
-} | null> {
-  const normalizedEmail = normalizeEmail(input.email);
-  // Remote membership resolution happens first. Current grants, provider versions, and
-  // resource support are then read together so changes committed during the HTTP calls win.
+}
+
+interface ExchangePolicyInput {
+  email: string;
+  resourceIdentifier: string;
+  authorizationServer: string;
+}
+
+export async function exchangePolicyFor(
+  input: ExchangePolicyInput,
+): Promise<ExchangePolicy | null> {
+  return (await loadExchangePolicy(input, { kind: "resource" })).policy;
+}
+
+export type SystemScopeRequiredExchange =
+  { authorized: false } | { authorized: true; policy: ExchangePolicy | null };
+
+export async function exchangePolicyRequiringSystemScopeFor(
+  input: ExchangePolicyInput & { requiredSystemScope: string },
+): Promise<SystemScopeRequiredExchange> {
+  const result = await loadExchangePolicy(input, {
+    kind: "required-system-scope",
+    scopeKey: input.requiredSystemScope,
+  });
+  return result.authorized ? { authorized: true, policy: result.policy } : { authorized: false };
+}
+
+type ExchangePolicyRequirement =
+  { kind: "resource" } | { kind: "required-system-scope"; scopeKey: string };
+
+type LoadedExchangePolicy =
+  | { kind: "resource"; policy: ExchangePolicy | null }
+  | { kind: "required-system-scope"; authorized: boolean; policy: ExchangePolicy | null };
+
+async function loadExchangePolicy(
+  input: ExchangePolicyInput,
+  requirement: { kind: "resource" },
+): Promise<Extract<LoadedExchangePolicy, { kind: "resource" }>>;
+async function loadExchangePolicy(
+  input: ExchangePolicyInput,
+  requirement: { kind: "required-system-scope"; scopeKey: string },
+): Promise<Extract<LoadedExchangePolicy, { kind: "required-system-scope" }>>;
+async function loadExchangePolicy(
+  input: ExchangePolicyInput,
+  requirement: ExchangePolicyRequirement,
+): Promise<LoadedExchangePolicy> {
+  const normalizedEmail = normalizePolicyEmail(input.email);
+  // Remote membership resolution happens first. Current grants, provider versions, system-scope
+  // metadata, and resource support are then read together so changes committed during the HTTP
+  // calls win without resolving a provider twice for one exchange.
   const memberships = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction(
     async (tx) => {
-      const [resource, effectiveScopes] = await Promise.all([
+      const [resource, effectiveScopes, requiredScope] = await Promise.all([
         tx.downstreamResource.findFirst({
           where: {
             enabled: true,
@@ -89,22 +157,47 @@ export async function exchangePolicyFor(input: {
           include: { scopes: { include: { scope: { select: { key: true } } } } },
         }),
         loadEffectiveScopes(tx, normalizedEmail, memberships),
+        requirement.kind === "required-system-scope"
+          ? tx.scope.findUnique({
+              where: { key: requirement.scopeKey },
+              select: { key: true, isSystem: true },
+            })
+          : Promise.resolve(null),
       ]);
-      if (!resource) return null;
-      const granted = new Set<string>(effectiveScopes);
-      const supportedScopes = sortedUnique(
-        resource.scopes.map(({ scope }) => scopeKeySchema.parse(scope.key)),
-      );
+      const effective = new Set<string>(effectiveScopes);
+      const policy = resource ? exchangePolicy(resource, effective) : null;
+      if (requirement.kind === "resource") return { kind: requirement.kind, policy };
       return {
-        resourceIdentifier: resource.resourceIdentifier,
-        authorizationServer: resource.authorizationServer,
-        downstreamClientId: resource.downstreamClientId,
-        supportedScopes,
-        grantedScopes: supportedScopes.filter((scope) => granted.has(scope)),
+        kind: requirement.kind,
+        authorized:
+          isProtectedSystemScope(requiredScope, requirement.scopeKey) &&
+          effective.has(requirement.scopeKey),
+        policy,
       };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
+}
+
+function exchangePolicy(
+  resource: {
+    resourceIdentifier: string;
+    authorizationServer: string;
+    downstreamClientId: string;
+    scopes: { scope: { key: string } }[];
+  },
+  effectiveScopes: ReadonlySet<string>,
+): ExchangePolicy {
+  const supportedScopes = sortedUnique(
+    resource.scopes.map(({ scope }) => scopeKeySchema.parse(scope.key)),
+  );
+  return {
+    resourceIdentifier: resource.resourceIdentifier,
+    authorizationServer: resource.authorizationServer,
+    downstreamClientId: resource.downstreamClientId,
+    supportedScopes,
+    grantedScopes: supportedScopes.filter((scope) => effectiveScopes.has(scope)),
+  };
 }
 
 async function resolveProviderMemberships(
@@ -138,14 +231,14 @@ async function resolveProviderMemberships(
       });
       const summary = await adapter.findUserByEmail(normalizedEmail);
       if (!summary) continue;
-      if (!summary.active || normalizeEmail(summary.email) !== normalizedEmail) {
+      if (!summary.active || normalizePolicyEmail(summary.email) !== normalizedEmail) {
         throw new Error("invalid_summary_identity");
       }
       const detail = await adapter.getUser(summary.id);
       if (
         !detail.active ||
         detail.id !== summary.id ||
-        normalizeEmail(detail.email) !== normalizedEmail
+        normalizePolicyEmail(detail.email) !== normalizedEmail
       ) {
         throw new Error("invalid_detail_identity");
       }
@@ -194,6 +287,12 @@ async function loadEffectiveScopes(
   return sortedUnique(
     [...directGrants, ...groupGrants].map(({ scope }) => scopeKeySchema.parse(scope.key)),
   );
+}
+
+function normalizePolicyEmail(email: string): string {
+  const parsed = emailSchema.safeParse(email);
+  if (!parsed.success) throw new TypeError("Enter a valid email address.");
+  return parsed.data;
 }
 
 function providerFailureCategory(error: unknown): string {

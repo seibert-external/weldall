@@ -40,6 +40,13 @@ const fetchCatalog = vi.fn(async (input: string | URL | Request, init?: RequestI
           content: "# Review catalog test data",
         },
         {
+          id: "system-scope",
+          title: "System scope test",
+          requiredScopes: ["weldall:administer"],
+          visibility: "DEFAULT",
+          content: "# System scope test",
+        },
+        {
           id: "unknown-scope",
           title: "Unknown scope test",
           requiredScopes: ["catalogtest:unknown"],
@@ -110,6 +117,7 @@ describe("persisted skill catalog refresh", () => {
     });
     expect(catalog.skills.map((skill) => skill.canonicalId)).toEqual([
       `${key}.review`,
+      `${key}.system-scope`,
       `${key}.unknown-scope`,
     ]);
 
@@ -118,8 +126,12 @@ describe("persisted skill catalog refresh", () => {
       readOnly: true,
       scopeWarnings: ["Unknown scope: catalogtest:unknown"],
     });
+    expect(admin.items.find((skill) => skill.slug.endsWith("system-scope"))).toMatchObject({
+      requiredScopes: ["weldall:administer"],
+      scopeWarnings: [],
+    });
     await expect(listSkills({ page: 1, pageSize: 20, source: resource.id })).resolves.toMatchObject(
-      { total: 2 },
+      { total: 3 },
     );
     await expect(
       listSkills({ page: 1, pageSize: 20, q: key, source: "manual" }),
@@ -130,7 +142,17 @@ describe("persisted skill catalog refresh", () => {
     });
     const visible = await listVisibleSkills(`${id}@example.com`);
     expect(visible.items.some((skill) => skill.slug === `${key}.review`)).toBe(true);
+    expect(visible.items.find((skill) => skill.slug === `${key}.system-scope`)).toMatchObject({
+      available: false,
+      missingScopes: ["weldall:administer"],
+    });
     expect(visible.items.some((skill) => skill.slug === `${key}.unknown-scope`)).toBe(false);
+    await expect(getVisibleSkill(adminEmail, `${key}.system-scope`)).resolves.toMatchObject({
+      requiredScopes: ["weldall:administer"],
+      available: true,
+      missingScopes: [],
+    });
+    await expect(getVisibleSkill(adminEmail, `${key}.unknown-scope`)).resolves.toBeNull();
   });
 
   it("immediately refreshes one resource even when its catalog is not due", async () => {
@@ -190,7 +212,7 @@ describe("persisted skill catalog refresh", () => {
       include: { skills: true },
     });
     expect(catalog.lastFailureCategory).toBe("metadata_unavailable");
-    expect(catalog.skills).toHaveLength(2);
+    expect(catalog.skills).toHaveLength(3);
     const nonAdminView = await listVisibleSkills(`${id}-non-admin@example.com`);
     expect(nonAdminView.warnings).toEqual([]);
     const adminView = await listVisibleSkills(adminEmail);

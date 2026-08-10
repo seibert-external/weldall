@@ -6,7 +6,7 @@ Draft for review.
 
 ## Summary
 
-Weldall currently grants scopes through direct email assignments. Add a second assignment type that maps groups from administrator-configured group providers to scopes.
+Weldall grants scopes through direct email assignments and through groups from administrator-configured group providers.
 
 Effective scopes are the union of direct email scopes and scopes from matching provider groups:
 
@@ -35,7 +35,6 @@ The first provider implementation consumes a fixed HTTP JSON contract. Core poli
 - Direct LDAP connectivity.
 - Runtime installation or upload of provider plugins.
 - Arbitrary request paths, authentication schemes, or custom headers.
-- Group-controlled Weldall administration.
 - Deny rules or assignment precedence.
 - Recursive traversal of nested groups.
 - External-member support.
@@ -52,7 +51,7 @@ EmailScopeAssignment -> EmailScopeGrant -> Scope
 
 They support normalized emails, optimistic versions, complete scope replacement, audit events, scope-deletion handling, and final-administrator protection. This model remains intact rather than being migrated into a polymorphic assignment table.
 
-Administrator authorization remains based on a verified Weldall user with a direct email grant for `weldall:administer`.
+Administrator authorization remains based on a verified Weldall user with an effective `weldall:administer` scope. The scope may be direct or group-derived; group-derived authorization is resolved live and fails closed on provider failure, disablement, version change, or membership removal.
 
 ## Provider abstraction
 
@@ -236,33 +235,33 @@ Add the following Prisma models and matching SQL constraints.
 
 ### `GroupProvider`
 
-| Field | Purpose |
-| --- | --- |
-| `id` | CUID primary key |
-| `key` | Immutable, unique administrator-facing identifier |
-| `name` | Display name |
-| `adapterType` | Initially `management-api-v1` |
-| `baseUrl` | Normalized HTTPS origin |
-| `encryptedToken` | Versioned encrypted credential envelope |
-| `encryptionKeyVersion` | Key version used for rotation/migration |
-| `enabled` | Disabled providers contribute no scopes |
-| `version` | Optimistic concurrency version |
-| `createdAt`, `updatedAt` | Timestamps |
-| `createdBy`, `updatedBy` | Actor identifiers |
+| Field                    | Purpose                                           |
+| ------------------------ | ------------------------------------------------- |
+| `id`                     | CUID primary key                                  |
+| `key`                    | Immutable, unique administrator-facing identifier |
+| `name`                   | Display name                                      |
+| `adapterType`            | Initially `management-api-v1`                     |
+| `baseUrl`                | Normalized HTTPS origin                           |
+| `encryptedToken`         | Versioned encrypted credential envelope           |
+| `encryptionKeyVersion`   | Key version used for rotation/migration           |
+| `enabled`                | Disabled providers contribute no scopes           |
+| `version`                | Optimistic concurrency version                    |
+| `createdAt`, `updatedAt` | Timestamps                                        |
+| `createdBy`, `updatedBy` | Actor identifiers                                 |
 
 The token is write-only and is never included in DTOs.
 
 ### `GroupScopeAssignment`
 
-| Field | Purpose |
-| --- | --- |
-| `id` | CUID primary key |
-| `providerId` | Owning provider |
-| `groupId` | Opaque provider group ID |
-| `groupName` | Display snapshot from the provider |
-| `version` | Optimistic concurrency version |
-| `createdAt`, `updatedAt` | Timestamps |
-| `createdBy`, `updatedBy` | Actor identifiers |
+| Field                    | Purpose                            |
+| ------------------------ | ---------------------------------- |
+| `id`                     | CUID primary key                   |
+| `providerId`             | Owning provider                    |
+| `groupId`                | Opaque provider group ID           |
+| `groupName`              | Display snapshot from the provider |
+| `version`                | Optimistic concurrency version     |
+| `createdAt`, `updatedAt` | Timestamps                         |
+| `createdBy`, `updatedBy` | Actor identifiers                  |
 
 Constraint: `UNIQUE(providerId, groupId)`.
 
@@ -270,13 +269,13 @@ One row represents one provider group. Selecting multiple groups creates multipl
 
 ### `GroupScopeGrant`
 
-| Field | Purpose |
-| --- | --- |
-| `id` | CUID primary key |
+| Field          | Purpose          |
+| -------------- | ---------------- |
+| `id`           | CUID primary key |
 | `assignmentId` | Group assignment |
-| `scopeId` | Granted scope |
-| `createdAt` | Timestamp |
-| `createdBy` | Actor identifier |
+| `scopeId`      | Granted scope    |
+| `createdAt`    | Timestamp        |
+| `createdBy`    | Actor identifier |
 
 Constraint: `UNIQUE(assignmentId, scopeId)`.
 
@@ -298,7 +297,7 @@ const scopeKeySchema = z
   .regex(/^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/)
   .transform((value): ScopeKey => value as ScopeKey);
 
-async function effectiveScopesFor(email: string): Promise<ScopeKey[]>
+async function effectiveScopesFor(email: string): Promise<ScopeKey[]>;
 ```
 
 Database values and API inputs must pass through `scopeKeySchema` before becoming `ScopeKey`; application code must not use unchecked casts outside the schema module.
@@ -315,8 +314,8 @@ Rules:
 - A disabled provider contributes no scopes.
 - A failed provider lookup contributes no scopes.
 - Failures from one provider do not suppress grants from another provider.
-- Group assignments cannot include system scopes.
-- In particular, `weldall:administer` can only be granted directly by email.
+- Group assignments may include registered protected system scopes; protection is based on Scope `isSystem` metadata and the fixed system-scope constants, never a key-prefix guess.
+- Group-derived `weldall:login` and `weldall:administer` are effective on the same authorization paths as direct grants.
 - Resource-specific policy continues intersecting effective scopes with the resource's supported scopes.
 - There are no deny assignments or precedence rules.
 
@@ -337,18 +336,18 @@ The authorization cost is bounded to two HTTP requests per enabled provider with
 
 ## Failure behavior
 
-| Condition | Result |
-| --- | --- |
-| Provider disabled | No scopes from that provider |
-| Group assignment deleted | No scopes from that assignment on the next DB read |
-| Email lookup returns no user | No scopes from that provider |
-| Email lookup returns multiple users | No scopes from that provider; log an ambiguity |
-| Summary/detail identity mismatch | No scopes from that provider |
-| Provider timeout or transport failure | No scopes from that provider |
-| Invalid JSON or relevant-field contract violation | No scopes from that provider |
-| User inactive | No scopes from that provider |
-| Direct email assignment exists | Direct scopes remain effective |
-| Another provider succeeds | Its scopes remain effective |
+| Condition                                         | Result                                             |
+| ------------------------------------------------- | -------------------------------------------------- |
+| Provider disabled                                 | No scopes from that provider                       |
+| Group assignment deleted                          | No scopes from that assignment on the next DB read |
+| Email lookup returns no user                      | No scopes from that provider                       |
+| Email lookup returns multiple users               | No scopes from that provider; log an ambiguity     |
+| Summary/detail identity mismatch                  | No scopes from that provider                       |
+| Provider timeout or transport failure             | No scopes from that provider                       |
+| Invalid JSON or relevant-field contract violation | No scopes from that provider                       |
+| User inactive                                     | No scopes from that provider                       |
+| Direct email assignment exists                    | Direct scopes remain effective                     |
+| Another provider succeeds                         | Its scopes remain effective                        |
 
 Errors returned to clients remain generic. Server logs include provider and group identifiers, status/error category, and request duration, but never credentials or raw response bodies.
 
@@ -412,7 +411,6 @@ Deletion fails with `CONFLICT` while group assignments reference the provider. D
 - Provider exists and is enabled.
 - Group IDs exist in the provider's current group list.
 - Scopes exist.
-- No selected scope is a system scope.
 - No provider/group assignment already exists.
 - Input limits are respected.
 
@@ -453,7 +451,7 @@ Group-assignment creation uses one TanStack Form:
 1. Select a provider.
 2. Search and select one group through a single debounced Typeahead backed by `admin.groupProviders.searchGroups` and TanStack Query.
 3. Validate the selected group against `admin.groupAssignments.assignedGroupIds`. If it already has an assignment, show an inline validation error explaining that the existing assignment must be edited instead.
-4. Select scopes; system scopes are absent from options.
+4. Select scopes, including protected system scopes when required.
 5. Save the assignment.
 
 The batch-capable service API remains available, but the administration UI intentionally creates one group assignment at a time.
@@ -505,7 +503,7 @@ Authorization lookup failures should produce structured sanitized server logs. T
 - Batch group assignment creation and rollback.
 - Unknown provider/group/scope rejection.
 - Duplicate assignment conflict.
-- System-scope rejection.
+- System-scope create and replacement with complete audit metadata.
 - Scope deletion versioning and auditing for group assignments.
 
 ### Policy tests
@@ -519,7 +517,7 @@ Authorization lookup failures should produce structured sanitized server logs. T
 - Every new ID-JAG decision performs a fresh provider lookup.
 - Resource-scope intersection remains enforced.
 - Skills use the same effective scopes as token exchange and resource discovery.
-- Group assignments cannot grant administration.
+- Group-derived administration succeeds while live membership is valid and fails closed after revocation or provider failure.
 
 ### tRPC and browser tests
 
@@ -568,7 +566,7 @@ Authorization lookup failures should produce structured sanitized server logs. T
 - An active provider user receives the sorted union of direct and matching group scopes in resource discovery, token exchange, `/api/me/grants`, `/api/me/scopes`, and skill visibility.
 - Removing effective group membership stops group-derived grants on the next ID-JAG decision; an already-issued access token remains valid for its existing ten-minute lifetime.
 - Provider outages or malformed responses never create provider-derived grants, while direct grants remain effective.
-- Group assignments cannot grant `weldall:administer` or any other system scope.
+- Group assignments can grant registered protected system scopes, including `weldall:administer` and `weldall:login`, with live fail-closed provider evaluation.
 - At least one verified direct-email administrator remains protected by existing final-admin logic.
 - Provider tokens are encrypted at rest and absent from API responses, logs, audits, and errors.
 - Provider requests accept any administrator-configured HTTPS origin while remaining limited to fixed contract paths, redirect refusal, and bounded requests.

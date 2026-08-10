@@ -140,7 +140,7 @@ The four body modes (`--data`, `--json`, `--upload-file`, and `--form`) are mutu
 
 Before sending a token or body, the CLI matches the URL's exact origin and path-segment prefix against one enabled Resource Registry entry, verifies that every requested scope is supported and granted, and rejects ambiguous or unregistered targets. It never follows redirects.
 
-The protected system scope `weldall:login` is a direct email assignment required for CLI authorization, CLI token refresh, and ID-JAG issuance. It does not gate browser UI login or browser sessions. It cannot be granted by groups or attached to downstream resources. Revocation blocks new CLI login, refresh, and ID-JAG issuance; already-issued CLI access tokens expire normally. The fixed public `weldall-cli` client also requires explicit approval for every native login. The CLI sends `prompt=consent`, the authorization route enforces that prompt server-side, and the client registration refuses to skip consent. A process with access to an existing browser session therefore cannot silently mint a new CLI session by omitting the prompt.
+The protected system scope `weldall:login` must be effective for CLI authorization, CLI token refresh, and ID-JAG issuance. It may be assigned directly to an email or through a provider group, and it does not gate browser UI login or browser sessions. Group-derived access is resolved live without a server-side provider or membership cache; provider failures, disabled providers, membership removal, and provider-version changes fail closed for group-derived scopes while independent direct grants remain effective. Revocation blocks new CLI login, refresh, and ID-JAG issuance; already-issued CLI access tokens expire normally. Protected system scopes are also available as downstream-resource supported scopes and as manual or resource-published skill requirements. Their protected metadata still prevents scope-definition changes and deletion. The fixed public `weldall-cli` client also requires explicit approval for every native login. The CLI sends `prompt=consent`, the authorization route enforces that prompt server-side, and the client registration refuses to skip consent. A process with access to an existing browser session therefore cannot silently mint a new CLI session by omitting the prompt.
 
 ## Local development
 
@@ -176,7 +176,7 @@ pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com
 pnpm build:dev
 ```
 
-The development seed includes the Expenses scopes and resource described below. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal direct email assignments. Rerunning bootstrap does not restore a revoked login scope.
+The development seed includes the Expenses scopes and resource described below. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
 
 Start long-running processes in two foreground terminals:
 
@@ -246,7 +246,7 @@ It also registers this **downstream resource**:
 
 The Expenses service publishes a local skill ID `review`; Weldall prefixes it with the resource key and exposes `expenses.review`.
 
-1. In `https://weldall.seibert.localdev/assignments`, edit Alice's bootstrapped assignment. Keep `weldall:administer` and add only `expenses:read` and `expenses:create`.
+1. In `https://weldall.seibert.localdev/assignments`, edit Alice's bootstrapped assignment. Keep `weldall:login` and `weldall:administer`, and add only `expenses:read` and `expenses:create`.
 2. Sign in and inspect the effective policy:
 
    ```sh

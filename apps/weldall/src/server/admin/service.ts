@@ -8,6 +8,7 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
+import { hasEffectiveSystemScopeFor } from "../policy/resources";
 import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
 
 export { ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY } from "@weldall/db";
@@ -184,15 +185,7 @@ export async function isAdminEmail(email: string): Promise<boolean> {
     return false;
   }
 
-  return Boolean(
-    await db.emailScopeGrant.findFirst({
-      where: {
-        assignment: { normalizedEmail },
-        scope: { key: ADMIN_SCOPE_KEY, isSystem: true },
-      },
-      select: { id: true },
-    }),
-  );
+  return hasEffectiveSystemScopeFor(normalizedEmail, ADMIN_SCOPE_KEY);
 }
 
 export async function requireAdminUser(userId: string): Promise<{
@@ -901,10 +894,10 @@ export async function listSkills(input: {
           include: { catalog: { include: { resource: true } } },
         })
       : Promise.resolve([]),
-    db.scope.findMany({ select: { key: true, isSystem: true } }),
+    db.scope.findMany({ select: { key: true } }),
     db.skill.findMany({ select: { slug: true } }),
   ]);
-  const scopeRegistry = new Map(scopes.map((scope) => [scope.key, scope.isSystem]));
+  const scopeRegistry = new Set(scopes.map((scope) => scope.key));
   const manualIds = new Set(manualSlugs.map((skill) => skill.slug));
   const items = [
     ...manual.map(serializeSkill),
@@ -933,7 +926,7 @@ export async function getSkill(id: string): Promise<SkillDto> {
       where: { id },
       include: { catalog: { include: { resource: true } } },
     }),
-    db.scope.findMany({ select: { key: true, isSystem: true } }),
+    db.scope.findMany({ select: { key: true } }),
   ]);
   if (manual) return serializeSkill(manual);
   if (!discovered) throw new AdminDomainError("NOT_FOUND", "Skill not found.");
@@ -945,7 +938,7 @@ export async function getSkill(id: string): Promise<SkillDto> {
   );
   return serializeDiscoveredSkill(
     discovered,
-    new Map(scopes.map((scope) => [scope.key, scope.isSystem])),
+    new Set(scopes.map((scope) => scope.key)),
     overridden,
   );
 }
@@ -1554,13 +1547,6 @@ async function validateResourceScopes(tx: Prisma.TransactionClient, scopeIds: st
       unknownScopeIds: scopeIds.filter((id) => !known.has(id)),
     });
   }
-  const system = scopes.find((scope) => scope.isSystem);
-  if (system) {
-    throw new AdminDomainError(
-      "SYSTEM_SCOPE",
-      `System scope ${system.key} cannot be assigned to a downstream resource.`,
-    );
-  }
   return scopes;
 }
 
@@ -1839,15 +1825,13 @@ function serializeDiscoveredSkill(
       };
     };
   },
-  scopeRegistry: ReadonlyMap<string, boolean>,
+  scopeRegistry: ReadonlySet<string>,
   overridden: boolean,
 ): SkillDto {
   const scopeWarnings = sortedUnique(
-    skill.requiredScopes.flatMap((scope) => {
-      const isSystem = scopeRegistry.get(scope);
-      if (isSystem === undefined) return [`Unknown scope: ${scope}`];
-      return isSystem ? [`Protected system scope: ${scope}`] : [];
-    }),
+    skill.requiredScopes.flatMap((scope) =>
+      scopeRegistry.has(scope) ? [] : [`Unknown scope: ${scope}`],
+    ),
   );
   const resource = skill.catalog.resource;
   const now = new Date();

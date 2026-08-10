@@ -9,6 +9,7 @@ import {
   deleteGroupProvider,
   getGroupAssignment,
   listAssignedProviderGroupIds,
+  replaceGroupAssignment,
   testGroupProvider,
   updateGroupProvider,
 } from "../src/server/group-providers/service.js";
@@ -169,33 +170,52 @@ describe("group provider administration and effective policy", () => {
     groupListGate = null;
     groupListStarted = null;
 
-    for (const systemScope of ["weldall:administer", "weldall:login"]) {
-      await expect(
-        createGroupAssignments(
-          { providerId: provider.id, groupIds: ["finance"], scopeKeys: [systemScope] },
-          actor,
-        ),
-      ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
-    }
-
-    const [assignment] = await createGroupAssignments(
+    let [assignment] = await createGroupAssignments(
       {
         providerId: provider.id,
         groupIds: ["finance"],
-        scopeKeys: ["expenses:create", "expenses:create"],
+        scopeKeys: ["expenses:create", "expenses:create", "weldall:administer", "weldall:login"],
       },
       actor,
     );
     expect(assignment).toMatchObject({
       groupId: "finance",
       groupName: "Finance",
-      scopes: ["expenses:create"],
+      scopes: ["expenses:create", "weldall:administer", "weldall:login"],
     });
-    await expect(getGroupAssignment(assignment!.id)).resolves.toMatchObject({
-      id: assignment!.id,
+    const createdAudit = await db.auditEvent.findFirstOrThrow({
+      where: { subjectId: assignment!.id, eventType: "group_scopes.created" },
+    });
+    expect(createdAudit.metadata).toMatchObject({
+      afterScopes: ["expenses:create", "weldall:administer", "weldall:login"],
+      addedScopes: ["expenses:create", "weldall:administer", "weldall:login"],
+    });
+    assignment = await replaceGroupAssignment(
+      {
+        id: assignment!.id,
+        scopeKeys: ["expenses:create", "expenses:delete", "weldall:administer", "weldall:login"],
+        expectedVersion: assignment!.version,
+      },
+      actor,
+    );
+    expect(assignment).toMatchObject({
+      version: 2,
+      scopes: ["expenses:create", "expenses:delete", "weldall:administer", "weldall:login"],
+    });
+    const replacedAudit = await db.auditEvent.findFirstOrThrow({
+      where: { subjectId: assignment.id, eventType: "group_scopes.replaced" },
+    });
+    expect(replacedAudit.metadata).toMatchObject({
+      addedScopes: ["expenses:delete"],
+      removedScopes: [],
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+    await expect(getGroupAssignment(assignment.id)).resolves.toMatchObject({
+      id: assignment.id,
       providerId: provider.id,
       groupId: "finance",
-      scopes: ["expenses:create"],
+      scopes: ["expenses:create", "expenses:delete", "weldall:administer", "weldall:login"],
     });
     await expect(getGroupAssignment("missing-assignment")).rejects.toMatchObject({
       code: "NOT_FOUND",
@@ -231,8 +251,20 @@ describe("group provider administration and effective policy", () => {
     );
 
     const beforeLookups = lookupCount;
-    await expect(effectiveScopesFor(email)).resolves.toEqual(["expenses:create", "expenses:read"]);
-    await expect(effectiveScopesFor(email)).resolves.toEqual(["expenses:create", "expenses:read"]);
+    await expect(effectiveScopesFor(email)).resolves.toEqual([
+      "expenses:create",
+      "expenses:delete",
+      "expenses:read",
+      "weldall:administer",
+      "weldall:login",
+    ]);
+    await expect(effectiveScopesFor(email)).resolves.toEqual([
+      "expenses:create",
+      "expenses:delete",
+      "expenses:read",
+      "weldall:administer",
+      "weldall:login",
+    ]);
     expect(lookupCount - beforeLookups).toBe(2);
 
     let releaseUserDetail!: () => void;
@@ -297,10 +329,7 @@ describe("group provider administration and effective policy", () => {
     );
     await expect(effectiveScopesFor(email)).resolves.toEqual(["expenses:read"]);
 
-    await deleteGroupAssignment(
-      { id: assignment!.id, expectedVersion: assignment!.version },
-      actor,
-    );
+    await deleteGroupAssignment({ id: assignment.id, expectedVersion: assignment.version }, actor);
     await deleteGroupProvider({ id: provider.id, expectedVersion: disabled.version }, actor);
   });
 });

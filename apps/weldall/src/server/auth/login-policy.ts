@@ -1,21 +1,13 @@
 import { APIError } from "better-auth/api";
 import { db, LOGIN_SCOPE_KEY } from "@weldall/db";
+import { hasEffectiveSystemScopeFor } from "../policy/resources";
 
 export const LOGIN_SCOPE_REQUIRED_DESCRIPTION =
   "the weldall:login scope must be assigned to your account";
 
 export async function hasLoginScopeForEmail(email: string): Promise<boolean> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return false;
-  return Boolean(
-    await db.emailScopeGrant.findFirst({
-      where: {
-        assignment: { normalizedEmail },
-        scope: { key: LOGIN_SCOPE_KEY, isSystem: true },
-      },
-      select: { id: true },
-    }),
-  );
+  if (!email.trim()) return false;
+  return hasEffectiveSystemScopeFor(email, LOGIN_SCOPE_KEY);
 }
 
 export async function hasLoginScopeForUserId(userId: string): Promise<boolean> {

@@ -155,9 +155,7 @@ export function SkillsTable() {
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               {scopes.map((scope) => {
                 const warning = row.original.scopeWarnings.find(
-                  (candidate) =>
-                    candidate === `Unknown scope: ${scope}` ||
-                    candidate === `Protected system scope: ${scope}`,
+                  (candidate) => candidate === `Unknown scope: ${scope}`,
                 );
                 return (
                   <HStack key={scope} gap={1} vAlign="center">
