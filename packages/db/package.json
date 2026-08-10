@@ -11,7 +11,6 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "generate": "prisma generate --schema prisma/schema.prisma",
@@ -19,7 +18,8 @@
     "reset:hard": "pnpm with-env tsx scripts/hard-reset.ts",
     "seed:production": "pnpm with-env tsx prisma/seed.ts",
     "seed:development": "pnpm seed:production && pnpm with-env tsx prisma/seed.dev.ts",
-    "with-env": "dotenv -e ../../.env --"
+    "with-env": "dotenv -e ../../.env --",
+    "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@prisma/client": "6.19.3"

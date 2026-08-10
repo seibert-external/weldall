@@ -6,8 +6,8 @@
     "dev": "astro dev",
     "build": "astro check && astro build",
     "preview": "astro preview",
-    "lint": "astro check",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "check": "astro check"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.4",

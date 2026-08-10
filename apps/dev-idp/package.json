@@ -8,9 +8,9 @@
     "dev": "pnpm with-env tsx src/index.ts",
     "start": "pnpm with-env node dist/index.js",
     "with-env": "dotenv -e ../../.env --",
-    "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",

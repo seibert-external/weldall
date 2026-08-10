@@ -33,7 +33,7 @@
       "dependsOn": ["^build", "@weldall/db#generate"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
-    "lint": { "dependsOn": ["^build", "@weldall/db#generate"] },
+    "check": { "dependsOn": ["^build", "@weldall/db#generate"] },
     "typecheck": { "dependsOn": ["^build", "@weldall/db#generate"] },
     "test": { "dependsOn": ["^build", "@weldall/db#generate"], "outputs": [] },
     "dev": {
