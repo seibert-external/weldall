@@ -69,12 +69,15 @@ Weldall's upstream login handling.
 
 ## Remaining production limitations
 
-The prototype replay stores are process-local. Restarting a service clears replay
-state, and multiple instances do not share it. The SDK store caps live entries at
-10,000 and fails closed with HTTP 503 at capacity; the patched provider store has
-expiry-based cleanup but no fixed entry cap. This is an explicitly accepted
-prototype limitation; horizontal scaling still requires an atomic shared store
-plus multi-instance and restart tests.
+The prototype ID-JAG and resource-server replay stores are process-local.
+Restarting a service clears replay state, and multiple instances do not share it.
+The SDK store caps live entries at 10,000 and fails closed with HTTP 503 at
+capacity; the patched provider store has expiry-based cleanup but no fixed entry
+cap. Workload token issuance uses database-backed replay protection, but
+workload target verification still needs a shared atomic SDK `ReplayStore` in
+scaled deployments. This is an explicitly accepted prototype limitation;
+horizontal scaling still requires an atomic shared store plus multi-instance and
+restart tests.
 
 Weldall E2E still runs `next dev`, not a production image. The real Google path,
 formal OpenID Foundation conformance, independent ID-JAG/JWT-DPoP implementations,

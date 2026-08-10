@@ -1,6 +1,6 @@
 # Weldall
 
-Weldall is an access-control system for letting employees and their software agents use company APIs without handing credentials to the agent. Employees authenticate through the organization's identity provider; administrators define scopes, assignments, resources, and agent-facing skills; the local CLI discovers those capabilities and sends DPoP-authenticated requests directly to registered services.
+Weldall is an access-control system for letting employees, software agents, and backend workloads use company APIs without handing credentials to the agent. Employees authenticate through the organization's identity provider; workloads authenticate as their own registered identities; administrators define scopes, assignments, resources, workload grants, and agent-facing skills; the local CLI discovers those capabilities and sends DPoP-authenticated requests directly to registered services.
 
 The CLI is one important component, not the whole system:
 
@@ -9,18 +9,19 @@ employee + browser ──sign-in──> Weldall authorization server
 administrator ──policy/admin──> Weldall web app ──> PostgreSQL
 agent ──commands──> Weldall CLI ──grants / ID-JAG──> Weldall
                               └──token exchange + API request──> resource server + @weldall/sdk
+workload ──private_key_jwt + DPoP──> Weldall ──workload JWT──> resource server
 ```
 
-The repository is an alpha/prototype. It implements pinned ID-JAG draft-04 and JWT Authorization Grant with DPoP draft-01 behavior. Replay protection in the current server and demo resource is process-local, so restarts clear replay state and horizontal scaling is not safe without a shared atomic replay store. See [Security and conformance testing](security-testing.md) before production use.
+The repository is an alpha/prototype. It implements pinned ID-JAG draft-04 and JWT Authorization Grant with DPoP draft-01 behavior, plus direct DPoP-constrained workload access tokens for registered machine clients. ID-JAG replay protection in the resource SDK and demo resource is process-local by default, so restarts clear replay state and horizontal scaling is not safe without a shared atomic replay store. See [Security and conformance testing](security-testing.md) before production use.
 
 ## Major components
 
-- **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, scope policy, the resource registry, skill catalogs, assignments, and audit events.
+- **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, workload client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
 - **Weldall CLI** — a published, macOS-only native OAuth client. It keeps its device key and rotating session in macOS Keychain, discovers skills and grants, obtains resource-specific credentials, and sends the final API request without exposing tokens to the calling agent.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
 - **Supporting services** — the Prisma database package, a local Development IdP, an Expenses resource-server example, documentation, framework examples, and the Playwright/Docker E2E system.
 
-For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/content/docs/en/agent-run.mdx). For service integration, see [How to integrate a service](apps/docs/src/content/docs/en/service-configuration.md) and the [`@weldall/sdk` reference](packages/sdk/README.md).
+For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/content/docs/en/agent-run.mdx). For service integration, see [How to integrate a service](apps/docs/src/content/docs/en/service-configuration.md), [Workload authentication](apps/docs/src/content/docs/en/workload-authentication.mdx), and the [`@weldall/sdk` reference](packages/sdk/README.md).
 
 ## Workspace map
 
@@ -289,6 +290,7 @@ This flow separates capability description from authorization: the skill explain
 - **Scope** — a global permission key with lowercase `namespace:permission` syntax, for example `expenses:read`. A scope does nothing until it is both assigned to an identity and supported by a resource.
 - **Assignment** — a set of scopes attached directly to a normalized email address. Weldall can also union scopes from configured external group assignments; see the [group-provider HTTP contract](apps/docs/src/content/docs/en/group-provider-http-interface.md).
 - **Resource** — a registered downstream service contract: immutable key and resource identifier, authorization-server origin, downstream client ID, allowed request prefixes, supported scopes, enabled state, and optional skill discovery.
+- **Workload client** — a registered machine identity that uses RFC 7523 `private_key_jwt` and DPoP to obtain five-minute Weldall-issued access tokens for one explicitly granted resource and scope set. See [Workload authentication](apps/docs/src/content/docs/en/workload-authentication.mdx).
 - **Request prefix** — an allowed HTTPS origin/path prefix matched on path-segment boundaries. It constrains where the CLI may send a resource token or request data.
 - **Skill** — administrator- or resource-published Markdown instructions with required scopes. `DEFAULT` skills remain visible and report missing scopes; `HIDDEN_IF_UNALLOWED` skills are hidden until all required scopes are granted. Visibility never replaces route authorization.
 - **Effective scopes** — the sorted union of direct email grants and currently resolved group grants. Resource grants are the intersection of effective scopes and that resource's supported scopes.

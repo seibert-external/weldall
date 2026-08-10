@@ -54,17 +54,17 @@ Assertions, tokens, proofs, and JWK coordinates are not included in audit events
 
 The access token protected header is `typ=weldall-workload+jwt`. Its signed claims are:
 
-| Claim | Meaning |
-| --- | --- |
-| `iss` | Weldall HTTPS issuer |
-| `sub` | `workload:<client_id>` stable non-user namespace |
-| `client_id`, `azp` | authenticated workload client ID |
-| `aud` | one string, exactly the registered target resource identifier |
-| `scope` | the explicitly granted requested scopes |
-| `identity_type`, `token_type` | both `workload` |
-| `iat`, `exp` | integer issue/expiry, at most 300 seconds apart |
-| `jti` | unique token identifier |
-| `cnf.jkt` | RFC 7638 thumbprint of the sender key |
+| Claim                         | Meaning                                                       |
+| ----------------------------- | ------------------------------------------------------------- |
+| `iss`                         | Weldall HTTPS issuer                                          |
+| `sub`                         | `workload:<client_id>` stable non-user namespace              |
+| `client_id`, `azp`            | authenticated workload client ID                              |
+| `aud`                         | one string, exactly the registered target resource identifier |
+| `scope`                       | the explicitly granted requested scopes                       |
+| `identity_type`, `token_type` | both `workload`                                               |
+| `iat`, `exp`                  | integer issue/expiry, at most 300 seconds apart               |
+| `jti`                         | unique token identifier                                       |
+| `cnf.jkt`                     | RFC 7638 thumbprint of the sender key                         |
 
 The response uses `token_type=DPoP`, `expires_in=300`, and has no refresh token.
 
