@@ -181,7 +181,9 @@ import { weldall } from "@/lib/weldall";
 
 export const runtime = "nodejs";
 export const GET = weldall.withWeldall({ scopes: ["contracts:read"] }, async (_request, auth) =>
-  Response.json({ requestedBy: auth.identity.email }),
+  Response.json({
+    requestedBy: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
+  }),
 );
 ```
 
