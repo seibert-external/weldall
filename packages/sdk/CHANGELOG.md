@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.4.0
+
+### Minor Changes
+
+- 2b79697: Add private-key machine client credentials with independent resource/scope access selection and DPoP-bound target verification.
+
 ## 0.3.0
 
 ### Minor Changes
