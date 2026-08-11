@@ -48,6 +48,51 @@ const idJagIssuedMetadata = z
 const idJagDeniedMetadata = z.object(idJagRequestedMetadata).strict();
 const idJagFailedMetadata = z.object(idJagRequestedMetadata).strict();
 
+const machineClientMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128),
+    name: z.string().min(1).max(200),
+    enabled: z.boolean(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+const machineKeyMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128),
+    kid: z.string().min(1).max(128),
+    thumbprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    revokedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+const machineAccessMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128),
+    beforeResources: stringArray,
+    afterResources: stringArray,
+    beforeScopes: scopeArray,
+    afterScopes: scopeArray,
+    versionBefore: z.number().int().nonnegative(),
+    versionAfter: z.number().int().positive(),
+  })
+  .strict();
+const machineTokenRequestedMetadata = z
+  .object({
+    clientId: z.string().min(1).max(128).nullable(),
+    kid: z.string().min(1).max(128).nullable(),
+    audience: z.string().max(2_000).nullable(),
+    requestedScopes: scopeArray,
+  })
+  .strict();
+const machineTokenIssuedMetadata = machineTokenRequestedMetadata.extend({
+  clientId: z.string().min(1).max(128),
+  kid: z.string().min(1).max(128),
+  audience: z.string().min(1).max(2_000),
+  grantedScopes: scopeArray.min(1),
+  jti: z.string().min(1).max(128),
+  issuedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+});
+
 const userScopesMetadata = z
   .object({
     normalizedEmail: z.string().email().max(320),
@@ -185,6 +230,15 @@ const metadataSchemas = {
   "id_jag.issued": idJagIssuedMetadata,
   "id_jag.denied": idJagDeniedMetadata,
   "id_jag.failed": idJagFailedMetadata,
+  "machine_client.created": machineClientMetadata,
+  "machine_client.updated": machineClientMetadata,
+  "machine_client.deactivated": machineClientMetadata,
+  "machine_key.registered": machineKeyMetadata,
+  "machine_key.revoked": machineKeyMetadata,
+  "machine_access.replaced": machineAccessMetadata,
+  "machine_token.issued": machineTokenIssuedMetadata,
+  "machine_token.denied": machineTokenRequestedMetadata,
+  "machine_token.failed": machineTokenRequestedMetadata,
   "user_scopes.created": userScopesMetadata,
   "user_scopes.replaced": userScopesMetadata,
   "user_scopes.deleted": userScopesMetadata,
@@ -207,7 +261,7 @@ const metadataSchemas = {
 const auditInputSchema = z
   .object({
     eventType: z.enum(AUDIT_EVENT_TYPES),
-    actorType: z.enum(["user", "oauth_client", "workload", "anonymous"]),
+    actorType: z.enum(["user", "oauth_client", "machine", "anonymous"]),
     actorId: safeText,
     actorEmail: z.string().email().max(320).optional(),
     clientId: z.string().min(1).max(200).optional(),

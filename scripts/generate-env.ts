@@ -15,7 +15,7 @@ const developmentDefaults = {
 };
 
 for (const [name, value] of Object.entries(developmentDefaults)) console.log(`${name}=${value}`);
-for (const name of ["WELDALL", "EXPENSES", "DEV_IDP"]) {
+for (const name of ["WELDALL", "EXPENSES", "DEV_IDP", "DEV_M2M"]) {
   const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
   console.log(`${name}_SIGNING_PRIVATE_JWK='${JSON.stringify(await exportJWK(privateKey))}'`);
   console.log(`${name}_SIGNING_PUBLIC_JWK='${JSON.stringify(await exportJWK(publicKey))}'`);

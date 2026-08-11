@@ -30,7 +30,7 @@ export function inMemory(
 
 export async function consumeReplay(
   store: ReplayStore | "disabled",
-  namespace: "dpop" | "id-jag" | "skills",
+  namespace: "dpop" | "id-jag" | "machine-assertion" | "skills",
   key: string,
   expiresAt: Date,
   replayError: { code: string; message: string; status?: number },

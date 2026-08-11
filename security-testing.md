@@ -25,6 +25,7 @@ Weldall's upstream login handling.
 | JWK thumbprints and key-intent metadata                    | RFC 7638 / RFC 7517     | Official RFC 7638 vector, mismatch and JOSE metadata tests     |
 | ID-JAG signature, target, client, scope and device binding | ID-JAG draft-04         | OAuth, CLI and Expenses tests                                  |
 | JWT-DPoP grant and one-time ID-JAG use                     | JWT-DPoP draft-01       | Expenses integration tests and Docker E2E request              |
+| Machine `private_key_jwt` and direct access-token profile  | RFC 7523 / RFC 9449     | Machine auth and SDK target tests                              |
 | Refresh rotation and family revocation                     | OAuth security BCP      | Weldall token-exchange tests                                   |
 | Authorization-server metadata                              | RFC 8414                | Expenses and Docker E2E metadata tests                         |
 | Registered URL origin and path-boundary enforcement        | Weldall security policy | URL unit matrix, CLI fetch-order tests and Docker E2E          |
@@ -50,6 +51,7 @@ Weldall's upstream login handling.
 - Unauthenticated and Bearer-style Expenses API requests
 - Unregistered origins, `/api-attacker`, ambiguous prefixes, disabled resources and redirects
 - Resource/scope mismatch, unsupported scopes and grants shared across registered resources
+- Machine client assertion replay, token-endpoint DPoP replay, wrong keys, disabled clients, revoked keys, unselected resources, unselected scopes and resource-unsupported scopes
 
 ## Security findings with regression coverage
 
@@ -69,12 +71,14 @@ Weldall's upstream login handling.
 
 ## Remaining production limitations
 
-The prototype replay stores are process-local. Restarting a service clears replay
-state, and multiple instances do not share it. The SDK store caps live entries at
-10,000 and fails closed with HTTP 503 at capacity; the patched provider store has
-expiry-based cleanup but no fixed entry cap. This is an explicitly accepted
-prototype limitation; horizontal scaling still requires an atomic shared store
-plus multi-instance and restart tests.
+The prototype ID-JAG, machine-issuance, and resource-server replay stores are
+process-local. Restarting a service clears replay state, and multiple instances
+do not share it. The SDK store caps live entries at 10,000 and fails closed with
+HTTP 503 at capacity; the patched provider store has expiry-based cleanup but no
+fixed entry cap. Resource configurations may explicitly use
+`replayStore: "disabled"`, which skips resource-side replay consumption and
+accepts that risk. Safe horizontal scaling remains unsupported without a shared
+atomic store plus multi-instance and restart tests.
 
 Weldall E2E still runs `next dev`, not a production image. The real Google path,
 formal OpenID Foundation conformance, independent ID-JAG/JWT-DPoP implementations,

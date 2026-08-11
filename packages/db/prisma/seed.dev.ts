@@ -1,4 +1,5 @@
-import { PrismaClient } from "@prisma/client";
+import { createHash } from "node:crypto";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
 const actor = "development-seed";
@@ -61,6 +62,87 @@ try {
     where: { resourceId: expenses.id },
     create: { resourceId: expenses.id, nextRefreshAt: new Date() },
     update: { nextRefreshAt: new Date() },
+  });
+
+  const publicJwk = parseDevelopmentMachinePublicJwk(process.env.DEV_M2M_SIGNING_PUBLIC_JWK);
+  const kid = parseDevelopmentMachineKid(process.env.DEV_M2M_SIGNING_KID);
+  const thumbprint = createHash("sha256")
+    .update(
+      JSON.stringify({
+        crv: publicJwk.crv,
+        kty: publicJwk.kty,
+        x: publicJwk.x,
+        y: publicJwk.y,
+      }),
+    )
+    .digest("base64url");
+  const expensesReadScope = await db.scope.findUniqueOrThrow({
+    where: { key: "expenses:read" },
+    select: { id: true },
+  });
+  await db.$transaction(async (tx) => {
+    const machine = await tx.machineClient.upsert({
+      where: { clientId: "dev-expenses-reader" },
+      create: {
+        id: "machine-client-dev-expenses-reader",
+        clientId: "dev-expenses-reader",
+        name: "Development expenses reader",
+        enabled: true,
+        createdBy: actor,
+        updatedBy: actor,
+      },
+      update: {
+        name: "Development expenses reader",
+        enabled: true,
+        deactivatedAt: null,
+        updatedBy: actor,
+      },
+    });
+    await Promise.all([
+      tx.machineClientKey.deleteMany({
+        where: { machineClientId: machine.id, kid: { not: kid } },
+      }),
+      tx.machineAllowedResource.deleteMany({
+        where: { machineClientId: machine.id, resourceId: { not: expenses.id } },
+      }),
+      tx.machineAllowedScope.deleteMany({
+        where: { machineClientId: machine.id, scopeId: { not: expensesReadScope.id } },
+      }),
+    ]);
+    await Promise.all([
+      tx.machineClientKey.upsert({
+        where: { machineClientId_kid: { machineClientId: machine.id, kid } },
+        create: {
+          id: "machine-key-dev-expenses-reader",
+          machineClientId: machine.id,
+          kid,
+          publicJwk,
+          thumbprint,
+          createdBy: actor,
+        },
+        update: { publicJwk, thumbprint, revokedAt: null, revokedBy: null },
+      }),
+      tx.machineAllowedResource.upsert({
+        where: {
+          machineClientId_resourceId: {
+            machineClientId: machine.id,
+            resourceId: expenses.id,
+          },
+        },
+        create: { machineClientId: machine.id, resourceId: expenses.id },
+        update: {},
+      }),
+      tx.machineAllowedScope.upsert({
+        where: {
+          machineClientId_scopeId: {
+            machineClientId: machine.id,
+            scopeId: expensesReadScope.id,
+          },
+        },
+        create: { machineClientId: machine.id, scopeId: expensesReadScope.id },
+        update: {},
+      }),
+    ]);
   });
 
   const developmentResource = await db.downstreamResource.upsert({
@@ -129,4 +211,42 @@ try {
   });
 } finally {
   await db.$disconnect();
+}
+
+function parseDevelopmentMachinePublicJwk(value: string | undefined): Prisma.InputJsonObject {
+  if (!value) {
+    throw new Error(
+      "DEV_M2M_SIGNING_PUBLIC_JWK is required for development seeds. Generate .env with pnpm secrets:generate.",
+    );
+  }
+  let jwk: unknown;
+  try {
+    jwk = JSON.parse(value);
+  } catch {
+    throw new Error("DEV_M2M_SIGNING_PUBLIC_JWK must be valid JSON.");
+  }
+  if (
+    !jwk ||
+    typeof jwk !== "object" ||
+    Array.isArray(jwk) ||
+    !("kty" in jwk) ||
+    jwk.kty !== "EC" ||
+    !("crv" in jwk) ||
+    jwk.crv !== "P-256" ||
+    !("x" in jwk) ||
+    typeof jwk.x !== "string" ||
+    !("y" in jwk) ||
+    typeof jwk.y !== "string" ||
+    "d" in jwk
+  ) {
+    throw new Error("DEV_M2M_SIGNING_PUBLIC_JWK must be a public ES256 P-256 JWK.");
+  }
+  return { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y };
+}
+
+function parseDevelopmentMachineKid(value: string | undefined): string {
+  if (!value || !/^[A-Za-z0-9._:-]{1,128}$/.test(value)) {
+    throw new Error("DEV_M2M_SIGNING_KID must be a valid machine key ID.");
+  }
+  return value;
 }

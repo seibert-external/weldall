@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@weldall/db";
+import { generateEs256KeyPair } from "@weldall/sdk";
 import {
   assertAdminCanBeRemoved,
   bootstrapAdmin,
@@ -25,6 +26,12 @@ import {
   type AdminActor,
 } from "../src/server/admin/service.js";
 import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/resources.js";
+import {
+  createMachineClient,
+  getMachineClient,
+  listMachineAccessOptions,
+  replaceMachineAccess,
+} from "../src/server/machines/service.js";
 import { getVisibleSkill, listVisibleSkills } from "../src/server/skills/service.js";
 
 const runId = randomUUID().replaceAll("-", "");
@@ -103,6 +110,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.emailScopeAssignment.deleteMany({
     where: { normalizedEmail: { contains: runId } },
+  });
+  await db.machineClient.deleteMany({
+    where: { clientId: { startsWith: namespace } },
   });
   await db.downstreamResource.deleteMany({
     where: { key: { startsWith: namespace } },
@@ -500,6 +510,93 @@ describe("admin scope service", () => {
         expect.objectContaining({ eventType: "resource_scopes.replaced" }),
       ]),
     );
+  });
+
+  it("requires explicit machine access removal before selected resource or scope deletion", async () => {
+    const scope = await createScope(
+      { key: `${namespace}:machine`, description: "Machine lifecycle scope." },
+      primaryActor,
+    );
+    let resource = await createResource(resourceInput("machine-lifecycle", scope.id), primaryActor);
+    await expect(listMachineAccessOptions()).resolves.toMatchObject({
+      resources: expect.arrayContaining([expect.objectContaining({ id: resource.id })]),
+      scopes: expect.arrayContaining([expect.objectContaining({ id: scope.id, key: scope.key })]),
+    });
+    const key = await generateEs256KeyPair();
+    const clientId = `${namespace}-machine-lifecycle`;
+    const machine = await createMachineClient(
+      {
+        clientId,
+        name: "Machine lifecycle test",
+        key: { kid: "current", publicJwk: key.publicJwk },
+        access: { resourceIds: [resource.id], scopeIds: [scope.id] },
+      },
+      primaryActor,
+    );
+
+    resource = await updateResource(
+      {
+        id: resource.id,
+        name: resource.name,
+        authorizationServer: resource.authorizationServer,
+        downstreamClientId: resource.downstreamClientId,
+        enabled: true,
+        scopeIds: [],
+        requestPrefixes: resource.requestPrefixes,
+        expectedVersion: resource.version,
+      },
+      primaryActor,
+    );
+    await expect(
+      deleteResource({ id: resource.id, expectedVersion: resource.version }, primaryActor),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    await expect(
+      deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
+    ).rejects.toThrow("selected by machine");
+
+    // Disabled resources remain visible so administrators can remove existing access
+    // without temporarily reopening token issuance.
+    resource = await updateResource(
+      {
+        id: resource.id,
+        name: resource.name,
+        authorizationServer: resource.authorizationServer,
+        downstreamClientId: resource.downstreamClientId,
+        enabled: false,
+        scopeIds: [scope.id],
+        requestPrefixes: resource.requestPrefixes,
+        expectedVersion: resource.version,
+      },
+      primaryActor,
+    );
+    await expect(listMachineAccessOptions()).resolves.toMatchObject({
+      resources: expect.arrayContaining([
+        expect.objectContaining({ id: resource.id, enabled: false }),
+      ]),
+    });
+    await replaceMachineAccess(
+      {
+        clientId: machine.id,
+        resourceIds: [],
+        scopeIds: [],
+        expectedVersion: machine.version,
+      },
+      primaryActor,
+    );
+    await expect(getMachineClient(machine.id)).resolves.toMatchObject({
+      access: { resourceIds: [], scopeIds: [] },
+    });
+
+    await expect(
+      deleteResource({ id: resource.id, expectedVersion: resource.version }, primaryActor),
+    ).resolves.toEqual({ id: resource.id });
+    await expect(
+      deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor),
+    ).resolves.toMatchObject({ id: scope.id });
   });
 
   it("deletes a resource and its discovered catalog with an audit event", async () => {

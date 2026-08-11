@@ -570,6 +570,16 @@ export async function deleteResource(
         });
         if (!current) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
         assertVersion(current.version, input.expectedVersion);
+        const machineAccess = await tx.machineAllowedResource.findFirst({
+          where: { resourceId: current.id },
+          include: { client: { select: { clientId: true } } },
+        });
+        if (machineAccess) {
+          throw new AdminDomainError(
+            "CONFLICT",
+            `Resource ${current.key} is selected by machine ${machineAccess.client.clientId}. Remove it from machine access first.`,
+          );
+        }
 
         const deleted = await tx.downstreamResource.deleteMany({
           where: { id: current.id, version: input.expectedVersion },
@@ -753,6 +763,16 @@ export async function deleteScope(
       throw new AdminDomainError(
         "CONFLICT",
         `Scope ${current.key} is supported by resource ${referencedByResource.resource.key}. Update that resource first.`,
+      );
+    }
+    const referencedByMachine = await tx.machineAllowedScope.findFirst({
+      where: { scopeId: current.id },
+      include: { client: { select: { clientId: true } } },
+    });
+    if (referencedByMachine) {
+      throw new AdminDomainError(
+        "CONFLICT",
+        `Scope ${current.key} is selected by machine ${referencedByMachine.client.clientId}. Remove it from machine access first.`,
       );
     }
 
@@ -1447,7 +1467,7 @@ async function writeAudit(
   await prismaAuditWriter.write(
     {
       eventType: event.eventType,
-      actorType: actor.id === "deployment-bootstrap" ? "workload" : "user",
+      actorType: actor.id === "deployment-bootstrap" ? "machine" : "user",
       actorId: actor.id,
       ...(actor.email ? { actorEmail: normalizeEmail(actor.email) } : {}),
       requestId: actor.requestId,

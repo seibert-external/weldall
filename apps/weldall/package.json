@@ -6,7 +6,7 @@
   "scripts": {
     "admin:bootstrap": "pnpm with-env tsx src/scripts/bootstrap-admin.ts",
     "build": "pnpm with-env next build",
-    "dev": "pnpm with-env next dev -p 3000",
+    "dev": "pnpm with-env next dev --webpack -p 3000",
     "start": "pnpm with-env next start -p 3000",
     "with-env": "dotenv -e ../../.env --",
     "typecheck": "tsc --noEmit",

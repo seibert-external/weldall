@@ -1,6 +1,6 @@
 # Weldall
 
-Weldall is an access-control system for letting employees and their software agents use company APIs without handing credentials to the agent. Employees authenticate through the organization's identity provider; administrators define scopes, assignments, resources, and agent-facing skills; the local CLI discovers those capabilities and sends DPoP-authenticated requests directly to registered services.
+Weldall is an access-control system for letting employees, software agents, and backend machines use company APIs without handing credentials to the agent. Employees authenticate through the organization's identity provider; machines authenticate as their own registered identities; administrators define scopes, assignments, resources, machine access with independent resource and scope allowlists, and agent-facing skills; the local CLI discovers those capabilities and sends DPoP-authenticated requests directly to registered services.
 
 The CLI is one important component, not the whole system:
 
@@ -9,18 +9,17 @@ employee + browser ──sign-in──> Weldall authorization server
 administrator ──policy/admin──> Weldall web app ──> PostgreSQL
 agent ──commands──> Weldall CLI ──grants / ID-JAG──> Weldall
                               └──token exchange + API request──> resource server + @weldall/sdk
+machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> resource server
 ```
-
-The repository is an alpha/prototype. It implements pinned ID-JAG draft-04 and JWT Authorization Grant with DPoP draft-01 behavior. Replay protection in the current server and demo resource is process-local, so restarts clear replay state and horizontal scaling is not safe without a shared atomic replay store. See [Security and conformance testing](security-testing.md) before production use.
 
 ## Major components
 
-- **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, scope policy, the resource registry, skill catalogs, assignments, and audit events.
+- **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
 - **Weldall CLI** — a published, macOS-only native OAuth client. It keeps its device key and rotating session in macOS Keychain, discovers skills and grants, obtains resource-specific credentials, and sends the final API request without exposing tokens to the calling agent.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
 - **Supporting services** — the Prisma database package, a local Development IdP, an Expenses resource-server example, documentation, framework examples, and the Playwright/Docker E2E system.
 
-For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/content/docs/en/agent-run.mdx). For service integration, see [How to integrate a service](apps/docs/src/content/docs/en/service-configuration.md) and the [`@weldall/sdk` reference](packages/sdk/README.md).
+For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/content/docs/en/agent-run.mdx). For service integration, see [How to integrate a service](apps/docs/src/content/docs/en/service-configuration.md), [Machine authentication](apps/docs/src/content/docs/en/machine-authentication.mdx), and the [`@weldall/sdk` reference](packages/sdk/README.md).
 
 ## Workspace map
 
@@ -176,7 +175,7 @@ pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com
 pnpm build:dev
 ```
 
-The development seed includes the Expenses scopes and resource described below. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
+The development seed includes the Expenses scopes and resource described below. It also registers the read-only `dev-expenses-reader` machine using the public half of the `DEV_M2M_SIGNING_*` key pair generated in `.env`; production seeding does not create this machine. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
 
 Start long-running processes in two foreground terminals:
 
@@ -193,6 +192,14 @@ Open `https://weldall.seibert.localdev`, choose the Development Login identity `
 - Weldall: `https://weldall.seibert.localdev`
 - Expenses: `https://expenses.seibert.localdev`
 - Development IdP: `https://dev-idp.seibert.localdev`
+
+Exercise the seeded machine's complete client-credentials and DPoP flow against Expenses:
+
+```sh
+pnpm m2m:demo
+```
+
+The command reads the machine's private key from the gitignored `.env`, requests an `expenses:read` machine token from Weldall, calls the Expenses API, and verifies the returned machine identity. It does not print credentials or tokens.
 
 Build and invoke the repository CLI directly:
 
@@ -289,6 +296,7 @@ This flow separates capability description from authorization: the skill explain
 - **Scope** — a global permission key with lowercase `namespace:permission` syntax, for example `expenses:read`. A scope does nothing until it is both assigned to an identity and supported by a resource.
 - **Assignment** — a set of scopes attached directly to a normalized email address. Weldall can also union scopes from configured external group assignments; see the [group-provider HTTP contract](apps/docs/src/content/docs/en/group-provider-http-interface.md).
 - **Resource** — a registered downstream service contract: immutable key and resource identifier, authorization-server origin, downstream client ID, allowed request prefixes, supported scopes, enabled state, and optional skill discovery.
+- **Machine client** — a registered machine identity that uses RFC 7523 `private_key_jwt` and DPoP to obtain five-minute Weldall-issued access tokens when the resource and scopes are independently selected and the resource supports every requested scope. See [Machine authentication](apps/docs/src/content/docs/en/machine-authentication.mdx).
 - **Request prefix** — an allowed HTTPS origin/path prefix matched on path-segment boundaries. It constrains where the CLI may send a resource token or request data.
 - **Skill** — administrator- or resource-published Markdown instructions with required scopes. `DEFAULT` skills remain visible and report missing scopes; `HIDDEN_IF_UNALLOWED` skills are hidden until all required scopes are granted. Visibility never replaces route authorization.
 - **Effective scopes** — the sorted union of direct email grants and currently resolved group grants. Resource grants are the intersection of effective scopes and that resource's supported scopes.

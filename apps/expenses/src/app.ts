@@ -32,8 +32,9 @@ export const createApp = async () => {
   });
   const app = new Hono<{ Variables: WeldallVariables }>();
   weldall.registerRoutes(app);
-  app.get("/api/expenses", weldall.protect({ scopes: ["expenses:read"] }), (c) =>
-    c.json({
+  app.get("/api/expenses", weldall.protect({ scopes: ["expenses:read"] }), (c) => {
+    const auth = weldall.getAuth(c);
+    return c.json({
       expenses: [
         {
           id: "expense-1",
@@ -42,10 +43,12 @@ export const createApp = async () => {
           currency: "EUR",
         },
       ],
-      subject: weldall.getAuth(c).subject,
-      email: weldall.getAuth(c).email,
-    }),
-  );
+      subject: auth.subject,
+      requestedBy: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
+      identityType: auth.identityType,
+      ...(auth.identityType === "user" ? { email: auth.email } : {}),
+    });
+  });
   app.post("/api/expenses", weldall.protect({ scopes: ["expenses:create"] }), async (c) =>
     c.json({ id: "expense-new", ...(await c.req.json()) }, 201),
   );

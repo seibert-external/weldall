@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  MACHINE_TOKEN_TYP,
   createDpopProof,
   generateEs256KeyPair,
   inMemory,
   issueAccessToken,
+  signEs256,
   type AuthContext,
   type DpopKeyPair,
   type WeldallOptions,
@@ -14,16 +16,37 @@ import { initWeldall as initHono, type WeldallVariables } from "../src/hono.js";
 
 let key: DpopKeyPair;
 let device: DpopKeyPair;
+let issuerKey: DpopKeyPair;
+let machineKey: DpopKeyPair;
 let options: WeldallOptions;
 
 beforeEach(async () => {
   key = await generateEs256KeyPair();
   device = await generateEs256KeyPair();
+  issuerKey = await generateEs256KeyPair();
+  machineKey = await generateEs256KeyPair();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === "https://weldall.example/.well-known/oauth-authorization-server")
+        return Response.json({
+          issuer: "https://weldall.example",
+          jwks_uri: "https://weldall.example/jwks",
+        });
+      if (url === "https://weldall.example/jwks")
+        return Response.json({
+          keys: [{ ...issuerKey.publicJwk, kid: "issuer", alg: "ES256", use: "sig" }],
+        });
+      return new Response(null, { status: 404 });
+    }),
+  );
   options = {
     resource: "https://api.example/resource",
     publicOrigin: "https://api.example",
     clientId: "client",
-    supportedScopes: ["read"],
+    supportedScopes: ["read", "other"],
     signingKey: { kid: "key", privateJwk: key.privateJwk, publicJwk: key.publicJwk },
     replayStore: inMemory({ suppressWarning: true }),
   };
@@ -48,6 +71,29 @@ const authorizedRequest = async (
   return new Request(url, { headers: { authorization: `DPoP ${token}`, dpop: proof } });
 };
 
+const machineRequest = async (url: string) => {
+  const now = Math.floor(Date.now() / 1_000);
+  const token = await signEs256(
+    {
+      iss: "https://weldall.example",
+      sub: "machine:automation",
+      client_id: "automation",
+      azp: "automation",
+      aud: "https://api.example/resource",
+      scope: "read",
+      identity_type: "machine",
+      token_type: "machine",
+      cnf: { jkt: machineKey.jkt },
+      iat: now,
+      exp: now + 300,
+      jti: crypto.randomUUID(),
+    },
+    { kid: "issuer", privateJwk: issuerKey.privateJwk, typ: MACHINE_TOKEN_TYP },
+  );
+  const proof = await createDpopProof({ ...machineKey, method: "GET", url, accessToken: token });
+  return new Request(url, { headers: { authorization: `DPoP ${token}`, dpop: proof } });
+};
+
 const expectAdapterContract = async (protect: (request: Request) => Promise<Response>) => {
   const url = "https://api.example/private";
   expect((await protect(await authorizedRequest(url))).status).toBe(200);
@@ -69,12 +115,13 @@ describe("framework adapters", () => {
     const weldall = initHono("https://weldall.example", options);
     const app = new Hono<{ Variables: WeldallVariables }>();
     weldall.registerRoutes(app);
-    app.get("/private", weldall.protect({ scopes: ["read"] }), (c) =>
-      c.json({
-        subject: weldall.getAuth(c).subject,
-        email: weldall.getAuth(c).email,
-      }),
-    );
+    app.get("/private", weldall.protect({ scopes: ["read"] }), (c) => {
+      const auth = weldall.getAuth(c);
+      return c.json({
+        subject: auth.subject,
+        email: auth.identity.type === "user" ? auth.identity.email : null,
+      });
+    });
     expect((await app.request("/.well-known/oauth-protected-resource")).status).toBe(200);
     const response = await app.request("/private");
     expect(response.status).toBe(401);
@@ -84,6 +131,11 @@ describe("framework adapters", () => {
     await expect(success.json()).resolves.toEqual({
       subject: "adapter-user",
       email: "adapter@example.com",
+    });
+    const machine = await app.request(await machineRequest("https://api.example/private"));
+    await expect(machine.json()).resolves.toEqual({
+      subject: "machine:automation",
+      email: null,
     });
     await expectAdapterContract((request) => app.request(request));
   });
@@ -103,6 +155,13 @@ describe("framework adapters", () => {
       () => Response.json({ subject: weldall.getAuth({ locals }).subject }),
     );
     expect(await success.json()).toEqual({ subject: "adapter-user" });
+    const machineLocals: { weldallAuth?: AuthContext } = {};
+    const machine = await weldall.protect({ scopes: ["read"] })(
+      { request: await machineRequest("https://api.example/private"), locals: machineLocals },
+      () =>
+        Response.json({ identityType: weldall.getAuth({ locals: machineLocals }).identityType }),
+    );
+    expect(await machine.json()).toEqual({ identityType: "machine" });
     await expectAdapterContract((request) =>
       weldall.protect({ scopes: ["read"] })({ request, locals: {} }, () =>
         Response.json({ protected: true }),
@@ -128,6 +187,8 @@ describe("framework adapters", () => {
     expect(response.headers.get("www-authenticate")).toContain("invalid_token");
     const success = await handler(await authorizedRequest("https://api.example/private"), {});
     expect(await success.json()).toEqual({ subject: "adapter-user" });
+    const machine = await handler(await machineRequest("https://api.example/private"), {});
+    expect(await machine.json()).toEqual({ subject: "machine:automation" });
     await expectAdapterContract((request) => handler(request, {}));
   });
 });

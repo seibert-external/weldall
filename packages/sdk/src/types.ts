@@ -56,20 +56,36 @@ export type ScopePolicy = {
   anyScopes?: readonly string[];
 };
 
-export type AuthIdentity = {
+export type UserPrincipal = {
+  type: "user";
   subject: string;
   email: string;
   emailVerified: true;
 };
-export type AuthContext = {
-  identity: AuthIdentity;
+export type MachinePrincipal = {
+  type: "machine";
   subject: string;
-  email: string;
-  emailVerified: true;
-  scopes: readonly string[];
-  tokenId: string;
   clientId: string;
 };
+export type AuthContext =
+  | {
+      identityType: "user";
+      identity: UserPrincipal;
+      subject: string;
+      email: string;
+      emailVerified: true;
+      clientId: string;
+      scopes: readonly string[];
+      tokenId: string;
+    }
+  | {
+      identityType: "machine";
+      identity: MachinePrincipal;
+      subject: string;
+      clientId: string;
+      scopes: readonly string[];
+      tokenId: string;
+    };
 
 export type VerifyResult =
   | { ok: true; auth: AuthContext }

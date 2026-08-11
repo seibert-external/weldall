@@ -1,0 +1,90 @@
+---
+title: Maschinenzugriffe
+description: Backend-Aufrufe mit einer eigenen Weldall-Identität absichern.
+sidebar:
+  label: Maschinenzugriffe
+---
+
+Wenn ein Backend ein anderes aufrufen soll, braucht es dafür keinen angemeldeten Benutzer. Stattdessen bekommt der aufrufende Dienst eine eigene Client-ID und ein Schlüsselpaar. Er authentifiziert sich per OAuth 2.0 Client Credentials und RFC 7523 `private_key_jwt`. Weldall stellt daraufhin ein Token aus, das fünf Minuten lang für genau eine Ressource gilt.
+
+## Aufrufenden Dienst registrieren
+
+In diesem Beispiel soll Expenses A Daten von Expenses B lesen:
+
+1. Die benötigten Scopes anlegen und Expenses B unter **Resources** registrieren.
+2. Ein ES256-P-256-Schlüsselpaar erzeugen. Der private Schlüssel bleibt bei Expenses A.
+3. Unter **Machine clients** auf **Register machine** klicken und `expenses-a`, den öffentlichen JWK sowie eine eindeutige `kid` eintragen.
+4. Unter **Machine access** Expenses B bei **Resources** und die benötigten Einträge bei **Scopes** auswählen.
+
+Der Zugriff wird hauptsächlich über zwei Freigabelisten gesteuert: welche Ressourcen der Machine Client aufrufen darf und welche Scopes er anfordern darf. Eine Token-Anfrage muss zu beiden Listen passen. Zusätzlich muss die Zielressource alle angeforderten Scopes unterstützen. Eine Registrierung allein gewährt noch keinen Zugriff.
+
+## Token anfordern
+
+Am einfachsten wird das Schlüsselpaar über geschützte Umgebungsvariablen bereitgestellt. `loadEs256KeyPairFromEnv` validiert die Werte, bevor das SDK die kurzlebige Assertion und den passenden DPoP-Proof erstellt:
+
+```ts
+import { loadEs256KeyPairFromEnv, requestMachineToken } from "@weldall/sdk";
+
+const key = await loadEs256KeyPairFromEnv({
+  privateName: "MACHINE_SIGNING_PRIVATE_JWK",
+  privateValue: process.env.MACHINE_SIGNING_PRIVATE_JWK!,
+  publicName: "MACHINE_SIGNING_PUBLIC_JWK",
+  publicValue: process.env.MACHINE_SIGNING_PUBLIC_JWK!,
+});
+
+const token = await requestMachineToken({
+  issuer: "https://weldall.example.com",
+  clientId: "expenses-a",
+  resource: "https://expenses-b.example.com/api",
+  scopes: ["expenses-b:read"],
+  kid: process.env.MACHINE_SIGNING_KID!,
+  key,
+});
+```
+
+Die Umgebungsvariablen sollten über das Secret Management der Deployment-Plattform gesetzt werden. Wer bereits KMS, Vault oder einen ähnlichen Dienst verwendet, kann den Schlüssel auch von dort laden. Der private JWK gehört weder in Weldall noch in Manifeste, Quellcode oder Logs.
+
+Die Antwort enthält ein DPoP-gebundenes Access Token, aber kein Refresh Token. Nach Ablauf wird einfach ein neues Token angefordert.
+
+## Zielservice schützen
+
+Expenses B verwendet dieselbe `initWeldall`-Konfiguration wie eine API, die von Mitarbeitern aufgerufen wird:
+
+```ts
+import { inMemory } from "@weldall/sdk";
+import { initWeldall, type WeldallVariables } from "@weldall/sdk/hono";
+import { Hono } from "hono";
+
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://expenses-b.example.com/api",
+  publicOrigin: "https://expenses-b.example.com",
+  clientId: "expenses-b",
+  supportedScopes: ["expenses-b:read"],
+  signingKey: loadExpensesBSigningKey(),
+  replayStore: inMemory(),
+});
+
+const app = new Hono<{ Variables: WeldallVariables }>();
+app.get("/api/expenses", weldall.protect({ scopes: ["expenses-b:read"] }), (context) => {
+  const auth = weldall.getAuth(context);
+  return context.json({
+    subject: auth.subject,
+    requestedBy: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
+    identityType: auth.identityType,
+    ...(auth.identityType === "user" ? { email: auth.email } : {}),
+    expenses: [],
+  });
+});
+```
+
+`protect` prüft das Token und die benötigten Scopes, bevor der Handler ausgeführt wird. Über `getAuth` erfährt der Handler, ob ein Benutzer oder ein Machine Client aufruft. Für die meisten Routen reicht die Scope-Regel aus. `auth.identity.type` wird erst dann benötigt, wenn die Antwort oder Geschäftslogik Angaben zum Aufrufer verwendet, etwa eine E-Mail-Adresse oder die Client-ID.
+
+Tokens für Machine Clients enthalten keine E-Mail-Adresse und können keinen Benutzer imitieren.
+
+## Schlüssel wechseln oder Zugriff entziehen
+
+Zuerst wird der neue öffentliche Schlüssel registriert. Während des Rollouts bleiben beide Schlüssel aktiv. Sobald die Machine die neue `kid` verwendet, kann der alte Schlüssel widerrufen werden.
+
+Alternativ lässt sich der Machine Client deaktivieren oder aus einer der beiden Freigabelisten entfernen. Ab diesem Zeitpunkt stellt Weldall keine neuen Tokens mehr aus. Bereits ausgestellte Tokens laufen innerhalb von fünf Minuten ab.
+
+Registrierungen, ausgestellte Tokens und abgelehnte Anfragen sind unter **Audit logs** sichtbar. Assertions, Tokens, Proofs und Schlüsselmaterial werden dort nicht gespeichert.

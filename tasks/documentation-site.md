@@ -60,7 +60,7 @@ Die erste Navigation soll mindestens folgende Bereiche enthalten:
    - `weldall up`
    - Ownership und administrative Berechtigungen
 6. **Machine-to-Machine**
-   - Workload-Identitäten
+   - Machine-Identitäten
    - Client Credentials
    - Service-zu-Service-Beispiel
 7. **Security und Betrieb**

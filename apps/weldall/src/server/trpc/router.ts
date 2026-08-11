@@ -49,6 +49,16 @@ import {
   updateGroupProvider,
 } from "../group-providers/service";
 import { refreshResourceCatalog } from "../skills/catalogs";
+import {
+  createMachineClient,
+  getMachineClient,
+  listMachineAccessOptions,
+  listMachineClients,
+  registerMachineKey,
+  replaceMachineAccess,
+  revokeMachineKey,
+  updateMachineClient,
+} from "../machines/service";
 import type { TrpcContext } from "./context";
 
 const trpc = initTRPC.context<TrpcContext>().create();
@@ -165,6 +175,87 @@ export const appRouter = trpc.router({
         )
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() => updateCliSettings(input, ctx.adminActor)),
+        ),
+    }),
+    machineClients: trpc.router({
+      list: adminProcedure.query(() => mapDomainErrors(listMachineClients)),
+      accessOptions: adminProcedure.query(() => mapDomainErrors(listMachineAccessOptions)),
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getMachineClient(input.id))),
+      create: adminProcedure
+        .input(
+          z
+            .object({
+              clientId: z.string().max(128),
+              name: z.string().max(200),
+              key: z
+                .object({
+                  kid: z.string().max(128),
+                  publicJwk: z.unknown(),
+                })
+                .strict(),
+              access: z
+                .object({
+                  resourceIds: z.array(z.string().min(1).max(191)).max(100),
+                  scopeIds: z.array(z.string().min(1).max(191)).max(100),
+                })
+                .strict(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => createMachineClient(input, ctx.adminActor)),
+        ),
+      update: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              name: z.string().max(200),
+              enabled: z.boolean(),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => updateMachineClient(input, ctx.adminActor)),
+        ),
+      registerKey: adminProcedure
+        .input(
+          z
+            .object({
+              clientId: z.string().min(1).max(191),
+              kid: z.string().max(128),
+              publicJwk: z.unknown(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => registerMachineKey(input, ctx.adminActor)),
+        ),
+      revokeKey: adminProcedure
+        .input(
+          z
+            .object({ clientId: z.string().min(1).max(191), keyId: z.string().min(1).max(191) })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => revokeMachineKey(input, ctx.adminActor)),
+        ),
+      replaceAccess: adminProcedure
+        .input(
+          z
+            .object({
+              clientId: z.string().min(1).max(191),
+              resourceIds: z.array(z.string().min(1).max(191)).max(100),
+              scopeIds: z.array(z.string().min(1).max(191)).max(100),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => replaceMachineAccess(input, ctx.adminActor)),
         ),
     }),
     resources: trpc.router({

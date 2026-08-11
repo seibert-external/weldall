@@ -26,6 +26,7 @@ import { auth } from "../auth/auth";
 import { hasLoginScopeForUserId } from "../auth/login-policy";
 import { exchangePolicyRequiringSystemScopeFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
+import { auditMachineFailure, issueMachineToken, machineAuditContext } from "./machine";
 
 const hash = (value: string) => createHash("sha256").update(value, "ascii").digest("base64url");
 const confirmationJkt = (value: unknown): string | undefined => {
@@ -70,6 +71,8 @@ const securityParameters = [
   "scope",
   "subject_token",
   "subject_token_type",
+  "client_assertion_type",
+  "client_assertion",
 ] as const;
 
 function rejectDuplicateParameters(form: FormData): void {
@@ -92,8 +95,18 @@ async function oauthForm(request: Request): Promise<FormData> {
     throw new WeldallAuthError("invalid_request", "form content type required");
   }
   try {
-    return await request.clone().formData();
-  } catch {
+    const declaredLength = Number(request.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > 64_000)
+      throw new WeldallAuthError("invalid_request", "form is too large");
+    const raw = await request.clone().text();
+    if (new TextEncoder().encode(raw).byteLength > 64_000)
+      throw new WeldallAuthError("invalid_request", "form is too large");
+    const parameters = new URLSearchParams(raw);
+    const form = new FormData();
+    for (const [name, value] of parameters) form.append(name, value);
+    return form;
+  } catch (error) {
+    if (error instanceof WeldallAuthError) throw error;
     throw new WeldallAuthError("invalid_request", "invalid form body");
   }
 }
@@ -361,16 +374,22 @@ export function tokenFacade(request: Request) {
 
 export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: AuditWriter) {
   let exchangeAudit: ExchangeAuditContext | undefined;
+  let machineAudit: ReturnType<typeof machineAuditContext> | undefined;
   try {
     const form = await oauthForm(request);
     const grantTypeValue = form.get("grant_type");
     if (grantTypeValue === TOKEN_EXCHANGE_GRANT) {
       exchangeAudit = createExchangeAuditContext(request, form);
+    } else if (grantTypeValue === "client_credentials") {
+      machineAudit = machineAuditContext(request, form);
     }
     rejectDuplicateParameters(form);
     const grantType = requiredString(form, "grant_type");
     if (grantType === TOKEN_EXCHANGE_GRANT) {
       return await exchange(request, form, exchangeAudit!, auditWriter);
+    }
+    if (grantType === "client_credentials") {
+      return await issueMachineToken(request, form, machineAudit!, auditWriter, replay);
     }
 
     let previous: OAuthDeviceRefreshBinding | null = null;
@@ -496,6 +515,7 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
     return response;
   } catch (error) {
     if (exchangeAudit) await auditExchangeFailure(exchangeAudit, error, auditWriter);
+    if (machineAudit) await auditMachineFailure(machineAudit, error, auditWriter);
     return oauthErrorResponse(error);
   }
 }
