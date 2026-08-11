@@ -12,7 +12,8 @@ const generateEs256KeyPair = async () => {
   const publicJwk = await exportJWK(publicKey);
   return { privateJwk, publicJwk, jkt: await calculateJwkThumbprint(publicJwk) };
 };
-const [weldall, expenses, devIdp] = await Promise.all([
+const [weldall, expenses, devIdp, machine] = await Promise.all([
+  generateEs256KeyPair(),
   generateEs256KeyPair(),
   generateEs256KeyPair(),
   generateEs256KeyPair(),
@@ -37,7 +38,11 @@ const devUsers = JSON.stringify([
 ]);
 
 const files: Record<string, Record<string, string>> = {
-  "database/env.sh": { POSTGRES_URL: postgresUrl },
+  "database/env.sh": {
+    POSTGRES_URL: postgresUrl,
+    DEV_M2M_SIGNING_PUBLIC_JWK: JSON.stringify(machine.publicJwk),
+    DEV_M2M_SIGNING_KID: "dev-m2m-e2e",
+  },
   "weldall/env.sh": {
     POSTGRES_URL: postgresUrl,
     BETTER_AUTH_SECRET: secret(),

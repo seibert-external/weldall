@@ -79,12 +79,6 @@ export function AdminFrame({ children }: { children: ReactNode }) {
             </div>
             <SideNavSection title="Administration" isHeaderHidden>
               <SideNavItem
-                label="Machine clients"
-                href="/machines"
-                icon={MachineIcon}
-                isSelected={selected("/machines")}
-              />
-              <SideNavItem
                 label="Resources"
                 href="/resources"
                 icon={ResourceIcon}
@@ -119,6 +113,12 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 href="/users"
                 icon={UserIcon}
                 isSelected={selected("/users")}
+              />
+              <SideNavItem
+                label="Machine clients"
+                href="/machines"
+                icon={MachineIcon}
+                isSelected={selected("/machines")}
               />
               <SideNavItem
                 label="Skill registry"

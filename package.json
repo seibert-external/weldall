@@ -14,6 +14,7 @@
     "cli:link": "pnpm --filter @weldall/cli build && ln -sf \"$PWD/apps/cli/dist/index.js\" \"$(dirname \"$(command -v node)\")/weldall\"",
     "dev": "turbo run dev --filter=@weldall/weldall --filter=@weldall/expenses --filter=@weldall/dev-idp --filter=@weldall/docs",
     "docs:dev": "pnpm --filter @weldall/docs dev",
+    "m2m:demo": "pnpm --filter @weldall/expenses m2m:demo",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "typecheck": "turbo run typecheck",

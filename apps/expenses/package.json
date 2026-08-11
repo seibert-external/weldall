@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "pnpm with-env tsx src/index.ts",
+    "m2m:demo": "pnpm with-env tsx src/m2m-demo.ts",
     "start": "pnpm with-env node dist/index.js",
     "with-env": "dotenv -e ../../.env --",
     "typecheck": "tsc -p tsconfig.json --noEmit",

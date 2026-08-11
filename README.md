@@ -12,8 +12,6 @@ agent ──commands──> Weldall CLI ──grants / ID-JAG──> Weldall
 machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> resource server
 ```
 
-The repository is an alpha/prototype. It implements pinned ID-JAG draft-04 and JWT Authorization Grant with DPoP draft-01 behavior, plus direct DPoP-constrained machine access tokens for registered machine clients. ID-JAG, machine-issuance, and resource replay protection is process-local by default, so restarts clear replay state and safe horizontal scaling is not yet supported. Resource configurations may explicitly disable replay consumption. See [Security and conformance testing](security-testing.md) before production use.
-
 ## Major components
 
 - **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
@@ -177,7 +175,7 @@ pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com
 pnpm build:dev
 ```
 
-The development seed includes the Expenses scopes and resource described below. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
+The development seed includes the Expenses scopes and resource described below. It also registers the read-only `dev-expenses-reader` machine using the public half of the `DEV_M2M_SIGNING_*` key pair generated in `.env`; production seeding does not create this machine. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
 
 Start long-running processes in two foreground terminals:
 
@@ -194,6 +192,14 @@ Open `https://weldall.seibert.localdev`, choose the Development Login identity `
 - Weldall: `https://weldall.seibert.localdev`
 - Expenses: `https://expenses.seibert.localdev`
 - Development IdP: `https://dev-idp.seibert.localdev`
+
+Exercise the seeded machine's complete client-credentials and DPoP flow against Expenses:
+
+```sh
+pnpm m2m:demo
+```
+
+The command reads the machine's private key from the gitignored `.env`, requests an `expenses:read` machine token from Weldall, calls the Expenses API, and verifies the returned machine identity. It does not print credentials or tokens.
 
 Build and invoke the repository CLI directly:
 

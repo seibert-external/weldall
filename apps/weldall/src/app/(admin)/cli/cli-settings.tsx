@@ -72,13 +72,6 @@ export function CliSettings() {
       </HerocrumbsActions>
 
       <div className="skill-detail-surface">
-        <div className="grid gap-1">
-          <h2 className="m-0 text-xl font-semibold">CLI instructions</h2>
-          <Text color="secondary">
-            Shared Markdown for general organization-specific CLI guidance.
-          </Text>
-        </div>
-
         <form
           className="admin-dialog-form"
           id={formId}
@@ -108,7 +101,7 @@ export function CliSettings() {
                   maxLength={100_000}
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
-                  placeholder="Gude! Dieses Tool kannst du für alles nutzen, was mit Seibert zusammenhängt."
+                  placeholder="Use this CLI for everything that is related to ACME Corp. and their internal tools like Stripe, Hubspot and Jira."
                   rows={24}
                   value={String(field.state.value)}
                 />
