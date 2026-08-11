@@ -5,6 +5,29 @@ sidebar:
   label: Machine authentication
 ---
 
+import { Image } from "astro:assets";
+import { AstroZoomInit } from "astro-zoom";
+import overviewLight from "../../../assets/machine-authentication-overview.svg";
+import overviewDark from "../../../assets/machine-authentication-overview-dark.png";
+import flowLight from "../../../assets/machine-authentication-flow.svg";
+import flowDark from "../../../assets/machine-authentication-flow-dark.svg";
+
+<AstroZoomInit background="var(--sl-color-bg)" />
+<div class="dark:sl-hidden">
+  <Image
+    src={overviewLight}
+    alt="Overview of interactive and machine-to-machine access through Weldall"
+    data-zoom
+  />
+</div>
+<div class="light:sl-hidden">
+  <Image
+    src={overviewDark}
+    alt="Overview of interactive and machine-to-machine access through Weldall"
+    data-zoom
+  />
+</div>
+
 Use machine authentication when one backend needs to call another without a person signing in. Each machine has its own client ID and key pair. It authenticates with OAuth 2.0 client credentials and RFC 7523 `private_key_jwt`, and Weldall returns a five-minute token for one resource.
 
 ## Register the calling service
@@ -88,3 +111,22 @@ Register the new public key before deploying its private counterpart. Keep both 
 You can also deactivate the machine client or remove entries from either access allowlist. These changes stop new token issuance immediately. Tokens already issued expire within five minutes.
 
 Machine registration, token issuance, and rejected requests appear under **Audit logs**. Assertions, tokens, proofs, and key material are not written to the audit log.
+
+## Security flow
+
+The complete request flow has two verification points: Weldall checks the machine, its key, and its access policy before issuing a short-lived token; the receiving API then verifies that token and the fresh DPoP proof attached to the request.
+
+<div class="dark:sl-hidden">
+  <Image
+    src={flowLight}
+    alt="Machine token issuance and protected API request security flow"
+    data-zoom
+  />
+</div>
+<div class="light:sl-hidden">
+  <Image
+    src={flowDark}
+    alt="Machine token issuance and protected API request security flow"
+    data-zoom
+  />
+</div>
