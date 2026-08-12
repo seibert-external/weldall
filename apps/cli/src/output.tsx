@@ -20,7 +20,7 @@ type Field = readonly [label: string, value: string];
 const LayoutContext = createContext(80);
 const outputStream = (stream: OutputStream) => process[stream];
 const terminalColumns = (stream: OutputStream = "stdout") => outputStream(stream).columns || 80;
-const frameColumns = (columns = terminalColumns()) => Math.max(8, Math.min(80, columns));
+const frameColumns = (columns = terminalColumns()) => Math.max(1, Math.min(80, columns));
 const colorsEnabled = (stream: OutputStream) =>
   Boolean(outputStream(stream).isTTY) &&
   !("NO_COLOR" in process.env) &&

@@ -12,6 +12,7 @@ if (testCredentialsFile && process.env.NODE_ENV !== "test")
   throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
 
 export interface StoredIdentity {
+  subject?: string;
   name: string;
   email: string;
 }
@@ -52,6 +53,9 @@ const parseCredentials = (raw: string, issuer: string): StoredCredentials => {
     typeof (value as Partial<StoredCredentials>).publicJwk !== "object" ||
     ((value as Partial<StoredCredentials>).identity !== undefined &&
       (typeof (value as Partial<StoredCredentials>).identity !== "object" ||
+        ((value as Partial<StoredCredentials>).identity?.subject !== undefined &&
+          (typeof (value as Partial<StoredCredentials>).identity?.subject !== "string" ||
+            !(value as Partial<StoredCredentials>).identity?.subject?.trim())) ||
         typeof (value as Partial<StoredCredentials>).identity?.name !== "string" ||
         !(value as Partial<StoredCredentials>).identity?.name.trim() ||
         typeof (value as Partial<StoredCredentials>).identity?.email !== "string" ||

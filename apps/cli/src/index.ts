@@ -39,15 +39,14 @@ async function loadLocalHeader(includeAppendix: boolean): Promise<LocalHeader> {
   try {
     const issuer = (await selectIssuer({ allowPrompt: false }))?.issuer ?? null;
     if (!issuer) return { issuer: null, identity: null, ...emptySnapshot() };
-    const [snapshot, credentials] = await Promise.all([
-      includeAppendix
-        ? appendixCache.readSnapshot(issuer).catch(() => null)
-        : Promise.resolve(null),
-      keychain.get(issuer).catch(() => null),
-    ]);
+    const credentials = await keychain.get(issuer).catch(() => null);
+    const identity = credentials?.identity ?? null;
+    const snapshot = includeAppendix
+      ? await appendixCache.readSnapshotForSubject(issuer, identity?.subject ?? null).catch(() => null)
+      : null;
     return {
       issuer,
-      identity: credentials?.identity ?? null,
+      identity,
       ...(snapshot ?? emptySnapshot()),
     };
   } catch {
@@ -65,16 +64,23 @@ async function refreshCliHeader(issuer: string) {
     });
     const snapshot = (await appendixCache.readSnapshot(issuer)) ?? emptySnapshot();
     const appendix = await getCliAppendix(config).catch(() => snapshot.appendix);
-    await whoAmI(config).catch(() => undefined);
+    const identity = await whoAmI(config).catch(() => undefined);
+    if (!identity) return;
+    const ownedSnapshot = snapshot.subject === identity.subject ? snapshot : emptySnapshot();
     const scopes = await listScopes(config)
       .then((result) => result.assignedScopes)
-      .catch(() => snapshot.scopes);
+      .catch(() => ownedSnapshot.scopes);
     const skills = await listSkills(config)
       .then((result): CachedSkillPreview[] =>
         result.items.map(({ slug, title, available }) => ({ slug, title, available })),
       )
-      .catch(() => snapshot.skills);
-    await appendixCache.writeSnapshot(issuer, { appendix, scopes, skills });
+      .catch(() => ownedSnapshot.skills);
+    await appendixCache.writeSnapshot(issuer, {
+      appendix,
+      scopes,
+      skills,
+      subject: identity.subject,
+    });
   } catch {
     // The cached appendix remains usable while discovery or refresh is unavailable.
   }

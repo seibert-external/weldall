@@ -183,6 +183,12 @@ describe("CLI brand", () => {
 });
 
 describe("responsive Ink layout", () => {
+  it.each([1, 4, 7])("never exceeds a %i-column terminal", (columns) => {
+    const output = renderUi(createElement(Card, { title: "Weldall" }, "Host"), columns);
+
+    expect(output.split("\n").every((line) => line.length <= columns)).toBe(true);
+  });
+
   it.each([10, 20])("keeps field panels inside a %i-column terminal", (columns) => {
     const output = renderUi(
       createElement(

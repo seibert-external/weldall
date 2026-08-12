@@ -129,7 +129,7 @@ export async function whoAmI(config: WeldallConfig) {
         });
       await saveCredentials(config.issuer, {
         ...session.credentials,
-        identity: { name, email },
+        identity: { subject: value.sub, name, email },
       });
       return { issuer: config.issuer, subject: value.sub, name, email };
     }),

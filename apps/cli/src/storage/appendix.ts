@@ -17,6 +17,7 @@ export interface CliHeaderSnapshot {
   appendix: string;
   scopes: string[];
   skills: CachedSkillPreview[];
+  subject?: string;
 }
 
 interface CachedAppendix extends CliHeaderSnapshot {
@@ -57,18 +58,32 @@ export class AppendixCache {
         value.issuer !== issuer ||
         typeof value.appendix !== "string" ||
         value.appendix.length > MAX_APPENDIX_LENGTH ||
+        (value.subject !== undefined &&
+          (typeof value.subject !== "string" || !value.subject.trim())) ||
         (value.scopes !== undefined && !validStrings(value.scopes)) ||
         (value.skills !== undefined && !validSkills(value.skills))
       )
         return null;
-      return {
+      const snapshot = {
         appendix: value.appendix,
         scopes: value.scopes ?? [],
         skills: value.skills ?? [],
+        ...(value.subject === undefined ? {} : { subject: value.subject }),
       };
+      return snapshot;
     } catch {
       return null;
     }
+  }
+
+  async readSnapshotForSubject(
+    issuer: string,
+    subject: string | null,
+  ): Promise<CliHeaderSnapshot | null> {
+    const snapshot = await this.readSnapshot(issuer);
+    if (!snapshot || !subject || snapshot.subject !== subject)
+      return snapshot ? { ...snapshot, scopes: [], skills: [] } : null;
+    return snapshot;
   }
 
   async read(issuer: string): Promise<string | null> {
@@ -79,7 +94,8 @@ export class AppendixCache {
     if (
       snapshot.appendix.length > MAX_APPENDIX_LENGTH ||
       !validStrings(snapshot.scopes) ||
-      !validSkills(snapshot.skills)
+      !validSkills(snapshot.skills) ||
+      (snapshot.subject !== undefined && !snapshot.subject.trim())
     )
       return;
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
