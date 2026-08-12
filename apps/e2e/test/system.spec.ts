@@ -227,7 +227,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   const skills = await runCli("skills");
   expect(skills, skills.stderr).toMatchObject({ code: 0 });
-  expect(skills.stdout).toContain("List expenses (expenses.list)");
+  expect(skills.stdout).toContain("List expenses");
+  expect(skills.stdout).toContain("ID: expenses.list");
   const skill = await runCli("skills", "show", "expenses.list");
   expect(skill, skill.stderr).toMatchObject({ code: 0 });
   expect(skill.stdout).toContain("requiredScopes:");
