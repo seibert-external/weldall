@@ -18,6 +18,12 @@ const cliEnv = {
 
 type CliResult = { code: number; stdout: string; stderr: string };
 
+const normalizePanelOutput = (output: string) =>
+  output
+    .replace(/[\u2500-\u257f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const startCli = (args: string[], timeoutMs = 45_000) => {
   const child = spawn(process.execPath, ["--use-system-ca", cli, ...args], {
     cwd: workspace,
@@ -93,8 +99,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   });
   const whoamiText = await runCli("whoami");
   expect(whoamiText, whoamiText.stderr).toMatchObject({ code: 0 });
-  expect(whoamiText.stdout).toContain("Signed in as Alice E2E");
-  expect(whoamiText.stdout).toMatch(/Email\s+alice@example\.com/);
+  const normalizedWhoami = normalizePanelOutput(whoamiText.stdout);
+  expect(normalizedWhoami).toContain("Account Alice E2E");
+  expect(normalizedWhoami).toContain("Email alice@example.com");
 
   await page.goto("https://weldall.seibert.localdev/scopes");
   await expect(page.getByRole("heading", { name: "Scopes" })).toBeVisible();
@@ -385,7 +392,9 @@ test("denies CLI login without weldall:login while preserving browser authentica
 
   const loginResult = await login.result;
   expect(loginResult.code).toBe(1);
-  expect(loginResult.stderr).toContain("the weldall:login scope must be assigned to your account");
+  expect(normalizePanelOutput(loginResult.stderr)).toContain(
+    "the weldall:login scope must be assigned to your account",
+  );
 
   await page.goto("https://weldall.seibert.localdev/");
   await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible();
