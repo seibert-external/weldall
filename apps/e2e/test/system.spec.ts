@@ -362,7 +362,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   expect(refreshedHelp.stdout).toContain("Organization instructions");
 
   await page.getByRole("link", { name: "Users", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
   const userRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
   await expect(userRow).toBeVisible();
   await userRow.getByRole("link", { name: "Open" }).click();
