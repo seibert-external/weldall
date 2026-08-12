@@ -42,7 +42,9 @@ async function loadLocalHeader(includeAppendix: boolean): Promise<LocalHeader> {
     const credentials = await keychain.get(issuer).catch(() => null);
     const identity = credentials?.identity ?? null;
     const snapshot = includeAppendix
-      ? await appendixCache.readSnapshotForSubject(issuer, identity?.subject ?? null).catch(() => null)
+      ? await appendixCache
+          .readSnapshotForSubject(issuer, identity?.subject ?? null)
+          .catch(() => null)
       : null;
     return {
       issuer,

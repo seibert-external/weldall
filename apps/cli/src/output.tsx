@@ -38,6 +38,7 @@ export const renderUi = (
   stream: OutputStream = "stdout",
 ) => {
   const width = frameColumns(columns);
+  if (width === 1) return "…";
   const previousColorLevel = chalk.level;
   chalk.level = colorsEnabled(stream) ? 1 : 0;
   try {

@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import { explainScope, formatSkillWarning, printPermissions } from "../src/commands.js";
 import {
@@ -184,7 +185,10 @@ describe("CLI brand", () => {
 
 describe("responsive Ink layout", () => {
   it.each([1, 4, 7])("never exceeds a %i-column terminal", (columns) => {
-    const output = renderUi(createElement(Card, { title: "Weldall" }, "Host"), columns);
+    const output = renderUi(
+      createElement(Card, { title: "Weldall" }, createElement(Text, null, "Host")),
+      columns,
+    );
 
     expect(output.split("\n").every((line) => line.length <= columns)).toBe(true);
   });

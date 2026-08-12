@@ -98,11 +98,11 @@ colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON,
 bodies, and piped scope lists remain plain output. Help shows a rounded purple Weldall panel with the
 effective host and cached name and email of the signed-in account. Root help stacks it above the
 yellow organization-instructions panel and capped previews of assigned scopes and visible skills. Each
-preview points to `weldall scopes` or `weldall skills` for the complete list. The
-cached administrator appendix, account profile, scopes, and skills refresh for the next invocation.
-Discovery has a
-2.5-second total deadline; an authenticated refresh that has already begun is allowed to finish so
-refresh-token rotation is not interrupted.
+preview shows up to five entries, reports how many more were omitted, and points to `weldall scopes`
+or `weldall skills` for the complete list. The cached administrator appendix, account profile, scopes,
+and skills refresh for the next invocation. Discovery has a 2.5-second total deadline; an
+authenticated refresh that has already begun is allowed to finish so refresh-token rotation is not
+interrupted.
 
 ## Development
 
