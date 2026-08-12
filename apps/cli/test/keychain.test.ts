@@ -30,15 +30,29 @@ describe("E2E credential store", () => {
         privateJwk: { kty: "EC", crv: "P-256", x: "x", y: "y", d: "d" },
         publicJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
         refreshToken: "test-refresh-token",
+        identity: { name: "Test User", email: "test@example.com" },
       };
 
       await keychain.set(issuer, credentials);
       await expect(keychain.get(issuer)).resolves.toMatchObject({ issuer, ...credentials });
+
+      const legacyIssuer = "https://legacy.example.com";
+      await keychain.set(legacyIssuer, {
+        privateJwk: credentials.privateJwk,
+        publicJwk: credentials.publicJwk,
+        refreshToken: credentials.refreshToken,
+      });
+      await expect(keychain.get(legacyIssuer)).resolves.toMatchObject({
+        issuer: legacyIssuer,
+        refreshToken: credentials.refreshToken,
+      });
+      expect((await keychain.get(legacyIssuer))?.identity).toBeUndefined();
       await expect(keychain.get("https://other.example.com")).resolves.toBeNull();
       expect((await stat(path)).mode & 0o777).toBe(0o600);
-      expect(Object.values(JSON.parse(await readFile(path, "utf8")) as object)).toHaveLength(1);
+      expect(Object.values(JSON.parse(await readFile(path, "utf8")) as object)).toHaveLength(2);
 
       await keychain.clear(issuer);
+      await keychain.clear(legacyIssuer);
       await expect(keychain.get(issuer)).resolves.toBeNull();
     } finally {
       await rm(directory, { recursive: true, force: true });

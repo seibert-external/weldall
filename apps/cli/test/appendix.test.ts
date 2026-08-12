@@ -11,9 +11,18 @@ describe("CLI appendix cache", () => {
     const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
     try {
       const cache = new AppendixCache(directory);
-      await cache.write(issuer, "# Organization instructions");
+      await cache.writeSnapshot(issuer, {
+        appendix: "# Organization instructions",
+        scopes: ["expenses:read"],
+        skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+      });
 
       await expect(cache.read(issuer)).resolves.toBe("# Organization instructions");
+      await expect(cache.readSnapshot(issuer)).resolves.toEqual({
+        appendix: "# Organization instructions",
+        scopes: ["expenses:read"],
+        skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+      });
       await expect(cache.read("https://other.example.com")).resolves.toBeNull();
       const files = await readdir(directory);
       expect(files).toHaveLength(1);
