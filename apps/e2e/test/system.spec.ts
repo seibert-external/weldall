@@ -317,7 +317,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     "https://redirect.seibert.localdev/redirect",
   );
   expect(redirected.code).toBe(1);
-  expect(redirected.stderr).toMatch(/Error: (?:fetch failed|redirect count exceeded)/);
+  expect(normalizePanelOutput(redirected.stderr)).toMatch(
+    /Error (?:fetch failed|redirect count exceeded)/,
+  );
   await expectNoCapturedRequests();
 
   await page.goto("https://weldall.seibert.localdev/resources");
