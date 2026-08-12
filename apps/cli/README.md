@@ -92,13 +92,17 @@ the audience, resource, scopes, and device key. It then adds the DPoP authorizat
 `weldall skills` and `weldall skills show` expose
 administrator-managed Markdown instructions for agents.
 
-Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. ANSI colors
-are only emitted to an interactive terminal and respect `NO_COLOR`. Help starts with a compact framed
-header that shows the effective Weldall host, or makes clear that no host is configured. Root help
-renders a non-empty cached administrator-provided appendix in a separate, prominent instructions
-frame with wrapped, justified prose, then refreshes it for the next invocation. Discovery has a
-2.5-second total deadline; an authenticated refresh that has already begun is allowed to finish so
-refresh-token rotation is not interrupted.
+Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. Human-facing
+output is rendered with Ink in bordered account, access, skill, notice, and configuration panels. ANSI
+colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON, documents, response
+bodies, and piped scope lists remain plain output. Help shows a rounded purple Weldall panel with the
+effective host and cached name and email of the signed-in account. Root help stacks it above the
+yellow organization-instructions panel and capped previews of assigned scopes and visible skills. Each
+preview shows up to five entries, reports how many more were omitted, and points to `weldall scopes`
+or `weldall skills` for the complete list. The cached administrator appendix, account profile, scopes,
+and skills refresh for the next invocation. Discovery has a 2.5-second total deadline; an
+authenticated refresh that has already begun is allowed to finish so refresh-token rotation is not
+interrupted.
 
 ## Development
 

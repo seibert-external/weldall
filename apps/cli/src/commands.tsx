@@ -1,13 +1,16 @@
 import { define } from "gunshi";
+import { Box } from "ink";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
 import { CliError } from "./errors.js";
 import { responseValue } from "./http.js";
 import {
-  bold,
-  checkmark,
-  dim,
+  IdentityCard,
+  PermissionsCard,
+  SkillsCard,
   info,
   printFields,
+  printUi,
+  printWarning,
   success,
   terminalDocument,
   terminalText,
@@ -15,7 +18,7 @@ import {
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
 import { listScopes, resourceRequest, type ResourceGrant } from "./services/resources.js";
-import { listSkills, showSkill, type SkillSummary, type SkillWarning } from "./services/skills.js";
+import { listSkills, showSkill, type SkillWarning } from "./services/skills.js";
 import { issuerPreferences } from "./storage/preferences.js";
 import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transfers.js";
 
@@ -23,15 +26,16 @@ const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
 type ScopeOverview = Awaited<ReturnType<typeof listScopes>>;
 
-const printIdentity = (identity: Identity) => {
-  console.log(`${bold("Signed in as")} ${terminalText(identity.name)}`);
-  console.log();
-  printFields([
-    ["Email", terminalText(identity.email)],
-    ["Weldall host", terminalText(identity.issuer)],
-    ["Account ID", terminalText(identity.subject)],
-  ]);
-};
+const identityCard = (identity: Identity) => (
+  <IdentityCard
+    name={identity.name}
+    email={identity.email}
+    issuer={identity.issuer}
+    subject={identity.subject}
+  />
+);
+
+const printIdentity = (identity: Identity) => printUi(identityCard(identity));
 
 export const explainScope = (scope: string) => {
   const action = terminalText(scope.split(":").at(-1) ?? "").toLowerCase();
@@ -52,38 +56,33 @@ export const explainScope = (scope: string) => {
   );
 };
 
+const permissionsCard = (
+  grants: ResourceGrant[],
+  assignedScopes = [...new Set(grants.flatMap((grant) => grant.grantedScopes))].sort(),
+) => (
+  <PermissionsCard
+    permissions={assignedScopes.map((scope) => ({
+      description: explainScope(scope),
+      scope,
+    }))}
+    availableApis={grants
+      .filter((grant) => grant.grantedScopes.length > 0)
+      .map((grant) => ({ id: grant.key, name: grant.name }))}
+  />
+);
+
 export const printPermissions = (
   grants: ResourceGrant[],
   assignedScopes = [...new Set(grants.flatMap((grant) => grant.grantedScopes))].sort(),
-) => {
-  console.log(bold("Assigned permissions:"));
-  if (assignedScopes.length === 0) {
-    console.log("  No permissions are currently assigned to your account.");
-    console.log(`  ${dim("Ask your Weldall administrator for the access you need.")}`);
-    return;
-  }
+) => printUi(permissionsCard(grants, assignedScopes));
 
-  const assignedWidth = Math.max(...assignedScopes.map((scope) => explainScope(scope).length));
-  for (const scope of assignedScopes)
-    console.log(
-      `  ${checkmark()} ${explainScope(scope).padEnd(assignedWidth)}  ${dim(terminalText(scope))}`,
-    );
-
-  console.log();
-  console.log(bold("Available APIs:"));
-  const available = grants.filter((grant) => grant.grantedScopes.length > 0);
-  if (available.length === 0) {
-    console.log(`  ${dim("No enabled API resource currently exposes these permissions.")}`);
-    return;
-  }
-  for (const grant of available) console.log(`  ${bold(terminalText(grant.name))}`);
-};
-
-const printStatus = (identity: Identity, permissions: ScopeOverview) => {
-  printIdentity(identity);
-  console.log();
-  printPermissions(permissions.resources, permissions.assignedScopes);
-};
+const printStatus = (identity: Identity, permissions: ScopeOverview) =>
+  printUi(
+    <Box flexDirection="column" gap={1}>
+      {identityCard(identity)}
+      {permissionsCard(permissions.resources, permissions.assignedScopes)}
+    </Box>,
+  );
 
 export const loginCommand = define({
   name: "login",
@@ -104,8 +103,10 @@ export const loginCommand = define({
       console.log();
       printStatus(identity, permissions);
     } catch {
-      warning("Signed in, but your account details could not be loaded.");
-      console.log(`  ${dim("Run `weldall status` to try again.")}`);
+      warning(
+        "Signed in, but your account details could not be loaded.",
+        "Run `weldall status` to try again.",
+      );
     }
   },
 });
@@ -118,7 +119,7 @@ export const logoutCommand = define({
     const config = await resolveWeldallConfig();
     const hadSession = await logout(config);
     if (hadSession) success("Logged out.");
-    else console.log("You were not signed in to this Weldall host.");
+    else info("You were not signed in to this Weldall host.");
   },
 });
 
@@ -332,13 +333,6 @@ export const requestCommand = define({
   },
 });
 
-export const formatSkillListLine = (skill: SkillSummary): string => {
-  const identity = `${terminalText(skill.title)} (${terminalText(skill.slug)})`;
-  if (skill.available) return identity;
-  const missing = skill.missingScopes.map(terminalText).join(", ");
-  return `${identity} (not available${missing ? `, missing scopes: ${missing}` : ""})`;
-};
-
 export const formatSkillWarning = (warning: SkillWarning): string => {
   const source = terminalText(warning.source);
   const messages: Record<string, string> = {
@@ -357,12 +351,21 @@ const printSkills = async (asJson: boolean | undefined) => {
     jsonOutput(result);
     return;
   }
-  for (const warning of result.warnings) console.error(`Warning: ${formatSkillWarning(warning)}`);
+  for (const item of result.warnings) printWarning(formatSkillWarning(item));
   if (result.items.length === 0) {
-    console.log("No skills are visible to this account.");
+    info("No skills are visible to this account.");
     return;
   }
-  for (const skill of result.items) console.log(formatSkillListLine(skill));
+  printUi(
+    <SkillsCard
+      skills={result.items.map((skill) => ({
+        id: skill.slug,
+        title: skill.title,
+        available: skill.available,
+        missingScopes: skill.missingScopes,
+      }))}
+    />,
+  );
 };
 
 const skillsListCommand = define({
@@ -415,7 +418,7 @@ const setIssuerCommand = define({
     await issuerPreferences.write(config.issuer);
     success(`Saved ${config.issuer}.`);
     if (process.env.WELDALL_ISSUER !== undefined)
-      console.log("WELDALL_ISSUER is currently overriding this preference.");
+      info("WELDALL_ISSUER is currently overriding this preference.");
   },
 });
 
@@ -437,10 +440,13 @@ const getIssuerCommand = define({
       });
     if (context.values.json) jsonOutput(selection);
     else
-      printFields([
-        ["Issuer", selection.issuer],
-        ["Source", selection.source],
-      ]);
+      printFields(
+        [
+          ["Issuer", selection.issuer],
+          ["Source", selection.source],
+        ],
+        "Configuration",
+      );
   },
 });
 
@@ -451,7 +457,7 @@ const resetIssuerCommand = define({
     await issuerPreferences.clear();
     success("Cleared the saved Weldall issuer.");
     if (process.env.WELDALL_ISSUER !== undefined)
-      console.log("WELDALL_ISSUER remains active for this process.");
+      info("WELDALL_ISSUER remains active for this process.");
   },
 });
 
@@ -463,11 +469,11 @@ export const configCommand = define({
     "get-issuer": getIssuerCommand,
     "reset-issuer": resetIssuerCommand,
   },
-  run: () => console.log("Run `weldall config --help` to see configuration commands."),
+  run: () => info("Run `weldall config --help` to see configuration commands."),
 });
 
 export const mainCommand = define({
   name: "weldall",
   description: "Sign in securely and use your organization's APIs",
-  run: () => console.log("Run `weldall status` to see your account and permissions."),
+  run: () => info("Run `weldall status` to see your account and permissions."),
 });

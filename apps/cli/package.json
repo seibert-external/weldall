@@ -38,13 +38,17 @@
   },
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",
+    "chalk": "^5.6.2",
     "gunshi": "^0.37.1",
+    "ink": "^7.1.1",
     "jose": "^6.2.2",
-    "proper-lockfile": "^4.1.2"
+    "proper-lockfile": "^4.1.2",
+    "react": "^19.2.4"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/react": "^19.2.17",
     "@weldall/sdk": "workspace:*",
     "@weldall/tsconfig": "workspace:*",
     "esbuild": "^0.28.1",

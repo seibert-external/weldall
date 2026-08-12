@@ -26,6 +26,7 @@ const saveCredentials = async (issuer: string, credentials: StoredCredentials) =
     privateJwk: credentials.privateJwk,
     publicJwk: credentials.publicJwk,
     refreshToken: credentials.refreshToken,
+    ...(credentials.identity === undefined ? {} : { identity: credentials.identity }),
   });
 
 export async function login(config: WeldallConfig) {
@@ -126,6 +127,10 @@ export async function whoAmI(config: WeldallConfig) {
         throw new CliError("Weldall did not return your verified profile", {
           hint: "Run `weldall logout`, then `weldall login` to refresh your account details.",
         });
+      await saveCredentials(config.issuer, {
+        ...session.credentials,
+        identity: { subject: value.sub, name, email },
+      });
       return { issuer: config.issuer, subject: value.sub, name, email };
     }),
   );

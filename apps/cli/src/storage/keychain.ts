@@ -11,12 +11,19 @@ const testCredentialsFile = process.env.WELDALL_E2E_CREDENTIALS_FILE;
 if (testCredentialsFile && process.env.NODE_ENV !== "test")
   throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
 
+export interface StoredIdentity {
+  subject?: string;
+  name: string;
+  email: string;
+}
+
 export interface StoredCredentials {
   version: typeof CREDENTIALS_VERSION;
   issuer: string;
   privateJwk: JWK;
   publicJwk: JWK;
   refreshToken: string;
+  identity?: StoredIdentity;
 }
 
 type TestKeychain = Record<string, StoredCredentials>;
@@ -43,7 +50,16 @@ const parseCredentials = (raw: string, issuer: string): StoredCredentials => {
     typeof (value as Partial<StoredCredentials>).refreshToken !== "string" ||
     !(value as Partial<StoredCredentials>).refreshToken ||
     typeof (value as Partial<StoredCredentials>).privateJwk !== "object" ||
-    typeof (value as Partial<StoredCredentials>).publicJwk !== "object"
+    typeof (value as Partial<StoredCredentials>).publicJwk !== "object" ||
+    ((value as Partial<StoredCredentials>).identity !== undefined &&
+      (typeof (value as Partial<StoredCredentials>).identity !== "object" ||
+        ((value as Partial<StoredCredentials>).identity?.subject !== undefined &&
+          (typeof (value as Partial<StoredCredentials>).identity?.subject !== "string" ||
+            !(value as Partial<StoredCredentials>).identity?.subject?.trim())) ||
+        typeof (value as Partial<StoredCredentials>).identity?.name !== "string" ||
+        !(value as Partial<StoredCredentials>).identity?.name.trim() ||
+        typeof (value as Partial<StoredCredentials>).identity?.email !== "string" ||
+        !(value as Partial<StoredCredentials>).identity?.email.trim()))
   )
     throw new CliError("The stored Weldall session has an unsupported format", {
       hint: "Run `weldall logout` and log in again.",

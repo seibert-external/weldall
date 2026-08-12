@@ -1,10 +1,6 @@
-import {
-  ArgsValidationErrorKeys,
-  isArgsValidationError,
-  isCommandNotFoundError,
-  type CommandContext,
-} from "gunshi";
-import { renderValidationErrors } from "gunshi/renderer";
+import { ArgsValidationErrorKeys, isArgsValidationError, isCommandNotFoundError } from "gunshi";
+import { errorMessage } from "./errors.js";
+import { printError } from "./output.js";
 
 const distance = (left: string, right: string) => {
   if (!left.length) return right.length;
@@ -47,11 +43,8 @@ const suggestion = (error: unknown): string | undefined => {
   return match ? `--${match}` : undefined;
 };
 
-export async function renderFriendlyValidation(
-  context: Readonly<CommandContext>,
-  error: AggregateError,
-) {
-  const message = await renderValidationErrors(context, error);
+export function printFriendlyValidation(error: AggregateError) {
+  const message = error.errors.map(errorMessage).join("\n");
   const match = error.errors.map(suggestion).find((value) => value !== undefined);
-  return match ? `${message}\nDid you mean ${match}?` : message;
+  printError(message, match === undefined ? undefined : `Did you mean ${match}?`);
 }

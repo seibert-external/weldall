@@ -15,46 +15,78 @@ import {
 import { discoverIssuer, selectIssuer } from "./config.js";
 import { CliError, errorMessage } from "./errors.js";
 import { createHttpsDeadlineFetch } from "./http.js";
-import { appendixFrame, brandHeading, printError, terminalDocument } from "./output.js";
+import { brandHeading, helpHeader, printError, terminalDocument } from "./output.js";
+import { whoAmI } from "./services/auth.js";
+import { listScopes } from "./services/resources.js";
 import { getCliAppendix } from "./services/settings.js";
-import { appendixCache } from "./storage/appendix.js";
-import { renderFriendlyValidation } from "./validation.js";
+import { listSkills } from "./services/skills.js";
+import {
+  appendixCache,
+  type CachedSkillPreview,
+  type CliHeaderSnapshot,
+} from "./storage/appendix.js";
+import { keychain, type StoredIdentity } from "./storage/keychain.js";
+import { printFriendlyValidation } from "./validation.js";
 
-interface LocalHeader {
+interface LocalHeader extends CliHeaderSnapshot {
   issuer: string | null;
-  appendix: string;
+  identity: StoredIdentity | null;
 }
+
+const emptySnapshot = (): CliHeaderSnapshot => ({ appendix: "", scopes: [], skills: [] });
 
 async function loadLocalHeader(includeAppendix: boolean): Promise<LocalHeader> {
   try {
     const issuer = (await selectIssuer({ allowPrompt: false }))?.issuer ?? null;
+    if (!issuer) return { issuer: null, identity: null, ...emptySnapshot() };
+    const credentials = await keychain.get(issuer).catch(() => null);
+    const identity = credentials?.identity ?? null;
+    const snapshot = includeAppendix
+      ? await appendixCache
+          .readSnapshotForSubject(issuer, identity?.subject ?? null)
+          .catch(() => null)
+      : null;
     return {
       issuer,
-      appendix: issuer && includeAppendix ? ((await appendixCache.read(issuer)) ?? "") : "",
+      identity,
+      ...(snapshot ?? emptySnapshot()),
     };
   } catch {
     // Help must remain available when the local configuration cannot be read.
-    return { issuer: null, appendix: "" };
+    return { issuer: null, identity: null, ...emptySnapshot() };
   }
 }
 
-async function refreshCliAppendix(issuer: string) {
+async function refreshCliHeader(issuer: string) {
   try {
     const timeoutMs = 2_500;
     const config = await discoverIssuer(issuer, {
       fetcher: createHttpsDeadlineFetch(timeoutMs),
       timeoutMs,
     });
-    await appendixCache.write(issuer, await getCliAppendix(config));
+    const snapshot = (await appendixCache.readSnapshot(issuer)) ?? emptySnapshot();
+    const appendix = await getCliAppendix(config).catch(() => snapshot.appendix);
+    const identity = await whoAmI(config).catch(() => undefined);
+    if (!identity) return;
+    const ownedSnapshot = snapshot.subject === identity.subject ? snapshot : emptySnapshot();
+    const scopes = await listScopes(config)
+      .then((result) => result.assignedScopes)
+      .catch(() => ownedSnapshot.scopes);
+    const skills = await listSkills(config)
+      .then((result): CachedSkillPreview[] =>
+        result.items.map(({ slug, title, available }) => ({ slug, title, available })),
+      )
+      .catch(() => ownedSnapshot.skills);
+    await appendixCache.writeSnapshot(issuer, {
+      appendix,
+      scopes,
+      skills,
+      subject: identity.subject,
+    });
   } catch {
     // The cached appendix remains usable while discovery or refresh is unavailable.
   }
 }
-
-const agentIntroduction = [
-  "Agents can discover approved capabilities and access APIs with scoped credentials.",
-  "Start with `weldall skills`, then use `weldall skills show <skill-id>` for instructions.",
-].join("\n");
 
 export async function runCli(argv = process.argv.slice(2)) {
   const rootHelp =
@@ -81,18 +113,21 @@ export async function runCli(argv = process.argv.slice(2)) {
         if ((context.values as Record<string, unknown>).help !== true) return "";
         localHeader ??= loadLocalHeader(rootHelp);
         const header = await localHeader;
-        return [
-          brandHeading(header.issuer),
-          agentIntroduction,
-          rootHelp ? appendixFrame(header.appendix) : "",
-        ]
-          .filter(Boolean)
-          .join("\n\n");
+        if (rootHelp)
+          return helpHeader(
+            header.issuer,
+            header.identity,
+            header.appendix,
+            header.scopes,
+            header.skills,
+          );
+        return brandHeading(header.issuer, header.identity);
       },
-      renderValidationErrors: renderFriendlyValidation,
+      renderValidationErrors: null,
     });
   } catch (error) {
     if (error instanceof AggregateError) {
+      printFriendlyValidation(error);
       process.exitCode = 2;
       return;
     }
@@ -106,7 +141,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   if (rootHelp) {
     localHeader ??= loadLocalHeader(true);
     const { issuer } = await localHeader;
-    if (issuer) await refreshCliAppendix(issuer);
+    if (issuer) await refreshCliHeader(issuer);
   }
 }
 

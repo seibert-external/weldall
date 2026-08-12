@@ -11,13 +11,58 @@ describe("CLI appendix cache", () => {
     const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
     try {
       const cache = new AppendixCache(directory);
-      await cache.write(issuer, "# Organization instructions");
+      await cache.writeSnapshot(issuer, {
+        appendix: "# Organization instructions",
+        scopes: ["expenses:read"],
+        skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+        subject: "account-a",
+      });
 
       await expect(cache.read(issuer)).resolves.toBe("# Organization instructions");
+      await expect(cache.readSnapshot(issuer)).resolves.toEqual({
+        appendix: "# Organization instructions",
+        scopes: ["expenses:read"],
+        skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+        subject: "account-a",
+      });
       await expect(cache.read("https://other.example.com")).resolves.toBeNull();
       const files = await readdir(directory);
       expect(files).toHaveLength(1);
       expect((await stat(join(directory, files[0]!))).mode & 0o777).toBe(0o600);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("only returns account-specific previews to their verified subject", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
+    try {
+      const cache = new AppendixCache(directory);
+      await cache.writeSnapshot(issuer, {
+        appendix: "Shared instructions",
+        scopes: ["account-a:read"],
+        skills: [],
+        subject: "account-a",
+      });
+
+      await expect(cache.readSnapshot(issuer)).resolves.toMatchObject({
+        appendix: "Shared instructions",
+        scopes: ["account-a:read"],
+        subject: "account-a",
+      });
+      await expect(cache.readSnapshotForSubject(issuer, "account-b")).resolves.toMatchObject({
+        appendix: "Shared instructions",
+        scopes: [],
+        skills: [],
+      });
+      await expect(cache.readSnapshotForSubject(issuer, null)).resolves.toMatchObject({
+        appendix: "Shared instructions",
+        scopes: [],
+        skills: [],
+      });
+      await expect(cache.readSnapshotForSubject(issuer, "account-a")).resolves.toMatchObject({
+        scopes: ["account-a:read"],
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
