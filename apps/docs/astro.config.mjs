@@ -1,4 +1,5 @@
 // @ts-check
+import react from "@astrojs/react";
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import lucode from "lucode-starlight";
@@ -6,6 +7,7 @@ import lucode from "lucode-starlight";
 // https://astro.build/config
 export default defineConfig({
   integrations: [
+    react(),
     starlight({
       title: "Weldall",
       logo: {

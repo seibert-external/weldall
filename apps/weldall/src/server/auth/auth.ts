@@ -27,6 +27,9 @@ export const auth = betterAuth({
     WELDALL_ISSUER,
     ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:3000"]),
   ],
+  rateLimit: {
+    customRules: { "/oauth2/token": false },
+  },
   socialProviders: loginProviders.google
     ? {
         google: {
