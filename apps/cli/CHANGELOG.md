@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.6.0
+
+### Minor Changes
+
+- 4c89941: Render human-facing CLI output with Ink using bordered, color-coded account, access, skill, configuration, notice, and help panels. Root help stacks the Weldall account, organization instructions, and capped scope and skill previews while preserving plain machine-readable output.
+
 ## 0.5.0
 
 ### Minor Changes
