@@ -6,6 +6,7 @@ import {
   parseDesiredState,
 } from "../src/server/iac/contracts";
 import { createPlan } from "../src/server/iac/planner";
+import { PrimitiveMutationError } from "../src/server/domain/primitive-mutations";
 
 const manifest = () =>
   parseDesiredState({
@@ -111,6 +112,34 @@ describe("native YAML IaC contracts", () => {
     expect(JSON.stringify(plan.actions)).not.toMatch(/next-x|old-x|\"x\"|\"y\"/);
     expect(plan.actions[0]).toMatchObject({ keyId: "next", keyThumbprint: expect.any(String) });
     expect(plan.actions[2]).toMatchObject({ keyId: "old", irreversible: true });
+  });
+
+  it("keeps primitive failures bounded and free of JWK coordinates", () => {
+    const error = new PrimitiveMutationError("CONFLICT", "Key ID old is immutable.", {
+      currentVersion: 2,
+    });
+    expect(JSON.stringify(error)).not.toMatch(/"d"|"x"|"y"|manifest|private/i);
+    expect(error.details).toEqual({ currentVersion: 2 });
+  });
+
+  it("never includes desired machine key coordinates in canonical plan JSON", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      scopes: {},
+      machines: {
+        runner: {
+          clientId: "runner",
+          name: "Runner",
+          enabled: true,
+          publicKeys: { ci: { kty: "EC", crv: "P-256", x: "coordinate-x", y: "coordinate-y" } },
+          resources: [],
+          scopes: ["weldall:iac"],
+        },
+      },
+    });
+    const output = JSON.stringify(createPlan(desired, { revision: 0, objects: [] }));
+    expect(output).not.toContain("coordinate-x");
+    expect(output).not.toContain("coordinate-y");
   });
 
   it("rejects unknown and unbounded apply request fields", () => {

@@ -1,10 +1,19 @@
-import { randomUUID } from "node:crypto";
 import { db, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
-import { assertPublicP256 } from "@weldall/sdk";
-import { calculateJwkThumbprint, type JWK } from "jose";
 import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
 import { createPlan, desiredObjects, loadPlanningState } from "./planner";
 import { lockConfigurationChanges } from "../domain/configuration";
+import {
+  deleteMachine,
+  mutateEmailAssignment,
+  mutateGroupAssignment,
+  mutateResource,
+  mutateScope,
+  preflightGroupAssignment,
+  reconcileMachine,
+  type GroupAssignmentPreflight,
+  type MutationActor,
+  PrimitiveMutationError,
+} from "../domain/primitive-mutations";
 
 export class IacError extends Error {
   constructor(
@@ -57,81 +66,108 @@ export async function applyIac(
   actor: IacActor,
 ) {
   const manifest = parseDesiredState(input.manifest);
-  assertDigest(input.configDigest, digest(manifest), "CONFIG_DIGEST_MISMATCH");
-  return db.$transaction(
-    async (tx) => {
-      await lockIacConfiguration(tx);
-      const prior = await tx.iacOperation.findUnique({ where: { id: input.operationId } });
-      if (prior) {
-        if (prior.requestDigest !== digest(input))
-          throw new IacError(
-            "IDEMPOTENCY_CONFLICT",
-            "Operation ID was used for a different request",
-            409,
-          );
-        if (prior.status === "SUCCEEDED") return prior.resultSummary;
-        throw new IacError("OPERATION_IN_PROGRESS", "Operation has not completed", 409);
-      }
-      const workspace = await ensureWorkspace(tx, manifest, actor.clientId);
-      if (workspace.revision !== input.plannedRevision)
-        throw new IacError("STALE_REVISION", "Workspace revision changed", 409, {
-          currentRevision: workspace.revision,
+  try {
+    assertDigest(input.configDigest, digest(manifest), "CONFIG_DIGEST_MISMATCH");
+    const requestDigest = digest(input);
+    const committed = await db.iacOperation.findUnique({ where: { id: input.operationId } });
+    if (committed) {
+      if (committed.requestDigest !== requestDigest)
+        throw new IacError(
+          "IDEMPOTENCY_CONFLICT",
+          "Operation ID was used for a different request",
+          409,
+        );
+      if (committed.status === "SUCCEEDED") return committed.resultSummary;
+    }
+    const groupPreflights = await preflightNewGroupAssignments(manifest);
+    return await db.$transaction(
+      async (tx) => {
+        await lockIacConfiguration(tx);
+        const prior = await tx.iacOperation.findUnique({ where: { id: input.operationId } });
+        if (prior) {
+          if (prior.requestDigest !== digest(input))
+            throw new IacError(
+              "IDEMPOTENCY_CONFLICT",
+              "Operation ID was used for a different request",
+              409,
+            );
+          if (prior.status === "SUCCEEDED") return prior.resultSummary;
+          throw new IacError("OPERATION_IN_PROGRESS", "Operation has not completed", 409);
+        }
+        const workspace = await ensureWorkspace(tx, manifest, actor.clientId);
+        if (workspace.revision !== input.plannedRevision)
+          throw new IacError("STALE_REVISION", "Workspace revision changed", 409, {
+            currentRevision: workspace.revision,
+          });
+        const freshPlan = createPlan(manifest, await loadPlanningState(tx, manifest));
+        assertDigest(input.planDigest, freshPlan.digest, "STALE_PLAN");
+        if (freshPlan.blockers.length)
+          throw new IacError("PLAN_BLOCKED", "Plan contains blockers", 409, {
+            blockers: freshPlan.blockers,
+          });
+        await assertCallerSafe(tx, manifest, freshPlan, actor);
+        await assertFinalAdministratorSafe(tx, manifest);
+        await tx.iacOperation.create({
+          data: {
+            id: input.operationId,
+            workspaceId: workspace.id,
+            type: "APPLY",
+            requestDigest: digest(input),
+            priorRevision: workspace.revision,
+          },
         });
-      const freshPlan = createPlan(manifest, await loadPlanningState(tx, manifest));
-      assertDigest(input.planDigest, freshPlan.digest, "STALE_PLAN");
-      if (freshPlan.blockers.length)
-        throw new IacError("PLAN_BLOCKED", "Plan contains blockers", 409, {
-          blockers: freshPlan.blockers,
-        });
-      await assertCallerSafe(tx, manifest, freshPlan, actor);
-      await assertFinalAdministratorSafe(tx, manifest);
-      await tx.iacOperation.create({
-        data: {
-          id: input.operationId,
+        await executeDesiredState(tx, manifest, actor, groupPreflights);
+        const resultingRevision = workspace.revision + 1;
+        const summary = {
+          operationId: input.operationId,
           workspaceId: workspace.id,
-          type: "APPLY",
-          requestDigest: digest(input),
           priorRevision: workspace.revision,
-        },
-      });
-      await executeDesiredState(tx, manifest, actor);
-      const resultingRevision = workspace.revision + 1;
-      const summary = {
-        operationId: input.operationId,
-        workspaceId: workspace.id,
-        priorRevision: workspace.revision,
-        resultingRevision,
-        configDigest: freshPlan.configDigest,
-        planDigest: freshPlan.digest,
-        actions: freshPlan.actions.filter((action) => action.action !== "noop"),
-      };
-      await tx.iacWorkspace.update({
-        where: { id: workspace.id },
-        data: {
-          revision: resultingRevision,
-          lastConfigDigest: freshPlan.configDigest,
-          lastActorId: actor.clientId,
-        },
-      });
-      await tx.iacOperation.update({
-        where: { id: input.operationId },
-        data: {
-          status: "SUCCEEDED",
           resultingRevision,
-          resultSummary: JSON.parse(JSON.stringify(summary)) as Prisma.InputJsonObject,
-        },
-      });
-      await writeIacAudit(tx, actor, "iac.apply.succeeded", workspace, summary);
-      return summary;
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
+          configDigest: freshPlan.configDigest,
+          planDigest: freshPlan.digest,
+          actions: freshPlan.actions.filter((action) => action.action !== "noop"),
+        };
+        await tx.iacWorkspace.update({
+          where: { id: workspace.id },
+          data: {
+            revision: resultingRevision,
+            lastConfigDigest: freshPlan.configDigest,
+            lastActorId: actor.clientId,
+          },
+        });
+        await tx.iacOperation.update({
+          where: { id: input.operationId },
+          data: {
+            status: "SUCCEEDED",
+            resultingRevision,
+            resultSummary: JSON.parse(JSON.stringify(summary)) as Prisma.InputJsonObject,
+          },
+        });
+        await writeIacAudit(tx, actor, "iac.apply.succeeded", workspace, summary);
+        return summary;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    const mapped =
+      error instanceof PrimitiveMutationError
+        ? new IacError(
+            error.code,
+            error.message,
+            error.code === "NOT_FOUND" ? 404 : 409,
+            error.details,
+          )
+        : error;
+    await writeIacOutcomeAudit(db, actor, manifest.workspace, input, mapped);
+    throw mapped;
+  }
 }
 
 async function executeDesiredState(
   tx: Prisma.TransactionClient,
   manifest: DesiredState,
   actor: IacActor,
+  groupPreflights: ReadonlyMap<string, GroupAssignmentPreflight>,
 ) {
   const desired = desiredObjects(manifest);
   const desiredAddresses = new Set(desired.map((item) => item.address));
@@ -140,8 +176,8 @@ async function executeDesiredState(
   });
   for (const binding of bindings
     .filter((item) => !desiredAddresses.has(item.address))
-    .sort((a, b) => b.address.localeCompare(a.address))) {
-    await deleteBoundObject(tx, binding);
+    .sort(compareBindingDeletes)) {
+    await deleteBoundObject(tx, binding, mutationActor(actor));
     await tx.iacObjectBinding.delete({ where: { id: binding.id } });
   }
   for (const item of desired) {
@@ -150,7 +186,7 @@ async function executeDesiredState(
       existing &&
       (fromDbKind(existing.kind) !== item.kind || existing.naturalIdentity !== item.identity)
     ) {
-      await deleteBoundObject(tx, existing);
+      await deleteBoundObject(tx, existing, mutationActor(actor));
       await tx.iacObjectBinding.delete({ where: { id: existing.id } });
     }
     const binding =
@@ -159,7 +195,14 @@ async function executeDesiredState(
       existing.naturalIdentity === item.identity
         ? existing
         : undefined;
-    const objectId = await upsertObject(tx, item.kind, item.state as never, binding, actor);
+    const objectId = await upsertObject(
+      tx,
+      item.kind,
+      item.state as never,
+      binding,
+      actor,
+      groupPreflights.get(item.address),
+    );
     const target = bindingTarget(item.kind, objectId);
     if (binding) await tx.iacObjectBinding.update({ where: { id: binding.id }, data: target });
     else
@@ -181,82 +224,61 @@ async function upsertObject(
   state: any,
   binding: any,
   actor: IacActor,
+  groupPreflight?: GroupAssignmentPreflight,
 ): Promise<string> {
+  const mutation = mutationActor(actor);
   if (kind === "scope") {
     const current = binding?.scopeId
       ? await tx.scope.findUnique({ where: { id: binding.scopeId } })
       : null;
-    if (current)
-      return (
-        await tx.scope.update({
-          where: { id: current.id },
-          data: {
-            description: state.description,
-            version: { increment: 1 },
-            updatedBy: actor.clientId,
-          },
-        })
-      ).id;
-    const collision = await tx.scope.findUnique({ where: { key: state.key } });
-    if (collision) throw new IacError("MANUAL_COLLISION", `${state.key} must be imported`, 409);
+    if (!current && (await tx.scope.findUnique({ where: { key: state.key } })))
+      throw new IacError("MANUAL_COLLISION", `${state.key} must be imported`, 409);
     return (
-      await tx.scope.create({
-        data: {
-          key: state.key,
-          description: state.description,
-          createdBy: actor.clientId,
-          updatedBy: actor.clientId,
-        },
-      })
+      await mutateScope(
+        tx,
+        current
+          ? {
+              action: "update",
+              id: current.id,
+              description: state.description,
+              expectedVersion: current.version,
+            }
+          : { action: "create", key: state.key, description: state.description },
+        mutation,
+      )
     ).id;
   }
   if (kind === "resource") {
-    const scopes = await resolveScopes(tx, state.scopes);
     const current = binding?.resourceId
       ? await tx.downstreamResource.findUnique({ where: { id: binding.resourceId } })
       : null;
     if (!current && (await tx.downstreamResource.findUnique({ where: { key: state.key } })))
       throw new IacError("MANUAL_COLLISION", `${state.key} must be imported`, 409);
-    const data = {
+    const common = {
       name: state.name,
       authorizationServer: state.authorizationServer,
       downstreamClientId: state.downstreamClientId,
       enabled: state.enabled,
       skillDiscoveryEnabled: state.skillDiscoveryEnabled,
-      updatedBy: actor.clientId,
+      scopeKeys: state.scopes,
+      requestPrefixes: state.requestPrefixes,
     };
-    const resource = current
-      ? await tx.downstreamResource.update({
-          where: { id: current.id },
-          data: { ...data, version: { increment: 1 } },
-        })
-      : await tx.downstreamResource.create({
-          data: {
-            ...data,
-            key: state.key,
-            resourceIdentifier: state.resourceIdentifier,
-            createdBy: actor.clientId,
-          },
-        });
-    await tx.resourceScope.deleteMany({ where: { resourceId: resource.id } });
-    if (scopes.length)
-      await tx.resourceScope.createMany({
-        data: scopes.map((scope) => ({ resourceId: resource.id, scopeId: scope.id })),
-      });
-    await tx.resourceRequestPrefix.deleteMany({ where: { resourceId: resource.id } });
-    await tx.resourceRequestPrefix.createMany({
-      data: state.requestPrefixes.map((urlPrefix: string) => ({
-        resourceId: resource.id,
-        urlPrefix,
-        createdBy: actor.clientId,
-      })),
-    });
-    return resource.id;
+    return (
+      await mutateResource(
+        tx,
+        current
+          ? { action: "update", id: current.id, expectedVersion: current.version, ...common }
+          : {
+              action: "create",
+              key: state.key,
+              resourceIdentifier: state.resourceIdentifier,
+              ...common,
+            },
+        mutation,
+      )
+    ).id;
   }
   if (kind === "emailAssignment") {
-    if (state.scopes.includes(IAC_SCOPE_KEY))
-      throw new IacError("MACHINE_ONLY_SCOPE", `${IAC_SCOPE_KEY} cannot be granted to people`);
-    const scopes = await resolveScopes(tx, state.scopes);
     const current = binding?.emailAssignmentId
       ? await tx.emailScopeAssignment.findUnique({ where: { id: binding.emailAssignmentId } })
       : null;
@@ -265,149 +287,69 @@ async function upsertObject(
       (await tx.emailScopeAssignment.findUnique({ where: { normalizedEmail: state.email } }))
     )
       throw new IacError("MANUAL_COLLISION", `${state.email} must be imported`, 409);
-    const assignment = current
-      ? await tx.emailScopeAssignment.update({
-          where: { id: current.id },
-          data: { version: { increment: 1 }, updatedBy: actor.clientId },
-        })
-      : await tx.emailScopeAssignment.create({
-          data: {
-            normalizedEmail: state.email,
-            createdBy: actor.clientId,
-            updatedBy: actor.clientId,
-          },
-        });
-    await tx.emailScopeGrant.deleteMany({ where: { assignmentId: assignment.id } });
-    if (scopes.length)
-      await tx.emailScopeGrant.createMany({
-        data: scopes.map((scope) => ({
-          id: randomUUID(),
-          assignmentId: assignment.id,
-          scopeId: scope.id,
-          createdBy: actor.clientId,
-        })),
-      });
+    const assignment = await mutateEmailAssignment(
+      tx,
+      { email: state.email, scopeKeys: state.scopes, expectedVersion: current?.version ?? null },
+      mutation,
+    );
+    if (!assignment)
+      throw new IacError("INVALID_ASSIGNMENT", "An IaC assignment must contain a scope");
     return assignment.id;
   }
   if (kind === "groupAssignment") {
-    if (state.scopes.includes(IAC_SCOPE_KEY))
-      throw new IacError("MACHINE_ONLY_SCOPE", `${IAC_SCOPE_KEY} cannot be granted to people`);
-    const [provider, scopes] = await Promise.all([
-      tx.groupProvider.findUnique({ where: { key: state.provider } }),
-      resolveScopes(tx, state.scopes),
-    ]);
-    if (!provider?.enabled)
-      throw new IacError("INVALID_PROVIDER", `Provider ${state.provider} is unavailable`);
     const current = binding?.groupAssignmentId
       ? await tx.groupScopeAssignment.findUnique({ where: { id: binding.groupAssignmentId } })
       : null;
-    if (
-      !current &&
-      (await tx.groupScopeAssignment.findUnique({
-        where: { providerId_groupId: { providerId: provider.id, groupId: state.groupId } },
-      }))
-    )
-      throw new IacError(
-        "MANUAL_COLLISION",
-        `${state.provider}:${state.groupId} must be imported`,
-        409,
-      );
-    const assignment = current
-      ? await tx.groupScopeAssignment.update({
-          where: { id: current.id },
-          data: { version: { increment: 1 }, updatedBy: actor.clientId },
-        })
-      : await tx.groupScopeAssignment.create({
-          data: {
-            providerId: provider.id,
-            groupId: state.groupId,
-            groupName: state.groupId,
-            createdBy: actor.clientId,
-            updatedBy: actor.clientId,
+    if (current)
+      return (
+        await mutateGroupAssignment(
+          tx,
+          {
+            action: "update",
+            id: current.id,
+            scopeKeys: state.scopes,
+            expectedVersion: current.version,
           },
-        });
-    await tx.groupScopeGrant.deleteMany({ where: { assignmentId: assignment.id } });
-    if (scopes.length)
-      await tx.groupScopeGrant.createMany({
-        data: scopes.map((scope) => ({
-          id: randomUUID(),
-          assignmentId: assignment.id,
-          scopeId: scope.id,
-          createdBy: actor.clientId,
-        })),
-      });
-    return assignment.id;
+          mutation,
+        )
+      ).id;
+    if (!groupPreflight)
+      throw new IacError("GROUP_PREFLIGHT_REQUIRED", "New group assignment was not validated", 409);
+    return (
+      await mutateGroupAssignment(
+        tx,
+        {
+          action: "create",
+          providerKey: state.provider,
+          groupId: state.groupId,
+          scopeKeys: state.scopes,
+          preflight: groupPreflight,
+        },
+        mutation,
+      )
+    ).id;
   }
   const current = binding?.machineClientId
-    ? await tx.machineClient.findUnique({
-        where: { id: binding.machineClientId },
-        include: { keys: true },
-      })
+    ? await tx.machineClient.findUnique({ where: { id: binding.machineClientId } })
     : null;
   if (!current && (await tx.machineClient.findUnique({ where: { clientId: state.clientId } })))
     throw new IacError("MANUAL_COLLISION", `${state.clientId} must be imported`, 409);
-  const machine = current
-    ? await tx.machineClient.update({
-        where: { id: current.id },
-        data: {
-          name: state.name,
-          enabled: state.enabled,
-          deactivatedAt: state.enabled ? null : new Date(),
-          version: { increment: 1 },
-          updatedBy: actor.clientId,
-        },
-      })
-    : await tx.machineClient.create({
-        data: {
-          clientId: state.clientId,
-          name: state.name,
-          enabled: state.enabled,
-          createdBy: actor.clientId,
-          updatedBy: actor.clientId,
-        },
-      });
-  const scopes = await resolveScopes(tx, state.scopes);
-  const resources = await tx.downstreamResource.findMany({
-    where: { key: { in: state.resources } },
-  });
-  if (resources.length !== state.resources.length)
-    throw new IacError("UNKNOWN_REFERENCE", "Unknown machine resource reference");
-  await tx.machineAllowedScope.deleteMany({ where: { machineClientId: machine.id } });
-  await tx.machineAllowedResource.deleteMany({ where: { machineClientId: machine.id } });
-  if (scopes.length)
-    await tx.machineAllowedScope.createMany({
-      data: scopes.map((scope) => ({ machineClientId: machine.id, scopeId: scope.id })),
-    });
-  if (resources.length)
-    await tx.machineAllowedResource.createMany({
-      data: resources.map((resource) => ({ machineClientId: machine.id, resourceId: resource.id })),
-    });
-  for (const [kid, value] of Object.entries(state.publicKeys) as Array<[string, JWK]>) {
-    if ("d" in value)
-      throw new IacError("PRIVATE_KEY_REJECTED", "Private JWK material is forbidden");
-    await assertPublicP256(value);
-    const thumbprint = await calculateJwkThumbprint(value, "sha256");
-    const prior = current?.keys.find((key) => key.kid === kid);
-    if (prior?.revokedAt)
-      throw new IacError("KEY_REVOKED", `Revoked key ${kid} cannot be reactivated`, 409);
-    if (!prior)
-      await tx.machineClientKey.create({
-        data: {
-          machineClientId: machine.id,
-          kid,
-          publicJwk: value as Prisma.InputJsonObject,
-          thumbprint,
-          createdBy: actor.clientId,
-        },
-      });
-  }
-  for (const prior of current?.keys ?? [])
-    if (!prior.revokedAt && !(prior.kid in state.publicKeys))
-      await tx.machineClientKey.update({
-        where: { id: prior.id },
-        data: { revokedAt: new Date(), revokedBy: actor.clientId },
-      });
-  return machine.id;
+  return (
+    await reconcileMachine(
+      tx,
+      {
+        ...(current ? { id: current.id } : {}),
+        clientId: state.clientId,
+        name: state.name,
+        enabled: state.enabled,
+        resourceKeys: state.resources,
+        scopeKeys: state.scopes,
+        publicKeys: state.publicKeys,
+        expectedVersion: current?.version ?? null,
+      },
+      mutation,
+    )
+  ).id;
 }
 
 export async function importIac(
@@ -696,11 +638,34 @@ async function ensureWorkspace(
     current ?? tx.iacWorkspace.create({ data: { ...manifest.workspace, lastActorId: actorId } })
   );
 }
-async function resolveScopes(tx: Prisma.TransactionClient, keys: string[]) {
-  const scopes = await tx.scope.findMany({ where: { key: { in: keys } } });
-  if (scopes.length !== keys.length)
-    throw new IacError("UNKNOWN_REFERENCE", "Unknown scope reference", 409);
-  return scopes;
+async function preflightNewGroupAssignments(manifest: DesiredState) {
+  const bindings = await db.iacObjectBinding.findMany({
+    where: { workspaceId: manifest.workspace.id, kind: "GROUP_ASSIGNMENT" },
+    select: { address: true, groupAssignmentId: true },
+  });
+  const existing = new Map(bindings.map((binding) => [binding.address, binding.groupAssignmentId]));
+  const entries = await Promise.all(
+    Object.entries(manifest.groupAssignments)
+      .filter(([name]) => !existing.get(`groupAssignment.${name}`))
+      .map(
+        async ([name, assignment]) =>
+          [
+            `groupAssignment.${name}`,
+            await preflightGroupAssignment(assignment.provider, assignment.groupId),
+          ] as const,
+      ),
+  );
+  return new Map(entries);
+}
+
+function mutationActor(actor: IacActor): MutationActor {
+  return {
+    type: "machine",
+    id: actor.clientId,
+    requestId: actor.requestId,
+    ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+    source: "weldall_up",
+  };
 }
 async function assertCallerSafe(
   tx: Prisma.TransactionClient,
@@ -787,16 +752,60 @@ async function assertFinalAdministratorSafe(tx: Prisma.TransactionClient, manife
     throw new IacError("LAST_ADMIN", "The last verified administrator cannot be removed", 409);
 }
 
-async function deleteBoundObject(tx: Prisma.TransactionClient, binding: any) {
-  if (binding.scopeId) await tx.scope.delete({ where: { id: binding.scopeId } });
-  else if (binding.resourceId)
-    await tx.downstreamResource.delete({ where: { id: binding.resourceId } });
-  else if (binding.machineClientId)
-    await tx.machineClient.delete({ where: { id: binding.machineClientId } });
-  else if (binding.emailAssignmentId)
-    await tx.emailScopeAssignment.delete({ where: { id: binding.emailAssignmentId } });
-  else if (binding.groupAssignmentId)
-    await tx.groupScopeAssignment.delete({ where: { id: binding.groupAssignmentId } });
+async function deleteBoundObject(tx: Prisma.TransactionClient, binding: any, actor: MutationActor) {
+  if (binding.scopeId) {
+    const current = await tx.scope.findUniqueOrThrow({ where: { id: binding.scopeId } });
+    await mutateScope(
+      tx,
+      { action: "delete", id: current.id, expectedVersion: current.version },
+      actor,
+    );
+  } else if (binding.resourceId) {
+    const current = await tx.downstreamResource.findUniqueOrThrow({
+      where: { id: binding.resourceId },
+    });
+    await mutateResource(
+      tx,
+      { action: "delete", id: current.id, expectedVersion: current.version },
+      actor,
+    );
+  } else if (binding.machineClientId) {
+    const current = await tx.machineClient.findUniqueOrThrow({
+      where: { id: binding.machineClientId },
+    });
+    await deleteMachine(tx, { id: current.id, expectedVersion: current.version }, actor);
+  } else if (binding.emailAssignmentId) {
+    const current = await tx.emailScopeAssignment.findUniqueOrThrow({
+      where: { id: binding.emailAssignmentId },
+    });
+    await mutateEmailAssignment(
+      tx,
+      { email: current.normalizedEmail, scopeKeys: [], expectedVersion: current.version },
+      actor,
+    );
+  } else if (binding.groupAssignmentId) {
+    const current = await tx.groupScopeAssignment.findUniqueOrThrow({
+      where: { id: binding.groupAssignmentId },
+    });
+    await mutateGroupAssignment(
+      tx,
+      { action: "delete", id: current.id, expectedVersion: current.version },
+      actor,
+    );
+  }
+}
+
+function compareBindingDeletes(left: any, right: any) {
+  const rank: Record<string, number> = {
+    GROUP_ASSIGNMENT: 1,
+    EMAIL_ASSIGNMENT: 1,
+    MACHINE: 2,
+    RESOURCE: 3,
+    SCOPE: 4,
+  };
+  return (
+    (rank[left.kind] ?? 9) - (rank[right.kind] ?? 9) || right.address.localeCompare(left.address)
+  );
 }
 async function lockIacConfiguration(tx: Prisma.TransactionClient) {
   await lockConfigurationChanges(tx);
@@ -935,30 +944,88 @@ async function writeIacAudit(
   summary: any,
 ) {
   await tx.auditEvent.create({
-    data: {
-      eventType,
-      actorType: "machine",
-      actorId: actor.clientId,
-      clientId: actor.clientId,
-      requestId: actor.requestId,
-      ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-      outcome: "success",
-      subjectType: "iac_workspace",
-      subjectId: workspace.id,
-      metadata: {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        priorRevision: summary.priorRevision,
-        resultingRevision: summary.resultingRevision,
-        ...(summary.configDigest ? { configDigest: summary.configDigest } : {}),
-        ...(summary.planDigest ? { planDigest: summary.planDigest } : {}),
-        actionCount: summary.actions.length,
-        addresses: summary.actions.map((item: any) => item.address).slice(0, 200),
-        keys: summary.actions
-          .filter((item: any) => item.keyId)
-          .map((item: any) => ({ keyId: item.keyId, thumbprint: item.keyThumbprint }))
-          .slice(0, 200),
-      },
-    },
+    data: iacAuditData(actor, eventType, workspace, "success", summary),
   });
+}
+
+async function writeIacOutcomeAudit(
+  client: typeof db,
+  actor: IacActor,
+  workspace: DesiredState["workspace"],
+  input: {
+    plannedRevision: number;
+    configDigest: string;
+    planDigest: string;
+    operationId: string;
+  },
+  error: unknown,
+) {
+  const denied =
+    error instanceof IacError &&
+    ["AUTHORIZATION_REVOKED", "CALLER_SELF_PROTECTION", "LAST_ADMIN", "PLAN_BLOCKED"].includes(
+      error.code,
+    );
+  const reasonCode = error instanceof IacError ? error.code.slice(0, 100) : "INTERNAL_ERROR";
+  try {
+    await client.auditEvent.create({
+      data: iacAuditData(
+        actor,
+        denied ? "iac.apply.denied" : "iac.apply.failed",
+        workspace,
+        denied ? "denied" : "failed",
+        {
+          priorRevision: input.plannedRevision,
+          resultingRevision: input.plannedRevision,
+          configDigest: input.configDigest,
+          planDigest: input.planDigest,
+          actions: [],
+          reasonCode,
+          operationId: input.operationId,
+        },
+      ),
+    });
+  } catch {
+    // The original apply error remains authoritative when the durable outcome
+    // audit store itself is unavailable.
+  }
+}
+
+function iacAuditData(
+  actor: IacActor,
+  eventType: string,
+  workspace: { id: string; name: string },
+  outcome: "success" | "denied" | "failed",
+  summary: any,
+): Prisma.AuditEventCreateInput {
+  const actions = Array.isArray(summary.actions) ? summary.actions.slice(0, 200) : [];
+  return {
+    eventType,
+    actorType: "machine",
+    actorId: actor.clientId.slice(0, 128),
+    clientId: actor.clientId.slice(0, 200),
+    requestId: actor.requestId.slice(0, 128),
+    ...(actor.correlationId ? { correlationId: actor.correlationId.slice(0, 128) } : {}),
+    outcome,
+    ...(outcome === "success" ? {} : { reasonCode: String(summary.reasonCode).slice(0, 100) }),
+    subjectType: "iac_workspace",
+    subjectId: workspace.id,
+    metadata: {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name.slice(0, 200),
+      priorRevision: summary.priorRevision,
+      resultingRevision: summary.resultingRevision,
+      ...(summary.configDigest ? { configDigest: String(summary.configDigest).slice(0, 64) } : {}),
+      ...(summary.planDigest ? { planDigest: String(summary.planDigest).slice(0, 64) } : {}),
+      ...(summary.operationId ? { operationId: String(summary.operationId).slice(0, 128) } : {}),
+      ...(summary.reasonCode ? { reasonCode: String(summary.reasonCode).slice(0, 100) } : {}),
+      actionCount: actions.length,
+      addresses: actions.map((item: any) => String(item.address).slice(0, 160)),
+      keys: actions
+        .filter((item: any) => item.keyId)
+        .map((item: any) => ({
+          keyId: String(item.keyId).slice(0, 128),
+          thumbprint: String(item.keyThumbprint ?? "").slice(0, 100),
+        })),
+    },
+  };
 }

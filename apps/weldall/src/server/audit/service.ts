@@ -26,6 +26,7 @@ const stringArray = z.array(z.string().min(1).max(2_000)).max(100);
 const scopeArray = z.array(z.string().min(1).max(160)).max(100);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const source = z.enum(["admin_api", "weldall_up", "static_manifest_import", "migration"]);
+const mutationSource = z.enum(["admin_api", "weldall_up", "static_manifest_import"]);
 
 const idJagRequestedMetadata = {
   audience: z.string().max(2_000).nullable(),
@@ -54,6 +55,7 @@ const machineClientMetadata = z
     name: z.string().min(1).max(200),
     enabled: z.boolean(),
     version: z.number().int().positive(),
+    source: mutationSource.optional(),
   })
   .strict();
 const machineKeyMetadata = z
@@ -62,6 +64,7 @@ const machineKeyMetadata = z
     kid: z.string().min(1).max(128),
     thumbprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
     revokedAt: z.string().datetime().nullable(),
+    source: mutationSource.optional(),
   })
   .strict();
 const machineAccessMetadata = z
@@ -73,6 +76,7 @@ const machineAccessMetadata = z
     afterScopes: scopeArray,
     versionBefore: z.number().int().nonnegative(),
     versionAfter: z.number().int().positive(),
+    source: mutationSource.optional(),
   })
   .strict();
 const machineTokenRequestedMetadata = z
@@ -102,7 +106,13 @@ const userScopesMetadata = z
     afterScopes: scopeArray,
     addedScopes: scopeArray,
     removedScopes: scopeArray,
-    source: z.enum(["admin_api", "scope_delete_cascade", "deployment_bootstrap"]),
+    source: z.enum([
+      "admin_api",
+      "weldall_up",
+      "static_manifest_import",
+      "scope_delete_cascade",
+      "deployment_bootstrap",
+    ]),
     versionBefore: z.number().int().nonnegative(),
     versionAfter: z.number().int().positive(),
   })
@@ -222,7 +232,7 @@ const groupScopesMetadata = z
     afterScopes: scopeArray,
     addedScopes: scopeArray,
     removedScopes: scopeArray,
-    source: z.enum(["admin_api", "scope_delete_cascade"]),
+    source: z.enum(["admin_api", "weldall_up", "static_manifest_import", "scope_delete_cascade"]),
     versionBefore: z.number().int().nonnegative(),
     versionAfter: z.number().int().positive(),
   })

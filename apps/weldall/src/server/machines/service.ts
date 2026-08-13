@@ -8,6 +8,12 @@ import {
   managementBindingInclude,
   managementMetadata,
 } from "../domain/configuration";
+import {
+  deleteMachine,
+  reconcileMachine,
+  PrimitiveMutationError,
+  type MutationActor,
+} from "../domain/primitive-mutations";
 
 const clientIdPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const kidPattern = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -158,39 +164,33 @@ export async function updateMachineClient(
 ): Promise<MachineClientDto> {
   const name = parseName(input.name);
   return db.$transaction(async (tx) => {
-    const current = await tx.machineClient.findUnique({ where: { id: input.id } });
+    await lockConfigurationChanges(tx);
+    const current = await tx.machineClient.findUnique({ where: { id: input.id }, include });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
-    if (current.version !== input.expectedVersion)
-      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
-    const changed = await tx.machineClient.updateMany({
-      where: { id: input.id, version: input.expectedVersion },
-      data: {
-        name,
-        enabled: input.enabled,
-        deactivatedAt: input.enabled ? null : (current.deactivatedAt ?? new Date()),
-        updatedBy: actor.id,
-        version: { increment: 1 },
-      },
-    });
-    if (changed.count !== 1)
-      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
-    const client = await tx.machineClient.findUniqueOrThrow({ where: { id: input.id }, include });
-    await prismaAuditWriter.write(
-      {
-        eventType: input.enabled ? "machine_client.updated" : "machine_client.deactivated",
-        actorType: "user",
-        actorId: actor.id,
-        ...(actor.email ? { actorEmail: actor.email } : {}),
-        requestId: actor.requestId,
-        ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-        outcome: "success",
-        subjectType: "machine_client",
-        subjectId: client.id,
-        metadata: clientMetadata(client),
-      },
-      tx,
-    );
-    return serialize(client);
+    try {
+      return serialize(
+        await reconcileMachine(
+          tx,
+          {
+            id: current.id,
+            clientId: current.clientId,
+            name,
+            enabled: input.enabled,
+            resourceKeys: current.allowedResources.map(({ resource }) => resource.key),
+            scopeKeys: current.allowedScopes.map(({ scope }) => scope.key),
+            publicKeys: Object.fromEntries(
+              current.keys
+                .filter(({ revokedAt }) => !revokedAt)
+                .map(({ kid, publicJwk }) => [kid, publicJwk]),
+            ) as Record<string, JWK>,
+            expectedVersion: input.expectedVersion,
+          },
+          mutationActor(actor),
+        ),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
   });
 }
 
@@ -199,27 +199,12 @@ export async function deleteMachineClient(
   actor: AdminActor,
 ): Promise<{ id: string }> {
   return db.$transaction(async (tx) => {
-    const current = await tx.machineClient.findUnique({ where: { id: input.id } });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
-    if (current.version !== input.expectedVersion)
-      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
-    await tx.machineClient.delete({ where: { id: current.id } });
-    await prismaAuditWriter.write(
-      {
-        eventType: "machine_client.deleted",
-        actorType: "user",
-        actorId: actor.id,
-        ...(actor.email ? { actorEmail: actor.email } : {}),
-        requestId: actor.requestId,
-        ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-        outcome: "success",
-        subjectType: "machine_client",
-        subjectId: current.id,
-        metadata: clientMetadata(current),
-      },
-      tx,
-    );
-    return { id: current.id };
+    await lockConfigurationChanges(tx);
+    try {
+      return await deleteMachine(tx, input, mutationActor(actor));
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
   });
 }
 
@@ -537,6 +522,22 @@ function accessAudit(
       versionAfter: client.version,
     },
   };
+}
+
+function mutationActor(actor: AdminActor): MutationActor {
+  return {
+    type: "user",
+    id: actor.id,
+    ...(actor.email ? { email: actor.email } : {}),
+    requestId: actor.requestId,
+    ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+    source: "admin_api",
+  };
+}
+
+function mapPrimitiveError(error: unknown): unknown {
+  if (!(error instanceof PrimitiveMutationError)) return error;
+  return new AdminDomainError(error.code, error.message, error.details);
 }
 
 function sameStrings(left: string[], right: string[]): boolean {
