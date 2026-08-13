@@ -240,8 +240,8 @@ function Herocrumbs({
           backgroundRepeat: "repeat",
         }}
       />
-      <div className="relative flex h-full w-full flex-wrap items-center justify-between gap-4">
-        <Heading level={1} color="inherit" aria-label={title}>
+      <div className="relative flex h-full w-full flex-nowrap items-center justify-between gap-4 overflow-x-auto overflow-y-hidden">
+        <Heading level={1} color="inherit" aria-label={title} className="shrink-0">
           {Array.from(title).map((character, index) => (
             <span
               aria-hidden="true"
@@ -254,7 +254,7 @@ function Herocrumbs({
         </Heading>
         <div
           ref={setActionsTarget}
-          className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 empty:hidden"
+          className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-2 empty:hidden"
         />
       </div>
     </section>
