@@ -2,7 +2,13 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { loadWorkspace, newLock, serverManifest, writeLock } from "../src/iac/manifest.js";
+import {
+  canonicalManifestDigest,
+  loadWorkspace,
+  newLock,
+  serverManifest,
+  writeLock,
+} from "../src/iac/manifest.js";
 import {
   declaredImportValue,
   ensureImportedFragmentIncluded,
@@ -71,13 +77,66 @@ describe("native YAML workspaces", () => {
     );
   });
 
-  it("derives retry-stable UUID operation IDs without exposing request content", () => {
-    const first = stableOperationId("workspace", "import", "scope", "expenses:read");
-    expect(first).toBe(stableOperationId("workspace", "import", "scope", "expenses:read"));
-    expect(first).toBe(stableOperationId("workspace", "import", "scope", "expenses:read"));
+  it("derives retry-stable but revision-distinct import operation IDs", () => {
+    const first = stableOperationId("workspace", "7", "import", "scope", "expenses:read");
+    expect(first).toBe(stableOperationId("workspace", "7", "import", "scope", "expenses:read"));
+    expect(first).toBe(stableOperationId("workspace", "7", "import", "scope", "expenses:read"));
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(first).not.toContain("expenses");
-    expect(first).not.toBe(stableOperationId("workspace", "import", "scope", "expenses:write"));
+    expect(first).not.toBe(
+      stableOperationId("workspace", "7", "import", "scope", "expenses:write"),
+    );
+    expect(first).not.toBe(stableOperationId("workspace", "9", "import", "scope", "expenses:read"));
+  });
+
+  it("digests the same canonical parsed manifest despite ordering and omitted defaults", () => {
+    const workspace = {
+      id: "67ade6dc-0000-4000-8000-000000000000",
+      name: "platform",
+      issuer: "https://weldall.example.com",
+    };
+    const omittedAndUnsorted = {
+      apiVersion: "weldall.dev/v1alpha1",
+      workspace,
+      resources: {
+        api: {
+          key: "api",
+          name: "API",
+          resourceIdentifier: "https://api.example.com/v1",
+          authorizationServer: "https://auth.example.com",
+          downstreamClientId: "api",
+          enabled: true,
+          requestPrefixes: ["https://api.example.com/v2", "https://api.example.com/v1"],
+          scopes: ["expenses:write", "expenses:read"],
+        },
+      },
+    };
+    const canonical = {
+      ...omittedAndUnsorted,
+      scopes: {},
+      resources: {
+        api: {
+          ...omittedAndUnsorted.resources.api,
+          skillDiscoveryEnabled: false,
+          requestPrefixes: ["https://api.example.com/v1", "https://api.example.com/v2"],
+          scopes: ["expenses:read", "expenses:write"],
+        },
+      },
+      machines: {},
+      emailAssignments: {},
+      groupAssignments: {},
+    };
+    expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(canonicalManifestDigest(canonical));
+    expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(
+      "26620cbee81118a71e72ad6d1905771cb01b1c5967c9673f064557ed3f3d152f",
+    );
+    const lock = {
+      version: 1 as const,
+      server: { issuer: workspace.issuer, installationId: null },
+      workspace: { id: workspace.id, name: workspace.name, observedRevision: 0 },
+      objects: {},
+    };
+    expect(serverManifest(omittedAndUnsorted as any, lock)).toEqual(canonical);
   });
 
   it("reconstructs the complete lock from authoritative state, including no-op objects", () => {

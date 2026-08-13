@@ -7,6 +7,7 @@ import { stringify } from "yaml";
 import { CliError } from "../errors.js";
 import { IacClient } from "./client.js";
 import {
+  canonicalManifestDigest,
   loadWorkspace,
   MANIFEST_FILE,
   newLock,
@@ -293,6 +294,7 @@ export const iacImportCommand = define({
       address: context.values.as,
       operationId: stableOperationId(
         workspace.lock.workspace.id,
+        String(workspace.lock.workspace.observedRevision),
         "import",
         context.values.kind,
         context.values.identity,
@@ -333,7 +335,7 @@ export const iacUnmanageCommand = define({
       workspaceId: workspace.lock.workspace.id,
       address: context.values.address,
       manifest,
-      configDigest: createHash("sha256").update(canonicalJson(manifest)).digest("hex"),
+      configDigest: canonicalManifestDigest(manifest),
       operationId: stableOperationId(
         workspace.lock.workspace.id,
         String(workspace.lock.workspace.observedRevision),

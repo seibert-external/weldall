@@ -247,7 +247,11 @@ export const importRequestSchema = z
     address: logicalAddress,
     operationId,
   })
-  .strict();
+  .strict()
+  .refine(({ kind, address }) => address.startsWith(`${kind}.`), {
+    message: "Import address must have the exact primitive kind prefix",
+    path: ["address"],
+  });
 export const unmanageRequestSchema = z
   .object({
     workspaceId: z.string().uuid(),

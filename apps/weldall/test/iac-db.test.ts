@@ -7,6 +7,8 @@ import { digest, parseDesiredState } from "../src/server/iac/contracts";
 import {
   applyIac,
   getIacState,
+  importIac,
+  moveIacState,
   planIac,
   unmanageIac,
   type IacActor,
@@ -678,6 +680,176 @@ describe("IaC database transaction contracts", () => {
     const relationPlan = await planIac(relationRemoval);
     expect(relationPlan.blockers).toHaveLength(1);
     expect(relationPlan.blockers[0]!.message).toMatch(/group assignment/);
+  });
+
+  it("revalidates lifecycle authorization after waiting for the configuration lock", async () => {
+    const iacScope = await db.scope.findUniqueOrThrow({ where: { key: IAC_SCOPE_KEY } });
+    const runner = await db.machineClient.findUniqueOrThrow({
+      where: { clientId: `${prefix}-apply-runner` },
+      include: { keys: true },
+    });
+    const activeKey = runner.keys[0]!;
+    const iacActor: IacActor = {
+      clientId: runner.clientId,
+      keyId: activeKey.kid,
+      keyThumbprint: activeKey.thumbprint,
+      requestId: `${prefix}-lifecycle-auth-request`,
+    };
+    const workspace = {
+      id: randomUUID(),
+      name: `${prefix}-lifecycle-auth`,
+      issuer: "https://weldall.example.com",
+    };
+    await db.iacWorkspace.create({ data: workspace });
+    const manual = await db.scope.create({
+      data: {
+        key: `${prefix}:lifecycle-import`,
+        description: "Lifecycle import",
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+
+    const raceRevocation = async (
+      revoke: (tx: Parameters<Parameters<typeof db.$transaction>[0]>[0]) => Promise<unknown>,
+      operation: () => Promise<unknown>,
+    ) => {
+      let pending!: Promise<unknown>;
+      await db.$transaction(async (tx) => {
+        await lockConfigurationChanges(tx);
+        await revoke(tx);
+        pending = operation();
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+      await expect(pending).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    };
+    await raceRevocation(
+      (tx) =>
+        tx.machineAllowedScope.delete({
+          where: { machineClientId_scopeId: { machineClientId: runner.id, scopeId: iacScope.id } },
+        }),
+      () =>
+        importIac(
+          {
+            workspace,
+            kind: "scope",
+            identity: manual.key,
+            address: "scope.imported",
+            operationId: randomUUID(),
+          },
+          iacActor,
+        ),
+    );
+    await db.machineAllowedScope.create({
+      data: { machineClientId: runner.id, scopeId: iacScope.id },
+    });
+
+    const binding = await db.iacObjectBinding.create({
+      data: {
+        workspaceId: workspace.id,
+        address: "scope.bound",
+        kind: "SCOPE",
+        naturalIdentity: manual.key,
+        scopeId: manual.id,
+      },
+    });
+    const absent = parseDesiredState({ apiVersion: "weldall.dev/v1alpha1", workspace });
+    await raceRevocation(
+      (tx) => tx.machineClient.update({ where: { id: runner.id }, data: { enabled: false } }),
+      () =>
+        unmanageIac(
+          {
+            workspaceId: workspace.id,
+            address: binding.address,
+            manifest: absent,
+            configDigest: digest(absent),
+            operationId: randomUUID(),
+          },
+          iacActor,
+        ),
+    );
+    await db.machineClient.update({ where: { id: runner.id }, data: { enabled: true } });
+
+    await raceRevocation(
+      (tx) =>
+        tx.machineClientKey.update({
+          where: { machineClientId_kid: { machineClientId: runner.id, kid: activeKey.kid } },
+          data: { revokedAt: new Date(), revokedBy: actor.id },
+        }),
+      () =>
+        moveIacState(
+          {
+            workspaceId: workspace.id,
+            from: binding.address,
+            to: "scope.moved",
+            operationId: randomUUID(),
+          },
+          iacActor,
+        ),
+    );
+    await db.machineClientKey.update({
+      where: { machineClientId_kid: { machineClientId: runner.id, kid: activeKey.kid } },
+      data: { revokedAt: null, revokedBy: null },
+    });
+    await expect(
+      db.iacObjectBinding.findUnique({ where: { id: binding.id } }),
+    ).resolves.toMatchObject({ address: "scope.bound" });
+  });
+
+  it("re-imports with a new operation ID after unmanage while retrying either import safely", async () => {
+    const runner = await db.machineClient.findUniqueOrThrow({
+      where: { clientId: `${prefix}-apply-runner` },
+      include: { keys: true },
+    });
+    const iacActor: IacActor = {
+      clientId: runner.clientId,
+      keyId: runner.keys[0]!.kid,
+      keyThumbprint: runner.keys[0]!.thumbprint,
+      requestId: `${prefix}-import-lifecycle-request`,
+    };
+    const workspace = {
+      id: randomUUID(),
+      name: `${prefix}-import-lifecycle`,
+      issuer: "https://weldall.example.com",
+    };
+    const scope = await db.scope.create({
+      data: {
+        key: `${prefix}:reimport`,
+        description: "Reimport",
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+    const firstRequest = {
+      workspace,
+      kind: "scope",
+      identity: scope.key,
+      address: "scope.reimported",
+      operationId: randomUUID(),
+    };
+    const first = await importIac(firstRequest, iacActor);
+    await expect(importIac(firstRequest, iacActor)).resolves.toEqual(first);
+    const absent = parseDesiredState({ apiVersion: "weldall.dev/v1alpha1", workspace });
+    await unmanageIac(
+      {
+        workspaceId: workspace.id,
+        address: firstRequest.address,
+        manifest: absent,
+        configDigest: digest(absent),
+        operationId: randomUUID(),
+      },
+      iacActor,
+    );
+    const secondRequest = { ...firstRequest, operationId: randomUUID() };
+    const second = await importIac(secondRequest, iacActor);
+    await expect(importIac(secondRequest, iacActor)).resolves.toEqual(second);
+    expect(second.objectId).toBe(first.objectId);
+    expect(second.revision).toBe(3);
+    await expect(
+      db.iacOperation.count({
+        where: { workspaceId: workspace.id, type: "IMPORT", status: "SUCCEEDED" },
+      }),
+    ).resolves.toBe(2);
   });
 
   it("enforces declaration absence for REST unmanage and replays idempotently", async () => {

@@ -4,6 +4,7 @@ import {
   applyRequestSchema,
   canonicalJson,
   digest,
+  importRequestSchema,
   moveRequestSchema,
   parseDesiredState,
   unmanageRequestSchema,
@@ -229,6 +230,66 @@ describe("native YAML IaC contracts", () => {
     expect(plan.actions[0]).toMatchObject({ action: "replace" });
   });
 
+  it("refines import addresses to the exact kind prefix at the API schema", () => {
+    const workspace = manifest().workspace;
+    const base = {
+      workspace,
+      identity: "expenses:read",
+      operationId: crypto.randomUUID(),
+    };
+    expect(
+      importRequestSchema.parse({ ...base, kind: "scope", address: "scope.expenses_read" }),
+    ).toMatchObject({ kind: "scope", address: "scope.expenses_read" });
+    expect(() =>
+      importRequestSchema.parse({ ...base, kind: "scope", address: "resource.expenses_read" }),
+    ).toThrow(/exact primitive kind prefix/);
+    expect(() =>
+      importRequestSchema.parse({ ...base, kind: "emailAssignment", address: "email.person" }),
+    ).toThrow();
+  });
+
+  it("blocks replacement when the desired natural key already exists", () => {
+    const desired = manifest();
+    const current = {
+      address: "scope.read",
+      kind: "scope" as const,
+      id: "owned",
+      identity: "expenses:old",
+      version: 1,
+      ownerWorkspaceId: desired.workspace.id,
+      state: { key: "expenses:old", description: "Old" },
+    };
+    for (const collision of [
+      {
+        kind: "scope" as const,
+        id: "manual",
+        identity: "expenses:read",
+        version: 1,
+        state: { key: "expenses:read", description: "Manual" },
+      },
+      {
+        address: "scope.other",
+        kind: "scope" as const,
+        id: "other",
+        identity: "expenses:read",
+        version: 1,
+        ownerWorkspaceId: "67ade6dc-0000-4000-8000-000000000001",
+        state: { key: "expenses:read", description: "Other" },
+      },
+    ]) {
+      const plan = createPlan(desired, { revision: 1, objects: [current, collision] });
+      expect(plan.actions).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ action: "replace" })]),
+      );
+      expect(plan.blockers).toEqual([
+        expect.objectContaining({
+          address: "scope.read",
+          code: collision.ownerWorkspaceId ? "OWNED_BY_OTHER_WORKSPACE" : "MANUAL_COLLISION",
+        }),
+      ]);
+    }
+  });
+
   it("requires a canonical desired snapshot for unmanage", () => {
     const desired = manifest();
     const request = {
@@ -239,6 +300,25 @@ describe("native YAML IaC contracts", () => {
       operationId: crypto.randomUUID(),
     };
     expect(unmanageRequestSchema.parse(request)).toMatchObject(request);
+    const canonicalDefaults = parseDesiredState({
+      apiVersion: "weldall.dev/v1alpha1",
+      workspace: desired.workspace,
+      resources: {
+        api: {
+          key: "api",
+          name: "API",
+          resourceIdentifier: "https://api.example.com/v1",
+          authorizationServer: "https://auth.example.com",
+          downstreamClientId: "api",
+          enabled: true,
+          requestPrefixes: ["https://api.example.com/v2", "https://api.example.com/v1"],
+          scopes: ["expenses:write", "expenses:read"],
+        },
+      },
+    });
+    expect(digest(canonicalDefaults)).toBe(
+      "26620cbee81118a71e72ad6d1905771cb01b1c5967c9673f064557ed3f3d152f",
+    );
     expect(() =>
       unmanageRequestSchema.parse({
         workspaceId: desired.workspace.id,

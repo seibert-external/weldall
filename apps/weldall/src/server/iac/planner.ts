@@ -94,7 +94,15 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
         bound.identity !== object.identity ||
         immutableResourceChange
       ) {
-        actions.push(actionFor(object, "replace"));
+        const collision = current.objects.find(
+          (candidate) =>
+            !candidate.tombstone &&
+            candidate.id !== bound.id &&
+            candidate.kind === object.kind &&
+            candidate.identity === object.identity,
+        );
+        if (collision) blockers.push(collisionBlocker(object, collision, manifest.workspace.id));
+        else actions.push(actionFor(object, "replace"));
       } else if (bound.tombstone) {
         actions.push({ ...actionFor(object, "recreate"), drift: true });
       } else if (canonicalJson(bound.state) !== canonicalJson(object.state)) {
@@ -134,16 +142,8 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
       continue;
     }
     const collision = byNatural.get(`${object.kind}:${object.identity}`);
-    if (collision) {
-      blockers.push({
-        code: collision.ownerWorkspaceId ? "OWNED_BY_OTHER_WORKSPACE" : "MANUAL_COLLISION",
-        address: object.address,
-        message: collision.ownerWorkspaceId
-          ? `${object.identity} is owned by another workspace`
-          : `${object.identity} already exists; import it explicitly`,
-        ...(collision.ownerWorkspaceId ? { ownerWorkspaceId: collision.ownerWorkspaceId } : {}),
-      });
-    } else actions.push(actionFor(object, "create"));
+    if (collision) blockers.push(collisionBlocker(object, collision, manifest.workspace.id));
+    else actions.push(actionFor(object, "create"));
   }
 
   const desiredAddresses = new Set(desired.map((object) => object.address));
@@ -178,6 +178,23 @@ function actionFor(
   action: IacAction["action"],
 ): IacAction {
   return { address: object.address, kind: object.kind, identity: object.identity, action };
+}
+
+function collisionBlocker(
+  object: { address: string; identity: string },
+  collision: CurrentObject,
+  workspaceId: string,
+): IacBlocker {
+  const ownedByOther =
+    collision.ownerWorkspaceId !== undefined && collision.ownerWorkspaceId !== workspaceId;
+  return {
+    code: ownedByOther ? "OWNED_BY_OTHER_WORKSPACE" : "MANUAL_COLLISION",
+    address: object.address,
+    message: ownedByOther
+      ? `${object.identity} is owned by another workspace`
+      : `${object.identity} already exists; import it explicitly`,
+    ...(ownedByOther ? { ownerWorkspaceId: collision.ownerWorkspaceId } : {}),
+  };
 }
 
 const actionRank: Record<IacAction["action"], number> = {

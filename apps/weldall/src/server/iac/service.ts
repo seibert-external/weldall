@@ -476,6 +476,7 @@ export async function importIac(
   return db.$transaction(
     async (tx) => {
       await lockIacConfiguration(tx);
+      await assertCallerAuthorized(tx, actor);
       const manifest = parseDesiredState({
         apiVersion: "weldall.dev/v1alpha1",
         workspace: input.workspace,
@@ -519,7 +520,7 @@ export async function importIac(
       );
       return result;
     },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
 }
 export async function unmanageIac(
@@ -539,6 +540,7 @@ export async function unmanageIac(
   return db.$transaction(
     async (tx) => {
       await lockIacConfiguration(tx);
+      await assertCallerAuthorized(tx, actor);
       const workspaceBefore = await tx.iacWorkspace.findUnique({
         where: { id: input.workspaceId },
       });
@@ -580,7 +582,7 @@ export async function unmanageIac(
       );
       return result;
     },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
 }
 export async function moveIacState(
@@ -590,6 +592,7 @@ export async function moveIacState(
   return db.$transaction(
     async (tx) => {
       await lockIacConfiguration(tx);
+      await assertCallerAuthorized(tx, actor);
       const workspaceBefore = await tx.iacWorkspace.findUnique({
         where: { id: input.workspaceId },
       });
@@ -629,7 +632,7 @@ export async function moveIacState(
       );
       return result;
     },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
 }
 export async function getIacState(workspaceId: string) {
@@ -858,12 +861,17 @@ async function assertCallerSafe(
       "Apply would remove the caller's active IaC authorization",
       409,
     );
+  await assertCallerAuthorized(tx, actor);
+}
+
+async function assertCallerAuthorized(tx: Prisma.TransactionClient, actor: IacActor) {
   const live = await tx.machineClient.findUnique({
     where: { clientId: actor.clientId },
     include: { keys: true, allowedScopes: { include: { scope: true } } },
   });
   if (
     !live?.enabled ||
+    live.deactivatedAt ||
     !live.keys.some(
       (key) => key.kid === actor.keyId && key.thumbprint === actor.keyThumbprint && !key.revokedAt,
     ) ||

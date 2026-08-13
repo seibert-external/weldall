@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createPublicKey } from "node:crypto";
@@ -212,9 +212,13 @@ function validatePrimitive(
     text("key", 120, /^[a-z0-9._-]+$/);
     text("name", 200);
     text("downstreamClientId", 200);
-    for (const field of ["enabled", "skillDiscoveryEnabled"])
-      if (typeof object[field] !== "boolean")
-        throw new CliError(`${section}.${field} must be boolean`);
+    if (typeof object.enabled !== "boolean")
+      throw new CliError(`${section}.enabled must be boolean`);
+    if (
+      object.skillDiscoveryEnabled !== undefined &&
+      typeof object.skillDiscoveryEnabled !== "boolean"
+    )
+      throw new CliError(`${section}.skillDiscoveryEnabled must be boolean`);
     if (
       canonicalHttpsUrl(text("resourceIdentifier", 2000), "resourceIdentifier", "identifier") !==
       object.resourceIdentifier
@@ -336,5 +340,64 @@ export function serverManifest(manifest: Manifest, lock: Lockfile) {
   // Re-run local validation immediately before constructing an API payload so
   // plan/up/import never depend on an earlier load-only validation pass.
   validateManifest(manifest);
-  return { ...manifest, workspace: { ...manifest.workspace, id: lock.workspace.id } };
+  return canonicalServerManifest({
+    ...manifest,
+    workspace: { ...manifest.workspace, id: lock.workspace.id },
+  });
+}
+
+export function canonicalServerManifest(manifest: Record<string, any>) {
+  const canonicalSet = (values: unknown) =>
+    [...new Set((values as string[]) ?? [])].sort((left, right) => left.localeCompare(right));
+  const canonicalRecords = (section: string, transform: (value: any) => any) =>
+    Object.fromEntries(
+      Object.entries(manifest[section] ?? {})
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, value]) => [name, transform(value)]),
+    );
+  return {
+    apiVersion: manifest.apiVersion,
+    workspace: manifest.workspace,
+    scopes: canonicalRecords("scopes", (value) => value),
+    resources: canonicalRecords("resources", (value) => ({
+      ...value,
+      skillDiscoveryEnabled: value.skillDiscoveryEnabled ?? false,
+      requestPrefixes: canonicalSet(value.requestPrefixes),
+      scopes: canonicalSet(value.scopes),
+    })),
+    machines: canonicalRecords("machines", (value) => ({
+      ...value,
+      publicKeys: Object.fromEntries(
+        Object.entries(value.publicKeys ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+      ),
+      resources: canonicalSet(value.resources),
+      scopes: canonicalSet(value.scopes),
+    })),
+    emailAssignments: canonicalRecords("emailAssignments", (value) => ({
+      ...value,
+      email: value.email.toLowerCase(),
+      scopes: canonicalSet(value.scopes),
+    })),
+    groupAssignments: canonicalRecords("groupAssignments", (value) => ({
+      ...value,
+      scopes: canonicalSet(value.scopes),
+    })),
+  };
+}
+
+export function canonicalManifestDigest(manifest: Record<string, any>) {
+  return createHash("sha256")
+    .update(canonicalJson(canonicalServerManifest(manifest)))
+    .digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, item]) => `${JSON.stringify(name)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
 }
