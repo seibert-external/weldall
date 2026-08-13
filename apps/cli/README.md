@@ -1,6 +1,6 @@
 # Weldall CLI
 
-A macOS CLI for Weldall's DPoP-bound OAuth flow.
+A Linux and macOS CLI for Weldall's DPoP-bound OAuth flow and native YAML infrastructure as code.
 
 > **Prototype:** Weldall uses pinned draft protocols and process-local replay protection. Review your server deployment's security boundary before production use. Every `weldall login` opens a browser approval screen; approve only when you started that login on the same device.
 
@@ -13,8 +13,9 @@ npm install --global @weldall/cli
 weldall --version
 ```
 
-The npm package supports macOS only. npm installs the matching native Keychain binding for the
-current Mac; no local compiler, Bun installation, or standalone release binary is required.
+The npm package supports Linux and macOS. On macOS, npm optionally installs the native Keychain
+binding used by browser-login commands. Native YAML IaC commands use M2M environment secrets and do
+not load Keychain or Preferences, so they run in Linux CI without a browser or master password.
 
 ## Configuration
 
@@ -46,6 +47,22 @@ stored separately per issuer in macOS Keychain. For local development, the equiv
 
 ```sh
 defaults write dev.seibert.weldall-cli Issuer -string "https://weldall.example.com"
+```
+
+## Native YAML infrastructure as code
+
+Native Weldall YAML is the only supported IaC interface in v1. Terraform, OpenTofu, HCL, and
+Terraform state are not supported. See [the IaC guide](../../docs/infrastructure-as-code.md).
+
+```sh
+weldall init --name platform-access --issuer https://weldall.example.com
+weldall validate
+weldall plan --json
+weldall up --yes
+weldall import scope expenses:read --as scope.expenses_read
+weldall unmanage scope.expenses_read --yes
+weldall state pull
+weldall state mv scope.old scope.new
 ```
 
 ## Commands

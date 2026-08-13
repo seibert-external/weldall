@@ -93,6 +93,8 @@ const machineTokenIssuedMetadata = machineTokenRequestedMetadata.extend({
   expiresAt: z.string().datetime(),
 });
 
+const iacMetadata = z.object({}).passthrough();
+
 const userScopesMetadata = z
   .object({
     normalizedEmail: z.string().email().max(320),
@@ -233,6 +235,7 @@ const metadataSchemas = {
   "machine_client.created": machineClientMetadata,
   "machine_client.updated": machineClientMetadata,
   "machine_client.deactivated": machineClientMetadata,
+  "machine_client.deleted": machineClientMetadata,
   "machine_key.registered": machineKeyMetadata,
   "machine_key.revoked": machineKeyMetadata,
   "machine_access.replaced": machineAccessMetadata,
@@ -256,6 +259,13 @@ const metadataSchemas = {
   "group_scopes.created": groupScopesMetadata,
   "group_scopes.replaced": groupScopesMetadata,
   "group_scopes.deleted": groupScopesMetadata,
+  "iac.plan.generated": iacMetadata,
+  "iac.apply.succeeded": iacMetadata,
+  "iac.apply.denied": iacMetadata,
+  "iac.apply.failed": iacMetadata,
+  "iac.object.imported": iacMetadata,
+  "iac.object.unmanaged": iacMetadata,
+  "iac.state.moved": iacMetadata,
 } satisfies Record<AuditEventType, z.ZodType>;
 
 const auditInputSchema = z

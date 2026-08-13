@@ -18,7 +18,7 @@ const files = packed.files.map(({ path }) => path).sort();
 
 assert.equal(packageJson.name, "@weldall/cli");
 assert.equal(packageJson.private, undefined);
-assert.deepEqual(packageJson.os, ["darwin"]);
+assert.deepEqual(packageJson.os, ["darwin", "linux"]);
 assert.equal(packageJson.engines?.node, ">=22.15.0");
 assert.equal(packageJson.bin?.weldall, "dist/index.js");
 assert.equal(packageJson.publishConfig?.access, "public");
@@ -28,6 +28,7 @@ for (const specifier of Object.values(packageJson.dependencies ?? {}))
   assert.doesNotMatch(specifier, /^(?:workspace:|link:|file:)/);
 assert.match(bundle, /^#!\/usr\/bin\/env -S node --use-system-ca\n/);
 assert.match(bundle, /import\("@napi-rs\/keyring"\)/);
+assert.equal(packageJson.optionalDependencies?.["@napi-rs/keyring"], "1.3.0");
 assert.doesNotMatch(bundle, /@weldall\/oauth/);
 assert.doesNotMatch(bundle, /(?:from|import\()\s*["']@weldall\/sdk/);
 assert.doesNotMatch(bundle, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

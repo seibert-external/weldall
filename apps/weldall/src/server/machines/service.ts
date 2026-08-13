@@ -1,7 +1,7 @@
 import { db, Prisma } from "@weldall/db";
 import { assertPublicP256 } from "@weldall/sdk";
 import { calculateJwkThumbprint, type JWK } from "jose";
-import { AdminDomainError, type AdminActor } from "../admin/service";
+import { AdminDomainError, type AdminActor, type ManagementDto } from "../admin/service";
 import { prismaAuditWriter } from "../audit/service";
 
 const clientIdPattern = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -28,6 +28,7 @@ export interface MachineClientDto {
   version: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
   keys: Array<{
     id: string;
     kid: string;
@@ -184,6 +185,35 @@ export async function updateMachineClient(
       tx,
     );
     return serialize(client);
+  });
+}
+
+export async function deleteMachineClient(
+  input: { id: string; expectedVersion: number },
+  actor: AdminActor,
+): Promise<{ id: string }> {
+  return db.$transaction(async (tx) => {
+    const current = await tx.machineClient.findUnique({ where: { id: input.id } });
+    if (!current) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
+    if (current.version !== input.expectedVersion)
+      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
+    await tx.machineClient.delete({ where: { id: current.id } });
+    await prismaAuditWriter.write(
+      {
+        eventType: "machine_client.deleted",
+        actorType: "user",
+        actorId: actor.id,
+        ...(actor.email ? { actorEmail: actor.email } : {}),
+        requestId: actor.requestId,
+        ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+        outcome: "success",
+        subjectType: "machine_client",
+        subjectId: current.id,
+        metadata: clientMetadata(current),
+      },
+      tx,
+    );
+    return { id: current.id };
   });
 }
 
@@ -403,6 +433,7 @@ function serialize(client: MachineWithRelations): MachineClientDto {
     version: client.version,
     createdAt: client.createdAt.toISOString(),
     updatedAt: client.updatedAt.toISOString(),
+    management: { type: "manual" },
     keys: client.keys.map((key) => ({
       id: key.id,
       kid: key.kid,

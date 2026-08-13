@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ADMIN_SCOPE_KEY, db, LOGIN_SCOPE_KEY, Prisma } from "@weldall/db";
+import { ADMIN_SCOPE_KEY, db, IAC_SCOPE_KEY, LOGIN_SCOPE_KEY, Prisma } from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
@@ -63,6 +63,9 @@ export interface UserDto {
   createdAt: string;
 }
 
+export type ManagementDto =
+  { type: "manual" } | { type: "iac"; workspaceId: string; workspaceName: string; address: string };
+
 export interface ScopeDto {
   id: string;
   key: string;
@@ -72,6 +75,7 @@ export interface ScopeDto {
   assignmentCount: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 export interface AssignmentDto {
@@ -81,6 +85,7 @@ export interface AssignmentDto {
   version: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 export type SkillVisibilityDto = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
@@ -145,6 +150,7 @@ export interface ResourceDto {
   requestPrefixes: string[];
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 export function normalizeEmail(rawEmail: string): string {
@@ -1169,6 +1175,9 @@ export async function replaceAssignment(
 ): Promise<AssignmentDto | null> {
   const normalizedEmail = normalizeEmail(input.email);
   const scopeKeys = parseScopeKeys(input.scopeKeys);
+  if (scopeKeys.includes(IAC_SCOPE_KEY)) {
+    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
+  }
   try {
     return await db.$transaction(
       (tx) =>
@@ -1662,6 +1671,7 @@ function serializeResource(resource: {
     requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
     createdAt: resource.createdAt.toISOString(),
     updatedAt: resource.updatedAt.toISOString(),
+    management: { type: "manual" },
   };
 }
 
@@ -1775,6 +1785,7 @@ function serializeScope(
     assignmentCount,
     createdAt: scope.createdAt.toISOString(),
     updatedAt: scope.updatedAt.toISOString(),
+    management: { type: "manual" },
   };
 }
 
@@ -1994,6 +2005,7 @@ function serializeAssignment(assignment: {
     version: assignment.version,
     createdAt: assignment.createdAt.toISOString(),
     updatedAt: assignment.updatedAt.toISOString(),
+    management: { type: "manual" },
   };
 }
 

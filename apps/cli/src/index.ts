@@ -13,6 +13,15 @@ import {
   whoamiCommand,
 } from "./commands.js";
 import { discoverIssuer, selectIssuer } from "./config.js";
+import {
+  iacImportCommand,
+  iacInitCommand,
+  iacPlanCommand,
+  iacStateCommand,
+  iacUnmanageCommand,
+  iacUpCommand,
+  iacValidateCommand,
+} from "./iac/commands.js";
 import { CliError, errorMessage } from "./errors.js";
 import { createHttpsDeadlineFetch } from "./http.js";
 import { brandHeading, helpHeader, printError, terminalDocument } from "./output.js";
@@ -91,6 +100,9 @@ async function refreshCliHeader(issuer: string) {
 export async function runCli(argv = process.argv.slice(2)) {
   const rootHelp =
     argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"));
+  const iacCommand = ["init", "validate", "plan", "up", "import", "unmanage", "state"].includes(
+    argv[0] ?? "",
+  );
   let localHeader: Promise<LocalHeader> | undefined;
 
   try {
@@ -108,9 +120,17 @@ export async function runCli(argv = process.argv.slice(2)) {
         skills: skillsCommand,
         request: requestCommand,
         config: configCommand,
+        init: iacInitCommand,
+        validate: iacValidateCommand,
+        plan: iacPlanCommand,
+        up: iacUpCommand,
+        import: iacImportCommand,
+        unmanage: iacUnmanageCommand,
+        state: iacStateCommand,
       },
       renderHeader: async (context) => {
         if ((context.values as Record<string, unknown>).help !== true) return "";
+        if (iacCommand) return "";
         localHeader ??= loadLocalHeader(rootHelp);
         const header = await localHeader;
         if (rootHelp)

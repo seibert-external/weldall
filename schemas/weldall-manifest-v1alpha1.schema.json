@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weldall.dev/schemas/manifest/v1alpha1.json",
+  "title": "Weldall native YAML manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "workspace"],
+  "properties": {
+    "apiVersion": { "const": "weldall.dev/v1alpha1" },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "issuer"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "issuer": { "type": "string", "format": "uri", "pattern": "^https://" }
+      }
+    },
+    "include": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "scopes": { "$ref": "#/$defs/objectMap" },
+    "resources": { "$ref": "#/$defs/objectMap" },
+    "machines": { "$ref": "#/$defs/objectMap" },
+    "emailAssignments": { "$ref": "#/$defs/objectMap" },
+    "groupAssignments": { "$ref": "#/$defs/objectMap" }
+  },
+  "$defs": {
+    "objectMap": {
+      "type": "object",
+      "maxProperties": 1000,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_-]{0,119}$" },
+      "additionalProperties": { "type": "object" }
+    },
+    "publicJwk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kty", "crv", "x", "y"],
+      "properties": {
+        "kty": { "const": "EC" },
+        "crv": { "const": "P-256" },
+        "x": { "type": "string" },
+        "y": { "type": "string" },
+        "alg": { "const": "ES256" },
+        "use": { "const": "sig" }
+      }
+    }
+  }
+}

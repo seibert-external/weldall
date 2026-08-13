@@ -1,4 +1,10 @@
-export function extendOAuthMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+import { IAC_SCOPE_KEY } from "@weldall/db";
+import { WELDALL_ISSUER } from "./constants";
+
+export function extendOAuthMetadata(
+  metadata: Record<string, unknown>,
+  installationId?: string,
+): Record<string, unknown> {
   const append = (value: unknown, additions: string[]) => [
     ...new Set([
       ...(Array.isArray(value)
@@ -20,5 +26,13 @@ export function extendOAuthMetadata(metadata: Record<string, unknown>): Record<s
     dpop_signing_alg_values_supported: append(metadata.dpop_signing_alg_values_supported, [
       "ES256",
     ]),
+    scopes_supported: append(metadata.scopes_supported, [IAC_SCOPE_KEY]),
+    weldall_iac: {
+      endpoint: `${WELDALL_ISSUER}/api/iac/v1`,
+      manifestVersions: ["weldall.dev/v1alpha1"],
+      apiVersions: ["v1"],
+      scope: IAC_SCOPE_KEY,
+      ...(installationId ? { installationId } : {}),
+    },
   };
 }

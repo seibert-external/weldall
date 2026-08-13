@@ -1,4 +1,4 @@
-import { db, Prisma } from "@weldall/db";
+import { db, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
 import { z } from "zod";
 import {
   AdminDomainError,
@@ -325,6 +325,8 @@ export async function createGroupAssignments(
 ): Promise<GroupAssignmentDto[]> {
   const groupIds = parseGroupIds(input.groupIds);
   const scopeKeys = parseAssignmentScopeKeys(input.scopeKeys);
+  if (scopeKeys.some((key) => key === IAC_SCOPE_KEY))
+    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
   const providerSecret = await loadProviderSecret(input.providerId);
   if (!providerSecret.enabled) {
     throw new AdminDomainError("INVALID_PROVIDER", "The group provider is disabled.");
@@ -395,6 +397,8 @@ export async function replaceGroupAssignment(
   actor: AdminActor,
 ): Promise<GroupAssignmentDto> {
   const scopeKeys = parseAssignmentScopeKeys(input.scopeKeys);
+  if (scopeKeys.some((key) => key === IAC_SCOPE_KEY))
+    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
   return db.$transaction(async (tx) => {
     const current = await tx.groupScopeAssignment.findUnique({
       where: { id: input.id },

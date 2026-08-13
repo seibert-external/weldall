@@ -1,0 +1,90 @@
+openapi: 3.1.0
+info:
+  title: Weldall native YAML IaC API
+  version: 1.0.0
+  description: Atomic API for the native Weldall YAML CLI. Terraform, OpenTofu, and HCL are unsupported.
+servers:
+  - url: https://weldall.example.com/api/iac/v1
+security:
+  - machineDpop: []
+paths:
+  /plan:
+    post:
+      operationId: plan
+      responses:
+        {
+          "200": { description: Deterministic plan },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /apply:
+    post:
+      operationId: apply
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        {
+          "200": { description: Atomic commit result },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /import:
+    post:
+      operationId: importObject
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        {
+          "200": { description: Imported object snapshot },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /unmanage:
+    post:
+      operationId: unmanage
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        {
+          "200": { description: Ownership released },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /state/move:
+    post:
+      operationId: moveState
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        {
+          "200": { description: Logical address moved },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /workspaces/{id}/state:
+    get:
+      operationId: pullState
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        {
+          "200": { description: Authoritative ownership state },
+          "404": { $ref: "#/components/responses/Error" },
+        }
+components:
+  securitySchemes:
+    machineDpop: { type: http, scheme: DPoP, bearerFormat: JWT }
+  parameters:
+    IdempotencyKey:
+      {
+        name: X-Idempotency-Key,
+        in: header,
+        required: true,
+        schema: { type: string, format: uuid },
+      }
+  responses:
+    Error:
+      description: Structured bounded error; credentials, proofs, private keys, and manifests are omitted
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message, requestId]
+                properties:
+                  code: { type: string }
+                  message: { type: string, maxLength: 2000 }
+                  requestId: { type: string }

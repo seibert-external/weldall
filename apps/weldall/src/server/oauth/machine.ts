@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { db } from "@weldall/db";
+import { db, IAC_SCOPE_KEY } from "@weldall/db";
 import {
   PRIVATE_KEY_JWT_ASSERTION_TYPE,
   MACHINE_TOKEN_LIFETIME_SECONDS,
@@ -13,7 +13,7 @@ import {
 import { decodeProtectedHeader, importJWK, jwtVerify, type JWK, type JWTPayload } from "jose";
 import type { AuditReasonCode } from "../../lib/audit";
 import { auditRequestIdentifiers, type AuditWriter } from "../audit/service";
-import { WELDALL_ISSUER, WELDALL_TOKEN_ENDPOINT } from "./constants";
+import { WELDALL_ISSUER, WELDALL_RESOURCE, WELDALL_TOKEN_ENDPOINT } from "./constants";
 import { signWeldallJwt } from "./jwt";
 
 const safeId = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -188,28 +188,29 @@ export async function issueMachineToken(
     if (lockedIdentity.length !== 1) throw new WeldallAuthError("invalid_client");
     const locked = lockedIdentity[0]!;
 
-    // Lock the requested resource before its allowlist row. Resource deletion and supported-scope
-    // replacement use the same resource lock, while access replacement must first update the
-    // already share-locked client row.
-    const lockedResources = await tx.$queryRaw<Array<{ resourceId: string }>>`
-      SELECT r."id" AS "resourceId"
-      FROM "DownstreamResource" r
-      WHERE r."resourceIdentifier" = ${resourceIdentifier}
-      FOR SHARE OF r
-    `;
+    const internalIacRequest =
+      resourceIdentifier === WELDALL_RESOURCE && scopes.length === 1 && scopes[0] === IAC_SCOPE_KEY;
+    const lockedResources = internalIacRequest
+      ? [{ resourceId: "weldall-api" }]
+      : await tx.$queryRaw<Array<{ resourceId: string }>>`
+          SELECT r."id" AS "resourceId"
+          FROM "DownstreamResource" r
+          WHERE r."resourceIdentifier" = ${resourceIdentifier}
+          FOR SHARE OF r
+        `;
     if (lockedResources.length !== 1) throw new WeldallAuthError("invalid_target");
     const lockedResource = lockedResources[0]!;
 
-    const lockedAccess = await tx.$queryRaw<Array<{ resourceId: string }>>`
-      SELECT a."resourceId"
-      FROM "MachineAllowedResource" a
-      WHERE a."machineClientId" = ${locked.clientId}
-        AND a."resourceId" = ${lockedResource.resourceId}
-      FOR SHARE OF a
-    `;
-    // A missing allowlist row locks nothing. Reject from this statement snapshot rather than
-    // allowing a later READ COMMITTED query to observe a newly selected resource phantom.
-    if (lockedAccess.length !== 1) throw new WeldallAuthError("invalid_target");
+    if (!internalIacRequest) {
+      const lockedAccess = await tx.$queryRaw<Array<{ resourceId: string }>>`
+        SELECT a."resourceId"
+        FROM "MachineAllowedResource" a
+        WHERE a."machineClientId" = ${locked.clientId}
+          AND a."resourceId" = ${lockedResource.resourceId}
+        FOR SHARE OF a
+      `;
+      if (lockedAccess.length !== 1) throw new WeldallAuthError("invalid_target");
+    }
 
     const client = await tx.machineClient.findUnique({
       where: { id: locked.clientId },
@@ -237,13 +238,16 @@ export async function issueMachineToken(
 
     const allowedResource = client.allowedResources[0];
     if (
-      !allowedResource ||
-      !allowedResource.resource.enabled ||
-      allowedResource.resource.resourceIdentifier !== resourceIdentifier
+      !internalIacRequest &&
+      (!allowedResource ||
+        !allowedResource.resource.enabled ||
+        allowedResource.resource.resourceIdentifier !== resourceIdentifier)
     )
       throw new WeldallAuthError("invalid_target");
     const allowedScopes = new Set(client.allowedScopes.map(({ scope }) => scope.key));
-    const supportedScopes = new Set(allowedResource.resource.scopes.map(({ scope }) => scope.key));
+    const supportedScopes = internalIacRequest
+      ? new Set([IAC_SCOPE_KEY])
+      : new Set(allowedResource!.resource.scopes.map(({ scope }) => scope.key));
     if (scopes.some((scope) => !allowedScopes.has(scope) || !supportedScopes.has(scope)))
       throw new WeldallAuthError("invalid_scope");
 
@@ -256,7 +260,7 @@ export async function issueMachineToken(
         sub: `machine:${client.clientId}`,
         client_id: client.clientId,
         azp: client.clientId,
-        aud: allowedResource.resource.resourceIdentifier,
+        aud: internalIacRequest ? WELDALL_RESOURCE : allowedResource!.resource.resourceIdentifier,
         scope: scopes.join(" "),
         identity_type: "machine",
         token_type: "machine",
@@ -282,7 +286,9 @@ export async function issueMachineToken(
           metadata: {
             clientId: client.clientId,
             kid: key.kid,
-            audience: allowedResource.resource.resourceIdentifier,
+            audience: internalIacRequest
+              ? WELDALL_RESOURCE
+              : allowedResource!.resource.resourceIdentifier,
             requestedScopes: context.requestedScopes,
             grantedScopes: scopes,
             jti,
