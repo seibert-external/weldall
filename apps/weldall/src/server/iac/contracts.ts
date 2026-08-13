@@ -1,4 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
+import {
+  normalizeAuthorizationServer,
+  normalizeRequestPrefix,
+  normalizeResourceIdentifier,
+} from "@weldall/sdk";
 import { z } from "zod";
 
 export const IAC_MANIFEST_VERSION = "weldall.dev/v1alpha1" as const;
@@ -13,18 +18,42 @@ export const IAC_LIMITS = {
 } as const;
 
 const key = z.string().trim().min(1).max(160);
+const scopeKey = z
+  .string()
+  .regex(/^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/)
+  .max(160);
 const addressKey = z.string().regex(/^[a-z][a-z0-9_-]{0,119}$/);
 const stringSet = z.array(key).max(IAC_LIMITS.relationItems).transform(canonicalSet);
+const nonEmptyStringSet = z.array(key).min(1).max(IAC_LIMITS.relationItems).transform(canonicalSet);
+const canonicalUrl = (normalizer: (value: string) => string) =>
+  z
+    .string()
+    .url()
+    .refine((value) => {
+      try {
+        return normalizer(value) === value;
+      } catch {
+        return false;
+      }
+    }, "URL must be canonical HTTPS without credentials or forbidden components");
 const publicJwk = z
   .object({
     kty: z.literal("EC"),
     crv: z.literal("P-256"),
-    x: z.string().min(1).max(200),
-    y: z.string().min(1).max(200),
+    x: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    y: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
     alg: z.literal("ES256").optional(),
     use: z.literal("sig").optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => {
+    try {
+      createPublicKey({ key: value, format: "jwk" });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "JWK must be a valid public P-256 key");
 
 export const desiredStateSchema = z
   .object({
@@ -42,7 +71,7 @@ export const desiredStateSchema = z
     scopes: z
       .record(
         addressKey,
-        z.object({ key, description: z.string().trim().min(1).max(500) }).strict(),
+        z.object({ key: scopeKey, description: z.string().trim().min(1).max(500) }).strict(),
       )
       .default({}),
     resources: z
@@ -52,12 +81,16 @@ export const desiredStateSchema = z
           .object({
             key: z.string().regex(/^[a-z0-9._-]{1,120}$/),
             name: z.string().trim().min(1).max(200),
-            resourceIdentifier: z.string().url(),
-            authorizationServer: z.string().url(),
+            resourceIdentifier: canonicalUrl(normalizeResourceIdentifier),
+            authorizationServer: canonicalUrl(normalizeAuthorizationServer),
             downstreamClientId: z.string().trim().min(1).max(200),
             enabled: z.boolean(),
             skillDiscoveryEnabled: z.boolean().default(false),
-            requestPrefixes: stringSet,
+            requestPrefixes: z
+              .array(canonicalUrl(normalizeRequestPrefix))
+              .min(1)
+              .max(IAC_LIMITS.relationItems)
+              .transform(canonicalSet),
             scopes: stringSet,
           })
           .strict(),
@@ -82,12 +115,18 @@ export const desiredStateSchema = z
       .record(
         addressKey,
         z
-          .object({ email: z.string().trim().toLowerCase().email().max(320), scopes: stringSet })
+          .object({
+            email: z.string().trim().toLowerCase().email().max(320),
+            scopes: nonEmptyStringSet,
+          })
           .strict(),
       )
       .default({}),
     groupAssignments: z
-      .record(addressKey, z.object({ provider: key, groupId: key, scopes: stringSet }).strict())
+      .record(
+        addressKey,
+        z.object({ provider: key, groupId: key, scopes: nonEmptyStringSet }).strict(),
+      )
       .default({}),
   })
   .strict()
@@ -215,7 +254,10 @@ export const unmanageRequestSchema = z
 export const moveRequestSchema = z
   .object({ workspaceId: z.string().uuid(), from: logicalAddress, to: logicalAddress, operationId })
   .strict()
-  .refine(({ from, to }) => from !== to, { message: "Source and destination must differ" });
+  .refine(({ from, to }) => from !== to, { message: "Source and destination must differ" })
+  .refine(({ from, to }) => from.split(".", 1)[0] === to.split(".", 1)[0], {
+    message: "Source and destination must have the same primitive kind",
+  });
 export const workspaceIdSchema = z.string().uuid();
 
 export function publicKeySummary(

@@ -16,6 +16,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
@@ -218,6 +219,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       <div className="skill-detail-surface">
         <div className="grid gap-1">
           <h2 className="m-0 text-xl font-semibold">{isNew ? "Create resource" : current?.name}</h2>
+          {current ? <ManagementBadge management={current.management} /> : null}
           <Text color="secondary">
             {current
               ? `Version ${current.version} · Updated ${new Date(

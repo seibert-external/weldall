@@ -294,7 +294,12 @@ export async function mutateResource(
     assertVersion(current.version, input.expectedVersion, "resource");
   }
   const scopes = await scopesByKeys(tx, parsed.scopeKeys);
-  await assertPrefixes(tx, parsed.requestPrefixes, current?.id);
+  await assertPrefixes(
+    tx,
+    parsed.requestPrefixes,
+    current?.id,
+    input.action === "create" ? input.key : undefined,
+  );
   if (!current) {
     const created = await tx.downstreamResource.create({
       data: {
@@ -420,6 +425,25 @@ export async function mutateEmailAssignment(
       throw new PrimitiveMutationError("LAST_ADMIN", "The last administrator cannot be removed.");
   }
   if (!current && !keys.length) return null;
+  if (current && !keys.length) {
+    const write = await tx.emailScopeAssignment.deleteMany({
+      where: { id: current.id, version: current.version },
+    });
+    if (write.count !== 1) conflict("assignment");
+    await basicAudit(tx, actor, "user_scopes.deleted", "email_scope_assignment", current.id, {
+      normalizedEmail: email,
+      beforeScopes: before,
+      afterScopes: [],
+      addedScopes: [],
+      removedScopes: before,
+      source: actor.source,
+      versionBefore: current.version,
+      versionAfter: current.version + 1,
+    });
+    // Return the deleted identity for browser mutation responses. Any IaC
+    // binding is now a tombstone until intentional reconciliation removes it.
+    return { ...current, grants: [], version: current.version + 1 };
+  }
   let saved;
   if (current) {
     await tx.emailScopeGrant.deleteMany({ where: { assignmentId: current.id } });
@@ -870,13 +894,16 @@ async function assertPrefixes(
   tx: Prisma.TransactionClient,
   prefixes: string[],
   resourceId?: string,
+  resourceKey?: string,
 ) {
   const existing = await tx.resourceRequestPrefix.findMany({
     ...(resourceId ? { where: { resourceId: { not: resourceId } } } : {}),
     include: { resource: { select: { key: true } } },
   });
   for (const prefix of prefixes) {
-    const hit = existing.find((item) => requestPrefixesOverlap(prefix, item.urlPrefix));
+    const hit = existing.find(
+      (item) => item.resource.key !== resourceKey && requestPrefixesOverlap(prefix, item.urlPrefix),
+    );
     if (hit)
       throw new PrimitiveMutationError(
         "CONFLICT",

@@ -10,6 +10,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { ScopeChecklist } from "../../_components/scope-checklist";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -102,6 +103,7 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string | null
           <h2 className="m-0 text-xl font-semibold">
             {isNew ? "Create assignment" : "Edit assignment"}
           </h2>
+          {assignment ? <ManagementBadge management={assignment.management} /> : null}
           <Text color="secondary">
             Email assignments may be created before a user signs in. The weldall:login system scope,
             assigned here or through a provider group, is required to authenticate the CLI with this

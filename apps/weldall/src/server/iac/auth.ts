@@ -1,7 +1,8 @@
 import { db, IAC_SCOPE_KEY } from "@weldall/db";
 import { MACHINE_TOKEN_TYP, verifyStrictDpop, type ReplayStore } from "@weldall/sdk";
-import { decodeProtectedHeader, jwtVerify } from "jose";
+import { decodeProtectedHeader, importJWK, jwtVerify, type JWTPayload } from "jose";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "../oauth/constants";
+import { getWeldallSigningKey } from "../oauth/jwt";
 import { auditRequestIdentifiers } from "../audit/service";
 import { postgresReplayStore } from "../oauth/replay";
 import type { IacActor } from "./service";
@@ -15,28 +16,11 @@ export async function requireIacMachine(
   if (!authorization?.startsWith("DPoP ") || !proof || proof.includes(","))
     throw new Response("Machine DPoP authorization required", { status: 401 });
   const token = authorization.slice(5);
-  const header = decodeProtectedHeader(token);
-  if (header.typ !== MACHINE_TOKEN_TYP)
+  let claims: JWTPayload | undefined;
+  try {
+    claims = await verifyWeldallMachineToken(token);
+  } catch {
     throw new Response("Invalid machine token", { status: 401 });
-  const jwks = await db.jwks.findMany({ orderBy: { createdAt: "desc" } });
-  let claims: Awaited<ReturnType<typeof jwtVerify>>["payload"] | undefined;
-  for (const jwk of jwks) {
-    try {
-      ({ payload: claims } = await jwtVerify(
-        token,
-        await import("jose").then(({ importSPKI }) => importSPKI(jwk.publicKey, "ES256")),
-        {
-          issuer: WELDALL_ISSUER,
-          audience: WELDALL_RESOURCE,
-          algorithms: ["ES256"],
-          requiredClaims: ["iss", "sub", "aud", "iat", "exp", "jti"],
-          maxTokenAge: "5m",
-        },
-      ));
-      break;
-    } catch {
-      /* try active signing keys */
-    }
   }
   if (
     !claims ||
@@ -76,4 +60,25 @@ export async function requireIacMachine(
     keyThumbprint: key.thumbprint,
     ...auditRequestIdentifiers(request),
   };
+}
+
+/** Verify the exact environment-backed key used by signWeldallJwt. */
+export async function verifyWeldallMachineToken(token: string): Promise<JWTPayload> {
+  const header = decodeProtectedHeader(token);
+  const signingKey = await getWeldallSigningKey();
+  if (
+    header.typ !== MACHINE_TOKEN_TYP ||
+    header.alg !== "ES256" ||
+    typeof header.kid !== "string" ||
+    header.kid !== signingKey.kid
+  )
+    throw new Error("Invalid Weldall machine token header");
+  const { payload } = await jwtVerify(token, await importJWK(signingKey.publicJwk, "ES256"), {
+    issuer: WELDALL_ISSUER,
+    audience: WELDALL_RESOURCE,
+    algorithms: ["ES256"],
+    requiredClaims: ["iss", "sub", "aud", "iat", "exp", "jti"],
+    maxTokenAge: "5m",
+  });
+  return payload;
 }

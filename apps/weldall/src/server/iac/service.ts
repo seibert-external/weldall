@@ -2,6 +2,8 @@ import { db, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
 import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
 import { createPlan, desiredObjects, loadPlanningState } from "./planner";
 import { lockConfigurationChanges } from "../domain/configuration";
+import { prismaAuditWriter, type AuditEventInput } from "../audit/service";
+import type { AuditReasonCode } from "../../lib/audit";
 import {
   deleteMachine,
   mutateEmailAssignment,
@@ -41,17 +43,14 @@ export async function planIac(value: unknown, actor?: IacActor): Promise<IacPlan
   const manifest = parseDesiredState(value);
   const state = await db.$transaction((tx) => loadPlanningState(tx, manifest));
   const plan = createPlan(manifest, state);
-  if (actor) {
-    const workspace = await db.iacWorkspace.findUnique({ where: { id: manifest.workspace.id } });
-    if (workspace)
-      await writeIacAudit(db, actor, "iac.plan.generated", workspace, {
-        priorRevision: plan.revision,
-        resultingRevision: plan.revision,
-        configDigest: plan.configDigest,
-        planDigest: plan.digest,
-        actions: plan.actions,
-      });
-  }
+  if (actor)
+    await writeIacAudit(db, actor, "iac.plan.generated", manifest.workspace, {
+      priorRevision: plan.revision,
+      resultingRevision: plan.revision,
+      configDigest: plan.configDigest,
+      planDigest: plan.digest,
+      actions: plan.actions,
+    });
   return plan;
 }
 
@@ -107,6 +106,7 @@ export async function applyIac(
           });
         await assertCallerSafe(tx, manifest, freshPlan, actor);
         await assertFinalAdministratorSafe(tx, manifest);
+        await assertFinalReferencesSafe(tx, manifest);
         await tx.iacOperation.create({
           data: {
             id: input.operationId,
@@ -174,39 +174,41 @@ async function executeDesiredState(
   const bindings = await tx.iacObjectBinding.findMany({
     where: { workspaceId: manifest.workspace.id },
   });
-  for (const binding of bindings
-    .filter((item) => !desiredAddresses.has(item.address))
-    .sort(compareBindingDeletes)) {
-    await deleteBoundObject(tx, binding, mutationActor(actor));
-    await tx.iacObjectBinding.delete({ where: { id: binding.id } });
+  const replacementResources = new Set<string>();
+  for (const item of desired.filter((item) => item.kind === "resource")) {
+    const binding = bindings.find((candidate) => candidate.address === item.address);
+    if (!binding?.resourceId) continue;
+    const current = await tx.downstreamResource.findUnique({ where: { id: binding.resourceId } });
+    if (
+      current &&
+      current.resourceIdentifier !==
+        (item.state as { resourceIdentifier: string }).resourceIdentifier
+    )
+      replacementResources.add(item.identity);
   }
-  for (const item of desired) {
-    const existing = bindings.find((binding) => binding.address === item.address);
+
+  const reconcile = async (item: (typeof desired)[number], state = item.state) => {
+    let existing = bindings.find((binding) => binding.address === item.address);
     if (
       existing &&
       (fromDbKind(existing.kind) !== item.kind || existing.naturalIdentity !== item.identity)
     ) {
       await deleteBoundObject(tx, existing, mutationActor(actor));
       await tx.iacObjectBinding.delete({ where: { id: existing.id } });
+      existing = undefined;
     }
-    const binding =
-      existing &&
-      fromDbKind(existing.kind) === item.kind &&
-      existing.naturalIdentity === item.identity
-        ? existing
-        : undefined;
     const objectId = await upsertObject(
       tx,
       item.kind,
-      item.state as never,
-      binding,
+      state as never,
+      existing,
       actor,
       groupPreflights.get(item.address),
     );
     const target = bindingTarget(item.kind, objectId);
-    if (binding) await tx.iacObjectBinding.update({ where: { id: binding.id }, data: target });
-    else
-      await tx.iacObjectBinding.create({
+    if (existing) await tx.iacObjectBinding.update({ where: { id: existing.id }, data: target });
+    else {
+      const created = await tx.iacObjectBinding.create({
         data: {
           workspaceId: manifest.workspace.id,
           address: item.address,
@@ -215,7 +217,58 @@ async function executeDesiredState(
           ...target,
         },
       });
+      bindings.push(created);
+    }
+  };
+
+  // Establish desired primitives and relations before deleting anything they
+  // formerly referenced. Replacement resources are temporarily removed from
+  // machine access so their immutable row can be safely deleted and recreated.
+  for (const kind of [
+    "scope",
+    "resource",
+    "machine",
+    "emailAssignment",
+    "groupAssignment",
+  ] as const)
+    for (const item of desired.filter((candidate) => candidate.kind === kind)) {
+      if (kind === "resource" && replacementResources.has(item.identity)) continue;
+      if (kind === "machine" && replacementResources.size) {
+        const state = item.state as { resources: string[] };
+        await reconcile(item, {
+          ...(item.state as object),
+          resources: state.resources.filter((key) => !replacementResources.has(key)),
+        });
+      } else await reconcile(item);
+    }
+
+  for (const binding of bindings
+    .filter((item) => !desiredAddresses.has(item.address))
+    .sort(compareBindingDeletes)) {
+    await deleteBoundObject(tx, binding, mutationActor(actor));
+    await tx.iacObjectBinding.delete({ where: { id: binding.id } });
   }
+
+  for (const item of desired.filter(
+    (candidate) => candidate.kind === "resource" && replacementResources.has(candidate.identity),
+  )) {
+    const binding = bindings.find((candidate) => candidate.address === item.address)!;
+    await deleteBoundObject(tx, binding, mutationActor(actor));
+    const objectId = await upsertObject(
+      tx,
+      "resource",
+      item.state as never,
+      { ...binding, resourceId: null },
+      actor,
+    );
+    await tx.iacObjectBinding.update({
+      where: { id: binding.id },
+      data: bindingTarget("resource", objectId),
+    });
+  }
+  if (replacementResources.size)
+    for (const item of desired.filter((candidate) => candidate.kind === "machine"))
+      await reconcile(item);
 }
 
 async function upsertObject(
@@ -466,10 +519,18 @@ export async function moveIacState(
       if (!workspaceBefore) throw new IacError("NOT_FOUND", "Workspace not found", 404);
       const replay = await beginOperation(tx, workspaceBefore, "STATE_MOVE", input);
       if (replay) return replay;
-      const binding = await tx.iacObjectBinding.findUnique({
-        where: { workspaceId_address: { workspaceId: input.workspaceId, address: input.from } },
-      });
+      const [binding, destination] = await Promise.all([
+        tx.iacObjectBinding.findUnique({
+          where: { workspaceId_address: { workspaceId: input.workspaceId, address: input.from } },
+        }),
+        tx.iacObjectBinding.findUnique({
+          where: { workspaceId_address: { workspaceId: input.workspaceId, address: input.to } },
+        }),
+      ]);
       if (!binding) throw new IacError("NOT_FOUND", "Binding not found", 404);
+      if (destination) throw new IacError("ADDRESS_EXISTS", "Destination address exists", 409);
+      if (input.from.split(".", 1)[0] !== input.to.split(".", 1)[0])
+        throw new IacError("KIND_MISMATCH", "State moves must keep the same primitive kind", 409);
       await tx.iacObjectBinding.update({ where: { id: binding.id }, data: { address: input.to } });
       const workspace = await tx.iacWorkspace.update({
         where: { id: input.workspaceId },
@@ -715,6 +776,34 @@ async function assertCallerSafe(
   )
     throw new IacError("AUTHORIZATION_REVOKED", "Machine authorization is no longer active", 401);
 }
+async function assertFinalReferencesSafe(tx: Prisma.TransactionClient, manifest: DesiredState) {
+  const deletingScopeKeys = new Set(
+    (
+      await tx.iacObjectBinding.findMany({
+        where: { workspaceId: manifest.workspace.id, kind: "SCOPE" },
+        select: { address: true, naturalIdentity: true },
+      })
+    )
+      .filter((binding) => !Object.hasOwn(manifest.scopes, binding.address.slice("scope.".length)))
+      .map((binding) => binding.naturalIdentity),
+  );
+  if (!deletingScopeKeys.size) return;
+  for (const assignment of Object.values(manifest.emailAssignments))
+    if (assignment.scopes.some((key) => deletingScopeKeys.has(key)))
+      throw new IacError(
+        "PLAN_BLOCKED",
+        `Email assignment ${assignment.email} still references a deleted scope`,
+        409,
+      );
+  for (const assignment of Object.values(manifest.groupAssignments))
+    if (assignment.scopes.some((key) => deletingScopeKeys.has(key)))
+      throw new IacError(
+        "PLAN_BLOCKED",
+        `Group assignment ${assignment.provider}:${assignment.groupId} still references a deleted scope`,
+        409,
+      );
+}
+
 async function assertFinalAdministratorSafe(tx: Prisma.TransactionClient, manifest: DesiredState) {
   const [users, assignments, bindings] = await Promise.all([
     tx.user.findMany({ where: { emailVerified: true }, select: { email: true } }),
@@ -939,13 +1028,19 @@ async function findNatural(
 async function writeIacAudit(
   tx: Prisma.TransactionClient,
   actor: IacActor,
-  eventType: string,
+  eventType:
+    | "iac.plan.generated"
+    | "iac.apply.succeeded"
+    | "iac.object.imported"
+    | "iac.object.unmanaged"
+    | "iac.state.moved",
   workspace: { id: string; name: string },
   summary: any,
 ) {
-  await tx.auditEvent.create({
-    data: iacAuditData(actor, eventType, workspace, "success", summary),
-  });
+  await prismaAuditWriter.write(
+    iacAuditData(actor, eventType, workspace, "success", summary),
+    tx === db ? undefined : tx,
+  );
 }
 
 async function writeIacOutcomeAudit(
@@ -965,38 +1060,48 @@ async function writeIacOutcomeAudit(
     ["AUTHORIZATION_REVOKED", "CALLER_SELF_PROTECTION", "LAST_ADMIN", "PLAN_BLOCKED"].includes(
       error.code,
     );
-  const reasonCode = error instanceof IacError ? error.code.slice(0, 100) : "INTERNAL_ERROR";
-  try {
-    await client.auditEvent.create({
-      data: iacAuditData(
-        actor,
-        denied ? "iac.apply.denied" : "iac.apply.failed",
-        workspace,
-        denied ? "denied" : "failed",
-        {
-          priorRevision: input.plannedRevision,
-          resultingRevision: input.plannedRevision,
-          configDigest: input.configDigest,
-          planDigest: input.planDigest,
-          actions: [],
-          reasonCode,
-          operationId: input.operationId,
-        },
-      ),
-    });
-  } catch {
-    // The original apply error remains authoritative when the durable outcome
-    // audit store itself is unavailable.
-  }
+  const reasonCode: AuditReasonCode =
+    error instanceof IacError &&
+    ["AUTHORIZATION_REVOKED", "CALLER_SELF_PROTECTION", "LAST_ADMIN", "PLAN_BLOCKED"].includes(
+      error.code,
+    )
+      ? "scope_not_granted"
+      : error instanceof IacError
+        ? "invalid_request"
+        : "internal_error";
+  await prismaAuditWriter.write(
+    iacAuditData(
+      actor,
+      denied ? "iac.apply.denied" : "iac.apply.failed",
+      workspace,
+      denied ? "denied" : "failed",
+      {
+        priorRevision: input.plannedRevision,
+        resultingRevision: input.plannedRevision,
+        configDigest: input.configDigest,
+        planDigest: input.planDigest,
+        actions: [],
+        reasonCode,
+        operationId: input.operationId,
+      },
+    ),
+  );
 }
 
 function iacAuditData(
   actor: IacActor,
-  eventType: string,
+  eventType:
+    | "iac.plan.generated"
+    | "iac.apply.succeeded"
+    | "iac.apply.denied"
+    | "iac.apply.failed"
+    | "iac.object.imported"
+    | "iac.object.unmanaged"
+    | "iac.state.moved",
   workspace: { id: string; name: string },
   outcome: "success" | "denied" | "failed",
   summary: any,
-): Prisma.AuditEventCreateInput {
+): AuditEventInput {
   const actions = Array.isArray(summary.actions) ? summary.actions.slice(0, 200) : [];
   return {
     eventType,
@@ -1006,7 +1111,7 @@ function iacAuditData(
     requestId: actor.requestId.slice(0, 128),
     ...(actor.correlationId ? { correlationId: actor.correlationId.slice(0, 128) } : {}),
     outcome,
-    ...(outcome === "success" ? {} : { reasonCode: String(summary.reasonCode).slice(0, 100) }),
+    ...(outcome === "success" ? {} : { reasonCode: summary.reasonCode as AuditReasonCode }),
     subjectType: "iac_workspace",
     subjectId: workspace.id,
     metadata: {
@@ -1018,7 +1123,7 @@ function iacAuditData(
       ...(summary.planDigest ? { planDigest: String(summary.planDigest).slice(0, 64) } : {}),
       ...(summary.operationId ? { operationId: String(summary.operationId).slice(0, 128) } : {}),
       ...(summary.reasonCode ? { reasonCode: String(summary.reasonCode).slice(0, 100) } : {}),
-      actionCount: actions.length,
+      actionCount: Array.isArray(summary.actions) ? summary.actions.length : 0,
       addresses: actions.map((item: any) => String(item.address).slice(0, 160)),
       keys: actions
         .filter((item: any) => item.keyId)

@@ -83,8 +83,22 @@ components:
   securitySchemes:
     machineDpop: { type: http, scheme: DPoP, bearerFormat: JWT }
   schemas:
-    Manifest:
+    LocalManifest:
       $ref: ./weldall-manifest-v1alpha1.schema.json
+    SubmittedManifest:
+      type: object
+      additionalProperties: false
+      required: [apiVersion, workspace]
+      properties:
+        apiVersion: { const: weldall.dev/v1alpha1 }
+        workspace: { $ref: "#/components/schemas/Workspace" }
+        scopes: { $ref: "./weldall-manifest-v1alpha1.schema.json#/properties/scopes" }
+        resources: { $ref: "./weldall-manifest-v1alpha1.schema.json#/properties/resources" }
+        machines: { $ref: "./weldall-manifest-v1alpha1.schema.json#/properties/machines" }
+        emailAssignments:
+          { $ref: "./weldall-manifest-v1alpha1.schema.json#/properties/emailAssignments" }
+        groupAssignments:
+          { $ref: "./weldall-manifest-v1alpha1.schema.json#/properties/groupAssignments" }
     Address:
       type: string
       pattern: '^(scope|resource|machine|emailAssignment|groupAssignment)\.[a-z][a-z0-9_-]{0,119}$'
@@ -104,14 +118,14 @@ components:
       type: object
       additionalProperties: false
       required: [manifest]
-      properties: { manifest: { $ref: "#/components/schemas/Manifest" } }
+      properties: { manifest: { $ref: "#/components/schemas/SubmittedManifest" } }
     ApplyRequest:
       type: object
       additionalProperties: false
       required: [manifest, plannedRevision, configDigest, planDigest, operationId]
       properties:
         {
-          manifest: { $ref: "#/components/schemas/Manifest" },
+          manifest: { $ref: "#/components/schemas/SubmittedManifest" },
           plannedRevision: { type: integer, minimum: 0 },
           configDigest: { $ref: "#/components/schemas/Digest" },
           planDigest: { $ref: "#/components/schemas/Digest" },

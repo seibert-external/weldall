@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { loadWorkspace, newLock, serverManifest, writeLock } from "../src/iac/manifest.js";
-import { printPlan, stableOperationId } from "../src/iac/commands.js";
+import { lockFromState, printPlan, stableOperationId } from "../src/iac/commands.js";
 
 async function workspace(root: string, extra = "") {
   await writeFile(
@@ -42,6 +42,33 @@ describe("native YAML workspaces", () => {
     expect(first).not.toBe(stableOperationId("workspace", "import", "scope", "expenses:write"));
   });
 
+  it("reconstructs the complete lock from authoritative state, including no-op objects", () => {
+    const manifest = {
+      apiVersion: "weldall.dev/v1alpha1" as const,
+      workspace: { name: "platform", issuer: "https://weldall.example.com" },
+    };
+    const lock = newLock(manifest);
+    const rebuilt = lockFromState(lock, "installation", {
+      workspace: { id: lock.workspace.id, name: "platform", revision: 7 },
+      objects: [
+        {
+          address: "scope.unchanged",
+          kind: "scope",
+          objectId: "scope-id",
+          identity: "expenses:read",
+          observedVersion: 4,
+        },
+      ],
+    });
+    expect(rebuilt.workspace.observedRevision).toBe(7);
+    expect(rebuilt.objects["scope.unchanged"]).toEqual({
+      kind: "scope",
+      objectId: "scope-id",
+      identity: "expenses:read",
+      observedVersion: 4,
+    });
+  });
+
   it("prints deterministic human plans without key coordinates", () => {
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const plan = {
@@ -77,6 +104,20 @@ describe("native YAML workspaces", () => {
     ]);
     expect(JSON.stringify(first)).not.toMatch(/public-thumbprint|\"x\"|\"y\"|\"d\"/);
     output.mockRestore();
+  });
+
+  it("rejects unknown fields, missing required values, empty relations, and noncanonical URLs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(
+      root,
+      "resources:\n  api:\n    key: api\n    name: API\n    resourceIdentifier: http://api.example.com\n    authorizationServer: https://auth.example.com/path\n    downstreamClientId: api\n    enabled: yes\n    requestPrefixes: []\n    scopes: []\n    extra: no\n",
+    );
+    await expect(loadWorkspace(root)).rejects.toThrow();
+    await workspace(
+      root,
+      "emailAssignments:\n  alice:\n    email: alice@example.com\n    scopes: []\n",
+    );
+    await expect(loadWorkspace(root)).rejects.toThrow(/scopes/);
   });
 
   it("rejects aliases, private keys, duplicate addresses, and escaping includes", async () => {

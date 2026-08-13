@@ -42,6 +42,25 @@ const lockWithDiscovery = (lock: Lockfile, installationId: string) => ({
   ...lock,
   server: { ...lock.server, installationId },
 });
+export const lockFromState = (lock: Lockfile, installationId: string, state: any): Lockfile => ({
+  ...lockWithDiscovery(lock, installationId),
+  workspace: {
+    id: state.workspace.id,
+    name: state.workspace.name,
+    observedRevision: state.workspace.revision,
+  },
+  objects: Object.fromEntries(
+    state.objects.map((item: any) => [
+      item.address,
+      {
+        kind: item.kind,
+        objectId: item.objectId,
+        identity: item.identity,
+        observedVersion: item.observedVersion,
+      },
+    ]),
+  ),
+});
 
 export function stableOperationId(...parts: string[]): string {
   const bytes = createHash("sha256").update(parts.join("\0")).digest().subarray(0, 16);
@@ -143,8 +162,8 @@ export const iacUpCommand = define({
     const plan = await client.request("/plan", "POST", { manifest });
     printPlan(plan);
     const changes = plan.actions.filter((item: any) => item.action !== "noop");
-    if (!changes.length) return;
     if (plan.blockers.length) throw new CliError("Plan is blocked");
+    if (!changes.length) return;
     if (!context.values.yes) {
       if (!process.stdin.isTTY || !process.stdout.isTTY)
         throw new CliError("Non-interactive apply requires --yes");
@@ -163,14 +182,8 @@ export const iacUpCommand = define({
       planDigest: plan.digest,
       operationId: randomUUID(),
     });
-    const lock = lockWithDiscovery(workspace.lock, client.installationId);
-    lock.workspace.observedRevision = result.resultingRevision;
-    lock.objects = Object.fromEntries(
-      result.actions.map((item: any) => [
-        item.address,
-        { kind: item.kind, objectId: null, identity: item.identity },
-      ]),
-    );
+    const state = await client.request(`/workspaces/${workspace.lock.workspace.id}/state`, "GET");
+    const lock = lockFromState(workspace.lock, client.installationId, state);
     await writeLock(workspace.root, lock);
     console.log(`Applied revision ${result.resultingRevision}.`);
   },
@@ -189,6 +202,27 @@ export const iacImportCommand = define({
       throw new CliError(`Kind must be ${importKinds.join(", ")}`);
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
+    const [kind, name] = context.values.as.split(".", 2);
+    if (!kind || !name)
+      throw new CliError("--as must be a logical address such as scope.expenses_read");
+    const sections: Record<string, string> = {
+      scope: "scopes",
+      resource: "resources",
+      machine: "machines",
+      emailAssignment: "emailAssignments",
+      groupAssignment: "groupAssignments",
+    };
+    const section = sections[kind];
+    if (!section || kind !== context.values.kind)
+      throw new CliError("--as kind must match the imported primitive kind");
+    const path = join(workspace.root, "weldall", `${kind}-${name}.imported.yml`);
+    await access(path)
+      .then(() => {
+        throw new CliError(`Import fragment ${path} already exists; refusing to overwrite it`);
+      })
+      .catch((error) => {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      });
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
     const result = await client.request("/import", "POST", {
       workspace: { ...workspace.manifest.workspace, id: workspace.lock.workspace.id },
@@ -204,20 +238,6 @@ export const iacImportCommand = define({
         context.values.as,
       ),
     });
-    const [kind, name] = context.values.as.split(".", 2);
-    if (!kind || !name)
-      throw new CliError("--as must be a logical address such as scope.expenses_read");
-    const sections: Record<string, string> = {
-      scope: "scopes",
-      resource: "resources",
-      machine: "machines",
-      emailAssignment: "emailAssignments",
-      groupAssignment: "groupAssignments",
-    };
-    const section = sections[kind];
-    if (!section || kind !== context.values.kind)
-      throw new CliError("--as kind must match the imported primitive kind");
-    const path = join(workspace.root, "weldall", `${kind}-${name}.imported.yml`);
     await writeImportedFragment(path, stringify({ [section]: { [name]: result.state } }));
     workspace.lock.workspace.observedRevision = result.revision;
     workspace.lock.objects[context.values.as] = {
@@ -267,25 +287,26 @@ export const iacUnmanageCommand = define({
 const statePull = define({
   name: "pull",
   description: "Reconstruct lockfile mappings from authoritative server ownership",
-  run: async () => {
+  args: { workspaceId: { type: "string", toKebab: true } },
+  run: async (context) => {
     const workspace = await loadWorkspace();
-    const lock = workspace.lock ?? newLock(workspace.manifest);
+    if (!workspace.lock && !context.values.workspaceId)
+      throw new CliError("state pull without a lock requires --workspace-id <uuid>");
+    const generated = newLock(workspace.manifest);
+    const lock = workspace.lock ?? {
+      ...generated,
+      workspace: { ...generated.workspace, id: context.values.workspaceId! },
+    };
+    if (
+      context.values.workspaceId &&
+      workspace.lock &&
+      workspace.lock.workspace.id !== context.values.workspaceId
+    )
+      throw new CliError("--workspace-id does not match the existing lockfile");
     const client = await IacClient.connect(workspace.manifest, lock);
     const state = await client.request(`/workspaces/${lock.workspace.id}/state`, "GET");
-    lock.server.installationId = client.installationId;
-    lock.workspace.observedRevision = state.workspace.revision;
-    lock.objects = Object.fromEntries(
-      state.objects.map((item: any) => [
-        item.address,
-        {
-          kind: item.kind,
-          objectId: item.objectId,
-          identity: item.identity,
-          observedVersion: item.observedVersion,
-        },
-      ]),
-    );
-    await writeLock(workspace.root, lock);
+    const recovered = lockFromState(lock, client.installationId, state);
+    await writeLock(workspace.root, recovered);
     console.log(`Pulled revision ${state.workspace.revision}.`);
   },
 });
@@ -299,6 +320,9 @@ const stateMove = define({
   run: async (context) => {
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
+    const fromKind = context.values.from.split(".", 1)[0];
+    const toKind = context.values.to.split(".", 1)[0];
+    if (fromKind !== toKind) throw new CliError("State moves must keep the same primitive kind");
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
     const result = await client.request("/state/move", "POST", {
       workspaceId: workspace.lock.workspace.id,

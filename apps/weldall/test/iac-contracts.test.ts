@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { generateEs256KeyPair } from "@weldall/sdk";
 import {
   applyRequestSchema,
   canonicalJson,
   digest,
+  moveRequestSchema,
   parseDesiredState,
 } from "../src/server/iac/contracts";
 import { createPlan } from "../src/server/iac/planner";
@@ -68,7 +70,8 @@ describe("native YAML IaC contracts", () => {
     expect(plan.blockers[0]).toMatchObject({ code: "MANUAL_COLLISION", address: "scope.read" });
   });
 
-  it("uses key summaries and never JWK coordinates in plan actions", () => {
+  it("uses key summaries and never JWK coordinates in plan actions", async () => {
+    const nextKey = (await generateEs256KeyPair()).publicJwk;
     const desired = parseDesiredState({
       ...manifest(),
       scopes: {},
@@ -77,7 +80,7 @@ describe("native YAML IaC contracts", () => {
           clientId: "runner",
           name: "Runner",
           enabled: true,
-          publicKeys: { next: { kty: "EC", crv: "P-256", x: "next-x", y: "next-y" } },
+          publicKeys: { next: nextKey },
           resources: [],
           scopes: ["weldall:iac"],
         },
@@ -122,7 +125,8 @@ describe("native YAML IaC contracts", () => {
     expect(error.details).toEqual({ currentVersion: 2 });
   });
 
-  it("never includes desired machine key coordinates in canonical plan JSON", () => {
+  it("never includes desired machine key coordinates in canonical plan JSON", async () => {
+    const publicJwk = (await generateEs256KeyPair()).publicJwk;
     const desired = parseDesiredState({
       ...manifest(),
       scopes: {},
@@ -131,15 +135,15 @@ describe("native YAML IaC contracts", () => {
           clientId: "runner",
           name: "Runner",
           enabled: true,
-          publicKeys: { ci: { kty: "EC", crv: "P-256", x: "coordinate-x", y: "coordinate-y" } },
+          publicKeys: { ci: publicJwk },
           resources: [],
           scopes: ["weldall:iac"],
         },
       },
     });
     const output = JSON.stringify(createPlan(desired, { revision: 0, objects: [] }));
-    expect(output).not.toContain("coordinate-x");
-    expect(output).not.toContain("coordinate-y");
+    expect(output).not.toContain(publicJwk.x);
+    expect(output).not.toContain(publicJwk.y);
   });
 
   it("rejects unknown and unbounded apply request fields", () => {
@@ -168,7 +172,7 @@ describe("native YAML IaC contracts", () => {
           downstreamClientId: "api",
           enabled: true,
           skillDiscoveryEnabled: false,
-          requestPrefixes: [],
+          requestPrefixes: ["https://new.example/api"],
           scopes: [],
         },
       },
@@ -188,6 +192,35 @@ describe("native YAML IaC contracts", () => {
       ],
     });
     expect(plan.actions[0]).toMatchObject({ action: "replace" });
+  });
+
+  it("rejects empty service relations, noncanonical URLs, and cross-kind state moves", () => {
+    expect(() =>
+      parseDesiredState({
+        apiVersion: "weldall.dev/v1alpha1",
+        workspace: { id: crypto.randomUUID(), name: "x", issuer: "https://weldall.example.com" },
+        resources: {
+          api: {
+            key: "api",
+            name: "API",
+            resourceIdentifier: "https://api.example.com/v1",
+            authorizationServer: "https://auth.example.com/path",
+            downstreamClientId: "api",
+            enabled: true,
+            requestPrefixes: [],
+            scopes: [],
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      moveRequestSchema.parse({
+        workspaceId: crypto.randomUUID(),
+        from: "scope.old",
+        to: "resource.new",
+        operationId: crypto.randomUUID(),
+      }),
+    ).toThrow(/same primitive kind/);
   });
 
   it("plans drift restoration, tombstone recreation, and owned deletion", () => {

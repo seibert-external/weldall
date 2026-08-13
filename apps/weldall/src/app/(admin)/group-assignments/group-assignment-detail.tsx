@@ -11,6 +11,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Typeahead, type SearchSource } from "@astryxdesign/core/Typeahead";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions, HerocrumbsTitle } from "../../_components/herocrumbs";
 import { ScopeChecklist } from "../../_components/scope-checklist";
@@ -196,6 +197,9 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
       </HerocrumbsActions>
 
       <div className="skill-detail-surface">
+        {assignmentQuery.data ? (
+          <ManagementBadge management={assignmentQuery.data.management} />
+        ) : null}
         {mutation.error || loadError ? (
           <Banner
             container="card"

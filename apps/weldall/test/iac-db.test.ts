@@ -4,7 +4,7 @@ import { db, IAC_SCOPE_KEY } from "@weldall/db";
 import { calculateJwkThumbprint } from "jose";
 import { generateEs256KeyPair } from "@weldall/sdk";
 import { digest, parseDesiredState } from "../src/server/iac/contracts";
-import { applyIac, planIac, type IacActor } from "../src/server/iac/service";
+import { applyIac, getIacState, planIac, type IacActor } from "../src/server/iac/service";
 import { createPostgresReplayStore } from "../src/server/oauth/replay";
 import {
   deleteMachine,
@@ -33,6 +33,10 @@ afterAll(async () => {
   await db.machineClient.deleteMany({ where: { clientId: { startsWith: prefix } } });
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: { contains: runId } } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
+  await db.groupScopeAssignment.deleteMany({
+    where: { provider: { key: { startsWith: prefix } } },
+  });
+  await db.groupProvider.deleteMany({ where: { key: { startsWith: prefix } } });
   await db.scope.deleteMany({ where: { key: { startsWith: prefix } } });
   await db.replayMarker.deleteMany({ where: { key: { startsWith: prefix } } });
 });
@@ -208,9 +212,27 @@ describe("IaC database transaction contracts", () => {
     };
     const committed = await applyIac(request, iacActor);
     await expect(applyIac(request, iacActor)).resolves.toEqual(committed);
+    await expect(getIacState(manifest.workspace.id)).resolves.toMatchObject({
+      objects: [
+        {
+          address: "scope.managed",
+          kind: "scope",
+          identity: `${prefix}:managed`,
+          objectId: expect.any(String),
+          observedVersion: 1,
+        },
+      ],
+    });
+    const rejectedRequestId = `${prefix}-invalid-apply-request`;
     await expect(
-      applyIac({ ...request, operationId: randomUUID(), configDigest: "0".repeat(64) }, iacActor),
+      applyIac(
+        { ...request, operationId: randomUUID(), configDigest: "0".repeat(64) },
+        { ...iacActor, requestId: rejectedRequestId },
+      ),
     ).rejects.toMatchObject({ code: "CONFIG_DIGEST_MISMATCH" });
+    await expect(
+      db.auditEvent.findFirstOrThrow({ where: { requestId: rejectedRequestId } }),
+    ).resolves.toMatchObject({ eventType: "iac.apply.failed", reasonCode: "invalid_request" });
 
     const changed = parseDesiredState({
       ...manifest,
@@ -263,6 +285,168 @@ describe("IaC database transaction contracts", () => {
     await expect(
       db.scope.findUnique({ where: { key: `${prefix}:managed` } }),
     ).resolves.not.toBeNull();
+  });
+
+  it("replaces immutable resource identifiers with a new row and object ID", async () => {
+    const runner = await db.machineClient.findUniqueOrThrow({
+      where: { clientId: `${prefix}-apply-runner` },
+      include: { keys: true },
+    });
+    const iacActor: IacActor = {
+      clientId: runner.clientId,
+      keyId: runner.keys[0]!.kid,
+      keyThumbprint: runner.keys[0]!.thumbprint,
+      requestId: `${prefix}-replacement-request`,
+    };
+    const workspace = {
+      id: randomUUID(),
+      name: `${prefix}-replacement`,
+      issuer: "https://weldall.example.com",
+    };
+    const resource = (identifier: string) =>
+      parseDesiredState({
+        apiVersion: "weldall.dev/v1alpha1",
+        workspace,
+        resources: {
+          api: {
+            key: `${prefix}-api`,
+            name: "API",
+            resourceIdentifier: identifier,
+            authorizationServer: "https://auth.example.com",
+            downstreamClientId: "api",
+            enabled: true,
+            skillDiscoveryEnabled: false,
+            requestPrefixes: [identifier],
+            scopes: [],
+          },
+        },
+      });
+    const apply = async (manifest: ReturnType<typeof resource>) => {
+      const plan = await planIac(manifest);
+      return applyIac(
+        {
+          manifest,
+          plannedRevision: plan.revision,
+          configDigest: plan.configDigest,
+          planDigest: plan.digest,
+          operationId: randomUUID(),
+        },
+        iacActor,
+      );
+    };
+    const oldIdentifier = `https://replace-old-${runId}.example.com/api`;
+    const newIdentifier = `https://replace-new-${runId}.example.com/api`;
+    await apply(resource(oldIdentifier));
+    const before = await db.downstreamResource.findUniqueOrThrow({
+      where: { key: `${prefix}-api` },
+    });
+    await apply(resource(newIdentifier));
+    const after = await db.downstreamResource.findUniqueOrThrow({
+      where: { key: `${prefix}-api` },
+    });
+    expect(after.id).not.toBe(before.id);
+    expect(after.resourceIdentifier).toBe(newIdentifier);
+  });
+
+  it("blocks owned scope deletion while manual email and group assignments reference it", async () => {
+    const workspaceId = randomUUID();
+    const scope = await db.scope.create({
+      data: {
+        key: `${prefix}:referenced`,
+        description: "Referenced",
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+    await db.iacWorkspace.create({
+      data: {
+        id: workspaceId,
+        name: `${prefix}-references`,
+        issuer: "https://weldall.example.com",
+      },
+    });
+    const scopeBinding = await db.iacObjectBinding.create({
+      data: {
+        workspaceId,
+        address: "scope.referenced",
+        kind: "SCOPE",
+        naturalIdentity: scope.key,
+        scopeId: scope.id,
+      },
+    });
+    await expect(
+      db.$executeRaw`UPDATE "IacObjectBinding" SET "kind" = 'RESOURCE' WHERE "id" = ${scopeBinding.id}`,
+    ).rejects.toThrow();
+    await expect(
+      db.$executeRaw`INSERT INTO "IacInstallation" ("id", "installationId") VALUES ('extra', ${randomUUID()}::uuid)`,
+    ).rejects.toThrow();
+    await db.emailScopeAssignment.create({
+      data: {
+        normalizedEmail: `${runId}-manual-ref@example.com`,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+        grants: { create: { id: randomUUID(), scopeId: scope.id, createdBy: actor.id } },
+      },
+    });
+    const provider = await db.groupProvider.create({
+      data: {
+        key: `${prefix}-provider`,
+        name: "Provider",
+        adapterType: "management-api-v1",
+        baseUrl: "https://groups.example.com",
+        encryptedToken: "test",
+        encryptionKeyVersion: 1,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+    await db.groupScopeAssignment.create({
+      data: {
+        providerId: provider.id,
+        groupId: "manual-group",
+        groupName: "Manual group",
+        createdBy: actor.id,
+        updatedBy: actor.id,
+        grants: { create: { scopeId: scope.id, createdBy: actor.id } },
+      },
+    });
+    const manifest = parseDesiredState({
+      apiVersion: "weldall.dev/v1alpha1",
+      workspace: {
+        id: workspaceId,
+        name: `${prefix}-references`,
+        issuer: "https://weldall.example.com",
+      },
+    });
+    const plan = await planIac(manifest);
+    expect(plan.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "EXTERNAL_REFERENCE", address: "scope.referenced" }),
+      ]),
+    );
+    expect(plan.blockers.filter(({ address }) => address === "scope.referenced")).toHaveLength(2);
+
+    const email = await db.emailScopeAssignment.findUniqueOrThrow({
+      where: { normalizedEmail: `${runId}-manual-ref@example.com` },
+    });
+    await db.iacObjectBinding.create({
+      data: {
+        workspaceId,
+        address: "emailAssignment.manual",
+        kind: "EMAIL_ASSIGNMENT",
+        naturalIdentity: email.normalizedEmail,
+        emailAssignmentId: email.id,
+      },
+    });
+    const relationRemoval = parseDesiredState({
+      ...manifest,
+      emailAssignments: {
+        manual: { email: email.normalizedEmail, scopes: ["weldall:login"] },
+      },
+    });
+    const relationPlan = await planIac(relationRemoval);
+    expect(relationPlan.blockers).toHaveLength(1);
+    expect(relationPlan.blockers[0]!.message).toMatch(/group assignment/);
   });
 
   it("rolls a complete apply back when aggregate audit persistence fails", async () => {

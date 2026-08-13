@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { createPublicKey } from "node:crypto";
 import { parseDocument } from "yaml";
 import { CliError } from "../errors.js";
 
@@ -108,10 +109,14 @@ function validateRoot(value: Manifest) {
   if (value.apiVersion !== MANIFEST_VERSION)
     throw new CliError(`apiVersion must be ${MANIFEST_VERSION}`);
   const workspace = record(value.workspace);
+  for (const field of Object.keys(workspace))
+    if (!["name", "issuer"].includes(field)) throw new CliError(`Unknown workspace field ${field}`);
   if (typeof workspace.name !== "string" || !workspace.name.trim())
     throw new CliError("workspace.name is required");
-  if (typeof workspace.issuer !== "string" || new URL(workspace.issuer).protocol !== "https:")
-    throw new CliError("workspace.issuer must be HTTPS");
+  if (typeof workspace.issuer !== "string") throw new CliError("workspace.issuer must be HTTPS");
+  const issuer = canonicalHttpsUrl(workspace.issuer, "workspace.issuer", "origin");
+  if (issuer !== workspace.issuer)
+    throw new CliError("workspace.issuer must be a canonical origin");
   if (
     value.include &&
     (!Array.isArray(value.include) || !value.include.every((item) => typeof item === "string"))
@@ -129,6 +134,7 @@ function validateManifest(value: Manifest) {
       const object = record(item);
       if (containsPrivateJwk(object))
         throw new CliError("Private JWK member d is forbidden in Weldall YAML");
+      validatePrimitive(section, object);
       const identity = String(
         object.key ?? object.clientId ?? object.email ?? `${object.provider}:${object.groupId}`,
       );
@@ -147,6 +153,146 @@ function validateManifest(value: Manifest) {
     if (Array.isArray(assignment.scopes) && assignment.scopes.includes("weldall:iac"))
       throw new CliError("weldall:iac is machine-only");
 }
+function validatePrimitive(
+  section: (typeof objectSections)[number],
+  object: Record<string, unknown>,
+) {
+  const fields: Record<typeof section, string[]> = {
+    scopes: ["key", "description"],
+    resources: [
+      "key",
+      "name",
+      "resourceIdentifier",
+      "authorizationServer",
+      "downstreamClientId",
+      "enabled",
+      "skillDiscoveryEnabled",
+      "requestPrefixes",
+      "scopes",
+    ],
+    machines: ["clientId", "name", "enabled", "publicKeys", "resources", "scopes"],
+    emailAssignments: ["email", "scopes"],
+    groupAssignments: ["provider", "groupId", "scopes"],
+  };
+  for (const field of Object.keys(object))
+    if (!fields[section].includes(field)) throw new CliError(`Unknown ${section} field ${field}`);
+  const required = fields[section].filter(
+    (field) => !(field === "skillDiscoveryEnabled" || field === "publicKeys"),
+  );
+  for (const field of required)
+    if (!(field in object)) throw new CliError(`${section}.${field} is required`);
+  const text = (field: string, max: number, pattern?: RegExp) => {
+    const value = object[field];
+    if (
+      typeof value !== "string" ||
+      value !== value.trim() ||
+      !value ||
+      value.length > max ||
+      (pattern && !pattern.test(value))
+    )
+      throw new CliError(`Invalid ${section}.${field}`);
+    return value;
+  };
+  const list = (field: string, nonEmpty = false) => {
+    const value = object[field];
+    if (
+      !Array.isArray(value) ||
+      (nonEmpty && !value.length) ||
+      value.length > 100 ||
+      !value.every((item) => typeof item === "string" && item.trim() && item.length <= 160) ||
+      new Set(value).size !== value.length
+    )
+      throw new CliError(`Invalid ${section}.${field}`);
+    return value as string[];
+  };
+  if (section === "scopes") {
+    text("key", 160, /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/);
+    text("description", 500);
+  } else if (section === "resources") {
+    text("key", 120, /^[a-z0-9._-]+$/);
+    text("name", 200);
+    text("downstreamClientId", 200);
+    for (const field of ["enabled", "skillDiscoveryEnabled"])
+      if (typeof object[field] !== "boolean")
+        throw new CliError(`${section}.${field} must be boolean`);
+    if (
+      canonicalHttpsUrl(text("resourceIdentifier", 2000), "resourceIdentifier", "identifier") !==
+      object.resourceIdentifier
+    )
+      throw new CliError("resourceIdentifier must be canonical HTTPS");
+    if (
+      canonicalHttpsUrl(text("authorizationServer", 2000), "authorizationServer", "origin") !==
+      object.authorizationServer
+    )
+      throw new CliError("authorizationServer must be a canonical HTTPS origin");
+    for (const prefix of list("requestPrefixes", true))
+      if (canonicalHttpsUrl(prefix, "requestPrefixes", "prefix") !== prefix)
+        throw new CliError("requestPrefixes must be canonical HTTPS URLs");
+    list("scopes");
+  } else if (section === "machines") {
+    text("clientId", 128, /^[A-Za-z0-9._:-]+$/);
+    text("name", 200);
+    if (typeof object.enabled !== "boolean") throw new CliError("machines.enabled must be boolean");
+    list("resources");
+    list("scopes");
+    const keys = object.publicKeys === undefined ? {} : record(object.publicKeys);
+    for (const [kid, raw] of Object.entries(keys)) {
+      if (!/^[a-z][a-z0-9_-]{0,119}$/.test(kid)) throw new CliError("Invalid public key ID");
+      const jwk = record(raw);
+      if (
+        Object.keys(jwk).some((field) => !["kty", "crv", "x", "y", "alg", "use"].includes(field)) ||
+        jwk.kty !== "EC" ||
+        jwk.crv !== "P-256" ||
+        typeof jwk.x !== "string" ||
+        typeof jwk.y !== "string" ||
+        !/^[A-Za-z0-9_-]{43}$/.test(jwk.x) ||
+        !/^[A-Za-z0-9_-]{43}$/.test(jwk.y) ||
+        (jwk.alg !== undefined && jwk.alg !== "ES256") ||
+        (jwk.use !== undefined && jwk.use !== "sig")
+      )
+        throw new CliError("Public keys must be strict public P-256 JWKs");
+      try {
+        createPublicKey({ key: jwk as Record<string, string>, format: "jwk" });
+      } catch {
+        throw new CliError("Public keys must be valid public P-256 JWKs");
+      }
+    }
+  } else if (section === "emailAssignments") {
+    const email = text("email", 320);
+    if (!/^\S+@\S+\.\S+$/.test(email) || email !== email.toLowerCase())
+      throw new CliError("Invalid emailAssignments.email");
+    list("scopes", true);
+  } else {
+    text("provider", 160);
+    text("groupId", 160);
+    list("scopes", true);
+  }
+}
+
+function canonicalHttpsUrl(value: string, label: string, kind: "origin" | "identifier" | "prefix") {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new CliError(`${label} must be an absolute HTTPS URL`);
+  }
+  if (url.protocol !== "https:" || url.username || url.password)
+    throw new CliError(`${label} must be HTTPS without credentials`);
+  if (kind === "origin") {
+    if (url.pathname !== "/" || url.search || url.hash)
+      throw new CliError(`${label} must be an HTTPS origin`);
+    return url.origin;
+  }
+  if (url.hash || (kind === "prefix" && url.search))
+    throw new CliError(`${label} contains forbidden URL components`);
+  if (kind === "prefix") {
+    if (url.pathname.includes("%"))
+      throw new CliError(`${label} must not contain percent encoding`);
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+  }
+  return url.toString();
+}
+
 function containsPrivateJwk(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsPrivateJwk);
   if (!value || typeof value !== "object") return false;
@@ -187,5 +333,8 @@ export async function writeLock(root: string, lock: Lockfile) {
   await (await import("node:fs/promises")).rename(temporary, join(root, LOCK_FILE));
 }
 export function serverManifest(manifest: Manifest, lock: Lockfile) {
+  // Re-run local validation immediately before constructing an API payload so
+  // plan/up/import never depend on an earlier load-only validation pass.
+  validateManifest(manifest);
   return { ...manifest, workspace: { ...manifest.workspace, id: lock.workspace.id } };
 }

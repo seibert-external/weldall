@@ -936,12 +936,13 @@ describe("admin scope service", () => {
       primaryActor,
     );
     expect(removedPrimary?.scopes).toEqual([]);
+    await expect(getAssignmentByEmail(primaryEmail)).resolves.toBeNull();
 
     const restoredPrimary = await replaceAssignment(
       {
         email: primaryEmail,
         scopeKeys: ["weldall:administer"],
-        expectedVersion: removedPrimary!.version,
+        expectedVersion: null,
       },
       secondaryActor,
     );
@@ -1010,7 +1011,7 @@ describe("admin scope service", () => {
         {
           email: primaryEmail,
           scopeKeys: ["weldall:administer"],
-          expectedVersion: primaryAfter!.version,
+          expectedVersion: primaryAfter?.version ?? null,
         },
         secondaryActor,
       );
@@ -1026,6 +1027,6 @@ describe("admin scope service", () => {
       );
     }
     expect(primaryAfter?.scopes).toContain("weldall:administer");
-    expect(secondaryAfter?.scopes).toEqual([]);
+    expect(secondaryAfter?.scopes ?? []).toEqual([]);
   });
 });

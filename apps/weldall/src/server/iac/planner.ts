@@ -330,26 +330,42 @@ export async function loadPlanningState(
       tombstone: true,
     });
   }
+  const desired = desiredObjects(manifest);
+  const desiredByAddress = new Map(desired.map((object) => [object.address, object]));
   const deletingAddresses = new Set(
     objects
-      .filter(
-        (object) =>
-          object.ownerWorkspaceId === manifest.workspace.id &&
-          object.address &&
-          !desiredObjects(manifest).some((desired) => desired.address === object.address),
-      )
+      .filter((object) => {
+        if (object.ownerWorkspaceId !== manifest.workspace.id || !object.address) return false;
+        const desiredObject = desiredByAddress.get(object.address);
+        return (
+          !desiredObject ||
+          desiredObject.kind !== object.kind ||
+          desiredObject.identity !== object.identity ||
+          (object.kind === "resource" &&
+            (object.state as { resourceIdentifier?: string }).resourceIdentifier !==
+              (desiredObject.state as { resourceIdentifier?: string }).resourceIdentifier)
+        );
+      })
       .map((object) => object.address!),
   );
   const bindingByTarget = new Map(objects.map((object) => [object.id, object]));
   const externalBlockers: IacBlocker[] = [];
-  const addReferenceBlocker = (target: CurrentObject, sourceId: string, message: string) => {
+  const addReferenceBlocker = (
+    target: CurrentObject,
+    sourceId: string,
+    desiredReferencesTarget: (state: any) => boolean,
+    message: string,
+  ) => {
     if (!target.address || !deletingAddresses.has(target.address)) return;
     const source = bindingByTarget.get(sourceId);
+    const desiredSource = source?.address ? desiredByAddress.get(source.address) : undefined;
     if (
       !source ||
       source.ownerWorkspaceId !== manifest.workspace.id ||
       !source.address ||
-      !deletingAddresses.has(source.address)
+      (desiredSource &&
+        !desiredByAddress.has(target.address) &&
+        desiredReferencesTarget(desiredSource.state))
     )
       externalBlockers.push({ code: "EXTERNAL_REFERENCE", address: target.address, message });
   };
@@ -362,6 +378,7 @@ export async function loadPlanningState(
         addReferenceBlocker(
           target,
           resource.id,
+          (state) => state.scopes.includes(target.identity),
           `Scope ${target.identity} is referenced by resource ${resource.key}`,
         );
     }
@@ -374,6 +391,7 @@ export async function loadPlanningState(
         addReferenceBlocker(
           target,
           machine.id,
+          (state) => state.scopes.includes(target.identity),
           `Scope ${target.identity} is referenced by machine ${machine.clientId}`,
         );
     }
@@ -385,10 +403,37 @@ export async function loadPlanningState(
         addReferenceBlocker(
           target,
           machine.id,
+          (state) => state.resources.includes(target.identity),
           `Resource ${target.identity} is referenced by machine ${machine.clientId}`,
         );
     }
   }
+  for (const email of emails)
+    for (const grant of email.grants) {
+      const target = objects.find(
+        (object) => object.kind === "scope" && object.id === grant.scopeId,
+      );
+      if (target)
+        addReferenceBlocker(
+          target,
+          email.id,
+          (state) => state.scopes.includes(target.identity),
+          `Scope ${target.identity} is referenced by email assignment ${email.normalizedEmail}`,
+        );
+    }
+  for (const group of groups)
+    for (const grant of group.grants) {
+      const target = objects.find(
+        (object) => object.kind === "scope" && object.id === grant.scopeId,
+      );
+      if (target)
+        addReferenceBlocker(
+          target,
+          group.id,
+          (state) => state.scopes.includes(target.identity),
+          `Scope ${target.identity} is referenced by group assignment ${group.provider.key}:${group.groupId}`,
+        );
+    }
   const skillScopes = await tx.skill.findMany({ select: { slug: true, requiredScopes: true } });
   for (const skill of skillScopes)
     for (const key of skill.requiredScopes) {

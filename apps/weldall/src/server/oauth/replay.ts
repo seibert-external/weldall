@@ -23,7 +23,12 @@ export function createPostgresReplayStore(): ReplayStore {
         });
         if (expired.length)
           await db.replayMarker.deleteMany({
-            where: { key: { in: expired.map(({ key }) => key) } },
+            where: {
+              key: { in: expired.map(({ key }) => key) },
+              // A conflicting cleanup must not delete a marker whose expiry
+              // was refreshed after this batch was selected.
+              expiresAt: { lte: now },
+            },
           });
       }
 
