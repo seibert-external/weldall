@@ -1,9 +1,10 @@
 import { requireIacMachine } from "@/server/iac/auth";
+import { workspaceIdSchema } from "@/server/iac/contracts";
 import { getIacState, IacError } from "@/server/iac/service";
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     await requireIacMachine(request);
-    return Response.json(await getIacState((await context.params).id), {
+    return Response.json(await getIacState(workspaceIdSchema.parse((await context.params).id)), {
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {

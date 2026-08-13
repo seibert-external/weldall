@@ -1,15 +1,14 @@
 import { db, IAC_SCOPE_KEY } from "@weldall/db";
-import { inMemory, MACHINE_TOKEN_TYP, verifyStrictDpop, type ReplayStore } from "@weldall/sdk";
+import { MACHINE_TOKEN_TYP, verifyStrictDpop, type ReplayStore } from "@weldall/sdk";
 import { decodeProtectedHeader, jwtVerify } from "jose";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "../oauth/constants";
 import { auditRequestIdentifiers } from "../audit/service";
+import { postgresReplayStore } from "../oauth/replay";
 import type { IacActor } from "./service";
-
-const replay: ReplayStore = inMemory();
 
 export async function requireIacMachine(
   request: Request,
-  store: ReplayStore = replay,
+  store: ReplayStore = postgresReplayStore,
 ): Promise<IacActor> {
   const authorization = request.headers.get("authorization");
   const proof = request.headers.get("dpop");

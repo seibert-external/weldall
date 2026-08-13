@@ -143,6 +143,8 @@ export interface IacAction {
   identity: string;
   drift?: boolean;
   irreversible?: boolean;
+  keyId?: string;
+  keyThumbprint?: string;
 }
 export interface IacBlocker {
   code: string;
@@ -183,6 +185,38 @@ export function digest(value: unknown): string {
 export function parseDesiredState(value: unknown): DesiredState {
   return desiredStateSchema.parse(value);
 }
+
+const operationId = z.string().uuid();
+const logicalAddress = z
+  .string()
+  .regex(/^(scope|resource|machine|emailAssignment|groupAssignment)\.[a-z][a-z0-9_-]{0,119}$/);
+export const planRequestSchema = z.object({ manifest: desiredStateSchema }).strict();
+export const applyRequestSchema = z
+  .object({
+    manifest: desiredStateSchema,
+    plannedRevision: z.number().int().min(0),
+    configDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    planDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    operationId,
+  })
+  .strict();
+export const importRequestSchema = z
+  .object({
+    workspace: desiredStateSchema.shape.workspace,
+    kind: z.enum(["scope", "resource", "machine", "emailAssignment", "groupAssignment"]),
+    identity: key,
+    address: logicalAddress,
+    operationId,
+  })
+  .strict();
+export const unmanageRequestSchema = z
+  .object({ workspaceId: z.string().uuid(), address: logicalAddress, operationId })
+  .strict();
+export const moveRequestSchema = z
+  .object({ workspaceId: z.string().uuid(), from: logicalAddress, to: logicalAddress, operationId })
+  .strict()
+  .refine(({ from, to }) => from !== to, { message: "Source and destination must differ" });
+export const workspaceIdSchema = z.string().uuid();
 
 export function publicKeySummary(
   kid: string,

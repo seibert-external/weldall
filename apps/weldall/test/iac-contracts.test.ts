@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { canonicalJson, digest, parseDesiredState } from "../src/server/iac/contracts";
+import {
+  applyRequestSchema,
+  canonicalJson,
+  digest,
+  parseDesiredState,
+} from "../src/server/iac/contracts";
 import { createPlan } from "../src/server/iac/planner";
 
 const manifest = () =>
@@ -60,6 +65,100 @@ describe("native YAML IaC contracts", () => {
     });
     expect(plan.actions).toEqual([]);
     expect(plan.blockers[0]).toMatchObject({ code: "MANUAL_COLLISION", address: "scope.read" });
+  });
+
+  it("uses key summaries and never JWK coordinates in plan actions", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      scopes: {},
+      machines: {
+        runner: {
+          clientId: "runner",
+          name: "Runner",
+          enabled: true,
+          publicKeys: { next: { kty: "EC", crv: "P-256", x: "next-x", y: "next-y" } },
+          resources: [],
+          scopes: ["weldall:iac"],
+        },
+      },
+    });
+    const plan = createPlan(desired, {
+      revision: 1,
+      objects: [
+        {
+          address: "machine.runner",
+          kind: "machine",
+          id: "runner",
+          identity: "runner",
+          version: 1,
+          ownerWorkspaceId: desired.workspace.id,
+          state: {
+            clientId: "runner",
+            name: "Runner",
+            enabled: true,
+            publicKeys: { old: { kty: "EC", crv: "P-256", x: "old-x", y: "old-y" } },
+            resources: [],
+            scopes: ["weldall:iac"],
+          },
+        },
+      ],
+    });
+    expect(plan.actions.map(({ action }) => action)).toEqual([
+      "register_key",
+      "update",
+      "revoke_key",
+    ]);
+    expect(JSON.stringify(plan.actions)).not.toMatch(/next-x|old-x|\"x\"|\"y\"/);
+    expect(plan.actions[0]).toMatchObject({ keyId: "next", keyThumbprint: expect.any(String) });
+    expect(plan.actions[2]).toMatchObject({ keyId: "old", irreversible: true });
+  });
+
+  it("rejects unknown and unbounded apply request fields", () => {
+    expect(() => applyRequestSchema.parse({ extra: true })).toThrow();
+    expect(() =>
+      applyRequestSchema.parse({
+        manifest: manifest(),
+        plannedRevision: 0,
+        configDigest: "x".repeat(64),
+        planDigest: "a".repeat(64),
+        operationId: crypto.randomUUID(),
+      }),
+    ).toThrow();
+  });
+
+  it("plans immutable resource identifiers as replacement", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      scopes: {},
+      resources: {
+        api: {
+          key: "api",
+          name: "API",
+          resourceIdentifier: "https://new.example/api",
+          authorizationServer: "https://auth.example",
+          downstreamClientId: "api",
+          enabled: true,
+          skillDiscoveryEnabled: false,
+          requestPrefixes: [],
+          scopes: [],
+        },
+      },
+    });
+    const plan = createPlan(desired, {
+      revision: 1,
+      objects: [
+        {
+          address: "resource.api",
+          kind: "resource",
+          id: "api",
+          identity: "api",
+          version: 1,
+          ownerWorkspaceId: desired.workspace.id,
+          state: { ...desired.resources.api, resourceIdentifier: "https://old.example/api" },
+        },
+      ],
+    });
+    expect(plan.actions[0]).toMatchObject({ action: "replace" });
   });
 
   it("plans drift restoration, tombstone recreation, and owned deletion", () => {

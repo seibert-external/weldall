@@ -21,6 +21,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import type { ResourceDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -64,6 +65,7 @@ export function ResourcesTable() {
           <div className="grid gap-1">
             <span className="font-medium">{getValue<string>()}</span>
             <code className="text-xs">{row.original.key}</code>
+            <ManagementBadge management={row.original.management} />
           </div>
         ),
       },

@@ -26,6 +26,7 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import type { ScopeDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -68,6 +69,7 @@ export function ScopesTable() {
           <div className="flex flex-wrap items-center gap-2">
             <code className="text-sm">{getValue<string>()}</code>
             {row.original.isSystem ? <Badge label="System" variant="purple" /> : null}
+            <ManagementBadge management={row.original.management} />
           </div>
         ),
       },

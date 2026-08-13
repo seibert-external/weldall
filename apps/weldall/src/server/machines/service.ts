@@ -3,6 +3,11 @@ import { assertPublicP256 } from "@weldall/sdk";
 import { calculateJwkThumbprint, type JWK } from "jose";
 import { AdminDomainError, type AdminActor, type ManagementDto } from "../admin/service";
 import { prismaAuditWriter } from "../audit/service";
+import {
+  lockConfigurationChanges,
+  managementBindingInclude,
+  managementMetadata,
+} from "../domain/configuration";
 
 const clientIdPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const kidPattern = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -14,6 +19,7 @@ const include = {
     },
   },
   allowedScopes: { include: { scope: { select: { id: true, key: true } } } },
+  iacBinding: managementBindingInclude,
 } satisfies Prisma.MachineClientInclude;
 
 type MachineWithRelations = Prisma.MachineClientGetPayload<{ include: typeof include }>;
@@ -397,7 +403,7 @@ async function validateAccess(
 }
 
 async function lockResourceChanges(tx: Prisma.TransactionClient): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(49350618)`;
+  await lockConfigurationChanges(tx);
 }
 
 function parseClientId(value: string): string {
@@ -433,7 +439,7 @@ function serialize(client: MachineWithRelations): MachineClientDto {
     version: client.version,
     createdAt: client.createdAt.toISOString(),
     updatedAt: client.updatedAt.toISOString(),
-    management: { type: "manual" },
+    management: managementMetadata(client.iacBinding),
     keys: client.keys.map((key) => ({
       id: key.id,
       kid: key.kid,

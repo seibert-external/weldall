@@ -8,6 +8,13 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
+import {
+  lockConfigurationChanges,
+  lockSkillScopeChanges as lockAllSkillScopeChanges,
+  managementBindingInclude,
+  managementMetadata,
+  type ManagementMetadata,
+} from "../domain/configuration";
 import { hasEffectiveSystemScopeFor } from "../policy/resources";
 import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
 
@@ -21,6 +28,15 @@ const resourceInclude = {
   scopes: { include: { scope: { select: { id: true, key: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
   discoveredCatalog: { include: { _count: { select: { skills: true } } } },
+  iacBinding: managementBindingInclude,
+} as const;
+const scopeInclude = {
+  _count: { select: { grants: true, groupGrants: true } },
+  iacBinding: managementBindingInclude,
+} as const;
+const assignmentInclude = {
+  grants: { include: { scope: { select: { key: true } } } },
+  iacBinding: managementBindingInclude,
 } as const;
 
 export type AdminErrorCode =
@@ -63,8 +79,7 @@ export interface UserDto {
   createdAt: string;
 }
 
-export type ManagementDto =
-  { type: "manual" } | { type: "iac"; workspaceId: string; workspaceName: string; address: string };
+export type ManagementDto = ManagementMetadata;
 
 export interface ScopeDto {
   id: string;
@@ -638,7 +653,7 @@ export async function listScopes(input: {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { _count: { select: { grants: true, groupGrants: true } } },
+      include: scopeInclude,
     }),
     db.scope.count({ where }),
   ]);
@@ -1144,7 +1159,7 @@ export async function listAssignments(input: {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { grants: { include: { scope: { select: { key: true } } } } },
+      include: assignmentInclude,
     }),
     db.emailScopeAssignment.count({ where }),
   ]);
@@ -1155,7 +1170,7 @@ export async function listAssignments(input: {
 export async function getAssignment(id: string): Promise<AssignmentDto> {
   const assignment = await db.emailScopeAssignment.findUnique({
     where: { id },
-    include: { grants: { include: { scope: { select: { key: true } } } } },
+    include: assignmentInclude,
   });
   if (!assignment) throw new AdminDomainError("NOT_FOUND", "Assignment not found.");
   return serializeAssignment(assignment);
@@ -1164,7 +1179,7 @@ export async function getAssignment(id: string): Promise<AssignmentDto> {
 export async function getAssignmentByEmail(email: string): Promise<AssignmentDto | null> {
   const assignment = await db.emailScopeAssignment.findUnique({
     where: { normalizedEmail: normalizeEmail(email) },
-    include: { grants: { include: { scope: { select: { key: true } } } } },
+    include: assignmentInclude,
   });
   return assignment ? serializeAssignment(assignment) : null;
 }
@@ -1602,7 +1617,7 @@ async function assertNoCrossResourcePrefixOverlap(
 }
 
 async function lockResourceChanges(tx: Prisma.TransactionClient): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(49350618)`;
+  await lockConfigurationChanges(tx);
 }
 
 function serializeResource(resource: {
@@ -1628,6 +1643,10 @@ function serializeResource(resource: {
     lastFailureCategory: string | null;
     lastFailureAt: Date | null;
     _count: { skills: number };
+  } | null;
+  iacBinding?: {
+    address: string;
+    workspace: { id: string; name: string };
   } | null;
 }): ResourceDto {
   const now = new Date();
@@ -1671,7 +1690,7 @@ function serializeResource(resource: {
     requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
     createdAt: resource.createdAt.toISOString(),
     updatedAt: resource.updatedAt.toISOString(),
-    management: { type: "manual" },
+    management: managementMetadata(resource.iacBinding),
   };
 }
 
@@ -1773,6 +1792,10 @@ function serializeScope(
     version: number;
     createdAt: Date;
     updatedAt: Date;
+    iacBinding?: {
+      address: string;
+      workspace: { id: string; name: string };
+    } | null;
   },
   assignmentCount: number,
 ): ScopeDto {
@@ -1785,7 +1808,7 @@ function serializeScope(
     assignmentCount,
     createdAt: scope.createdAt.toISOString(),
     updatedAt: scope.updatedAt.toISOString(),
-    management: { type: "manual" },
+    management: managementMetadata(scope.iacBinding),
   };
 }
 
@@ -1905,8 +1928,8 @@ function serializeDiscoveredSkill(
 }
 
 async function lockSkillScopeChanges(tx: Prisma.TransactionClient): Promise<void> {
-  // Serialize skill-scope reference checks with scope deletion to avoid orphaned scope keys.
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(49350617)`;
+  // Serialize skill-scope reference checks after the shared configuration lock.
+  await lockAllSkillScopeChanges(tx);
 }
 
 async function assertSkillScopesExist(
@@ -1997,6 +2020,10 @@ function serializeAssignment(assignment: {
   createdAt: Date;
   updatedAt: Date;
   grants: { scope: { key: string } }[];
+  iacBinding?: {
+    address: string;
+    workspace: { id: string; name: string };
+  } | null;
 }): AssignmentDto {
   return {
     id: assignment.id,
@@ -2005,7 +2032,7 @@ function serializeAssignment(assignment: {
     version: assignment.version,
     createdAt: assignment.createdAt.toISOString(),
     updatedAt: assignment.updatedAt.toISOString(),
-    management: { type: "manual" },
+    management: managementMetadata(assignment.iacBinding),
   };
 }
 

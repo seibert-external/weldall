@@ -356,6 +356,14 @@ model IacObjectBinding {
   @@index([workspaceId, kind])
 }
 
+model ReplayMarker {
+  key       String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 model IacOperation {
   id                String             @id @db.Uuid
   workspaceId       String             @db.Uuid

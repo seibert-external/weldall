@@ -171,11 +171,21 @@ export const iacImportCommand = define({
       address: context.values.as,
       operationId: randomUUID(),
     });
-    const [section, name] = context.values.as.split(".", 2);
-    if (!section || !name)
+    const [kind, name] = context.values.as.split(".", 2);
+    if (!kind || !name)
       throw new CliError("--as must be a logical address such as scope.expenses_read");
-    const path = join(workspace.root, "weldall", `${name}.imported.yml`);
-    await writeFile(path, stringify({ [`${section}s`]: { [name]: result.state } }), { flag: "wx" });
+    const sections: Record<string, string> = {
+      scope: "scopes",
+      resource: "resources",
+      machine: "machines",
+      emailAssignment: "emailAssignments",
+      groupAssignment: "groupAssignments",
+    };
+    const section = sections[kind];
+    if (!section || kind !== context.values.kind)
+      throw new CliError("--as kind must match the imported primitive kind");
+    const path = join(workspace.root, "weldall", `${kind}-${name}.imported.yml`);
+    await writeFile(path, stringify({ [section]: { [name]: result.state } }), { flag: "wx" });
     workspace.lock.objects[context.values.as] = {
       kind: context.values.kind,
       objectId: result.objectId,
@@ -227,7 +237,12 @@ const statePull = define({
     lock.objects = Object.fromEntries(
       state.objects.map((item: any) => [
         item.address,
-        { kind: item.kind, objectId: item.objectId, identity: item.identity },
+        {
+          kind: item.kind,
+          objectId: item.objectId,
+          identity: item.identity,
+          observedVersion: item.observedVersion,
+        },
       ]),
     );
     await writeLock(workspace.root, lock);

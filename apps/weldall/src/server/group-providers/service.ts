@@ -6,8 +6,10 @@ import {
   MAX_PAGE_SIZE,
   parseScopeKey,
   type AdminActor,
+  type ManagementDto,
 } from "../admin/service";
 import { prismaAuditWriter } from "../audit/service";
+import { managementBindingInclude, managementMetadata } from "../domain/configuration";
 import { decryptProviderToken, encryptProviderToken } from "./credentials";
 import { createGroupProviderAdapter } from "./registry";
 import type { GroupProviderAdapterType, GroupProviderGroup } from "./types";
@@ -40,12 +42,14 @@ export interface GroupAssignmentDto {
   version: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 const providerInclude = { _count: { select: { assignments: true } } } as const;
 const assignmentInclude = {
   provider: { select: { key: true, name: true } },
   grants: { include: { scope: { select: { key: true } } } },
+  iacBinding: managementBindingInclude,
 } as const;
 
 export async function listGroupProviders(): Promise<GroupProviderDto[]> {
@@ -615,6 +619,10 @@ function serializeAssignment(assignment: {
   updatedAt: Date;
   provider: { key: string; name: string };
   grants: { scope: { key: string } }[];
+  iacBinding?: {
+    address: string;
+    workspace: { id: string; name: string };
+  } | null;
 }): GroupAssignmentDto {
   return {
     id: assignment.id,
@@ -627,6 +635,7 @@ function serializeAssignment(assignment: {
     version: assignment.version,
     createdAt: assignment.createdAt.toISOString(),
     updatedAt: assignment.updatedAt.toISOString(),
+    management: managementMetadata(assignment.iacBinding),
   };
 }
 

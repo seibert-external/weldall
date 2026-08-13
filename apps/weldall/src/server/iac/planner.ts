@@ -7,6 +7,7 @@ import {
   type IacBlocker,
   type IacKind,
   type IacPlan,
+  publicKeySummary,
 } from "./contracts";
 
 export interface CurrentObject {
@@ -81,13 +82,53 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
   for (const object of desired) {
     const bound = byAddress.get(object.address);
     if (bound) {
-      if (bound.kind !== object.kind || bound.identity !== object.identity) {
-        actions.push({ ...object, action: "replace" });
+      const immutableResourceChange =
+        object.kind === "resource" &&
+        !bound.tombstone &&
+        (bound.state as { resourceIdentifier?: string }).resourceIdentifier !==
+          (object.state as { resourceIdentifier?: string }).resourceIdentifier;
+      if (
+        bound.kind !== object.kind ||
+        bound.identity !== object.identity ||
+        immutableResourceChange
+      ) {
+        actions.push(actionFor(object, "replace"));
       } else if (bound.tombstone) {
-        actions.push({ ...object, action: "recreate", drift: true });
+        actions.push({ ...actionFor(object, "recreate"), drift: true });
       } else if (canonicalJson(bound.state) !== canonicalJson(object.state)) {
-        actions.push({ ...object, action: "update", drift: true });
-      } else actions.push({ ...object, action: "noop" });
+        if (object.kind === "machine") {
+          const before = (bound.state as { publicKeys?: Record<string, any> }).publicKeys ?? {};
+          const after = (object.state as { publicKeys?: Record<string, any> }).publicKeys ?? {};
+          for (const kid of Object.keys(after)
+            .filter((key) => !(key in before))
+            .sort()) {
+            const summary = publicKeySummary(kid, after[kid]);
+            actions.push({
+              address: object.address,
+              kind: "machine",
+              identity: object.identity,
+              action: "register_key",
+              keyId: summary.kid,
+              keyThumbprint: summary.thumbprint,
+            });
+          }
+          for (const kid of Object.keys(before)
+            .filter((key) => !(key in after))
+            .sort()) {
+            const summary = publicKeySummary(kid, before[kid]);
+            actions.push({
+              address: object.address,
+              kind: "machine",
+              identity: object.identity,
+              action: "revoke_key",
+              irreversible: true,
+              keyId: summary.kid,
+              keyThumbprint: summary.thumbprint,
+            });
+          }
+        }
+        actions.push({ ...actionFor(object, "update"), drift: true });
+      } else actions.push(actionFor(object, "noop"));
       continue;
     }
     const collision = byNatural.get(`${object.kind}:${object.identity}`);
@@ -100,7 +141,7 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
           : `${object.identity} already exists; import it explicitly`,
         ...(collision.ownerWorkspaceId ? { ownerWorkspaceId: collision.ownerWorkspaceId } : {}),
       });
-    } else actions.push({ ...object, action: "create" });
+    } else actions.push(actionFor(object, "create"));
   }
 
   const desiredAddresses = new Set(desired.map((object) => object.address));
@@ -130,6 +171,13 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
   return { ...planWithoutDigest, digest: digest(planWithoutDigest) };
 }
 
+function actionFor(
+  object: { address: string; kind: IacKind; identity: string },
+  action: IacAction["action"],
+): IacAction {
+  return { address: object.address, kind: object.kind, identity: object.identity, action };
+}
+
 const actionRank: Record<IacAction["action"], number> = {
   create: 1,
   recreate: 1,
@@ -140,9 +188,23 @@ const actionRank: Record<IacAction["action"], number> = {
   delete: 6,
   noop: 7,
 };
+const kindRank: Record<IacKind, number> = {
+  scope: 1,
+  resource: 2,
+  machine: 3,
+  emailAssignment: 4,
+  groupAssignment: 4,
+};
 function compareActions(left: IacAction, right: IacAction): number {
+  const action = actionRank[left.action] - actionRank[right.action];
+  if (action) return action;
+  const kind = kindRank[left.kind] - kindRank[right.kind];
+  // Delete dependants before the primitives they reference.
+  const dependency = left.action === "delete" ? -kind : kind;
   return (
-    actionRank[left.action] - actionRank[right.action] || left.address.localeCompare(right.address)
+    dependency ||
+    left.address.localeCompare(right.address) ||
+    (left.keyId ?? "").localeCompare(right.keyId ?? "")
   );
 }
 
@@ -268,7 +330,77 @@ export async function loadPlanningState(
       tombstone: true,
     });
   }
-  return { revision: workspace?.revision ?? 0, objects };
+  const deletingAddresses = new Set(
+    objects
+      .filter(
+        (object) =>
+          object.ownerWorkspaceId === manifest.workspace.id &&
+          object.address &&
+          !desiredObjects(manifest).some((desired) => desired.address === object.address),
+      )
+      .map((object) => object.address!),
+  );
+  const bindingByTarget = new Map(objects.map((object) => [object.id, object]));
+  const externalBlockers: IacBlocker[] = [];
+  const addReferenceBlocker = (target: CurrentObject, sourceId: string, message: string) => {
+    if (!target.address || !deletingAddresses.has(target.address)) return;
+    const source = bindingByTarget.get(sourceId);
+    if (
+      !source ||
+      source.ownerWorkspaceId !== manifest.workspace.id ||
+      !source.address ||
+      !deletingAddresses.has(source.address)
+    )
+      externalBlockers.push({ code: "EXTERNAL_REFERENCE", address: target.address, message });
+  };
+  for (const resource of resources)
+    for (const scope of resource.scopes) {
+      const target = objects.find(
+        (object) => object.kind === "scope" && object.id === scope.scopeId,
+      );
+      if (target)
+        addReferenceBlocker(
+          target,
+          resource.id,
+          `Scope ${target.identity} is referenced by resource ${resource.key}`,
+        );
+    }
+  for (const machine of machines) {
+    for (const scope of machine.allowedScopes) {
+      const target = objects.find(
+        (object) => object.kind === "scope" && object.id === scope.scopeId,
+      );
+      if (target)
+        addReferenceBlocker(
+          target,
+          machine.id,
+          `Scope ${target.identity} is referenced by machine ${machine.clientId}`,
+        );
+    }
+    for (const resource of machine.allowedResources) {
+      const target = objects.find(
+        (object) => object.kind === "resource" && object.id === resource.resourceId,
+      );
+      if (target)
+        addReferenceBlocker(
+          target,
+          machine.id,
+          `Resource ${target.identity} is referenced by machine ${machine.clientId}`,
+        );
+    }
+  }
+  const skillScopes = await tx.skill.findMany({ select: { slug: true, requiredScopes: true } });
+  for (const skill of skillScopes)
+    for (const key of skill.requiredScopes) {
+      const target = objects.find((object) => object.kind === "scope" && object.identity === key);
+      if (target?.address && deletingAddresses.has(target.address))
+        externalBlockers.push({
+          code: "EXTERNAL_REFERENCE",
+          address: target.address,
+          message: `Scope ${key} is referenced by skill ${skill.slug}`,
+        });
+    }
+  return { revision: workspace?.revision ?? 0, objects, externalBlockers };
 }
 
 function bindingInfo(binding: { address: string; workspaceId: string } | undefined) {
