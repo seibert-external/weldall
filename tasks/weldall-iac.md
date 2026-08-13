@@ -285,7 +285,7 @@ weldall state mv scope.old scope.new
 
 ### State commands
 
-- `state pull` recovers local mappings from authoritative server ownership. When the lockfile is missing, pass the committed workspace UUID explicitly as `weldall state pull --workspace-id <uuid>`; the CLI never guesses or generates a remote target during recovery.
+- `state pull` recovers local mappings from authoritative server ownership.
 - `state mv` changes a logical address without replacing the remote primitive.
 - No command directly edits opaque server IDs or ownership records without server validation.
 
