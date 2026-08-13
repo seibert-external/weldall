@@ -68,6 +68,7 @@ export function ResourcesTable() {
               <ManagementBadge management={row.original.management} />
             </div>
             <code className="text-xs">{row.original.key}</code>
+            <ManagementBadge management={row.original.management} />
           </div>
         ),
       },
