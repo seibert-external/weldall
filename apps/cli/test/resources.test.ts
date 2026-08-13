@@ -152,20 +152,34 @@ describe("URL-first resource requests", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
-  it("rejects unsupported and ungranted scopes before token exchange", async () => {
+  it("lists unsupported scopes and exact supported and granted alternatives", async () => {
     const fetcher = vi.fn(async () => Response.json([expenses]));
     vi.stubGlobal("fetch", fetcher);
     const { resourceRequest } = await import("../src/services/resources.js");
+
     await expect(
       resourceRequest(config, {
         url: `${EXPENSES_ISSUER}/api/expenses`,
         method: "GET",
-        scopes: ["expenses:delete"],
+        scopes: ["expenses:read", "expenses:delete", "expenses:write"],
       }),
-    ).rejects.toThrow("not supported");
+    ).rejects.toMatchObject({
+      message:
+        'The requested scopes "expenses:delete", "expenses:write" are not supported by Expenses',
+      hint: "Supported scopes: expenses:read. Granted scopes: expenses:read.",
+    });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
 
-    expenses.supportedScopes.push("expenses:delete");
+  it("rejects supported but ungranted scopes before token exchange", async () => {
+    const restrictedExpenses = {
+      ...expenses,
+      supportedScopes: [...expenses.supportedScopes, "expenses:delete"],
+    };
+    const fetcher = vi.fn(async () => Response.json([restrictedExpenses]));
+    vi.stubGlobal("fetch", fetcher);
+    const { resourceRequest } = await import("../src/services/resources.js");
+
     await expect(
       resourceRequest(config, {
         url: `${EXPENSES_ISSUER}/api/expenses`,
@@ -173,7 +187,6 @@ describe("URL-first resource requests", () => {
         scopes: ["expenses:delete"],
       }),
     ).rejects.toThrow("not granted");
-    expenses.supportedScopes.pop();
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

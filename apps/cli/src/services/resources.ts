@@ -164,11 +164,22 @@ export async function resourceRequest(
       }
       const resource = candidates[0]!;
       const requestedScopes = [...new Set(input.scopes)].sort();
-      if (
-        !requestedScopes.length ||
-        requestedScopes.some((scope) => !resource.supportedScopes.includes(scope))
-      ) {
-        throw new CliError(`The requested scopes are not supported by ${resource.name}`);
+      const unsupportedScopes = requestedScopes.filter(
+        (scope) => !resource.supportedScopes.includes(scope),
+      );
+      if (!requestedScopes.length || unsupportedScopes.length > 0) {
+        throw new CliError(
+          requestedScopes.length === 0
+            ? `No scopes were requested for ${resource.name}`
+            : unsupportedScopes.length === 1
+              ? `The requested scope ${JSON.stringify(unsupportedScopes[0])} is not supported by ${resource.name}`
+              : `The requested scopes ${unsupportedScopes.map((scope) => JSON.stringify(scope)).join(", ")} are not supported by ${resource.name}`,
+          {
+            hint:
+              `Supported scopes: ${resource.supportedScopes.join(", ") || "none"}. ` +
+              `Granted scopes: ${resource.grantedScopes.join(", ") || "none"}.`,
+          },
+        );
       }
       if (requestedScopes.some((scope) => !resource.grantedScopes.includes(scope))) {
         throw new CliError(`The requested scopes are not granted for ${resource.name}`);
