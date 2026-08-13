@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, type ReactNode, type SVGProps } from "react";
+import { useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 import { usePathname } from "next/navigation";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import {
   SideNav,
-  SideNavCollapseButton,
   SideNavItem,
   SideNavSection,
   useSideNavCollapse,
 } from "@astryxdesign/core/SideNav";
 import { authClient } from "@/lib/auth-client";
 import { useThemeMode } from "../providers";
+import { adminSectionDesigns } from "./herocrumbs";
 import { queueOperationSuccess, useOperationToast } from "./use-operation-toast";
 
 export function AdminFrame({ children }: { children: ReactNode }) {
@@ -58,7 +58,12 @@ export function AdminFrame({ children }: { children: ReactNode }) {
             }}
             header={<WeldallHeader />}
             footer={
-              <SideNavSection title="Preferences" isHeaderHidden>
+              <SideNavSection
+                title="Preferences"
+                isHeaderHidden
+                className={isCollapsed ? undefined : "admin-footer-nav"}
+              >
+                <CollapseNavItem />
                 <SideNavItem
                   label={mode === "dark" ? "Light mode" : "Dark mode"}
                   icon={ThemeIcon}
@@ -74,65 +79,81 @@ export function AdminFrame({ children }: { children: ReactNode }) {
             }
             style={{ width: "100%" }}
           >
-            <div className="absolute top-1/2 right-2 z-20 -translate-y-1/2">
-              <SideNavCollapseButton />
-            </div>
-            <SideNavSection title="Administration" isHeaderHidden>
-              <SideNavItem
+            <SideNavSection
+              title="Administration"
+              isHeaderHidden
+              className={isCollapsed ? undefined : "admin-section-nav"}
+            >
+              <SectionNavItem
+                route="resources"
                 label="Resources"
                 href="/resources"
                 icon={ResourceIcon}
                 isSelected={selected("/resources")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="scopes"
                 label="Scopes"
                 href="/scopes"
                 icon={ScopeIcon}
                 isSelected={selected("/scopes")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="assignments"
                 label="Email assignments"
                 href="/assignments"
                 icon={AssignmentIcon}
                 isSelected={selected("/assignments")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="group-providers"
                 label="Group providers"
                 href="/group-providers"
                 icon={GroupIcon}
                 isSelected={selected("/group-providers")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="group-assignments"
                 label="Group assignments"
                 href="/group-assignments"
                 icon={AssignmentIcon}
                 isSelected={selected("/group-assignments")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="users"
                 label="Users"
                 href="/users"
                 icon={UserIcon}
                 isSelected={selected("/users")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="machines"
                 label="Machine clients"
                 href="/machines"
                 icon={MachineIcon}
                 isSelected={selected("/machines")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="skills"
                 label="Skill registry"
                 href="/skills"
                 icon={SkillIcon}
                 isSelected={selected("/skills")}
               />
-              <SideNavItem
+              <SectionNavItem
+                route="audit"
                 label="Audit logs"
                 href="/audit"
                 icon={AuditIcon}
                 isSelected={selected("/audit")}
               />
-              <SideNavItem label="CLI" href="/cli" icon={CliIcon} isSelected={selected("/cli")} />
+              <SectionNavItem
+                route="cli"
+                label="CLI"
+                href="/cli"
+                icon={CliIcon}
+                isSelected={selected("/cli")}
+              />
             </SideNavSection>
           </SideNav>
         </div>
@@ -143,14 +164,74 @@ export function AdminFrame({ children }: { children: ReactNode }) {
   );
 }
 
+function CollapseNavItem() {
+  const { isCollapsed, toggle } = useSideNavCollapse();
+
+  return (
+    <SideNavItem
+      label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      icon={isCollapsed ? ExpandSidebarIcon : CollapseSidebarIcon}
+      onClick={toggle}
+    />
+  );
+}
+
+function SectionNavItem({
+  route,
+  label,
+  href,
+  icon,
+  isSelected,
+}: {
+  route: keyof typeof adminSectionDesigns;
+  label: string;
+  href: string;
+  icon: (props: IconProps) => ReactNode;
+  isSelected: boolean;
+}) {
+  const { mode } = useThemeMode();
+  const gradient = adminSectionDesigns[route][mode];
+
+  return (
+    <div
+      className="admin-section-nav-item"
+      data-selected={isSelected || undefined}
+      style={
+        {
+          "--admin-nav-from": gradient.from,
+          "--admin-nav-to": gradient.to,
+        } as CSSProperties
+      }
+    >
+      <SideNavItem label={label} href={href} icon={icon} isSelected={isSelected} />
+    </div>
+  );
+}
+
 function WeldallHeader() {
   const { isCollapsed } = useSideNavCollapse();
   return isCollapsed ? (
-    <div className="border-border bg-surface mx-auto grid h-8 w-8 place-items-center rounded-md border text-sm font-semibold">
+    <div className="border-border bg-surface mx-auto grid h-8 w-8 place-items-center border text-sm font-semibold">
       W
     </div>
   ) : (
-    <div className="flex min-h-8 items-center px-2 text-lg font-semibold">Weldall</div>
+    <div className="admin-brand relative -m-2 flex h-20 w-[calc(100%+1rem)] items-center justify-center overflow-hidden">
+      <div
+        aria-hidden="true"
+        className="admin-brand-noise pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: "url(/assets/images/noise.png)",
+          backgroundRepeat: "repeat",
+        }}
+      />
+      <img
+        src="/assets/images/weldall.png"
+        alt="Weldall"
+        width={144}
+        height={40}
+        className="relative h-10 w-auto"
+      />
+    </div>
   );
 }
 
@@ -252,6 +333,24 @@ function SkillIcon(props: IconProps) {
     <IconBase {...props}>
       <path d="M5 3h11a3 3 0 0 1 3 3v15H8a3 3 0 0 1-3-3z" />
       <path d="M8 7h8M8 11h8M8 15h5" />
+    </IconBase>
+  );
+}
+
+function CollapseSidebarIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 4h16v16H4zM9 4v16" />
+      <path d="m16 9-3 3 3 3" />
+    </IconBase>
+  );
+}
+
+function ExpandSidebarIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 4h16v16H4zM9 4v16" />
+      <path d="m13 9 3 3-3 3" />
     </IconBase>
   );
 }

@@ -32,56 +32,56 @@ type AdminRoute =
   | "group-providers"
   | "users"
   | "skills";
-const designs = {
+export const adminSectionDesigns = {
   audit: {
     title: "Audit logs",
-    light: { from: "rgb(126, 45, 45)", to: "rgb(255, 205, 142)" },
-    dark: { from: "rgb(72, 28, 28)", to: "rgb(112, 65, 30)" },
+    light: { from: "rgb(151, 132, 48)", to: "rgb(181, 111, 45)" },
+    dark: { from: "rgb(74, 63, 25)", to: "rgb(91, 51, 25)" },
   },
   cli: {
     title: "CLI",
-    light: { from: "rgb(130, 65, 0)", to: "rgb(255, 214, 153)" },
-    dark: { from: "rgb(70, 36, 8)", to: "rgb(113, 70, 26)" },
+    light: { from: "rgb(181, 111, 45)", to: "rgb(179, 72, 65)" },
+    dark: { from: "rgb(91, 51, 25)", to: "rgb(91, 35, 39)" },
   },
   machines: {
     title: "Machine clients",
-    light: { from: "rgb(23, 91, 94)", to: "rgb(183, 244, 238)" },
-    dark: { from: "rgb(12, 49, 52)", to: "rgb(25, 88, 88)" },
+    light: { from: "rgb(28, 143, 111)", to: "rgb(82, 153, 78)" },
+    dark: { from: "rgb(12, 70, 56)", to: "rgb(38, 75, 37)" },
   },
   resources: {
     title: "Resources",
-    light: { from: "rgb(114, 53, 140)", to: "rgb(239, 199, 255)" },
-    dark: { from: "rgb(52, 27, 66)", to: "rgb(87, 42, 105)" },
+    light: { from: "rgb(80, 45, 128)", to: "rgb(112, 70, 169)" },
+    dark: { from: "rgb(40, 22, 66)", to: "rgb(55, 34, 85)" },
   },
   scopes: {
     title: "Scopes",
-    light: { from: "rgb(69, 56, 202)", to: "rgb(234, 204, 255)" },
-    dark: { from: "rgb(29, 31, 94)", to: "rgb(65, 36, 88)" },
+    light: { from: "rgb(112, 70, 169)", to: "rgb(86, 76, 186)" },
+    dark: { from: "rgb(55, 34, 85)", to: "rgb(42, 38, 94)" },
   },
   assignments: {
     title: "Email assignments",
-    light: { from: "rgb(0, 112, 86)", to: "rgb(219, 255, 170)" },
-    dark: { from: "rgb(0, 58, 47)", to: "rgb(49, 75, 18)" },
+    light: { from: "rgb(86, 76, 186)", to: "rgb(57, 99, 184)" },
+    dark: { from: "rgb(42, 38, 94)", to: "rgb(27, 49, 92)" },
   },
   "group-assignments": {
     title: "Group assignments",
-    light: { from: "rgb(21, 94, 117)", to: "rgb(186, 230, 253)" },
-    dark: { from: "rgb(15, 48, 61)", to: "rgb(26, 86, 105)" },
+    light: { from: "rgb(42, 119, 176)", to: "rgb(22, 139, 155)" },
+    dark: { from: "rgb(20, 59, 88)", to: "rgb(10, 69, 77)" },
   },
   "group-providers": {
     title: "Group providers",
-    light: { from: "rgb(91, 65, 123)", to: "rgb(233, 213, 255)" },
-    dark: { from: "rgb(46, 31, 63)", to: "rgb(83, 52, 105)" },
+    light: { from: "rgb(57, 99, 184)", to: "rgb(42, 119, 176)" },
+    dark: { from: "rgb(27, 49, 92)", to: "rgb(20, 59, 88)" },
   },
   users: {
     title: "Users",
-    light: { from: "rgb(30, 78, 121)", to: "rgb(172, 224, 255)" },
-    dark: { from: "rgb(18, 42, 67)", to: "rgb(33, 82, 104)" },
+    light: { from: "rgb(22, 139, 155)", to: "rgb(20, 148, 130)" },
+    dark: { from: "rgb(10, 69, 77)", to: "rgb(9, 73, 65)" },
   },
   skills: {
     title: "Skill registry",
-    light: { from: "rgb(9, 78, 145)", to: "rgb(156, 231, 255)" },
-    dark: { from: "rgb(12, 43, 78)", to: "rgb(21, 91, 112)" },
+    light: { from: "rgb(82, 153, 78)", to: "rgb(151, 132, 48)" },
+    dark: { from: "rgb(38, 75, 37)", to: "rgb(74, 63, 25)" },
   },
 } as const;
 
@@ -143,7 +143,7 @@ function Herocrumbs({
   title: string | null;
 }) {
   const { mode } = useThemeMode();
-  const design = designs[route];
+  const design = adminSectionDesigns[route];
   const title = titleOverride ?? design.title;
   const sectionRef = useRef<HTMLElement>(null);
   const noiseRef = useRef<HTMLDivElement>(null);
@@ -221,7 +221,7 @@ function Herocrumbs({
   return (
     <section
       ref={sectionRef}
-      className="relative overflow-hidden px-6 py-6 text-white"
+      className="relative h-20 overflow-hidden px-6 text-white"
       style={
         {
           "--headline-gradient-from": gradient.from,
@@ -240,7 +240,7 @@ function Herocrumbs({
           backgroundRepeat: "repeat",
         }}
       />
-      <div className="relative flex w-full flex-wrap items-center justify-between gap-4">
+      <div className="relative flex h-full w-full flex-wrap items-center justify-between gap-4">
         <Heading level={1} color="inherit" aria-label={title}>
           {Array.from(title).map((character, index) => (
             <span

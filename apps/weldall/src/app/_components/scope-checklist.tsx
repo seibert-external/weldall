@@ -62,7 +62,7 @@ export function ScopeChecklist({
       {isLoading ? (
         <Text color="secondary">Loading scopes…</Text>
       ) : filteredScopes.length > 0 ? (
-        <div className="border-border divide-border grid divide-y overflow-hidden rounded-lg border">
+        <div className="border-border divide-border grid divide-y overflow-hidden border">
           {filteredScopes.map((scope) => (
             <div className="p-3" key={scope.id}>
               <CheckboxInput
