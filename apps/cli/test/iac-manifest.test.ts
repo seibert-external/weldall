@@ -1,9 +1,16 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { loadWorkspace, newLock, serverManifest, writeLock } from "../src/iac/manifest.js";
-import { lockFromState, printPlan, stableOperationId } from "../src/iac/commands.js";
+import {
+  declaredImportValue,
+  ensureImportedFragmentIncluded,
+  lockFromState,
+  printPlan,
+  stableOperationId,
+  writeImportedFragment,
+} from "../src/iac/commands.js";
 
 async function workspace(root: string, extra = "") {
   await writeFile(
@@ -34,8 +41,39 @@ describe("native YAML workspaces", () => {
     expect(JSON.stringify(lock)).not.toContain("private");
   });
 
+  it("preflights loaded declarations and permits only exact generated import recovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    const path = join(root, "weldall", "imports", "scope-read.yml");
+    const exact = "scopes:\n  read:\n    key: expenses:read\n    description: Read\n";
+    await writeImportedFragment(path, exact);
+    await expect(writeImportedFragment(path, exact)).resolves.toBeUndefined();
+    await expect(writeImportedFragment(path, `${exact}# different\n`)).rejects.toThrow(
+      /refusing to overwrite/,
+    );
+    await expect(readFile(path, "utf8")).resolves.toBe(exact);
+    expect(
+      declaredImportValue(
+        { scopes: { read: { key: "expenses:read", description: "Read" } } },
+        "scope.read",
+      ),
+    ).toEqual({ key: "expenses:read", description: "Read" });
+  });
+
+  it("adds an exact generated fragment to the root include list atomically", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(root);
+    const path = join(root, "weldall", "imports", "scope-read.yml");
+    await mkdir(join(root, "weldall", "imports"), { recursive: true });
+    await ensureImportedFragmentIncluded(root, path);
+    await ensureImportedFragmentIncluded(root, path);
+    expect(await readFile(join(root, "weldall.yml"), "utf8")).toContain(
+      "- weldall/imports/scope-read.yml",
+    );
+  });
+
   it("derives retry-stable UUID operation IDs without exposing request content", () => {
     const first = stableOperationId("workspace", "import", "scope", "expenses:read");
+    expect(first).toBe(stableOperationId("workspace", "import", "scope", "expenses:read"));
     expect(first).toBe(stableOperationId("workspace", "import", "scope", "expenses:read"));
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(first).not.toContain("expenses");

@@ -175,17 +175,29 @@ async function executeDesiredState(
     where: { workspaceId: manifest.workspace.id },
   });
   const replacementResources = new Set<string>();
-  for (const item of desired.filter((item) => item.kind === "resource")) {
+  const replacementScopes = new Map<string, string>();
+  for (const item of desired) {
     const binding = bindings.find((candidate) => candidate.address === item.address);
-    if (!binding?.resourceId) continue;
+    if (!binding || fromDbKind(binding.kind) !== item.kind) continue;
+    if (item.kind === "scope" && binding.scopeId && binding.naturalIdentity !== item.identity)
+      replacementScopes.set(binding.naturalIdentity, item.identity);
+    if (!binding.resourceId || item.kind !== "resource") continue;
     const current = await tx.downstreamResource.findUnique({ where: { id: binding.resourceId } });
     if (
       current &&
-      current.resourceIdentifier !==
-        (item.state as { resourceIdentifier: string }).resourceIdentifier
+      (binding.naturalIdentity !== item.identity ||
+        current.resourceIdentifier !==
+          (item.state as { resourceIdentifier: string }).resourceIdentifier)
     )
-      replacementResources.add(item.identity);
+      replacementResources.add(binding.naturalIdentity);
   }
+
+  const replacedScopeIdentities = new Set([
+    ...replacementScopes.keys(),
+    ...replacementScopes.values(),
+  ]);
+  const withoutReplacedScopes = (keys: string[]) =>
+    keys.filter((key) => !replacedScopeIdentities.has(key));
 
   const reconcile = async (item: (typeof desired)[number], state = item.state) => {
     let existing = bindings.find((binding) => binding.address === item.address);
@@ -221,9 +233,9 @@ async function executeDesiredState(
     }
   };
 
-  // Establish desired primitives and relations before deleting anything they
-  // formerly referenced. Replacement resources are temporarily removed from
-  // machine access so their immutable row can be safely deleted and recreated.
+  // Establish desired primitives and stage relation removals before deleting
+  // anything they formerly referenced. Replacements are then created and all
+  // desired relations are reconnected before commit.
   for (const kind of [
     "scope",
     "resource",
@@ -232,13 +244,48 @@ async function executeDesiredState(
     "groupAssignment",
   ] as const)
     for (const item of desired.filter((candidate) => candidate.kind === kind)) {
-      if (kind === "resource" && replacementResources.has(item.identity)) continue;
-      if (kind === "machine" && replacementResources.size) {
-        const state = item.state as { resources: string[] };
+      if (
+        (kind === "scope" &&
+          replacementScopes.has(
+            (bindings.find((b) => b.address === item.address)?.naturalIdentity)!,
+          )) ||
+        (kind === "resource" &&
+          replacementResources.has(
+            (bindings.find((b) => b.address === item.address)?.naturalIdentity)!,
+          ))
+      )
+        continue;
+      if (kind === "resource" && replacementScopes.size) {
+        const state = item.state as { scopes: string[] };
+        await reconcile(item, {
+          ...(item.state as object),
+          scopes: withoutReplacedScopes(state.scopes),
+        });
+      } else if (kind === "machine" && (replacementResources.size || replacementScopes.size)) {
+        const state = item.state as { resources: string[]; scopes: string[] };
         await reconcile(item, {
           ...(item.state as object),
           resources: state.resources.filter((key) => !replacementResources.has(key)),
+          scopes: withoutReplacedScopes(state.scopes),
         });
+      } else if (
+        (kind === "emailAssignment" || kind === "groupAssignment") &&
+        replacementScopes.size
+      ) {
+        const state = item.state as { scopes: string[] };
+        const scopes = withoutReplacedScopes(state.scopes);
+        if (scopes.length) await reconcile(item, { ...(item.state as object), scopes });
+        else {
+          const binding = bindings.find((candidate) => candidate.address === item.address);
+          if (binding?.emailAssignmentId)
+            await tx.emailScopeGrant.deleteMany({
+              where: { assignmentId: binding.emailAssignmentId },
+            });
+          if (binding?.groupAssignmentId)
+            await tx.groupScopeGrant.deleteMany({
+              where: { assignmentId: binding.groupAssignmentId },
+            });
+        }
       } else await reconcile(item);
     }
 
@@ -249,26 +296,35 @@ async function executeDesiredState(
     await tx.iacObjectBinding.delete({ where: { id: binding.id } });
   }
 
-  for (const item of desired.filter(
-    (candidate) => candidate.kind === "resource" && replacementResources.has(candidate.identity),
-  )) {
-    const binding = bindings.find((candidate) => candidate.address === item.address)!;
-    await deleteBoundObject(tx, binding, mutationActor(actor));
-    const objectId = await upsertObject(
-      tx,
-      "resource",
-      item.state as never,
-      { ...binding, resourceId: null },
-      actor,
-    );
-    await tx.iacObjectBinding.update({
-      where: { id: binding.id },
-      data: bindingTarget("resource", objectId),
-    });
-  }
-  if (replacementResources.size)
-    for (const item of desired.filter((candidate) => candidate.kind === "machine"))
-      await reconcile(item);
+  for (const kind of ["scope", "resource"] as const)
+    for (const item of desired.filter((candidate) => candidate.kind === kind)) {
+      const binding = bindings.find((candidate) => candidate.address === item.address)!;
+      const replacement =
+        kind === "scope"
+          ? replacementScopes.has(binding.naturalIdentity)
+          : replacementResources.has(binding.naturalIdentity);
+      if (!replacement) continue;
+      await deleteBoundObject(tx, binding, mutationActor(actor));
+      const objectId = await upsertObject(
+        tx,
+        kind,
+        item.state as never,
+        { ...binding, ...nullBindingTarget(kind) },
+        actor,
+      );
+      const data = {
+        kind: toDbKind(kind),
+        naturalIdentity: item.identity,
+        ...nullBindingTarget(kind),
+        ...bindingTarget(kind, objectId),
+      };
+      await tx.iacObjectBinding.update({ where: { id: binding.id }, data });
+      Object.assign(binding, data);
+    }
+  if (replacementResources.size || replacementScopes.size)
+    for (const kind of ["resource", "machine", "emailAssignment", "groupAssignment"] as const)
+      for (const item of desired.filter((candidate) => candidate.kind === kind))
+        await reconcile(item);
 }
 
 async function upsertObject(
@@ -467,9 +523,19 @@ export async function importIac(
   );
 }
 export async function unmanageIac(
-  input: { workspaceId: string; address: string; operationId: string },
+  input: {
+    workspaceId: string;
+    address: string;
+    manifest: unknown;
+    configDigest: string;
+    operationId: string;
+  },
   actor: IacActor,
 ) {
+  const manifest = parseDesiredState(input.manifest);
+  assertDigest(input.configDigest, digest(manifest), "CONFIG_DIGEST_MISMATCH");
+  if (manifest.workspace.id !== input.workspaceId)
+    throw new IacError("WORKSPACE_MISMATCH", "Workspace identity does not match", 409);
   return db.$transaction(
     async (tx) => {
       await lockIacConfiguration(tx);
@@ -477,6 +543,17 @@ export async function unmanageIac(
         where: { id: input.workspaceId },
       });
       if (!workspaceBefore) throw new IacError("NOT_FOUND", "Workspace not found", 404);
+      if (
+        workspaceBefore.name !== manifest.workspace.name ||
+        workspaceBefore.issuer !== manifest.workspace.issuer
+      )
+        throw new IacError("WORKSPACE_MISMATCH", "Workspace identity does not match", 409);
+      if (desiredObjects(manifest).some(({ address }) => address === input.address))
+        throw new IacError(
+          "DECLARATION_PRESENT",
+          "Remove the declaration before unmanaging it",
+          409,
+        );
       const replay = await beginOperation(tx, workspaceBefore, "UNMANAGE", input);
       if (replay) return replay;
       const binding = await tx.iacObjectBinding.findUnique({
@@ -750,12 +827,30 @@ async function assertCallerSafe(
       "Apply would remove the caller's active IaC authorization",
       409,
     );
+  const destructiveAddresses = plan.actions
+    .filter(
+      (item) => item.kind === "machine" && (item.action === "delete" || item.action === "replace"),
+    )
+    .map((item) => item.address);
+  const destructiveBindings = destructiveAddresses.length
+    ? await tx.iacObjectBinding.findMany({
+        where: {
+          workspaceId: manifest.workspace.id,
+          address: { in: destructiveAddresses },
+          machineClientId: { not: null },
+        },
+        include: { machineClient: { select: { clientId: true } } },
+      })
+    : [];
   if (
+    destructiveBindings.some(({ machineClient }) => machineClient?.clientId === actor.clientId) ||
     plan.actions.some(
       (item) =>
         item.kind === "machine" &&
         item.identity === actor.clientId &&
-        (item.action === "delete" || (item.action === "revoke_key" && item.keyId === actor.keyId)),
+        (item.action === "delete" ||
+          item.action === "replace" ||
+          (item.action === "revoke_key" && item.keyId === actor.keyId)),
     )
   )
     throw new IacError(
@@ -933,6 +1028,17 @@ function bindingTarget(kind: string, id: string) {
       machine: { machineClientId: id },
       emailAssignment: { emailAssignmentId: id },
       groupAssignment: { groupAssignmentId: id },
+    } as any
+  )[kind];
+}
+function nullBindingTarget(kind: string) {
+  return (
+    {
+      scope: { scopeId: null },
+      resource: { resourceId: null },
+      machine: { machineClientId: null },
+      emailAssignment: { emailAssignmentId: null },
+      groupAssignment: { groupAssignmentId: null },
     } as any
   )[kind];
 }

@@ -249,7 +249,13 @@ export const importRequestSchema = z
   })
   .strict();
 export const unmanageRequestSchema = z
-  .object({ workspaceId: z.string().uuid(), address: logicalAddress, operationId })
+  .object({
+    workspaceId: z.string().uuid(),
+    address: logicalAddress,
+    manifest: desiredStateSchema,
+    configDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    operationId,
+  })
   .strict();
 export const moveRequestSchema = z
   .object({ workspaceId: z.string().uuid(), from: logicalAddress, to: logicalAddress, operationId })

@@ -71,7 +71,9 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
   const configDigest = digest(manifest);
   const desired = desiredObjects(manifest);
   const byAddress = new Map(
-    current.objects.filter((object) => object.address).map((object) => [object.address!, object]),
+    current.objects
+      .filter((object) => object.address && object.ownerWorkspaceId === manifest.workspace.id)
+      .map((object) => [object.address!, object]),
   );
   const byNatural = new Map(
     current.objects.map((object) => [`${object.kind}:${object.identity}`, object]),

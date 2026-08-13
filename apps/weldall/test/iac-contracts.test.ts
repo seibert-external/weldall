@@ -6,6 +6,7 @@ import {
   digest,
   moveRequestSchema,
   parseDesiredState,
+  unmanageRequestSchema,
 } from "../src/server/iac/contracts";
 import { createPlan } from "../src/server/iac/planner";
 import { PrimitiveMutationError } from "../src/server/domain/primitive-mutations";
@@ -51,6 +52,40 @@ describe("native YAML IaC contracts", () => {
         emailAssignments: { alice: { email: "alice@example.com", scopes: ["weldall:iac"] } },
       }),
     ).toThrow(/machine-only/);
+  });
+
+  it("scopes logical addresses to the current workspace while collisions remain global", () => {
+    const desired = manifest();
+    const plan = createPlan(desired, {
+      revision: 2,
+      objects: [
+        {
+          address: "scope.read",
+          kind: "scope",
+          id: "other",
+          identity: "other:read",
+          version: 1,
+          ownerWorkspaceId: "67ade6dc-0000-4000-8000-000000000001",
+          state: { key: "other:read", description: "Other workspace" },
+        },
+        {
+          address: "scope.different_address",
+          kind: "scope",
+          id: "collision",
+          identity: "expenses:read",
+          version: 1,
+          ownerWorkspaceId: "67ade6dc-0000-4000-8000-000000000001",
+          state: { key: "expenses:read", description: "Owned elsewhere" },
+        },
+      ],
+    });
+    expect(plan.actions).toEqual([]);
+    expect(plan.blockers).toEqual([
+      expect.objectContaining({
+        code: "OWNED_BY_OTHER_WORKSPACE",
+        address: "scope.read",
+      }),
+    ]);
   });
 
   it("leaves manual omissions alone and blocks natural-key collisions", () => {
@@ -192,6 +227,25 @@ describe("native YAML IaC contracts", () => {
       ],
     });
     expect(plan.actions[0]).toMatchObject({ action: "replace" });
+  });
+
+  it("requires a canonical desired snapshot for unmanage", () => {
+    const desired = manifest();
+    const request = {
+      workspaceId: desired.workspace.id,
+      address: "scope.read",
+      manifest: desired,
+      configDigest: digest(desired),
+      operationId: crypto.randomUUID(),
+    };
+    expect(unmanageRequestSchema.parse(request)).toMatchObject(request);
+    expect(() =>
+      unmanageRequestSchema.parse({
+        workspaceId: desired.workspace.id,
+        address: "scope.read",
+        operationId: crypto.randomUUID(),
+      }),
+    ).toThrow();
   });
 
   it("rejects empty service relations, noncanonical URLs, and cross-kind state moves", () => {

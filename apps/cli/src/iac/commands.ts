@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { define } from "gunshi";
 import { stringify } from "yaml";
@@ -23,6 +23,16 @@ const yesArgument = {
   type: "boolean",
   description: "Approve without an interactive prompt",
 } as const;
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, item]) => `${JSON.stringify(name)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+};
 export const printPlan = (plan: any) => {
   for (const action of [...plan.actions]
     .filter((item: any) => item.action !== "noop")
@@ -70,7 +80,8 @@ export function stableOperationId(...parts: string[]): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-async function writeImportedFragment(path: string, content: string) {
+export async function writeImportedFragment(path: string, content: string) {
+  await mkdir(dirname(path), { recursive: true });
   try {
     await writeFile(path, content, { flag: "wx" });
   } catch (error) {
@@ -78,6 +89,41 @@ async function writeImportedFragment(path: string, content: string) {
     if ((await readFile(path, "utf8")) !== content)
       throw new CliError(`Import fragment ${path} already exists; refusing to overwrite it`);
   }
+}
+
+export function declaredImportValue(manifest: any, address: string): unknown {
+  const sections: Record<string, string> = {
+    scope: "scopes",
+    resource: "resources",
+    machine: "machines",
+    emailAssignment: "emailAssignments",
+    groupAssignment: "groupAssignments",
+  };
+  const [kind, name] = address.split(".", 2);
+  return kind && name ? manifest[sections[kind]!]?.[name] : undefined;
+}
+
+async function rootIncludesPath(root: string, path: string) {
+  const document = (await import("yaml")).parse(
+    await readFile(join(root, MANIFEST_FILE), "utf8"),
+  ) as any;
+  const includedPath = relative(root, path).split("\\").join("/");
+  return {
+    document,
+    includedPath,
+    included: Array.isArray(document.include) && document.include.includes(includedPath),
+  };
+}
+
+export async function ensureImportedFragmentIncluded(root: string, path: string) {
+  const rootPath = join(root, MANIFEST_FILE);
+  const { document, includedPath, included } = await rootIncludesPath(root, path);
+  if (included) return;
+  const includes = Array.isArray(document.include) ? document.include : [];
+  document.include = [...includes, includedPath];
+  const temporary = join(root, `.weldall.manifest.${randomUUID()}.tmp`);
+  await writeFile(temporary, stringify(document), { mode: 0o644, flag: "wx" });
+  await rename(temporary, rootPath);
 }
 
 export const iacInitCommand = define({
@@ -215,14 +261,30 @@ export const iacImportCommand = define({
     const section = sections[kind];
     if (!section || kind !== context.values.kind)
       throw new CliError("--as kind must match the imported primitive kind");
-    const path = join(workspace.root, "weldall", `${kind}-${name}.imported.yml`);
-    await access(path)
-      .then(() => {
-        throw new CliError(`Import fragment ${path} already exists; refusing to overwrite it`);
-      })
-      .catch((error) => {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      });
+    const path = join(workspace.root, "weldall", "imports", `${kind}-${name}.yml`);
+    const existingDeclaration = declaredImportValue(workspace.manifest, context.values.as);
+    let existingFragment: string | undefined;
+    try {
+      existingFragment = await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const existingGeneratedState =
+      existingFragment === undefined
+        ? undefined
+        : declaredImportValue((await import("yaml")).parse(existingFragment), context.values.as);
+    const generatedPathIsIncluded = (await rootIncludesPath(workspace.root, path)).included;
+    if (
+      existingDeclaration !== undefined &&
+      (!generatedPathIsIncluded ||
+        existingGeneratedState === undefined ||
+        canonicalJson(existingDeclaration) !== canonicalJson(existingGeneratedState))
+    )
+      throw new CliError(`Logical address ${context.values.as} is already declared`);
+    if (existingDeclaration === undefined && existingFragment !== undefined)
+      throw new CliError(`Import fragment ${path} already exists; refusing to overwrite it`);
+    await mkdir(dirname(path), { recursive: true });
+    await ensureImportedFragmentIncluded(workspace.root, path);
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
     const result = await client.request("/import", "POST", {
       workspace: { ...workspace.manifest.workspace, id: workspace.lock.workspace.id },
@@ -231,21 +293,19 @@ export const iacImportCommand = define({
       address: context.values.as,
       operationId: stableOperationId(
         workspace.lock.workspace.id,
-        String(workspace.lock.workspace.observedRevision),
         "import",
         context.values.kind,
         context.values.identity,
         context.values.as,
       ),
     });
-    await writeImportedFragment(path, stringify({ [section]: { [name]: result.state } }));
-    workspace.lock.workspace.observedRevision = result.revision;
-    workspace.lock.objects[context.values.as] = {
-      kind: context.values.kind,
-      objectId: result.objectId,
-      identity: context.values.identity,
-    };
-    await writeLock(workspace.root, lockWithDiscovery(workspace.lock, client.installationId));
+    const generatedFragment = stringify({ [section]: { [name]: result.state } });
+    if (existingFragment !== undefined && existingFragment !== generatedFragment)
+      throw new CliError(`Import fragment ${path} does not match the committed import result`);
+    await writeImportedFragment(path, generatedFragment);
+    const state = await client.request(`/workspaces/${workspace.lock.workspace.id}/state`, "GET");
+    const repaired = lockFromState(workspace.lock, client.installationId, state);
+    await writeLock(workspace.root, repaired);
     console.log(`Imported ${context.values.identity} as ${context.values.as}.`);
   },
 });
@@ -268,9 +328,12 @@ export const iacUnmanageCommand = define({
     if (kind && name && (workspace.manifest as any)[sections[kind]]?.[name])
       throw new CliError("Remove the declaration before unmanaging it");
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
+    const manifest = serverManifest(workspace.manifest, workspace.lock);
     const result = await client.request("/unmanage", "POST", {
       workspaceId: workspace.lock.workspace.id,
       address: context.values.address,
+      manifest,
+      configDigest: createHash("sha256").update(canonicalJson(manifest)).digest("hex"),
       operationId: stableOperationId(
         workspace.lock.workspace.id,
         String(workspace.lock.workspace.observedRevision),

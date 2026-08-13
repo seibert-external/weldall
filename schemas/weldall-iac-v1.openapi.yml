@@ -146,11 +146,13 @@ components:
     UnmanageRequest:
       type: object
       additionalProperties: false
-      required: [workspaceId, address, operationId]
+      required: [workspaceId, address, manifest, configDigest, operationId]
       properties:
         {
           workspaceId: { type: string, format: uuid },
           address: { $ref: "#/components/schemas/Address" },
+          manifest: { $ref: "#/components/schemas/SubmittedManifest" },
+          configDigest: { $ref: "#/components/schemas/Digest" },
           operationId: { $ref: "#/components/schemas/OperationId" },
         }
     MoveRequest:

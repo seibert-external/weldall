@@ -90,6 +90,7 @@ export async function createGroupProvider(
   const token = parseProviderToken(input.token);
   try {
     return await db.$transaction(async (tx) => {
+      await lockConfigurationChanges(tx);
       const pending = await tx.groupProvider.create({
         data: {
           ...parsed,
@@ -131,6 +132,7 @@ export async function updateGroupProvider(
   const baseUrl = normalizeProviderBaseUrl(input.baseUrl);
   const replacementToken = input.token?.trim() ? parseProviderToken(input.token) : undefined;
   return db.$transaction(async (tx) => {
+    await lockConfigurationChanges(tx);
     const current = await tx.groupProvider.findUnique({ where: { id: input.id } });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
     assertVersion(current.version, input.expectedVersion, "Group provider");
@@ -174,6 +176,7 @@ export async function deleteGroupProvider(
   actor: AdminActor,
 ): Promise<{ id: string }> {
   return db.$transaction(async (tx) => {
+    await lockConfigurationChanges(tx);
     const provider = await tx.groupProvider.findUnique({
       where: { id: input.id },
       include: providerInclude,
