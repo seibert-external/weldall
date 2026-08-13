@@ -1,8 +1,9 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadWorkspace, newLock, serverManifest, writeLock } from "../src/iac/manifest.js";
+import { printPlan, stableOperationId } from "../src/iac/commands.js";
 
 async function workspace(root: string, extra = "") {
   await writeFile(
@@ -31,6 +32,51 @@ describe("native YAML workspaces", () => {
     expect(lock.workspace.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(serverManifest(loaded.manifest, lock).workspace.id).toBe(lock.workspace.id);
     expect(JSON.stringify(lock)).not.toContain("private");
+  });
+
+  it("derives retry-stable UUID operation IDs without exposing request content", () => {
+    const first = stableOperationId("workspace", "import", "scope", "expenses:read");
+    expect(first).toBe(stableOperationId("workspace", "import", "scope", "expenses:read"));
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(first).not.toContain("expenses");
+    expect(first).not.toBe(stableOperationId("workspace", "import", "scope", "expenses:write"));
+  });
+
+  it("prints deterministic human plans without key coordinates", () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const plan = {
+      actions: [
+        { action: "update", address: "scope.z", identity: "z:read" },
+        {
+          action: "register_key",
+          address: "machine.a",
+          identity: "runner",
+          keyId: "next",
+          keyThumbprint: "public-thumbprint",
+        },
+      ],
+      blockers: [
+        { code: "Z", address: "scope.z", message: "later" },
+        { code: "A", address: "scope.a", message: "first" },
+      ],
+    };
+    printPlan(plan);
+    const first = output.mock.calls.map(([line]) => line);
+    output.mockClear();
+    printPlan({
+      ...plan,
+      actions: [...plan.actions].reverse(),
+      blockers: [...plan.blockers].reverse(),
+    });
+    expect(output.mock.calls.map(([line]) => line)).toEqual(first);
+    expect(first).toEqual([
+      "register_key machine.a (runner)",
+      "update       scope.z (z:read)",
+      "blocked      scope.a: first",
+      "blocked      scope.z: later",
+    ]);
+    expect(JSON.stringify(first)).not.toMatch(/public-thumbprint|\"x\"|\"y\"|\"d\"/);
+    output.mockRestore();
   });
 
   it("rejects aliases, private keys, duplicate addresses, and escaping includes", async () => {

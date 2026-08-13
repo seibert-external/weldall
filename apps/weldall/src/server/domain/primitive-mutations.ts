@@ -14,7 +14,8 @@ import { decryptProviderToken } from "../group-providers/credentials";
 import { createGroupProviderAdapter } from "../group-providers/registry";
 import { scopeKeySchema } from "../policy/scope-key";
 
-export type MutationSource = "admin_api" | "weldall_up" | "static_manifest_import";
+export type MutationSource =
+  "admin_api" | "weldall_up" | "static_manifest_import" | "scope_delete_cascade";
 export interface MutationActor {
   type: "user" | "machine";
   id: string;
@@ -60,6 +61,23 @@ const resourceInclude = {
   iacBinding: { include: { workspace: { select: { id: true, name: true } } } },
 } as const;
 const scopeInclude = {
+  grants: {
+    include: {
+      assignment: {
+        include: { grants: { include: { scope: { select: { key: true } } } } },
+      },
+    },
+  },
+  groupGrants: {
+    include: {
+      assignment: {
+        include: {
+          provider: { select: { key: true } },
+          grants: { include: { scope: { select: { key: true } } } },
+        },
+      },
+    },
+  },
   _count: { select: { grants: true, groupGrants: true } },
   iacBinding: { include: { workspace: { select: { id: true, name: true } } } },
 } as const;
@@ -156,12 +174,80 @@ export async function mutateScope(
       "CONFLICT",
       `Scope ${current.key} is selected by machine ${machine.client.clientId}. Remove it from machine access first.`,
     );
+  const affectedEmails = current.grants.map(({ assignment }) => ({
+    id: assignment.id,
+    email: assignment.normalizedEmail,
+    version: assignment.version,
+    beforeScopes: assignment.grants.map(({ scope }) => scope.key).sort(),
+  }));
+  const affectedGroups = current.groupGrants.map(({ assignment }) => ({
+    id: assignment.id,
+    providerId: assignment.providerId,
+    providerKey: assignment.provider.key,
+    groupId: assignment.groupId,
+    groupName: assignment.groupName,
+    version: assignment.version,
+    beforeScopes: assignment.grants.map(({ scope }) => scope.key).sort(),
+  }));
   const deleted = await tx.scope.deleteMany({
     where: { id: current.id, version: input.expectedVersion },
   });
   if (deleted.count !== 1) conflict("scope");
+  for (const assignment of affectedEmails) {
+    const afterScopes = assignment.beforeScopes.filter((key) => key !== current.key);
+    const write = await tx.emailScopeAssignment.updateMany({
+      where: { id: assignment.id, version: assignment.version },
+      data: { version: { increment: 1 }, updatedBy: actor.id },
+    });
+    if (write.count !== 1) conflict("affected assignment");
+    await basicAudit(
+      tx,
+      { ...actor, source: "scope_delete_cascade" },
+      afterScopes.length ? "user_scopes.replaced" : "user_scopes.deleted",
+      "email_scope_assignment",
+      assignment.id,
+      {
+        normalizedEmail: assignment.email,
+        beforeScopes: assignment.beforeScopes,
+        afterScopes,
+        addedScopes: [],
+        removedScopes: [current.key],
+        source: "scope_delete_cascade",
+        versionBefore: assignment.version,
+        versionAfter: assignment.version + 1,
+      },
+    );
+  }
+  for (const assignment of affectedGroups) {
+    const afterScopes = assignment.beforeScopes.filter((key) => key !== current.key);
+    const write = await tx.groupScopeAssignment.updateMany({
+      where: { id: assignment.id, version: assignment.version },
+      data: { version: { increment: 1 }, updatedBy: actor.id },
+    });
+    if (write.count !== 1) conflict("affected group assignment");
+    await basicAudit(
+      tx,
+      { ...actor, source: "scope_delete_cascade" },
+      afterScopes.length ? "group_scopes.replaced" : "group_scopes.deleted",
+      "group_scope_assignment",
+      assignment.id,
+      {
+        providerId: assignment.providerId,
+        providerKey: assignment.providerKey,
+        groupId: assignment.groupId,
+        groupName: assignment.groupName,
+        beforeScopes: assignment.beforeScopes,
+        afterScopes,
+        addedScopes: [],
+        removedScopes: [current.key],
+        source: "scope_delete_cascade",
+        versionBefore: assignment.version,
+        versionAfter: assignment.version + 1,
+      },
+    );
+  }
   await scopeAudit(tx, actor, "resource_scopes.deleted", current, null);
-  return { id: current.id };
+  return { id: current.id, affectedAssignments: affectedEmails.length + affectedGroups.length };
 }
 
 export async function mutateResource(

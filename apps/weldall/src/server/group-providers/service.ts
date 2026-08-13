@@ -529,14 +529,6 @@ function parseAssignmentScopeKeys(values: string[]) {
   return parsed;
 }
 
-async function loadAssignmentScopes(tx: Prisma.TransactionClient, scopeKeys: string[]) {
-  const scopes = await tx.scope.findMany({ where: { key: { in: scopeKeys } } });
-  if (scopes.length !== scopeKeys.length) {
-    throw new AdminDomainError("INVALID_SCOPE", "One or more scopes do not exist.");
-  }
-  return scopes;
-}
-
 async function loadProviderSecret(id: string) {
   const provider = await db.groupProvider.findUnique({ where: { id } });
   if (!provider) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
@@ -684,61 +676,12 @@ function providerTestAudit(
   };
 }
 
-async function writeGroupAudit(
-  tx: Prisma.TransactionClient,
-  actor: AdminActor,
-  eventType: "group_scopes.created" | "group_scopes.replaced" | "group_scopes.deleted",
-  assignment: {
-    id: string;
-    providerId: string;
-    groupId: string;
-    groupName: string;
-    provider: { key: string };
-  },
-  beforeScopes: string[],
-  afterScopes: string[],
-  versionBefore: number,
-  versionAfter: number,
-) {
-  await prismaAuditWriter.write(
-    {
-      eventType,
-      actorType: "user",
-      actorId: actor.id,
-      ...(actor.email ? { actorEmail: actor.email } : {}),
-      requestId: actor.requestId,
-      ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-      outcome: "success",
-      subjectType: "group_scope_assignment",
-      subjectId: assignment.id,
-      metadata: {
-        providerId: assignment.providerId,
-        providerKey: assignment.provider.key,
-        groupId: assignment.groupId,
-        groupName: assignment.groupName,
-        beforeScopes,
-        afterScopes,
-        addedScopes: afterScopes.filter((scope) => !beforeScopes.includes(scope)),
-        removedScopes: beforeScopes.filter((scope) => !afterScopes.includes(scope)),
-        source: "admin_api",
-        versionBefore,
-        versionAfter,
-      },
-    },
-    tx,
-  );
-}
-
 function assertVersion(current: number, expected: number, subject: string) {
   if (current !== expected) throw conflict(subject);
 }
 
 function conflict(subject: string) {
   return new AdminDomainError("CONFLICT", `${subject} changed. Reload and try again.`);
-}
-
-function sameStrings(left: readonly string[], right: readonly string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function mutationActor(actor: AdminActor): MutationActor {

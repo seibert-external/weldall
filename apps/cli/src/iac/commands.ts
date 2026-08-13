@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { define } from "gunshi";
@@ -23,10 +23,18 @@ const yesArgument = {
   type: "boolean",
   description: "Approve without an interactive prompt",
 } as const;
-const printPlan = (plan: any) => {
-  for (const action of plan.actions.filter((item: any) => item.action !== "noop"))
+export const printPlan = (plan: any) => {
+  for (const action of [...plan.actions]
+    .filter((item: any) => item.action !== "noop")
+    .sort((left: any, right: any) =>
+      `${left.address}:${left.action}`.localeCompare(`${right.address}:${right.action}`),
+    ))
     console.log(`${action.action.padEnd(12)} ${action.address} (${action.identity})`);
-  for (const blocker of plan.blockers)
+  for (const blocker of [...plan.blockers].sort((left: any, right: any) =>
+    `${left.address ?? "workspace"}:${left.code ?? ""}`.localeCompare(
+      `${right.address ?? "workspace"}:${right.code ?? ""}`,
+    ),
+  ))
     console.log(`blocked      ${blocker.address ?? "workspace"}: ${blocker.message}`);
   if (!plan.actions.some((item: any) => item.action !== "noop")) console.log("No changes.");
 };
@@ -34,6 +42,24 @@ const lockWithDiscovery = (lock: Lockfile, installationId: string) => ({
   ...lock,
   server: { ...lock.server, installationId },
 });
+
+export function stableOperationId(...parts: string[]): string {
+  const bytes = createHash("sha256").update(parts.join("\0")).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+async function writeImportedFragment(path: string, content: string) {
+  try {
+    await writeFile(path, content, { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if ((await readFile(path, "utf8")) !== content)
+      throw new CliError(`Import fragment ${path} already exists; refusing to overwrite it`);
+  }
+}
 
 export const iacInitCommand = define({
   name: "init",
@@ -169,7 +195,14 @@ export const iacImportCommand = define({
       kind: context.values.kind,
       identity: context.values.identity,
       address: context.values.as,
-      operationId: randomUUID(),
+      operationId: stableOperationId(
+        workspace.lock.workspace.id,
+        String(workspace.lock.workspace.observedRevision),
+        "import",
+        context.values.kind,
+        context.values.identity,
+        context.values.as,
+      ),
     });
     const [kind, name] = context.values.as.split(".", 2);
     if (!kind || !name)
@@ -185,7 +218,8 @@ export const iacImportCommand = define({
     if (!section || kind !== context.values.kind)
       throw new CliError("--as kind must match the imported primitive kind");
     const path = join(workspace.root, "weldall", `${kind}-${name}.imported.yml`);
-    await writeFile(path, stringify({ [section]: { [name]: result.state } }), { flag: "wx" });
+    await writeImportedFragment(path, stringify({ [section]: { [name]: result.state } }));
+    workspace.lock.workspace.observedRevision = result.revision;
     workspace.lock.objects[context.values.as] = {
       kind: context.values.kind,
       objectId: result.objectId,
@@ -214,11 +248,17 @@ export const iacUnmanageCommand = define({
     if (kind && name && (workspace.manifest as any)[sections[kind]]?.[name])
       throw new CliError("Remove the declaration before unmanaging it");
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
-    await client.request("/unmanage", "POST", {
+    const result = await client.request("/unmanage", "POST", {
       workspaceId: workspace.lock.workspace.id,
       address: context.values.address,
-      operationId: randomUUID(),
+      operationId: stableOperationId(
+        workspace.lock.workspace.id,
+        String(workspace.lock.workspace.observedRevision),
+        "unmanage",
+        context.values.address,
+      ),
     });
+    workspace.lock.workspace.observedRevision = result.revision;
     delete workspace.lock.objects[context.values.address];
     await writeLock(workspace.root, lockWithDiscovery(workspace.lock, client.installationId));
     console.log(`Unmanaged ${context.values.address}.`);
@@ -260,12 +300,19 @@ const stateMove = define({
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
-    await client.request("/state/move", "POST", {
+    const result = await client.request("/state/move", "POST", {
       workspaceId: workspace.lock.workspace.id,
       from: context.values.from,
       to: context.values.to,
-      operationId: randomUUID(),
+      operationId: stableOperationId(
+        workspace.lock.workspace.id,
+        String(workspace.lock.workspace.observedRevision),
+        "state-move",
+        context.values.from,
+        context.values.to,
+      ),
     });
+    workspace.lock.workspace.observedRevision = result.revision;
     const entry = workspace.lock.objects[context.values.from];
     if (entry) {
       workspace.lock.objects[context.values.to] = entry;
