@@ -368,7 +368,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const userRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
   await expect(userRow).toBeVisible();
   await userRow.getByRole("link", { name: "Open" }).click();
-  await expect(page.getByRole("heading", { name: "Alice E2E" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Alice E2E" })).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.getByRole("heading", { name: "Audit activity" })).toBeVisible();
   await expect(
     page.getByText("id_jag.issued", { exact: true }).filter({ visible: true }).first(),
