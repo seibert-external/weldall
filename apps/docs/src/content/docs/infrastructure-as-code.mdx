@@ -1,16 +1,25 @@
 ---
-title: Native YAML infrastructure as code
-description: Manage Weldall configuration safely from a committed YAML workspace.
+title: Native YAML Infrastructure as Code
+description: Weldall-Konfiguration sicher in einem versionierten YAML-Workspace verwalten.
 sidebar:
   label: Native YAML IaC
   order: 8
 ---
 
-Weldall native YAML infrastructure as code (IaC) gives platform teams a reviewable workspace for scopes, resources, machine clients, and assignments. The workspace is a `weldall.yml` file accompanied by the committed `weldall.lock.yml` lockfile. The lockfile records the server revision and object bindings so plans remain stable and recoverable.
+Mit Weldall Native YAML Infrastructure as Code (IaC) verwalten Plattformteams Scopes, Ressourcen, Machine Clients und Zuweisungen in einem prüfbaren Workspace. Zum Workspace gehören `weldall.yml` und die versionierte Lockdatei `weldall.lock.yml`. Die Lockdatei speichert die Serverrevision und Objektbindungen, damit Pläne stabil und wiederherstellbar bleiben.
 
-## Quick start
+## Schnellstart
 
-Authenticate automation with a machine client. Store its private P-256 key only in your CI secret store; the YAML manifest and lockfile contain public keys only. The client needs the machine-only `weldall:iac` scope and access to the objects it manages.
+Automatisierungen authentifizieren sich mit einem Machine Client. Dafür wird dessen öffentlicher ES256-P-256-JWK registriert und der nur für Machines verfügbare Scope `weldall:iac` freigegeben. Die passenden Zugangsdaten werden im Secret Store der CI hinterlegt:
+
+```sh
+export WELDALL_M2M_CLIENT_ID=platform-ci
+export WELDALL_M2M_KID=ci-2026
+export WELDALL_M2M_PRIVATE_JWK='<privater P-256-JWK als JSON>'
+export WELDALL_M2M_PUBLIC_JWK='<öffentlicher P-256-JWK als JSON>'
+```
+
+Der private JWK gehört ausschließlich in den Secret Store; YAML-Manifest und Lockdatei enthalten nur öffentliche Schlüssel. Die Seite [Machine-to-Machine-Authentifizierung](/machine-authentication/) beschreibt Schlüsselerzeugung, Registrierung, Zugriffsfreigabe und Rotation ausführlich.
 
 ```sh
 weldall init --name platform-access --issuer https://weldall.example.com
@@ -19,30 +28,30 @@ weldall plan
 weldall up --yes
 ```
 
-`plan` is read-only and shows the deterministic changes. `up` applies one complete snapshot atomically; interactive runs ask for confirmation, while automation must pass `--yes`. Changes made in the admin UI to owned objects appear as drift and the next apply restores the YAML declaration. Objects not owned by this workspace remain independent.
+`plan` verändert nichts und zeigt die deterministischen Änderungen. `up` wendet einen vollständigen Snapshot atomar an. Interaktive Aufrufe fragen nach einer Bestätigung, Automatisierungen übergeben `--yes`. Änderungen an verwalteten Objekten in der Admin-Oberfläche erscheinen als Drift; das nächste Apply stellt die YAML-Deklaration wieder her. Objekte außerhalb dieses Workspaces bleiben unabhängig.
 
-## Ownership and recovery
+## Ownership und Wiederherstellung
 
-Use `import` to explicitly claim an existing object by its natural identity. Use `unmanage` to release ownership while preserving the live object. A declaration removed from the YAML removes the owned object on apply; releasing it first keeps it in place. `state pull` reconstructs lockfile mappings from the authoritative server state after a failed local lockfile update. `state mv` changes a logical address without replacing the remote object.
+Mit `import` wird ein vorhandenes Objekt anhand seiner natürlichen Identität ausdrücklich übernommen. `unmanage` gibt die Ownership frei und erhält das Live-Objekt. Wird eine Deklaration aus dem YAML entfernt, löscht das nächste Apply das verwaltete Objekt; vorheriges Freigeben erhält es. `state pull` rekonstruiert die Lockdatei-Bindungen aus dem maßgeblichen Serverzustand, wenn ein lokales Lockdatei-Update fehlgeschlagen ist. `state mv` ändert eine logische Adresse, ohne das entfernte Objekt zu ersetzen.
 
-## Commands
+## Befehle
 
-| Command | Purpose |
+| Befehl | Zweck |
 | --- | --- |
-| `weldall init` | Create a YAML workspace and lockfile. |
-| `weldall validate` | Validate and canonicalize YAML locally. |
-| `weldall plan` | Preview deterministic changes. |
-| `weldall plan --json` | Emit the plan as stable machine-readable JSON. |
-| `weldall up` | Apply after interactive confirmation. |
-| `weldall up --yes` | Apply non-interactively in CI. |
-| `weldall import <type> <identity> --as <address>` | Claim an existing object explicitly. |
-| `weldall unmanage <type> <address> --yes` | Release ownership and preserve the object. |
-| `weldall state pull` | Rebuild lockfile mappings from server state. |
-| `weldall state mv <old> <new>` | Move an address without replacing its object. |
+| `weldall init` | YAML-Workspace und Lockdatei anlegen. |
+| `weldall validate` | YAML lokal validieren und kanonisieren. |
+| `weldall plan` | Deterministische Änderungen in der Vorschau anzeigen. |
+| `weldall plan --json` | Plan als stabiles, maschinenlesbares JSON ausgeben. |
+| `weldall up` | Nach interaktiver Bestätigung anwenden. |
+| `weldall up --yes` | In der CI ohne Interaktion anwenden. |
+| `weldall import <type> <identity> --as <address>` | Vorhandenes Objekt ausdrücklich übernehmen. |
+| `weldall unmanage <address> --yes` | Ownership freigeben und Objekt erhalten. |
+| `weldall state pull` | Lockdatei-Bindungen aus dem Serverzustand neu aufbauen. |
+| `weldall state mv <old> <new>` | Adresse ändern, ohne das Objekt zu ersetzen. |
 
-## Complete manifest example
+## Vollständiges Manifestbeispiel
 
-This example uses every v1 primitive: scopes, a downstream resource with request prefixes and supported scopes, a machine client with an active public key and access, and email and group assignments.
+Dieses Beispiel enthält alle v1-Grundelemente: Scopes, eine Downstream-Ressource mit Request-Präfixen und unterstützten Scopes, einen Machine Client mit aktivem öffentlichen Schlüssel und Zugriffsrechten sowie Zuweisungen für E-Mail-Adressen und Gruppen.
 
 ```yaml
 apiVersion: weldall.dev/v1alpha1
@@ -61,12 +70,12 @@ resources:
     key: expenses
     name: Expense service
     resourceIdentifier: https://expenses.example.com
-    authorizationServer: https://expenses.example.com/
+    authorizationServer: https://expenses.example.com
     downstreamClientId: weldall-platform
     enabled: true
     skillDiscoveryEnabled: true
     requestPrefixes:
-      - https://expenses.example.com/api/
+      - https://expenses.example.com/api
     scopes:
       - expenses:read
       - expenses:submit
@@ -81,8 +90,8 @@ machines:
         crv: P-256
         alg: ES256
         use: sig
-        x: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        y: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+        x: IOqiZZjB6aPt6WuPSZw_sJxwdEueJ3AFo-AkI-c_sx0
+        y: 8oDde4-gGqCC4jGY_vwNBbaAw8l4Xti8cv6NRtoinjk
     resources:
       - expenses
     scopes:
@@ -103,4 +112,4 @@ groupAssignments:
       - expenses:submit
 ```
 
-See the [manifest JSON Schema](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1alpha1.schema.json), [IaC OpenAPI contract](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-iac-v1.openapi.yml), and [implementation contract](https://github.com/seibert-external/weldall/blob/main/tasks/weldall-iac.md) for reference details.
+Das [JSON-Schema des Manifests](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1alpha1.schema.json), der [IaC-OpenAPI-Vertrag](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-iac-v1.openapi.yml) und der [Implementierungsvertrag](https://github.com/seibert-external/weldall/blob/main/tasks/weldall-iac.md) enthalten alle Referenzdetails.

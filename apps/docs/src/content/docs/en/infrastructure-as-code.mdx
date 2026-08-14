@@ -10,7 +10,16 @@ Weldall native YAML infrastructure as code (IaC) gives platform teams a reviewab
 
 ## Quick start
 
-Authenticate automation with a machine client. Store its private P-256 key only in your CI secret store; the YAML manifest and lockfile contain public keys only. The client needs the machine-only `weldall:iac` scope and access to the objects it manages.
+Authenticate automation with a machine client. Register its public ES256 P-256 JWK and grant it the machine-only `weldall:iac` scope. Store the matching credentials in your CI secret store:
+
+```sh
+export WELDALL_M2M_CLIENT_ID=platform-ci
+export WELDALL_M2M_KID=ci-2026
+export WELDALL_M2M_PRIVATE_JWK='<private P-256 JWK JSON>'
+export WELDALL_M2M_PUBLIC_JWK='<public P-256 JWK JSON>'
+```
+
+The private JWK belongs only in the secret store; the YAML manifest and lockfile contain public keys only. See [Machine authentication](/en/machine-authentication/) for key generation, registration, access, and rotation details.
 
 ```sh
 weldall init --name platform-access --issuer https://weldall.example.com
@@ -36,7 +45,7 @@ Use `import` to explicitly claim an existing object by its natural identity. Use
 | `weldall up` | Apply after interactive confirmation. |
 | `weldall up --yes` | Apply non-interactively in CI. |
 | `weldall import <type> <identity> --as <address>` | Claim an existing object explicitly. |
-| `weldall unmanage <type> <address> --yes` | Release ownership and preserve the object. |
+| `weldall unmanage <address> --yes` | Release ownership and preserve the object. |
 | `weldall state pull` | Rebuild lockfile mappings from server state. |
 | `weldall state mv <old> <new>` | Move an address without replacing its object. |
 
@@ -61,12 +70,12 @@ resources:
     key: expenses
     name: Expense service
     resourceIdentifier: https://expenses.example.com
-    authorizationServer: https://expenses.example.com/
+    authorizationServer: https://expenses.example.com
     downstreamClientId: weldall-platform
     enabled: true
     skillDiscoveryEnabled: true
     requestPrefixes:
-      - https://expenses.example.com/api/
+      - https://expenses.example.com/api
     scopes:
       - expenses:read
       - expenses:submit
@@ -81,8 +90,8 @@ machines:
         crv: P-256
         alg: ES256
         use: sig
-        x: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        y: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+        x: IOqiZZjB6aPt6WuPSZw_sJxwdEueJ3AFo-AkI-c_sx0
+        y: 8oDde4-gGqCC4jGY_vwNBbaAw8l4Xti8cv6NRtoinjk
     resources:
       - expenses
     scopes:

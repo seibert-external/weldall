@@ -1,6 +1,6 @@
 # Native Weldall YAML infrastructure as code
 
-Weldall IaC v1 uses native YAML and the existing `weldall` CLI. Terraform, OpenTofu, HCL, Terraform state, and provider compatibility are unsupported and outside v1.
+Weldall IaC v1 uses native YAML and the existing `weldall` CLI to provide a reviewable, deterministic configuration workflow.
 
 ## Bootstrap automation
 
@@ -25,15 +25,15 @@ weldall plan --json
 weldall up --yes
 ```
 
-Commit `weldall.yml`, fragments, and `weldall.lock.yml`. A complete desired snapshot is planned deterministically and committed in one serializable database transaction. Non-interactive apply fails without `--yes`. Manual objects omitted from YAML remain untouched.
+Commit `weldall.yml`, fragments, and `weldall.lock.yml`. A complete desired snapshot is planned deterministically and committed in one serializable database transaction. Non-interactive apply requires `--yes`. Objects outside the workspace remain independent.
 
-If a YAML natural identity already exists manually, `plan` reports a collision. Claim it explicitly:
+If a YAML natural identity already exists, `plan` reports a collision. Claim it explicitly:
 
 ```sh
 weldall import scope expenses:read --as scope.expenses_read
 ```
 
-An import never steals another workspace's object or imports a protected system scope. Remove a declaration before preserving the live object and releasing ownership:
+Remove a declaration before preserving the live object and releasing ownership:
 
 ```sh
 weldall unmanage scope.expenses_read --yes
@@ -47,7 +47,7 @@ weldall state mv scope.old scope.new
 
 ## Drift, deletion, and recovery
 
-Admin UI edits to owned objects remain possible and appear as drift on the next plan; `up` restores YAML. Manual deletion leaves an ownership tombstone and the next apply recreates the object. Removing an owned declaration deletes it, while removing a public key irreversibly revokes it. `enabled: false` deactivates a machine; removing the machine hard-deletes it.
+Admin UI edits to owned objects appear as drift on the next plan; `up` restores YAML. Manual deletion leaves an ownership tombstone and the next apply recreates the object. Removing an owned declaration deletes it, while removing a public key irreversibly revokes it. `enabled: false` deactivates a machine; removing the machine hard-deletes it.
 
 If the server commits but atomic local lockfile replacement fails, retry the idempotent command or run:
 
@@ -55,7 +55,7 @@ If the server commits but atomic local lockfile replacement fails, retry the ide
 weldall state pull
 ```
 
-The server binding is authoritative. The lockfile is only a committed cache and review artifact.
+The server binding is authoritative. The lockfile is a committed cache and review artifact.
 
 ## Safe key rotation
 
