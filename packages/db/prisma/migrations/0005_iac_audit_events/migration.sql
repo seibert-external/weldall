@@ -1,4 +1,7 @@
 ALTER TABLE "AuditEvent" DROP CONSTRAINT "AuditEvent_event_type";
+UPDATE "AuditEvent"
+SET "eventType" = regexp_replace("eventType", '^workload_', 'machine_')
+WHERE "eventType" LIKE 'workload\_%' ESCAPE '\';
 ALTER TABLE "AuditEvent"
   ADD CONSTRAINT "AuditEvent_event_type" CHECK (
     "eventType" IN (
