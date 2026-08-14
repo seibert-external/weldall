@@ -410,6 +410,13 @@ test("denies CLI login without weldall:login while preserving browser authentica
   );
 
   await page.goto("https://weldall.seibert.localdev/");
+  await expect(
+    page.getByRole("heading", {
+      name: "Weldall allows you to access your company’s services through your agent. Copy the prompt below and send it to your agent to get started.",
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy Prompt" })).toBeVisible();
+  await page.getByRole("link", { name: "I’m an admin, let me in" }).click();
   await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible();
 });
 
