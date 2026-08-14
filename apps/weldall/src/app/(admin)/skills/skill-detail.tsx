@@ -15,6 +15,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions, HerocrumbsTitle } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
@@ -134,6 +135,9 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
       </HerocrumbsActions>
 
       <div className="skill-detail-surface">
+        {!isNew && skillQuery.data?.source.type === "manual" ? (
+          <ManagementBadge management={skillQuery.data.management} />
+        ) : null}
         {isReadOnly && skillQuery.data?.source.type === "resource" ? (
           <div className="grid gap-1">
             <HStack gap={2} vAlign="center">

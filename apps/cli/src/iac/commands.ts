@@ -99,6 +99,7 @@ export function declaredImportValue(manifest: any, address: string): unknown {
     scope: "scopes",
     resource: "resources",
     machine: "machines",
+    skill: "skills",
     emailAssignment: "emailAssignments",
     groupAssignment: "groupAssignments",
   };
@@ -170,6 +171,7 @@ export const iacValidateCommand = define({
         "scopes",
         "resources",
         "machines",
+        "skills",
         "emailAssignments",
         "groupAssignments",
       ].reduce(
@@ -241,7 +243,7 @@ export const iacUpCommand = define({
     console.log(`Applied revision ${result.resultingRevision}.`);
   },
 });
-const importKinds = ["scope", "resource", "machine", "emailAssignment", "groupAssignment"];
+const importKinds = ["scope", "resource", "machine", "emailAssignment", "groupAssignment", "skill"];
 export const iacImportCommand = define({
   name: "import",
   description: "Explicitly claim a manual primitive for this workspace",
@@ -262,6 +264,7 @@ export const iacImportCommand = define({
       scope: "scopes",
       resource: "resources",
       machine: "machines",
+      skill: "skills",
       emailAssignment: "emailAssignments",
       groupAssignment: "groupAssignments",
     };
@@ -326,6 +329,7 @@ export const iacUnmanageCommand = define({
       scope: "scopes",
       resource: "resources",
       machine: "machines",
+      skill: "skills",
       emailAssignment: "emailAssignments",
       groupAssignment: "groupAssignments",
     };

@@ -32,6 +32,7 @@ export class PrimitiveMutationError extends Error {
       | "INVALID_PROVIDER"
       | "INVALID_RESOURCE"
       | "INVALID_SCOPE"
+      | "INVALID_SKILL"
       | "LAST_ADMIN"
       | "NOT_FOUND"
       | "SYSTEM_SCOPE",
@@ -72,6 +73,9 @@ const scopeInclude = {
 } as const;
 const emailInclude = {
   grants: { include: { scope: { select: { id: true, key: true } } } },
+  iacBinding: { include: { workspace: { select: { id: true, name: true } } } },
+} as const;
+const skillInclude = {
   iacBinding: { include: { workspace: { select: { id: true, name: true } } } },
 } as const;
 const groupInclude = {
@@ -235,6 +239,75 @@ export async function mutateScope(
   }
   await scopeAudit(tx, actor, "resource_scopes.deleted", current, null);
   return { id: current.id, affectedAssignments: affectedEmails.length + affectedGroups.length };
+}
+
+export type SkillMutableInput = {
+  title: string;
+  content: string;
+  requiredScopes: string[];
+  visibility: "DEFAULT" | "HIDDEN_IF_UNALLOWED";
+};
+
+export async function mutateSkill(
+  tx: Prisma.TransactionClient,
+  input:
+    | ({ action: "create"; slug: string } & SkillMutableInput)
+    | ({ action: "update"; id: string; expectedVersion: number } & SkillMutableInput)
+    | { action: "delete"; id: string; expectedVersion: number },
+  actor: MutationActor,
+): Promise<any> {
+  if (input.action === "delete") {
+    const current = await tx.skill.findUnique({ where: { id: input.id }, include: skillInclude });
+    if (!current) throw new PrimitiveMutationError("NOT_FOUND", "Skill not found.");
+    assertVersion(current.version, input.expectedVersion, "skill");
+    const deleted = await tx.skill.deleteMany({
+      where: { id: current.id, version: input.expectedVersion },
+    });
+    if (deleted.count !== 1) conflict("skill");
+    await skillAudit(tx, actor, "skill.deleted", current, null);
+    return { id: current.id };
+  }
+
+  const parsed = parseSkill(input, input.action === "create");
+  const current =
+    input.action === "update"
+      ? await tx.skill.findUnique({ where: { id: input.id }, include: skillInclude })
+      : null;
+  if (input.action === "update") {
+    if (!current) throw new PrimitiveMutationError("NOT_FOUND", "Skill not found.");
+    assertVersion(current.version, input.expectedVersion, "skill");
+  }
+  await scopesByKeys(tx, parsed.requiredScopes);
+  if (!current) {
+    const slug = (input as { slug: string }).slug.trim();
+    if (await tx.skill.findUnique({ where: { slug }, select: { id: true } }))
+      throw new PrimitiveMutationError("CONFLICT", `Skill ${slug} already exists.`);
+    const created = await tx.skill.create({
+      data: { slug, ...parsed, createdBy: actor.id, updatedBy: actor.id },
+      include: skillInclude,
+    });
+    await skillAudit(tx, actor, "skill.created", null, created);
+    return created;
+  }
+  if (input.action !== "update") throw new Error("Unexpected skill mutation action");
+  if (
+    current.title === parsed.title &&
+    current.content === parsed.content &&
+    current.visibility === parsed.visibility &&
+    same([...current.requiredScopes].sort(), parsed.requiredScopes)
+  )
+    return current;
+  const write = await tx.skill.updateMany({
+    where: { id: current.id, version: input.expectedVersion },
+    data: { ...parsed, version: { increment: 1 }, updatedBy: actor.id },
+  });
+  if (write.count !== 1) conflict("skill");
+  const updated = await tx.skill.findUniqueOrThrow({
+    where: { id: current.id },
+    include: skillInclude,
+  });
+  await skillAudit(tx, actor, "skill.updated", current, updated);
+  return updated;
 }
 
 export async function mutateResource(
@@ -758,6 +831,31 @@ export async function deleteMachine(
   return { id: current.id };
 }
 
+function parseSkill(input: SkillMutableInput & { slug?: string }, create: boolean) {
+  const slug = input.slug?.trim();
+  const title = input.title.trim();
+  const content = input.content.trim();
+  if (create && (!slug || slug.length > 120 || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(slug)))
+    throw new PrimitiveMutationError(
+      "INVALID_SKILL",
+      "Skill IDs must use lowercase letters, numbers, dots, dashes, or underscores.",
+    );
+  if (!title || title.length > 200)
+    throw new PrimitiveMutationError(
+      "INVALID_SKILL",
+      "Skill titles must contain 1 to 200 characters.",
+    );
+  if (!content || content.length > 100_000)
+    throw new PrimitiveMutationError(
+      "INVALID_SKILL",
+      "Skill Markdown must contain 1 to 100,000 characters.",
+    );
+  if (input.visibility !== "DEFAULT" && input.visibility !== "HIDDEN_IF_UNALLOWED")
+    throw new PrimitiveMutationError("INVALID_SKILL", "Skill visibility is invalid.");
+  const requiredScopes = parseScopeKeys(input.requiredScopes);
+  return { title, content, requiredScopes, visibility: input.visibility };
+}
+
 function parseResource(input: ResourceMutableInput, create: boolean) {
   const name = input.name.trim();
   const downstreamClientId = input.downstreamClientId.trim();
@@ -927,6 +1025,27 @@ async function basicAudit(
 function contentHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
+async function skillAudit(
+  tx: Prisma.TransactionClient,
+  actor: MutationActor,
+  eventType: "skill.created" | "skill.updated" | "skill.deleted",
+  before: any,
+  after: any,
+) {
+  const snapshot = (item: any) => ({
+    title: item.title,
+    requiredScopes: [...item.requiredScopes].sort(),
+    visibility: item.visibility,
+    contentSha256: createHash("sha256").update(item.content).digest("hex"),
+    version: item.version,
+  });
+  const metadata =
+    eventType === "skill.updated"
+      ? { slug: before.slug, before: snapshot(before), after: snapshot(after) }
+      : { slug: (after ?? before).slug, ...snapshot(after ?? before) };
+  await basicAudit(tx, actor, eventType, "skill", (after ?? before).id, metadata);
+}
+
 async function scopeAudit(
   tx: Prisma.TransactionClient,
   actor: MutationActor,

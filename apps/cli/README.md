@@ -60,6 +60,7 @@ weldall validate
 weldall plan --json
 weldall up --yes
 weldall import scope expenses:read --as scope.expenses_read
+weldall import skill expenses.review --as skill.review_expenses
 weldall unmanage scope.expenses_read --yes
 weldall state pull
 weldall state mv scope.old scope.new

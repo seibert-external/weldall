@@ -95,11 +95,12 @@ components:
         scopes: { $ref: "./weldall-manifest-v1.schema.json#/properties/scopes" }
         resources: { $ref: "./weldall-manifest-v1.schema.json#/properties/resources" }
         machines: { $ref: "./weldall-manifest-v1.schema.json#/properties/machines" }
+        skills: { $ref: "./weldall-manifest-v1.schema.json#/properties/skills" }
         emailAssignments: { $ref: "./weldall-manifest-v1.schema.json#/properties/emailAssignments" }
         groupAssignments: { $ref: "./weldall-manifest-v1.schema.json#/properties/groupAssignments" }
     Address:
       type: string
-      pattern: '^(scope|resource|machine|emailAssignment|groupAssignment)\.[a-z][a-z0-9_-]{0,119}$'
+      pattern: '^(scope|resource|machine|emailAssignment|groupAssignment|skill)\.[a-z][a-z0-9_-]{0,119}$'
     Digest: { type: string, pattern: "^[a-f0-9]{64}$" }
     OperationId: { type: string, format: uuid }
     Workspace:
@@ -136,7 +137,7 @@ components:
       properties:
         {
           workspace: { $ref: "#/components/schemas/Workspace" },
-          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment] },
+          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment, skill] },
           identity: { type: string, minLength: 1, maxLength: 160 },
           address: { $ref: "#/components/schemas/Address" },
           operationId: { $ref: "#/components/schemas/OperationId" },
@@ -171,10 +172,11 @@ components:
       properties:
         {
           address: { $ref: "#/components/schemas/Address" },
-          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment] },
+          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment, skill] },
           action:
             { enum: [create, update, replace, delete, recreate, register_key, revoke_key, noop] },
           identity: { type: string, maxLength: 320 },
+          observedVersion: { type: integer, minimum: 0 },
           drift: { type: boolean },
           irreversible: { type: boolean },
           keyId: { type: string, maxLength: 128 },

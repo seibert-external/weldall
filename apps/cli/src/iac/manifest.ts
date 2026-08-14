@@ -17,6 +17,7 @@ export interface Manifest {
   include?: string[];
   scopes?: Record<string, unknown>;
   resources?: Record<string, unknown>;
+  skills?: Record<string, unknown>;
   machines?: Record<string, unknown>;
   emailAssignments?: Record<string, unknown>;
   groupAssignments?: Record<string, unknown>;
@@ -34,6 +35,7 @@ export interface Lockfile {
 const objectSections = [
   "scopes",
   "resources",
+  "skills",
   "machines",
   "emailAssignments",
   "groupAssignments",
@@ -136,7 +138,11 @@ function validateManifest(value: Manifest) {
         throw new CliError("Private JWK member d is forbidden in Weldall YAML");
       validatePrimitive(section, object);
       const identity = String(
-        object.key ?? object.clientId ?? object.email ?? `${object.provider}:${object.groupId}`,
+        object.key ??
+          object.slug ??
+          object.clientId ??
+          object.email ??
+          `${object.provider}:${object.groupId}`,
       );
       const composite = `${section}:${identity}`;
       if (identities.has(composite)) throw new CliError(`Duplicate natural identity ${identity}`);
@@ -170,6 +176,7 @@ function validatePrimitive(
       "requestPrefixes",
       "scopes",
     ],
+    skills: ["slug", "title", "content", "requiredScopes", "visibility"],
     machines: ["clientId", "name", "enabled", "publicKeys", "resources", "scopes"],
     emailAssignments: ["email", "scopes"],
     groupAssignments: ["provider", "groupId", "scopes"],
@@ -233,6 +240,20 @@ function validatePrimitive(
       if (canonicalHttpsUrl(prefix, "requestPrefixes", "prefix") !== prefix)
         throw new CliError("requestPrefixes must be canonical HTTPS URLs");
     list("scopes");
+  } else if (section === "skills") {
+    text("slug", 120, /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/);
+    text("title", 200);
+    if (
+      typeof object.content !== "string" ||
+      !object.content.trim() ||
+      object.content.trim().length > 100_000
+    )
+      throw new CliError("Invalid skills.content");
+    const requiredScopes = list("requiredScopes");
+    if (!requiredScopes.every((scope) => /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/.test(scope)))
+      throw new CliError("Invalid skills.requiredScopes");
+    if (!(["DEFAULT", "HIDDEN_IF_UNALLOWED"] as unknown[]).includes(object.visibility))
+      throw new CliError("Invalid skills.visibility");
   } else if (section === "machines") {
     text("clientId", 128, /^[A-Za-z0-9._:-]+$/);
     text("name", 200);
@@ -364,6 +385,11 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
       skillDiscoveryEnabled: value.skillDiscoveryEnabled ?? false,
       requestPrefixes: canonicalSet(value.requestPrefixes),
       scopes: canonicalSet(value.scopes),
+    })),
+    skills: canonicalRecords("skills", (value) => ({
+      ...value,
+      content: value.content.trim(),
+      requiredScopes: canonicalSet(value.requiredScopes),
     })),
     machines: canonicalRecords("machines", (value) => ({
       ...value,

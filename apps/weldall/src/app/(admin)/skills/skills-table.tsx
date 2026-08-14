@@ -26,6 +26,7 @@ import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-tabl
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { SkillDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
 import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
@@ -114,7 +115,10 @@ export function SkillsTable() {
         cell: ({ row }) => (
           <div className="grid justify-items-start gap-1">
             {row.original.source.type === "manual" ? (
-              <Text>Manual</Text>
+              <HStack gap={2} vAlign="center">
+                <Text type="body">Manual</Text>
+                <ManagementBadge management={row.original.management} />
+              </HStack>
             ) : (
               <Button
                 href={`/resources/${row.original.source.resourceId}`}

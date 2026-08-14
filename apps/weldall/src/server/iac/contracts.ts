@@ -97,6 +97,23 @@ export const desiredStateSchema = z
           .strict(),
       )
       .default({}),
+    skills: z
+      .record(
+        addressKey,
+        z
+          .object({
+            slug: z
+              .string()
+              .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/)
+              .max(120),
+            title: z.string().trim().min(1).max(200),
+            content: z.string().trim().min(1).max(100_000),
+            requiredScopes: z.array(scopeKey).max(IAC_LIMITS.relationItems).transform(canonicalSet),
+            visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
+          })
+          .strict(),
+      )
+      .default({}),
     machines: z
       .record(
         addressKey,
@@ -138,6 +155,7 @@ export const desiredStateSchema = z
       ...Object.values(manifest.machines).map(
         (item) => ["machine", item.clientId] as [string, string],
       ),
+      ...Object.values(manifest.skills).map((item) => ["skill", item.slug] as [string, string]),
       ...Object.values(manifest.emailAssignments).map(
         (item) => ["email", item.email] as [string, string],
       ),
@@ -170,7 +188,8 @@ export const desiredStateSchema = z
   });
 
 export type DesiredState = z.output<typeof desiredStateSchema>;
-export type IacKind = "scope" | "resource" | "machine" | "emailAssignment" | "groupAssignment";
+export type IacKind =
+  "scope" | "resource" | "machine" | "emailAssignment" | "groupAssignment" | "skill";
 export type IacActionType =
   "create" | "update" | "replace" | "delete" | "recreate" | "register_key" | "revoke_key" | "noop";
 export interface IacAction {
@@ -178,6 +197,7 @@ export interface IacAction {
   kind: IacKind;
   action: IacActionType;
   identity: string;
+  observedVersion?: number;
   drift?: boolean;
   irreversible?: boolean;
   keyId?: string;
@@ -226,7 +246,9 @@ export function parseDesiredState(value: unknown): DesiredState {
 const operationId = z.string().uuid();
 const logicalAddress = z
   .string()
-  .regex(/^(scope|resource|machine|emailAssignment|groupAssignment)\.[a-z][a-z0-9_-]{0,119}$/);
+  .regex(
+    /^(scope|resource|machine|emailAssignment|groupAssignment|skill)\.[a-z][a-z0-9_-]{0,119}$/,
+  );
 export const planRequestSchema = z.object({ manifest: desiredStateSchema }).strict();
 export const applyRequestSchema = z
   .object({
@@ -240,7 +262,7 @@ export const applyRequestSchema = z
 export const importRequestSchema = z
   .object({
     workspace: desiredStateSchema.shape.workspace,
-    kind: z.enum(["scope", "resource", "machine", "emailAssignment", "groupAssignment"]),
+    kind: z.enum(["scope", "resource", "machine", "emailAssignment", "groupAssignment", "skill"]),
     identity: key,
     address: logicalAddress,
     operationId,

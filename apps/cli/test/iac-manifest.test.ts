@@ -14,6 +14,7 @@ import {
   ensureImportedFragmentIncluded,
   iacImportCommand,
   iacInitCommand,
+  iacUnmanageCommand,
   lockFromState,
   printPlan,
   stableOperationId,
@@ -68,6 +69,101 @@ describe("native YAML workspaces", () => {
       await expect(access(join(root, "weldall", "imports"))).rejects.toMatchObject({
         code: "ENOENT",
       });
+    } finally {
+      process.chdir(previous);
+      connect.mockRestore();
+    }
+  });
+
+  it("imports a skill with the command payload and writes a skills fragment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(root);
+    const loaded = await loadWorkspace(root);
+    const lock = newLock(loaded.manifest);
+    await writeLock(root, lock);
+    const skill = {
+      slug: "expenses.review",
+      title: "Review expenses",
+      content: "# Review expenses\n\nUse approved steps.",
+      requiredScopes: ["expenses:read"],
+      visibility: "HIDDEN_IF_UNALLOWED",
+    };
+    const client = {
+      installationId: "00000000-0000-4000-8000-000000000001",
+      request: vi.fn(async (path: string, _method: string, _body?: any) =>
+        path === "/import"
+          ? { state: skill }
+          : {
+              workspace: { id: lock.workspace.id, name: "platform", revision: 1 },
+              objects: [
+                {
+                  address: "skill.review",
+                  kind: "skill",
+                  objectId: "skill-id",
+                  identity: skill.slug,
+                  observedVersion: 1,
+                },
+              ],
+            },
+      ),
+    };
+    const connect = vi.spyOn(IacClient, "connect").mockResolvedValue(client as any);
+    const previous = process.cwd();
+    process.chdir(root);
+    try {
+      await expect(
+        (iacImportCommand as any).run({
+          values: { kind: "skill", identity: skill.slug, as: "skill.review" },
+        }),
+      ).resolves.toBeUndefined();
+      const importCall = client.request.mock.calls.find(([path]) => path === "/import");
+      expect(importCall).toEqual([
+        "/import",
+        "POST",
+        {
+          workspace: { ...loaded.manifest.workspace, id: lock.workspace.id },
+          kind: "skill",
+          identity: skill.slug,
+          address: "skill.review",
+          operationId: stableOperationId(
+            lock.workspace.id,
+            "0",
+            "import",
+            "skill",
+            skill.slug,
+            "skill.review",
+          ),
+        },
+      ]);
+      const generated = (await import("yaml")).parse(
+        await readFile(join(root, "weldall", "imports", "skill-review.yml"), "utf8"),
+      );
+      expect(generated).toEqual({ skills: { review: skill } });
+      expect(await readFile(join(root, "weldall.yml"), "utf8")).toContain(
+        "- weldall/imports/skill-review.yml",
+      );
+    } finally {
+      process.chdir(previous);
+      connect.mockRestore();
+    }
+  });
+
+  it("maps skill declarations when preflighting unmanage", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(
+      root,
+      "skills:\n  review:\n    slug: expenses.review\n    title: Review expenses\n    content: '# Review'\n    requiredScopes: []\n    visibility: DEFAULT\n",
+    );
+    const loaded = await loadWorkspace(root);
+    await writeLock(root, newLock(loaded.manifest));
+    const connect = vi.spyOn(IacClient, "connect");
+    const previous = process.cwd();
+    process.chdir(root);
+    try {
+      await expect(
+        (iacUnmanageCommand as any).run({ values: { address: "skill.review", yes: true } }),
+      ).rejects.toThrow("Remove the declaration before unmanaging it");
+      expect(connect).not.toHaveBeenCalled();
     } finally {
       process.chdir(previous);
       connect.mockRestore();
@@ -260,12 +356,13 @@ describe("native YAML workspaces", () => {
         },
       },
       machines: {},
+      skills: {},
       emailAssignments: {},
       groupAssignments: {},
     };
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(canonicalManifestDigest(canonical));
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(
-      "c5c7577a2a0a00a7bcd7bdd3fe951025152342acfa231906a703aecd3b6d2d1a",
+      "c2e1311af97134bca5534c104566d7efa1d873bc61d3ff8f71f2ddf3caa6a054",
     );
     const lock = {
       version: 1 as const,
@@ -352,6 +449,51 @@ describe("native YAML workspaces", () => {
       "emailAssignments:\n  alice:\n    email: alice@example.com\n    scopes: []\n",
     );
     await expect(loadWorkspace(root)).rejects.toThrow(/scopes/);
+  });
+
+  it("validates and canonicalizes inline administrator skills", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(
+      root,
+      "skills:\n  review:\n    slug: expenses.review\n    title: Review expenses\n    content: '# Review expenses'\n    requiredScopes: [expenses:write, expenses:read]\n    visibility: HIDDEN_IF_UNALLOWED\n",
+    );
+    const loaded = await loadWorkspace(root);
+    const lock = newLock(loaded.manifest);
+    expect(serverManifest(loaded.manifest, lock).skills.review).toEqual({
+      slug: "expenses.review",
+      title: "Review expenses",
+      content: "# Review expenses",
+      requiredScopes: ["expenses:read", "expenses:write"],
+      visibility: "HIDDEN_IF_UNALLOWED",
+    });
+    expect(
+      declaredImportValue({ skills: { review: { slug: "expenses.review" } } }, "skill.review"),
+    ).toEqual({ slug: "expenses.review" });
+    expect(
+      canonicalManifestDigest({
+        apiVersion: "weldall.dev/v1",
+        workspace: {
+          id: "67ade6dc-0000-4000-8000-000000000000",
+          name: "platform",
+          issuer: "https://weldall.example.com",
+        },
+        skills: {
+          review: {
+            slug: "expenses.review",
+            title: "Review",
+            content: "# Review",
+            requiredScopes: ["expenses:write", "expenses:read"],
+            visibility: "DEFAULT",
+          },
+        },
+      }),
+    ).toBe("990a499264dbf19bde564967075d9abaa74fbcdffec75d1141fdecf723607ff3");
+
+    await workspace(
+      root,
+      "skills:\n  review:\n    slug: Expenses Review\n    title: Review\n    content: '  markdown  '\n    requiredScopes: []\n    visibility: PUBLIC\n",
+    );
+    await expect(loadWorkspace(root)).rejects.toThrow(/skills/);
   });
 
   it("accepts provider group IDs up to the persistence limit", async () => {

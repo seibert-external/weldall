@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented; not yet released.
 
 ## Decision
 
@@ -29,7 +29,7 @@ Terraform was evaluated and rejected for this feature because its normal resourc
 ## Non-goals
 
 - Terraform, OpenTofu, HCL, Terraform state, or a Terraform provider.
-- Managing group providers, provider credentials, skills, CLI settings, users, discovered catalogs, audit records, or Better Auth tables in v1.
+- Managing group providers, provider credentials, CLI settings, users, discovered catalogs, audit records, or Better Auth tables in v1.
 - Sharing ownership of one primitive between repositories.
 - Field-level or relation-level ownership.
 - Variables, expressions, templates, environment substitution, modules, or overlays.
@@ -45,10 +45,11 @@ Terraform was evaluated and rejected for this feature because its normal resourc
 | Scope                  | Scope key                 | Description                                                                                                              |
 | Downstream resource    | Resource key              | Name, resource identifier, authorization server, downstream client ID, enabled flags, supported scopes, request prefixes |
 | Machine client         | Client ID                 | Name, enabled state, allowed resources, allowed scopes, active public keys                                               |
+| Administrator skill    | Slug                      | Title, inline Markdown content, required scopes, visibility                                                              |
 | Email scope assignment | Normalized email          | Complete assigned scope set                                                                                              |
 | Group scope assignment | Provider key and group ID | Complete assigned scope set; group IDs are opaque and no group metadata is persisted                                     |
 
-Nested rows such as grants, resource-scope links, request prefixes, machine access links, and machine public keys belong to their parent primitive. IaC owns the complete configurable state of an imported or created primitive.
+Nested rows such as grants, resource-scope links, request prefixes, machine access links, and machine public keys belong to their parent primitive. Skill slugs are immutable natural identities: changing a managed skill slug replaces it. Administrator-managed skills may override a resource-published skill with the same canonical ID; discovered skills and catalogs are never managed or bindable. IaC owns the complete configurable state of an imported or created primitive.
 
 The built-in scopes `weldall:login`, `weldall:administer`, and `weldall:iac` remain server-owned. Manifests may reference them in assignments or machine access but cannot declare, import, rename, update, or delete them.
 
@@ -64,6 +65,7 @@ repository/
     ├── scopes.yml
     ├── resources.yml
     ├── machines.yml
+    ├── skills.yml
     └── assignments.yml
 ```
 

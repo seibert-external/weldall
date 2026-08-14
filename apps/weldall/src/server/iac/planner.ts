@@ -52,6 +52,12 @@ export function desiredObjects(manifest: DesiredState): Array<{
       identity: state.clientId,
       state,
     })),
+    ...Object.entries(manifest.skills).map(([name, state]) => ({
+      address: `skill.${name}`,
+      kind: "skill" as const,
+      identity: state.slug,
+      state,
+    })),
     ...Object.entries(manifest.emailAssignments).map(([name, state]) => ({
       address: `emailAssignment.${name}`,
       kind: "emailAssignment" as const,
@@ -102,9 +108,17 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
             candidate.identity === object.identity,
         );
         if (collision) blockers.push(collisionBlocker(object, collision, manifest.workspace.id));
-        else actions.push(actionFor(object, "replace"));
+        else actions.push(actionFor(object, "replace", bound));
       } else if (bound.tombstone) {
-        actions.push({ ...actionFor(object, "recreate"), drift: true });
+        const collision = current.objects.find(
+          (candidate) =>
+            !candidate.tombstone &&
+            candidate.id !== bound.id &&
+            candidate.kind === object.kind &&
+            candidate.identity === object.identity,
+        );
+        if (collision) blockers.push(collisionBlocker(object, collision, manifest.workspace.id));
+        else actions.push({ ...actionFor(object, "recreate"), drift: true });
       } else if (canonicalJson(bound.state) !== canonicalJson(object.state)) {
         if (object.kind === "machine") {
           const before = (bound.state as { publicKeys?: Record<string, any> }).publicKeys ?? {};
@@ -118,6 +132,7 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
               kind: "machine",
               identity: object.identity,
               action: "register_key",
+              observedVersion: bound.version,
               keyId: summary.kid,
               keyThumbprint: summary.thumbprint,
             });
@@ -131,14 +146,15 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
               kind: "machine",
               identity: object.identity,
               action: "revoke_key",
+              observedVersion: bound.version,
               irreversible: true,
               keyId: summary.kid,
               keyThumbprint: summary.thumbprint,
             });
           }
         }
-        actions.push({ ...actionFor(object, "update"), drift: true });
-      } else actions.push(actionFor(object, "noop"));
+        actions.push({ ...actionFor(object, "update", bound), drift: true });
+      } else actions.push(actionFor(object, "noop", bound));
       continue;
     }
     const collision = byNatural.get(`${object.kind}:${object.identity}`);
@@ -156,6 +172,7 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
         kind: existing.kind,
         identity: existing.identity,
         action: "delete",
+        ...(!existing.tombstone ? { observedVersion: existing.version } : {}),
       });
     }
   }
@@ -176,8 +193,15 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
 function actionFor(
   object: { address: string; kind: IacKind; identity: string },
   action: IacAction["action"],
+  observed?: CurrentObject,
 ): IacAction {
-  return { address: object.address, kind: object.kind, identity: object.identity, action };
+  return {
+    address: object.address,
+    kind: object.kind,
+    identity: object.identity,
+    action,
+    ...(observed && !observed.tombstone ? { observedVersion: observed.version } : {}),
+  };
 }
 
 function collisionBlocker(
@@ -213,6 +237,7 @@ const kindRank: Record<IacKind, number> = {
   machine: 3,
   emailAssignment: 4,
   groupAssignment: 4,
+  skill: 2,
 };
 function compareActions(left: IacAction, right: IacAction): number {
   const action = actionRank[left.action] - actionRank[right.action];
@@ -232,7 +257,7 @@ export async function loadPlanningState(
   manifest: DesiredState,
 ): Promise<PlanningState> {
   const workspace = await tx.iacWorkspace.findUnique({ where: { id: manifest.workspace.id } });
-  const [bindings, scopes, resources, machines, emails, groups] = await Promise.all([
+  const [bindings, scopes, resources, machines, emails, groups, skills] = await Promise.all([
     tx.iacObjectBinding.findMany({ include: { workspace: true } }),
     tx.scope.findMany(),
     tx.downstreamResource.findMany({
@@ -249,6 +274,7 @@ export async function loadPlanningState(
     tx.groupScopeAssignment.findMany({
       include: { provider: true, grants: { include: { scope: true } } },
     }),
+    tx.skill.findMany(),
   ]);
   const bindingTargets = new Map<string, (typeof bindings)[number]>();
   for (const binding of bindings) {
@@ -258,6 +284,7 @@ export async function loadPlanningState(
       binding.machineClientId,
       binding.emailAssignmentId,
       binding.groupAssignmentId,
+      binding.skillId,
     ])
       if (id) bindingTargets.set(id, binding);
   }
@@ -329,6 +356,20 @@ export async function loadPlanningState(
       },
       ...bindingInfo(ownership(item.id)),
     })),
+    ...skills.map((item) => ({
+      kind: "skill" as const,
+      id: item.id,
+      identity: item.slug,
+      version: item.version,
+      state: {
+        slug: item.slug,
+        title: item.title,
+        content: item.content,
+        requiredScopes: [...item.requiredScopes].sort(),
+        visibility: item.visibility,
+      },
+      ...bindingInfo(ownership(item.id)),
+    })),
   ];
   for (const binding of bindings.filter(
     (item) =>
@@ -336,7 +377,8 @@ export async function loadPlanningState(
       !item.resourceId &&
       !item.machineClientId &&
       !item.emailAssignmentId &&
-      !item.groupAssignmentId,
+      !item.groupAssignmentId &&
+      !item.skillId,
   )) {
     objects.push({
       address: binding.address,
@@ -383,9 +425,7 @@ export async function loadPlanningState(
       !source ||
       source.ownerWorkspaceId !== manifest.workspace.id ||
       !source.address ||
-      (desiredSource &&
-        !desiredByAddress.has(target.address) &&
-        desiredReferencesTarget(desiredSource.state))
+      (desiredSource && desiredReferencesTarget(desiredSource.state))
     )
       externalBlockers.push({ code: "EXTERNAL_REFERENCE", address: target.address, message });
   };
@@ -454,16 +494,16 @@ export async function loadPlanningState(
           `Scope ${target.identity} is referenced by group assignment ${group.provider.key}:${group.groupId}`,
         );
     }
-  const skillScopes = await tx.skill.findMany({ select: { slug: true, requiredScopes: true } });
-  for (const skill of skillScopes)
+  for (const skill of skills)
     for (const key of skill.requiredScopes) {
       const target = objects.find((object) => object.kind === "scope" && object.identity === key);
-      if (target?.address && deletingAddresses.has(target.address))
-        externalBlockers.push({
-          code: "EXTERNAL_REFERENCE",
-          address: target.address,
-          message: `Scope ${key} is referenced by skill ${skill.slug}`,
-        });
+      if (target)
+        addReferenceBlocker(
+          target,
+          skill.id,
+          (state) => state.requiredScopes.includes(target.identity),
+          `Scope ${key} is referenced by skill ${skill.slug}`,
+        );
     }
   return { revision: workspace?.revision ?? 0, objects, externalBlockers };
 }
@@ -479,6 +519,7 @@ function fromPrismaKind(kind: string): IacKind {
       MACHINE: "machine",
       EMAIL_ASSIGNMENT: "emailAssignment",
       GROUP_ASSIGNMENT: "groupAssignment",
+      SKILL: "skill",
     } as Record<string, IacKind>
   )[kind]!;
 }
