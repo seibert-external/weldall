@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.7.0
+
+### Minor Changes
+
+- 6aaeaa2: Add native Weldall YAML infrastructure-as-code commands, committed lockfile state, atomic planning/apply workflows, and Linux packaging with optional macOS Keychain support.
+
 ## 0.6.0
 
 ### Minor Changes
