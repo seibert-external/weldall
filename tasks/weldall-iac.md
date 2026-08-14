@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented; not yet released.
 
 ## Decision
 
