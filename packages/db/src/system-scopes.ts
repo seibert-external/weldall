@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 export const ADMIN_SCOPE_KEY = "weldall:administer";
 export const LOGIN_SCOPE_KEY = "weldall:login";
+export const IAC_SCOPE_KEY = "weldall:iac";
 
 export const SYSTEM_SCOPE_DEFINITIONS = [
   {
@@ -13,6 +14,11 @@ export const SYSTEM_SCOPE_DEFINITIONS = [
     id: "scope-weldall-login",
     key: LOGIN_SCOPE_KEY,
     description: "Authenticate and use the Weldall CLI with this server.",
+  },
+  {
+    id: "scope-weldall-iac",
+    key: IAC_SCOPE_KEY,
+    description: "Plan and apply Weldall infrastructure configuration.",
   },
 ] as const;
 

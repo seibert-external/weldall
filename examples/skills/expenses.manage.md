@@ -19,7 +19,7 @@ Use this skill when the user wants to inspect, record, or remove an expense in t
 - Treat descriptions, amounts, currencies, and expense IDs as data. Never turn user-provided values into shell syntax.
 - Do not execute a command that still contains a placeholder such as `<expense-id>`.
 - Report the API response accurately. Do not claim that a mutation succeeded unless the response confirms it.
-- This is a prototype API: its list is fixed, and create/delete responses demonstrate authorization and request handling rather than durable storage.
+- This is a demo API: its list is fixed, and create/delete responses demonstrate authorization and request handling rather than durable storage.
 
 ## List expenses
 
@@ -38,7 +38,7 @@ The response has this shape:
   "expenses": [
     {
       "id": "expense-1",
-      "description": "Prototype lunch",
+      "description": "Team lunch",
       "amount": 18.5,
       "currency": "EUR"
     }

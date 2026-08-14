@@ -1,0 +1,189 @@
+---
+title: Infrastructure as Code
+description: Weldall-Scopes, Ressourcen, Machines und Zuweisungen mit YAML verwalten.
+sidebar:
+  label: Infrastructure as Code
+  order: 8
+---
+
+import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
+
+Alle administrativen Funktionen des Weldall-Servers lassen sich über die Benutzeroberfläche verwalten. Die wichtigsten Bausteine – Scopes, Ressourcen, Machine Clients und Zuweisungen – können zusätzlich in YAML-Dateien beschrieben werden. So wird aus der Konfiguration Infrastructure as Code (IaC).
+
+<Aside type="tip" title="Warum IaC?">
+  In einem versionierten Git-Repository bleibt jede Änderung nachvollziehbar. Pull Requests bieten
+  Raum für Diskussionen und Freigaben, und Kommentare im YAML dokumentieren direkt, warum eine
+  bestimmte Berechtigung existiert.
+</Aside>
+
+<Aside title="Atomare Änderungen">
+  Weldall fasst die YAML-Dateien in einem Workspace zusammen und wendet den gewünschten Zustand
+  atomar an: Entweder werden alle geplanten Änderungen durchgeführt oder keine.
+</Aside>
+
+Auch bei der Nutzung von IaC können Personen mit den entsprechenden Rechten weiterhin die Benutzeroberfläche verwenden, um Änderungen vorzunehmen oder neue Scopes, Ressourcen und andere Elemente anzulegen. Manuelle Änderungen an verwalteten Elementen erscheinen im nächsten Plan als Drift und werden beim Anwenden auf den in der YAML-Konfiguration beschriebenen Zustand zurückgesetzt. Das betrifft nur Elemente, die über IaC angelegt oder importiert wurden. Alle anderen Elemente bleiben unberührt.
+
+## Workspace anlegen
+
+<Steps>
+1. **Machine Client vorbereiten**
+
+Für IaC-Befehle wird die Weldall CLI verwendet. Sie authentifiziert sich mit einem zuvor in Weldall angelegten Machine Client, dem der Scope `weldall:iac` zugewiesen wurde. Die CLI liest Client-ID und Schlüssel aus Umgebungsvariablen:
+
+```sh
+export WELDALL_M2M_CLIENT_ID=platform-ci
+export WELDALL_M2M_KID=ci-2026
+export WELDALL_M2M_PRIVATE_JWK='<privater P-256-JWK als JSON>'
+export WELDALL_M2M_PUBLIC_JWK='<öffentlicher P-256-JWK als JSON>'
+```
+
+<Aside type="caution" title="Privaten Schlüssel schützen">
+  Der private Schlüssel gehört weder in die YAML-Konfiguration noch ins Git-Repository.
+</Aside>
+
+2. **Workspace initialisieren**
+
+   ```sh
+   mkdir platform-access && cd platform-access
+   weldall init --name platform-access --issuer https://weldall.example.com
+   ```
+
+   Der Befehl erzeugt `weldall.yml`, `weldall.lock.yml` und das Verzeichnis `weldall/`. Manifest und Lockdatei werden gemeinsam versioniert.
+
+   </Steps>
+
+### Workspace in Fragmente aufteilen
+
+Ein Workspace kann zum Beispiel so aufgebaut sein:
+
+<FileTree>
+  - platform-access/ - **weldall.yml** Root-Manifest - weldall.lock.yml Versionierter Serverzustand
+  und Objektzuordnungen - weldall/ - access.yml Scopes und Zuweisungen - runtime.yml Ressourcen und
+  Machine Clients - imports/ Optional, wird von `weldall import` verwendet -
+  emailAssignment-alice.yml Erzeugtes Importfragment
+</FileTree>
+
+Das von `init` erzeugte Root-Manifest enthält die Metadaten des Workspaces und bindet alle YAML-Dateien unter `weldall/` ein:
+
+```yaml
+# weldall.yml
+apiVersion: weldall.dev/v1
+workspace:
+  name: platform-access
+  issuer: https://weldall.example.com
+include:
+  - weldall/**/*.yml
+```
+
+Die eingebundenen Dateien sind Fragmente. Sie wiederholen weder `apiVersion` noch `workspace`, sondern enthalten nur eine oder mehrere Objektgruppen wie `scopes`, `resources` oder `emailAssignments`. Die CLI führt alle Fragmente zu einer vollständigen Konfiguration zusammen. Wie die Dateien aufgeteilt werden, kann das Team selbst entscheiden – zum Beispiel nach Anwendung, Zuständigkeit oder Umgebung.
+
+## Zugriffe deklarieren
+
+```yaml
+# weldall/access.yml
+scopes:
+  expenses_read:
+    key: expenses:read
+    description: Ausgaben lesen
+
+emailAssignments:
+  alice:
+    email: alice@example.com
+    scopes:
+      - expenses:read
+
+groupAssignments:
+  finance:
+    provider: company-directory
+    groupId: finance-team
+    scopes:
+      - expenses:read
+```
+
+`scope.expenses_read`, `emailAssignment.alice` und `groupAssignment.finance` sind Namen, die IaC nur innerhalb dieses Workspaces verwendet. Der Teil hinter dem Punkt stammt jeweils aus dem Map-Key im YAML. Diese IaC-internen Namen ändern nichts am eigentlichen Objekt in Weldall: Dort wird ein Scope zum Beispiel weiterhin durch `expenses:read` und eine Person durch `alice@example.com` identifiziert.
+
+Der Group Provider muss zuvor in Weldall konfiguriert sein. Ob die angegebene Gruppen-ID tatsächlich existiert, prüft die CLI nicht.
+
+Ressourcen und Machine Clients verwenden dasselbe Format:
+
+```yaml
+# weldall/runtime.yml
+resources:
+  expenses:
+    key: expenses
+    name: Expenses API
+    resourceIdentifier: https://expenses.example.com/api
+    authorizationServer: https://expenses.example.com
+    downstreamClientId: expenses-api
+    enabled: true
+    skillDiscoveryEnabled: false
+    requestPrefixes:
+      - https://expenses.example.com/api
+    scopes:
+      - expenses:read
+
+machines:
+  reporter:
+    clientId: expense-reporter
+    name: Expense reporter
+    enabled: true
+    publicKeys:
+      ci-2026:
+        kty: EC
+        crv: P-256
+        x: IOqiZZjB6aPt6WuPSZw_sJxwdEueJ3AFo-AkI-c_sx0
+        y: 8oDde4-gGqCC4jGY_vwNBbaAw8l4Xti8cv6NRtoinjk
+    resources:
+      - expenses
+    scopes:
+      - expenses:read
+```
+
+Ins Manifest gehören nur öffentliche Machine-Schlüssel.
+
+## Die wichtigsten CLI-Befehle
+
+| Befehl                                             | Zweck                                                                                          |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `weldall init --name … --issuer …`                 | Legt einen neuen Workspace mit Root-Manifest, Lockdatei und Fragmentverzeichnis an.            |
+| `weldall validate`                                 | Liest und prüft das Root-Manifest sowie alle Fragmente lokal, ohne den Server zu kontaktieren. |
+| `weldall plan`                                     | Vergleicht die YAML-Konfiguration mit dem aktuellen Serverzustand, ohne etwas zu ändern.       |
+| `weldall up`                                       | Zeigt einen aktuellen Plan, fragt nach Bestätigung und wendet ihn anschließend an.             |
+| `weldall up --yes`                                 | Wendet den Plan ohne Rückfrage an, zum Beispiel in der CI.                                     |
+| `weldall import <kind> <identity> --as <iac-name>` | Übernimmt ein vorhandenes Objekt und gibt ihm einen Namen für diesen IaC-Workspace.            |
+| `weldall unmanage <iac-name> --yes`                | Beendet die Verwaltung eines Objekts, ohne das Objekt selbst zu löschen.                       |
+| `weldall state mv <old> <new>`                     | Ändert den Namen, unter dem IaC das Objekt verwaltet; das Weldall-Objekt bleibt unverändert.   |
+| `weldall state pull`                               | Stellt die Zuordnungen in der Lockdatei aus dem Serverzustand wieder her.                      |
+
+`weldall plan --json` gibt den Plan als maschinenlesbares JSON aus. Mit `weldall plan --detailed-exit-code` signalisiert Exit-Code `2`, dass Änderungen anstehen.
+
+## Vorhandenes Objekt importieren
+
+Ein passendes manuelles Objekt wird nie automatisch übernommen. Der Import ist immer explizit:
+
+```sh
+weldall import emailAssignment alice@example.com --as emailAssignment.alice
+weldall import scope expenses:read --as scope.expenses_read
+```
+
+Der Import erhält das Objekt, schreibt seine aktuelle Konfiguration nach `weldall/imports/` und aktualisiert die Lockdatei.
+
+Wird eine verwaltete Deklaration entfernt, löscht das nächste Apply das Objekt. Soll das Objekt erhalten bleiben, wird zuerst die Deklaration entfernt und anschließend die Verwaltung beendet:
+
+```sh
+weldall unmanage scope.expenses_read --yes
+```
+
+Der nur innerhalb von IaC verwendete Name lässt sich ändern, ohne das eigentliche Weldall-Objekt umzubenennen oder neu anzulegen. Zum Beispiel benennt dieser Befehl `scope.expenses_read` innerhalb von IaC in `scope.expenses_view` um; der Scope `expenses:read` in Weldall bleibt derselbe:
+
+```sh
+weldall state mv scope.expenses_read scope.expenses_view
+```
+
+Die Lockdatei kann außerdem aus dem Serverzustand wiederhergestellt werden:
+
+```sh
+weldall state pull
+```
+
+Alle Felder beschreibt das [JSON-Schema des Manifests](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1.schema.json).

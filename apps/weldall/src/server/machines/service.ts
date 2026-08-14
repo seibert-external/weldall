@@ -1,8 +1,18 @@
 import { db, Prisma } from "@weldall/db";
 import { assertPublicP256 } from "@weldall/sdk";
 import { calculateJwkThumbprint, type JWK } from "jose";
-import { AdminDomainError, type AdminActor } from "../admin/service";
-import { prismaAuditWriter } from "../audit/service";
+import { AdminDomainError, type AdminActor, type ManagementDto } from "../admin/service";
+import {
+  lockConfigurationChanges,
+  managementBindingInclude,
+  managementMetadata,
+} from "../domain/configuration";
+import {
+  deleteMachine,
+  reconcileMachine,
+  PrimitiveMutationError,
+  type MutationActor,
+} from "../domain/primitive-mutations";
 
 const clientIdPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const kidPattern = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -14,6 +24,7 @@ const include = {
     },
   },
   allowedScopes: { include: { scope: { select: { id: true, key: true } } } },
+  iacBinding: managementBindingInclude,
 } satisfies Prisma.MachineClientInclude;
 
 type MachineWithRelations = Prisma.MachineClientGetPayload<{ include: typeof include }>;
@@ -28,6 +39,7 @@ export interface MachineClientDto {
   version: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
   keys: Array<{
     id: string;
     kid: string;
@@ -93,50 +105,27 @@ export async function createMachineClient(
   validateAccessShape(input.access);
   try {
     return await db.$transaction(async (tx) => {
-      await lockResourceChanges(tx);
+      await lockConfigurationChanges(tx);
       const access = await validateAccess(input.access, tx);
-      const client = await tx.machineClient.create({
-        data: {
-          clientId,
-          name,
-          createdBy: actor.id,
-          updatedBy: actor.id,
-          keys: {
-            create: {
-              kid: key.kid,
-              publicJwk: key.publicJwk as Prisma.InputJsonObject,
-              thumbprint: key.thumbprint,
-              createdBy: actor.id,
+      try {
+        return serialize(
+          await reconcileMachine(
+            tx,
+            {
+              clientId,
+              name,
+              enabled: true,
+              resourceKeys: await resourceKeysForIds(tx, access.resourceIds),
+              scopeKeys: await scopeKeysForIds(tx, access.scopeIds),
+              publicKeys: { [key.kid]: key.publicJwk },
+              expectedVersion: null,
             },
-          },
-          allowedResources: {
-            create: access.resourceIds.map((resourceId) => ({ resourceId })),
-          },
-          allowedScopes: { create: access.scopeIds.map((scopeId) => ({ scopeId })) },
-        },
-        include,
-      });
-      await prismaAuditWriter.write(
-        {
-          eventType: "machine_client.created",
-          actorType: "user",
-          actorId: actor.id,
-          ...(actor.email ? { actorEmail: actor.email } : {}),
-          requestId: actor.requestId,
-          ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-          outcome: "success",
-          subjectType: "machine_client",
-          subjectId: client.id,
-          metadata: clientMetadata(client),
-        },
-        tx,
-      );
-      await prismaAuditWriter.write(
-        keyAudit("machine_key.registered", client, client.keys[0]!, actor),
-        tx,
-      );
-      await prismaAuditWriter.write(accessAudit(client, emptyAccess(), 0, actor), tx);
-      return serialize(client);
+            mutationActor(actor),
+          ),
+        );
+      } catch (error) {
+        throw mapPrimitiveError(error);
+      }
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
@@ -151,39 +140,47 @@ export async function updateMachineClient(
 ): Promise<MachineClientDto> {
   const name = parseName(input.name);
   return db.$transaction(async (tx) => {
-    const current = await tx.machineClient.findUnique({ where: { id: input.id } });
+    await lockConfigurationChanges(tx);
+    const current = await tx.machineClient.findUnique({ where: { id: input.id }, include });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
-    if (current.version !== input.expectedVersion)
-      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
-    const changed = await tx.machineClient.updateMany({
-      where: { id: input.id, version: input.expectedVersion },
-      data: {
-        name,
-        enabled: input.enabled,
-        deactivatedAt: input.enabled ? null : (current.deactivatedAt ?? new Date()),
-        updatedBy: actor.id,
-        version: { increment: 1 },
-      },
-    });
-    if (changed.count !== 1)
-      throw new AdminDomainError("CONFLICT", "The machine client changed. Reload and try again.");
-    const client = await tx.machineClient.findUniqueOrThrow({ where: { id: input.id }, include });
-    await prismaAuditWriter.write(
-      {
-        eventType: input.enabled ? "machine_client.updated" : "machine_client.deactivated",
-        actorType: "user",
-        actorId: actor.id,
-        ...(actor.email ? { actorEmail: actor.email } : {}),
-        requestId: actor.requestId,
-        ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-        outcome: "success",
-        subjectType: "machine_client",
-        subjectId: client.id,
-        metadata: clientMetadata(client),
-      },
-      tx,
-    );
-    return serialize(client);
+    try {
+      return serialize(
+        await reconcileMachine(
+          tx,
+          {
+            id: current.id,
+            clientId: current.clientId,
+            name,
+            enabled: input.enabled,
+            resourceKeys: current.allowedResources.map(({ resource }) => resource.key),
+            scopeKeys: current.allowedScopes.map(({ scope }) => scope.key),
+            publicKeys: Object.fromEntries(
+              current.keys
+                .filter(({ revokedAt }) => !revokedAt)
+                .map(({ kid, publicJwk }) => [kid, publicJwk]),
+            ) as Record<string, JWK>,
+            expectedVersion: input.expectedVersion,
+          },
+          mutationActor(actor),
+        ),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
+  });
+}
+
+export async function deleteMachineClient(
+  input: { id: string; expectedVersion: number },
+  actor: AdminActor,
+): Promise<{ id: string }> {
+  return db.$transaction(async (tx) => {
+    await lockConfigurationChanges(tx);
+    try {
+      return await deleteMachine(tx, input, mutationActor(actor));
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
   });
 }
 
@@ -194,21 +191,36 @@ export async function registerMachineKey(
   const key = await parseKey(input);
   try {
     return await db.$transaction(async (tx) => {
-      const client = await tx.machineClient.findUnique({ where: { id: input.clientId } });
+      await lockConfigurationChanges(tx);
+      const client = await tx.machineClient.findUnique({ where: { id: input.clientId }, include });
       if (!client) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
-      const created = await tx.machineClientKey.create({
-        data: {
-          machineClientId: client.id,
-          kid: key.kid,
-          publicJwk: key.publicJwk as Prisma.InputJsonObject,
-          thumbprint: key.thumbprint,
-          createdBy: actor.id,
-        },
-      });
-      await prismaAuditWriter.write(keyAudit("machine_key.registered", client, created, actor), tx);
-      return serialize(
-        await tx.machineClient.findUniqueOrThrow({ where: { id: client.id }, include }),
-      );
+      try {
+        return serialize(
+          await reconcileMachine(
+            tx,
+            {
+              id: client.id,
+              clientId: client.clientId,
+              name: client.name,
+              enabled: client.enabled,
+              resourceKeys: client.allowedResources.map(({ resource }) => resource.key),
+              scopeKeys: client.allowedScopes.map(({ scope }) => scope.key),
+              publicKeys: {
+                ...Object.fromEntries(
+                  client.keys
+                    .filter(({ revokedAt }) => !revokedAt)
+                    .map(({ kid, publicJwk }) => [kid, publicJwk]),
+                ),
+                [key.kid]: key.publicJwk,
+              } as Record<string, JWK>,
+              expectedVersion: client.version,
+            },
+            mutationActor(actor),
+          ),
+        );
+      } catch (error) {
+        throw mapPrimitiveError(error);
+      }
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
@@ -222,23 +234,35 @@ export async function revokeMachineKey(
   actor: AdminActor,
 ): Promise<MachineClientDto> {
   return db.$transaction(async (tx) => {
-    const [client, key] = await Promise.all([
-      tx.machineClient.findUnique({ where: { id: input.clientId } }),
-      tx.machineClientKey.findUnique({ where: { id: input.keyId } }),
-    ]);
-    if (!client || !key || key.machineClientId !== client.id)
-      throw new AdminDomainError("NOT_FOUND", "Machine key not found.");
-    const revoked = key.revokedAt
-      ? key
-      : await tx.machineClientKey.update({
-          where: { id: key.id },
-          data: { revokedAt: new Date(), revokedBy: actor.id },
-        });
-    if (!key.revokedAt)
-      await prismaAuditWriter.write(keyAudit("machine_key.revoked", client, revoked, actor), tx);
-    return serialize(
-      await tx.machineClient.findUniqueOrThrow({ where: { id: client.id }, include }),
-    );
+    await lockConfigurationChanges(tx);
+    const client = await tx.machineClient.findUnique({ where: { id: input.clientId }, include });
+    const key = client?.keys.find(({ id }) => id === input.keyId);
+    if (!client || !key) throw new AdminDomainError("NOT_FOUND", "Machine key not found.");
+    if (key.revokedAt) return serialize(client);
+    try {
+      return serialize(
+        await reconcileMachine(
+          tx,
+          {
+            id: client.id,
+            clientId: client.clientId,
+            name: client.name,
+            enabled: client.enabled,
+            resourceKeys: client.allowedResources.map(({ resource }) => resource.key),
+            scopeKeys: client.allowedScopes.map(({ scope }) => scope.key),
+            publicKeys: Object.fromEntries(
+              client.keys
+                .filter((item) => !item.revokedAt && item.id !== key.id)
+                .map(({ kid, publicJwk }) => [kid, publicJwk]),
+            ) as Record<string, JWK>,
+            expectedVersion: client.version,
+          },
+          mutationActor(actor),
+        ),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
   });
 }
 
@@ -248,7 +272,7 @@ export async function replaceMachineAccess(
 ): Promise<MachineClientDto> {
   validateAccessShape(input);
   return db.$transaction(async (tx) => {
-    await lockResourceChanges(tx);
+    await lockConfigurationChanges(tx);
     const current = await tx.machineClient.findUnique({ where: { id: input.clientId }, include });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Machine client not found.");
     const access = await validateAccess(
@@ -256,39 +280,30 @@ export async function replaceMachineAccess(
       tx,
       new Set(current.allowedResources.map(({ resourceId }) => resourceId)),
     );
-    if (current.version !== input.expectedVersion)
-      throw new AdminDomainError("CONFLICT", "The machine access changed. Reload and try again.");
-    const before = accessSnapshot(current);
-    const unchanged =
-      sameStrings(before.resourceIdentifiers, access.resourceIdentifiers) &&
-      sameStrings(before.scopeKeys, access.scopeKeys);
-    if (unchanged) return serialize(current);
-
-    const changed = await tx.machineClient.updateMany({
-      where: { id: current.id, version: input.expectedVersion },
-      data: { updatedBy: actor.id, version: { increment: 1 } },
-    });
-    if (changed.count !== 1)
-      throw new AdminDomainError("CONFLICT", "The machine access changed. Reload and try again.");
-    await tx.machineAllowedResource.deleteMany({ where: { machineClientId: current.id } });
-    await tx.machineAllowedScope.deleteMany({ where: { machineClientId: current.id } });
-    if (access.resourceIds.length)
-      await tx.machineAllowedResource.createMany({
-        data: access.resourceIds.map((resourceId) => ({
-          machineClientId: current.id,
-          resourceId,
-        })),
-      });
-    if (access.scopeIds.length)
-      await tx.machineAllowedScope.createMany({
-        data: access.scopeIds.map((scopeId) => ({ machineClientId: current.id, scopeId })),
-      });
-    const client = await tx.machineClient.findUniqueOrThrow({
-      where: { id: current.id },
-      include,
-    });
-    await prismaAuditWriter.write(accessAudit(client, before, current.version, actor), tx);
-    return serialize(client);
+    try {
+      return serialize(
+        await reconcileMachine(
+          tx,
+          {
+            id: current.id,
+            clientId: current.clientId,
+            name: current.name,
+            enabled: current.enabled,
+            resourceKeys: await resourceKeysForIds(tx, access.resourceIds),
+            scopeKeys: await scopeKeysForIds(tx, access.scopeIds),
+            publicKeys: Object.fromEntries(
+              current.keys
+                .filter(({ revokedAt }) => !revokedAt)
+                .map(({ kid, publicJwk }) => [kid, publicJwk]),
+            ) as Record<string, JWK>,
+            expectedVersion: input.expectedVersion,
+          },
+          mutationActor(actor),
+        ),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
   });
 }
 
@@ -366,8 +381,19 @@ async function validateAccess(
   };
 }
 
-async function lockResourceChanges(tx: Prisma.TransactionClient): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(49350618)`;
+async function resourceKeysForIds(tx: Prisma.TransactionClient, ids: string[]): Promise<string[]> {
+  return (
+    await tx.downstreamResource.findMany({
+      where: { id: { in: ids } },
+      select: { key: true },
+    })
+  ).map(({ key }) => key);
+}
+
+async function scopeKeysForIds(tx: Prisma.TransactionClient, ids: string[]): Promise<string[]> {
+  return (await tx.scope.findMany({ where: { id: { in: ids } }, select: { key: true } })).map(
+    ({ key }) => key,
+  );
 }
 
 function parseClientId(value: string): string {
@@ -403,6 +429,7 @@ function serialize(client: MachineWithRelations): MachineClientDto {
     version: client.version,
     createdAt: client.createdAt.toISOString(),
     updatedAt: client.updatedAt.toISOString(),
+    management: managementMetadata(client.iacBinding),
     keys: client.keys.map((key) => ({
       id: key.id,
       kid: key.kid,
@@ -420,88 +447,18 @@ function serialize(client: MachineWithRelations): MachineClientDto {
   };
 }
 
-function clientMetadata(client: {
-  clientId: string;
-  name: string;
-  enabled: boolean;
-  version: number;
-}) {
+function mutationActor(actor: AdminActor): MutationActor {
   return {
-    clientId: client.clientId,
-    name: client.name,
-    enabled: client.enabled,
-    version: client.version,
-  };
-}
-
-function keyAudit(
-  eventType: "machine_key.registered" | "machine_key.revoked",
-  client: { id: string; clientId: string },
-  key: { id: string; kid: string; thumbprint: string; revokedAt: Date | null },
-  actor: AdminActor,
-) {
-  return {
-    eventType,
-    actorType: "user" as const,
-    actorId: actor.id,
-    ...(actor.email ? { actorEmail: actor.email } : {}),
+    type: "user",
+    id: actor.id,
+    ...(actor.email ? { email: actor.email } : {}),
     requestId: actor.requestId,
     ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-    outcome: "success" as const,
-    subjectType: "machine_key",
-    subjectId: key.id,
-    metadata: {
-      clientId: client.clientId,
-      kid: key.kid,
-      thumbprint: key.thumbprint,
-      revokedAt: key.revokedAt?.toISOString() ?? null,
-    },
+    source: "admin_api",
   };
 }
 
-function accessSnapshot(client: MachineWithRelations) {
-  return {
-    resourceIdentifiers: client.allowedResources
-      .map(({ resource }) => resource.resourceIdentifier)
-      .sort(),
-    scopeKeys: client.allowedScopes.map(({ scope }) => scope.key).sort(),
-  };
-}
-
-function emptyAccess() {
-  return { resourceIdentifiers: [] as string[], scopeKeys: [] as string[] };
-}
-
-function accessAudit(
-  client: MachineWithRelations,
-  before: ReturnType<typeof emptyAccess>,
-  versionBefore: number,
-  actor: AdminActor,
-) {
-  return {
-    eventType: "machine_access.replaced" as const,
-    actorType: "user" as const,
-    actorId: actor.id,
-    ...(actor.email ? { actorEmail: actor.email } : {}),
-    requestId: actor.requestId,
-    ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-    outcome: "success" as const,
-    subjectType: "machine_client",
-    subjectId: client.id,
-    metadata: {
-      clientId: client.clientId,
-      beforeResources: before.resourceIdentifiers,
-      afterResources: client.allowedResources
-        .map(({ resource }) => resource.resourceIdentifier)
-        .sort(),
-      beforeScopes: before.scopeKeys,
-      afterScopes: client.allowedScopes.map(({ scope }) => scope.key).sort(),
-      versionBefore,
-      versionAfter: client.version,
-    },
-  };
-}
-
-function sameStrings(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+function mapPrimitiveError(error: unknown): unknown {
+  if (!(error instanceof PrimitiveMutationError)) return error;
+  return new AdminDomainError(error.code, error.message, error.details);
 }

@@ -5,6 +5,7 @@ export const AUDIT_EVENT_TYPES = [
   "machine_client.created",
   "machine_client.updated",
   "machine_client.deactivated",
+  "machine_client.deleted",
   "machine_key.registered",
   "machine_key.revoked",
   "machine_access.replaced",
@@ -28,6 +29,13 @@ export const AUDIT_EVENT_TYPES = [
   "group_scopes.created",
   "group_scopes.replaced",
   "group_scopes.deleted",
+  "iac.plan.generated",
+  "iac.apply.succeeded",
+  "iac.apply.denied",
+  "iac.apply.failed",
+  "iac.object.imported",
+  "iac.object.unmanaged",
+  "iac.state.moved",
 ] as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];

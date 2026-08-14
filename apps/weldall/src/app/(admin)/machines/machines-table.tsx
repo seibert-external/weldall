@@ -17,6 +17,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import type { MachineClientDto } from "@/server/machines/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -39,7 +40,12 @@ export function MachinesTable() {
       {
         accessorKey: "name",
         header: "Name",
-        cell: ({ getValue }) => <span className="font-medium">{getValue<string>()}</span>,
+        cell: ({ row, getValue }) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{getValue<string>()}</span>
+            <ManagementBadge management={row.original.management} />
+          </div>
+        ),
       },
       {
         accessorKey: "clientId",

@@ -25,8 +25,8 @@ export class MacIssuerPreferences implements IssuerPreferences {
 
   private assertSupported() {
     if (process.platform !== "darwin" && process.env.NODE_ENV !== "test")
-      throw new ConfigurationError("Weldall currently supports macOS only", {
-        hint: "Set WELDALL_ISSUER when running development or test commands on another OS.",
+      throw new ConfigurationError("Persistent issuer preferences require macOS", {
+        hint: "Set WELDALL_ISSUER for IaC commands on another OS.",
       });
   }
 

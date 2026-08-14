@@ -1,13 +1,26 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ADMIN_SCOPE_KEY, db, LOGIN_SCOPE_KEY, Prisma } from "@weldall/db";
+import { ADMIN_SCOPE_KEY, db, IAC_SCOPE_KEY, LOGIN_SCOPE_KEY, Prisma } from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
   normalizeResourceIdentifier,
-  requestPrefixesOverlap,
 } from "@weldall/sdk";
 import { z } from "zod";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
+import {
+  lockConfigurationChanges,
+  lockSkillScopeChanges as lockAllSkillScopeChanges,
+  managementBindingInclude,
+  managementMetadata,
+  type ManagementMetadata,
+} from "../domain/configuration";
+import {
+  mutateEmailAssignment,
+  mutateResource,
+  mutateScope,
+  PrimitiveMutationError,
+  type MutationActor,
+} from "../domain/primitive-mutations";
 import { hasEffectiveSystemScopeFor } from "../policy/resources";
 import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
 
@@ -21,6 +34,15 @@ const resourceInclude = {
   scopes: { include: { scope: { select: { id: true, key: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
   discoveredCatalog: { include: { _count: { select: { skills: true } } } },
+  iacBinding: managementBindingInclude,
+} as const;
+const scopeInclude = {
+  _count: { select: { grants: true, groupGrants: true } },
+  iacBinding: managementBindingInclude,
+} as const;
+const assignmentInclude = {
+  grants: { include: { scope: { select: { key: true } } } },
+  iacBinding: managementBindingInclude,
 } as const;
 
 export type AdminErrorCode =
@@ -63,6 +85,8 @@ export interface UserDto {
   createdAt: string;
 }
 
+export type ManagementDto = ManagementMetadata;
+
 export interface ScopeDto {
   id: string;
   key: string;
@@ -72,6 +96,7 @@ export interface ScopeDto {
   assignmentCount: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 export interface AssignmentDto {
@@ -81,6 +106,7 @@ export interface AssignmentDto {
   version: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 export type SkillVisibilityDto = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
@@ -145,6 +171,7 @@ export interface ResourceDto {
   requestPrefixes: string[];
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 export function normalizeEmail(rawEmail: string): string {
@@ -404,34 +431,30 @@ export async function createResource(
     return await db.$transaction(
       async (tx) => {
         await lockResourceChanges(tx);
-        const scopes = await validateResourceScopes(tx, parsed.scopeIds);
-        await assertNoCrossResourcePrefixOverlap(tx, parsed.requestPrefixes);
-        const resource = await tx.downstreamResource.create({
-          data: {
-            key: parsed.key,
-            name: parsed.name,
-            resourceIdentifier: parsed.resourceIdentifier,
-            authorizationServer: parsed.authorizationServer,
-            downstreamClientId: parsed.downstreamClientId,
-            enabled: parsed.enabled,
-            skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
-            createdBy: actor.id,
-            updatedBy: actor.id,
-            scopes: { create: scopes.map((scope) => ({ scopeId: scope.id })) },
-            requestPrefixes: {
-              create: parsed.requestPrefixes.map((urlPrefix) => ({
-                urlPrefix,
-                createdBy: actor.id,
-              })),
-            },
-            ...(parsed.skillDiscoveryEnabled
-              ? { discoveredCatalog: { create: { nextRefreshAt: new Date() } } }
-              : {}),
-          },
-          include: resourceInclude,
-        });
-        await writeResourceAudit(tx, actor, "resource_scopes.created", null, resource);
-        return serializeResource(resource);
+        try {
+          return serializeResource(
+            await mutateResource(
+              tx,
+              {
+                action: "create",
+                key: parsed.key,
+                name: parsed.name,
+                resourceIdentifier: parsed.resourceIdentifier,
+                authorizationServer: parsed.authorizationServer,
+                downstreamClientId: parsed.downstreamClientId,
+                enabled: parsed.enabled,
+                skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
+                scopeKeys: (await validateResourceScopes(tx, parsed.scopeIds)).map(
+                  ({ key }) => key,
+                ),
+                requestPrefixes: parsed.requestPrefixes,
+              },
+              mutationActor(actor),
+            ),
+          );
+        } catch (error) {
+          throw mapPrimitiveError(error);
+        }
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -475,76 +498,30 @@ export async function updateResource(
         });
         if (!current) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
         assertVersion(current.version, input.expectedVersion);
-        const scopes = await validateResourceScopes(tx, parsed.scopeIds);
-        await assertNoCrossResourcePrefixOverlap(tx, parsed.requestPrefixes, current.id);
-        const before = current;
-        const unchanged =
-          current.name === parsed.name &&
-          current.authorizationServer === parsed.authorizationServer &&
-          current.downstreamClientId === parsed.downstreamClientId &&
-          current.enabled === parsed.enabled &&
-          current.skillDiscoveryEnabled === parsed.skillDiscoveryEnabled &&
-          (!parsed.skillDiscoveryEnabled || current.discoveredCatalog !== null) &&
-          sameStrings(current.scopes.map(({ scope }) => scope.id).sort(), parsed.scopeIds) &&
-          sameStrings(
-            current.requestPrefixes.map(({ urlPrefix }) => urlPrefix).sort(),
-            parsed.requestPrefixes,
+        try {
+          return serializeResource(
+            await mutateResource(
+              tx,
+              {
+                action: "update",
+                id: current.id,
+                expectedVersion: input.expectedVersion,
+                name: parsed.name,
+                authorizationServer: parsed.authorizationServer,
+                downstreamClientId: parsed.downstreamClientId,
+                enabled: parsed.enabled,
+                skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
+                scopeKeys: (await validateResourceScopes(tx, parsed.scopeIds)).map(
+                  ({ key }) => key,
+                ),
+                requestPrefixes: parsed.requestPrefixes,
+              },
+              mutationActor(actor),
+            ),
           );
-        if (unchanged) return serializeResource(current);
-
-        await tx.resourceScope.deleteMany({
-          where: { resourceId: current.id },
-        });
-        if (scopes.length) {
-          await tx.resourceScope.createMany({
-            data: scopes.map((scope) => ({
-              resourceId: current.id,
-              scopeId: scope.id,
-            })),
-          });
+        } catch (error) {
+          throw mapPrimitiveError(error);
         }
-        await tx.resourceRequestPrefix.deleteMany({
-          where: { resourceId: current.id },
-        });
-        await tx.resourceRequestPrefix.createMany({
-          data: parsed.requestPrefixes.map((urlPrefix) => ({
-            resourceId: current.id,
-            urlPrefix,
-            createdBy: actor.id,
-          })),
-        });
-        const updatedCount = await tx.downstreamResource.updateMany({
-          where: { id: current.id, version: input.expectedVersion },
-          data: {
-            name: parsed.name,
-            authorizationServer: parsed.authorizationServer,
-            downstreamClientId: parsed.downstreamClientId,
-            enabled: parsed.enabled,
-            skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
-            version: { increment: 1 },
-            updatedBy: actor.id,
-          },
-        });
-        if (updatedCount.count !== 1) {
-          throw new AdminDomainError("CONFLICT", "The resource changed. Reload and try again.");
-        }
-        if (parsed.skillDiscoveryEnabled) {
-          await tx.discoveredSkillCatalog.upsert({
-            where: { resourceId: current.id },
-            create: { resourceId: current.id, nextRefreshAt: new Date() },
-            update: {
-              nextRefreshAt: new Date(),
-              refreshLeaseId: null,
-              refreshLeaseUntil: null,
-            },
-          });
-        }
-        const updated = await tx.downstreamResource.findUniqueOrThrow({
-          where: { id: current.id },
-          include: resourceInclude,
-        });
-        await writeResourceAudit(tx, actor, "resource_scopes.replaced", before, updated);
-        return serializeResource(updated);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -570,25 +547,15 @@ export async function deleteResource(
         });
         if (!current) throw new AdminDomainError("NOT_FOUND", "Resource not found.");
         assertVersion(current.version, input.expectedVersion);
-        const machineAccess = await tx.machineAllowedResource.findFirst({
-          where: { resourceId: current.id },
-          include: { client: { select: { clientId: true } } },
-        });
-        if (machineAccess) {
-          throw new AdminDomainError(
-            "CONFLICT",
-            `Resource ${current.key} is selected by machine ${machineAccess.client.clientId}. Remove it from machine access first.`,
+        try {
+          return await mutateResource(
+            tx,
+            { action: "delete", id: current.id, expectedVersion: input.expectedVersion },
+            mutationActor(actor),
           );
+        } catch (error) {
+          throw mapPrimitiveError(error);
         }
-
-        const deleted = await tx.downstreamResource.deleteMany({
-          where: { id: current.id, version: input.expectedVersion },
-        });
-        if (deleted.count !== 1) {
-          throw new AdminDomainError("CONFLICT", "The resource changed. Reload and try again.");
-        }
-        await writeResourceAudit(tx, actor, "resource_scopes.deleted", current, null);
-        return { id: current.id };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -632,7 +599,7 @@ export async function listScopes(input: {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { _count: { select: { grants: true, groupGrants: true } } },
+      include: scopeInclude,
     }),
     db.scope.count({ where }),
   ]);
@@ -662,14 +629,17 @@ export async function createScope(
   const description = parseScopeDescription(input.description);
 
   return db.$transaction(async (tx) => {
-    if (await tx.scope.findUnique({ where: { key }, select: { id: true } })) {
-      throw new AdminDomainError("CONFLICT", `Scope ${key} already exists.`);
+    await lockConfigurationChanges(tx);
+    try {
+      const scope = await mutateScope(
+        tx,
+        { action: "create", key, description },
+        mutationActor(actor),
+      );
+      return serializeScope(scope, 0);
+    } catch (error) {
+      throw mapPrimitiveError(error);
     }
-    const scope = await tx.scope.create({
-      data: { key, description, createdBy: actor.id, updatedBy: actor.id },
-    });
-    await writeScopeAudit(tx, actor, "resource_scopes.created", null, scope);
-    return serializeScope(scope, 0);
   });
 }
 
@@ -680,32 +650,17 @@ export async function updateScope(
   const description = parseScopeDescription(input.description);
 
   return db.$transaction(async (tx) => {
-    const current = await tx.scope.findUnique({
-      where: { id: input.id },
-      include: { _count: { select: { grants: true, groupGrants: true } } },
-    });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Scope not found.");
-    if (current.isSystem) {
-      throw new AdminDomainError("SYSTEM_SCOPE", "System scopes cannot be changed.");
+    await lockConfigurationChanges(tx);
+    try {
+      const updated = await mutateScope(
+        tx,
+        { action: "update", id: input.id, description, expectedVersion: input.expectedVersion },
+        mutationActor(actor),
+      );
+      return serializeScope(updated, updated._count.grants + updated._count.groupGrants);
+    } catch (error) {
+      throw mapPrimitiveError(error);
     }
-    assertVersion(current.version, input.expectedVersion);
-    if (current.description === description) {
-      return serializeScope(current, current._count.grants + current._count.groupGrants);
-    }
-
-    const write = await tx.scope.updateMany({
-      where: { id: current.id, version: input.expectedVersion },
-      data: { description, version: { increment: 1 }, updatedBy: actor.id },
-    });
-    if (write.count !== 1) {
-      throw new AdminDomainError("CONFLICT", "The scope changed. Reload and try again.");
-    }
-    const updated = await tx.scope.findUniqueOrThrow({
-      where: { id: current.id },
-      include: { _count: { select: { grants: true, groupGrants: true } } },
-    });
-    await writeScopeAudit(tx, actor, "resource_scopes.replaced", current, updated);
-    return serializeScope(updated, updated._count.grants + updated._count.groupGrants);
   });
 }
 
@@ -715,155 +670,11 @@ export async function deleteScope(
 ): Promise<{ id: string; affectedAssignments: number }> {
   return db.$transaction(async (tx) => {
     await lockSkillScopeChanges(tx);
-    await lockResourceChanges(tx);
-    const current = await tx.scope.findUnique({
-      where: { id: input.id },
-      include: {
-        grants: {
-          include: {
-            assignment: {
-              include: {
-                grants: { include: { scope: { select: { key: true } } } },
-              },
-            },
-          },
-        },
-        groupGrants: {
-          include: {
-            assignment: {
-              include: {
-                provider: { select: { key: true } },
-                grants: { include: { scope: { select: { key: true } } } },
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Scope not found.");
-    if (current.isSystem) {
-      throw new AdminDomainError("SYSTEM_SCOPE", "System scopes cannot be deleted.");
+    try {
+      return await mutateScope(tx, { action: "delete", ...input }, mutationActor(actor));
+    } catch (error) {
+      throw mapPrimitiveError(error);
     }
-    assertVersion(current.version, input.expectedVersion);
-    const referencedBySkill = await tx.skill.findFirst({
-      where: { requiredScopes: { has: current.key } },
-      select: { slug: true },
-    });
-    if (referencedBySkill) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        `Scope ${current.key} is required by skill ${referencedBySkill.slug}. Update that skill first.`,
-      );
-    }
-    const referencedByResource = await tx.resourceScope.findFirst({
-      where: { scopeId: current.id },
-      include: { resource: { select: { key: true } } },
-    });
-    if (referencedByResource) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        `Scope ${current.key} is supported by resource ${referencedByResource.resource.key}. Update that resource first.`,
-      );
-    }
-    const referencedByMachine = await tx.machineAllowedScope.findFirst({
-      where: { scopeId: current.id },
-      include: { client: { select: { clientId: true } } },
-    });
-    if (referencedByMachine) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        `Scope ${current.key} is selected by machine ${referencedByMachine.client.clientId}. Remove it from machine access first.`,
-      );
-    }
-
-    const affected = current.grants.map(({ assignment }) => ({
-      id: assignment.id,
-      email: assignment.normalizedEmail,
-      version: assignment.version,
-      beforeScopes: sortedUnique(assignment.grants.map((grant) => grant.scope.key)),
-    }));
-
-    const affectedGroups = current.groupGrants.map(({ assignment }) => ({
-      id: assignment.id,
-      providerId: assignment.providerId,
-      providerKey: assignment.provider.key,
-      groupId: assignment.groupId,
-      groupName: assignment.groupName,
-      version: assignment.version,
-      beforeScopes: sortedUnique(assignment.grants.map((grant) => grant.scope.key)),
-    }));
-
-    const deleted = await tx.scope.deleteMany({
-      where: { id: current.id, version: input.expectedVersion },
-    });
-    if (deleted.count !== 1) {
-      throw new AdminDomainError("CONFLICT", "The scope changed. Reload and try again.");
-    }
-    for (const assignment of affected) {
-      const afterScopes = assignment.beforeScopes.filter((key) => key !== current.key);
-      const assignmentWrite = await tx.emailScopeAssignment.updateMany({
-        where: { id: assignment.id, version: assignment.version },
-        data: { version: { increment: 1 }, updatedBy: actor.id },
-      });
-      if (assignmentWrite.count !== 1) {
-        throw new AdminDomainError(
-          "CONFLICT",
-          "An affected assignment changed. Reload and try again.",
-        );
-      }
-      await writeAudit(tx, actor, {
-        eventType: afterScopes.length ? "user_scopes.replaced" : "user_scopes.deleted",
-        subjectType: "email_scope_assignment",
-        subjectId: assignment.id,
-        metadata: {
-          normalizedEmail: assignment.email,
-          beforeScopes: assignment.beforeScopes,
-          afterScopes,
-          addedScopes: [],
-          removedScopes: [current.key],
-          source: "scope_delete_cascade",
-          versionBefore: assignment.version,
-          versionAfter: assignment.version + 1,
-        },
-      });
-    }
-    for (const assignment of affectedGroups) {
-      const afterScopes = assignment.beforeScopes.filter((key) => key !== current.key);
-      const assignmentWrite = await tx.groupScopeAssignment.updateMany({
-        where: { id: assignment.id, version: assignment.version },
-        data: { version: { increment: 1 }, updatedBy: actor.id },
-      });
-      if (assignmentWrite.count !== 1) {
-        throw new AdminDomainError(
-          "CONFLICT",
-          "An affected group assignment changed. Reload and try again.",
-        );
-      }
-      await writeAudit(tx, actor, {
-        eventType: afterScopes.length ? "group_scopes.replaced" : "group_scopes.deleted",
-        subjectType: "group_scope_assignment",
-        subjectId: assignment.id,
-        metadata: {
-          providerId: assignment.providerId,
-          providerKey: assignment.providerKey,
-          groupId: assignment.groupId,
-          groupName: assignment.groupName,
-          beforeScopes: assignment.beforeScopes,
-          afterScopes,
-          addedScopes: [],
-          removedScopes: [current.key],
-          source: "scope_delete_cascade",
-          versionBefore: assignment.version,
-          versionAfter: assignment.version + 1,
-        },
-      });
-    }
-    await writeScopeAudit(tx, actor, "resource_scopes.deleted", current, null);
-
-    return {
-      id: current.id,
-      affectedAssignments: affected.length + affectedGroups.length,
-    };
   });
 }
 
@@ -1138,7 +949,7 @@ export async function listAssignments(input: {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { grants: { include: { scope: { select: { key: true } } } } },
+      include: assignmentInclude,
     }),
     db.emailScopeAssignment.count({ where }),
   ]);
@@ -1149,7 +960,7 @@ export async function listAssignments(input: {
 export async function getAssignment(id: string): Promise<AssignmentDto> {
   const assignment = await db.emailScopeAssignment.findUnique({
     where: { id },
-    include: { grants: { include: { scope: { select: { key: true } } } } },
+    include: assignmentInclude,
   });
   if (!assignment) throw new AdminDomainError("NOT_FOUND", "Assignment not found.");
   return serializeAssignment(assignment);
@@ -1158,7 +969,7 @@ export async function getAssignment(id: string): Promise<AssignmentDto> {
 export async function getAssignmentByEmail(email: string): Promise<AssignmentDto | null> {
   const assignment = await db.emailScopeAssignment.findUnique({
     where: { normalizedEmail: normalizeEmail(email) },
-    include: { grants: { include: { scope: { select: { key: true } } } } },
+    include: assignmentInclude,
   });
   return assignment ? serializeAssignment(assignment) : null;
 }
@@ -1169,18 +980,24 @@ export async function replaceAssignment(
 ): Promise<AssignmentDto | null> {
   const normalizedEmail = normalizeEmail(input.email);
   const scopeKeys = parseScopeKeys(input.scopeKeys);
+  if (scopeKeys.includes(IAC_SCOPE_KEY)) {
+    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
+  }
   try {
     return await db.$transaction(
-      (tx) =>
-        replaceAssignmentInTransaction(
-          tx,
-          {
-            normalizedEmail,
-            scopeKeys,
-            expectedVersion: input.expectedVersion,
-          },
-          actor,
-        ),
+      async (tx) => {
+        await lockConfigurationChanges(tx);
+        try {
+          const assignment = await mutateEmailAssignment(
+            tx,
+            { email: normalizedEmail, scopeKeys, expectedVersion: input.expectedVersion },
+            mutationActor(actor),
+          );
+          return assignment ? serializeAssignment(assignment) : null;
+        } catch (error) {
+          throw mapPrimitiveError(error);
+        }
+      },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   } catch (error) {
@@ -1305,143 +1122,6 @@ export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
       return serializeAssignment(assignment);
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
-}
-
-async function replaceAssignmentInTransaction(
-  tx: Prisma.TransactionClient,
-  input: {
-    normalizedEmail: string;
-    scopeKeys: string[];
-    expectedVersion: number | null;
-  },
-  actor: AdminActor,
-): Promise<AssignmentDto | null> {
-  const current = await tx.emailScopeAssignment.findUnique({
-    where: { normalizedEmail: input.normalizedEmail },
-    include: {
-      grants: { include: { scope: { select: { id: true, key: true } } } },
-    },
-  });
-  const beforeScopes = current ? sortedUnique(current.grants.map((grant) => grant.scope.key)) : [];
-
-  if (input.expectedVersion === null) {
-    if (current && beforeScopes.length > 0) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        "The assignment already exists. Reload and try again.",
-      );
-    }
-  } else if (!current || current.version !== input.expectedVersion) {
-    throw new AdminDomainError("CONFLICT", "The assignment changed. Reload and try again.", {
-      currentVersion: current?.version ?? null,
-    });
-  }
-
-  if (sameStrings(beforeScopes, input.scopeKeys)) {
-    return current ? serializeAssignment(current) : null;
-  }
-
-  const scopes = input.scopeKeys.length
-    ? await tx.scope.findMany({ where: { key: { in: input.scopeKeys } } })
-    : [];
-  if (scopes.length !== input.scopeKeys.length) {
-    const known = new Set(scopes.map((scope) => scope.key));
-    throw new AdminDomainError("INVALID_SCOPE", "One or more scopes do not exist.", {
-      unknownScopes: input.scopeKeys.filter((key) => !known.has(key)),
-    });
-  }
-
-  if (beforeScopes.includes(ADMIN_SCOPE_KEY) && !input.scopeKeys.includes(ADMIN_SCOPE_KEY)) {
-    assertAdminCanBeRemoved(await countVerifiedAdmins(tx));
-  }
-
-  if (!current && input.scopeKeys.length === 0) return null;
-
-  let saved;
-  if (current) {
-    await tx.emailScopeGrant.deleteMany({
-      where: { assignmentId: current.id },
-    });
-    if (scopes.length) {
-      await tx.emailScopeGrant.createMany({
-        data: scopes.map((scope) => ({
-          id: randomUUID(),
-          assignmentId: current.id,
-          scopeId: scope.id,
-          createdBy: actor.id,
-        })),
-      });
-    }
-    const write = await tx.emailScopeAssignment.updateMany({
-      where: { id: current.id, version: current.version },
-      data: { version: { increment: 1 }, updatedBy: actor.id },
-    });
-    if (write.count !== 1) {
-      throw new AdminDomainError("CONFLICT", "The assignment changed. Reload and try again.");
-    }
-    saved = await tx.emailScopeAssignment.findUniqueOrThrow({
-      where: { id: current.id },
-      include: { grants: { include: { scope: { select: { key: true } } } } },
-    });
-  } else {
-    saved = await tx.emailScopeAssignment.create({
-      data: {
-        normalizedEmail: input.normalizedEmail,
-        createdBy: actor.id,
-        updatedBy: actor.id,
-        grants: {
-          create: scopes.map((scope) => ({
-            id: randomUUID(),
-            scopeId: scope.id,
-            createdBy: actor.id,
-          })),
-        },
-      },
-      include: { grants: { include: { scope: { select: { key: true } } } } },
-    });
-  }
-
-  const afterScopes = sortedUnique(saved.grants.map((grant) => grant.scope.key));
-  const eventType =
-    beforeScopes.length === 0
-      ? "user_scopes.created"
-      : afterScopes.length === 0
-        ? "user_scopes.deleted"
-        : "user_scopes.replaced";
-  await writeAudit(tx, actor, {
-    eventType,
-    subjectType: "email_scope_assignment",
-    subjectId: saved.id,
-    metadata: {
-      normalizedEmail: input.normalizedEmail,
-      beforeScopes,
-      afterScopes,
-      addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),
-      removedScopes: beforeScopes.filter((key) => !afterScopes.includes(key)),
-      source: "admin_api",
-      versionBefore: current?.version ?? 0,
-      versionAfter: saved.version,
-    },
-  });
-
-  return serializeAssignment(saved);
-}
-
-async function countVerifiedAdmins(tx: Prisma.TransactionClient): Promise<number> {
-  const [assignments, users] = await Promise.all([
-    tx.emailScopeAssignment.findMany({
-      where: { grants: { some: { scope: { key: ADMIN_SCOPE_KEY } } } },
-      select: { normalizedEmail: true },
-    }),
-    tx.user.findMany({
-      where: { emailVerified: true },
-      select: { email: true },
-    }),
-  ]);
-  return countVerifiedAdminEmails(
-    assignments.map((assignment) => assignment.normalizedEmail),
-    users.map((user) => user.email),
   );
 }
 
@@ -1570,30 +1250,8 @@ async function validateResourceScopes(tx: Prisma.TransactionClient, scopeIds: st
   return scopes;
 }
 
-async function assertNoCrossResourcePrefixOverlap(
-  tx: Prisma.TransactionClient,
-  requestPrefixes: string[],
-  resourceId?: string,
-) {
-  const existing = await tx.resourceRequestPrefix.findMany({
-    ...(resourceId ? { where: { resourceId: { not: resourceId } } } : {}),
-    include: { resource: { select: { key: true } } },
-  });
-  for (const requestPrefix of requestPrefixes) {
-    const conflict = existing.find((candidate) =>
-      requestPrefixesOverlap(requestPrefix, candidate.urlPrefix),
-    );
-    if (conflict) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        `Request prefix ${requestPrefix} overlaps resource ${conflict.resource.key}.`,
-      );
-    }
-  }
-}
-
 async function lockResourceChanges(tx: Prisma.TransactionClient): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(49350618)`;
+  await lockConfigurationChanges(tx);
 }
 
 function serializeResource(resource: {
@@ -1619,6 +1277,10 @@ function serializeResource(resource: {
     lastFailureCategory: string | null;
     lastFailureAt: Date | null;
     _count: { skills: number };
+  } | null;
+  iacBinding?: {
+    address: string;
+    workspace: { id: string; name: string };
   } | null;
 }): ResourceDto {
   const now = new Date();
@@ -1662,96 +1324,8 @@ function serializeResource(resource: {
     requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
     createdAt: resource.createdAt.toISOString(),
     updatedAt: resource.updatedAt.toISOString(),
+    management: managementMetadata(resource.iacBinding),
   };
-}
-
-async function writeResourceAudit(
-  tx: Prisma.TransactionClient,
-  actor: AdminActor,
-  eventType: "resource_scopes.created" | "resource_scopes.replaced" | "resource_scopes.deleted",
-  before: Parameters<typeof serializeResource>[0] | null,
-  after: Parameters<typeof serializeResource>[0] | null,
-) {
-  const snapshot = (resource: Parameters<typeof serializeResource>[0]) => ({
-    key: resource.key,
-    resourceIdentifier: resource.resourceIdentifier,
-    authorizationServer: resource.authorizationServer,
-    downstreamClientId: resource.downstreamClientId,
-    scopeKeys: sortedUnique(resource.scopes.map(({ scope }) => scope.key)),
-    requestPrefixes: sortedUnique(resource.requestPrefixes.map(({ urlPrefix }) => urlPrefix)),
-    enabled: resource.enabled,
-    skillDiscoveryEnabled: resource.skillDiscoveryEnabled,
-    ownerId: resource.createdBy,
-    version: resource.version,
-  });
-  const beforeSnapshot = before ? snapshot(before) : null;
-  const afterSnapshot = after ? snapshot(after) : null;
-  const beforeScopes = beforeSnapshot?.scopeKeys ?? [];
-  const afterScopes = afterSnapshot?.scopeKeys ?? [];
-  const resource = after ?? before;
-  if (!resource) throw new Error("Resource audit requires a before or after snapshot");
-  await writeAudit(tx, actor, {
-    eventType,
-    subjectType: "downstream_resource",
-    subjectId: resource.id,
-    metadata: {
-      entityType: "registered_resource",
-      source: "admin_api",
-      resourceIdentifier: resource.resourceIdentifier,
-      before: beforeSnapshot,
-      after: afterSnapshot,
-      addedScopes: afterScopes.filter((scope) => !beforeScopes.includes(scope)),
-      changedScopes: [],
-      removedScopes: beforeScopes.filter((scope) => !afterScopes.includes(scope)),
-      contentDigest: contentHash(JSON.stringify(afterSnapshot ?? beforeSnapshot)),
-    },
-  });
-}
-
-async function writeScopeAudit(
-  tx: Prisma.TransactionClient,
-  actor: AdminActor,
-  eventType: "resource_scopes.created" | "resource_scopes.replaced" | "resource_scopes.deleted",
-  before: {
-    id: string;
-    key: string;
-    description: string;
-    isSystem: boolean;
-    version: number;
-  } | null,
-  after: {
-    id: string;
-    key: string;
-    description: string;
-    isSystem: boolean;
-    version: number;
-  } | null,
-) {
-  const snapshot = (scope: NonNullable<typeof before>) => ({
-    key: scope.key,
-    description: scope.description,
-    isSystem: scope.isSystem,
-    version: scope.version,
-  });
-  const beforeSnapshot = before ? snapshot(before) : null;
-  const afterSnapshot = after ? snapshot(after) : null;
-  const key = after?.key ?? before!.key;
-  await writeAudit(tx, actor, {
-    eventType,
-    subjectType: "scope_definition",
-    subjectId: after?.id ?? before!.id,
-    metadata: {
-      entityType: "scope_definition",
-      source: "admin_api",
-      resourceIdentifier: null,
-      before: beforeSnapshot,
-      after: afterSnapshot,
-      addedScopes: before ? [] : [key],
-      changedScopes: before && after ? [key] : [],
-      removedScopes: after ? [] : [key],
-      contentDigest: contentHash(JSON.stringify(afterSnapshot ?? beforeSnapshot)),
-    },
-  });
 }
 
 function serializeScope(
@@ -1763,6 +1337,10 @@ function serializeScope(
     version: number;
     createdAt: Date;
     updatedAt: Date;
+    iacBinding?: {
+      address: string;
+      workspace: { id: string; name: string };
+    } | null;
   },
   assignmentCount: number,
 ): ScopeDto {
@@ -1775,6 +1353,7 @@ function serializeScope(
     assignmentCount,
     createdAt: scope.createdAt.toISOString(),
     updatedAt: scope.updatedAt.toISOString(),
+    management: managementMetadata(scope.iacBinding),
   };
 }
 
@@ -1894,8 +1473,8 @@ function serializeDiscoveredSkill(
 }
 
 async function lockSkillScopeChanges(tx: Prisma.TransactionClient): Promise<void> {
-  // Serialize skill-scope reference checks with scope deletion to avoid orphaned scope keys.
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(49350617)`;
+  // Serialize skill-scope reference checks after the shared configuration lock.
+  await lockAllSkillScopeChanges(tx);
 }
 
 async function assertSkillScopesExist(
@@ -1986,6 +1565,10 @@ function serializeAssignment(assignment: {
   createdAt: Date;
   updatedAt: Date;
   grants: { scope: { key: string } }[];
+  iacBinding?: {
+    address: string;
+    workspace: { id: string; name: string };
+  } | null;
 }): AssignmentDto {
   return {
     id: assignment.id,
@@ -1994,6 +1577,7 @@ function serializeAssignment(assignment: {
     version: assignment.version,
     createdAt: assignment.createdAt.toISOString(),
     updatedAt: assignment.updatedAt.toISOString(),
+    management: managementMetadata(assignment.iacBinding),
   };
 }
 
@@ -2036,6 +1620,22 @@ function contentHash(content: string): string {
 
 function isPrismaError(error: unknown, code: string): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code;
+}
+
+function mutationActor(actor: AdminActor): MutationActor {
+  return {
+    type: "user",
+    id: actor.id,
+    ...(actor.email ? { email: actor.email } : {}),
+    requestId: actor.requestId,
+    ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+    source: "admin_api",
+  };
+}
+
+function mapPrimitiveError(error: unknown): unknown {
+  if (!(error instanceof PrimitiveMutationError)) return error;
+  return new AdminDomainError(error.code, error.message, error.details);
 }
 
 function positiveInteger(value: number, fallback: number): number {

@@ -38,6 +38,11 @@ export default defineConfig({
             { slug: "service-configuration" },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
+            {
+              label: "Infrastructure as Code",
+              translations: { en: "Infrastructure as code" },
+              link: "/infrastructure-as-code/",
+            },
           ],
         },
       ],

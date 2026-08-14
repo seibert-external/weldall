@@ -20,6 +20,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import type { GroupAssignmentDto } from "@/server/group-providers/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -73,20 +74,18 @@ export function GroupAssignmentsPage() {
         header: "Provider",
         cell: ({ row, getValue }) => (
           <div className="grid gap-1">
-            <span className="font-medium">{getValue<string>()}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{getValue<string>()}</span>
+              <ManagementBadge management={row.original.management} />
+            </div>
             <code className="text-xs">{row.original.providerKey}</code>
           </div>
         ),
       },
       {
-        accessorKey: "groupName",
-        header: "Group",
-        cell: ({ getValue }) => <span className="font-medium">{getValue<string>()}</span>,
-      },
-      {
         accessorKey: "groupId",
         header: "Group ID",
-        cell: ({ getValue }) => <code className="text-sm">{getValue<string>()}</code>,
+        cell: ({ getValue }) => <code className="text-sm font-medium">{getValue<string>()}</code>,
       },
       {
         accessorKey: "scopes",
@@ -236,7 +235,7 @@ export function GroupAssignmentsPage() {
         actionLabel="Delete assignment"
         description={
           deletingAssignment
-            ? `Remove all group-derived scopes for ${deletingAssignment.groupName} from ${deletingAssignment.providerName}?`
+            ? `Remove all group-derived scopes for ${deletingAssignment.groupId} from ${deletingAssignment.providerName}?`
             : "Delete this group assignment?"
         }
         isActionLoading={deleteMutation.isPending}

@@ -95,6 +95,39 @@ jobs:
           pnpm --filter @weldall/cli test
           pnpm --filter @weldall/cli pack:check
 
+  # Exercise the published artifact outside the monorepo without optional native dependencies.
+  packed-cli:
+    name: Packed CLI (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - name: Pack CLI
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @weldall/cli build
+          pnpm --filter @weldall/cli pack --pack-destination "$RUNNER_TEMP"
+      - name: Smoke-test IaC startup
+        run: |
+          mkdir "$RUNNER_TEMP/weldall-cli-smoke"
+          cd "$RUNNER_TEMP/weldall-cli-smoke"
+          npm init -y
+          npm install --omit=optional "$RUNNER_TEMP"/weldall-cli-*.tgz
+          ./node_modules/.bin/weldall validate --help
+          ./node_modules/.bin/weldall plan --help
+          ./node_modules/.bin/weldall state --help
+
   e2e:
     needs: verify
     if: github.event_name != 'pull_request' || github.head_ref != 'changeset-release/main'
@@ -122,6 +155,7 @@ jobs:
     needs:
       - verify
       - package-compat
+      - packed-cli
       - e2e
     runs-on: weldall
     timeout-minutes: 20

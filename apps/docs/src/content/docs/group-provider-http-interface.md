@@ -46,7 +46,7 @@ GET <baseUrl>/api/management/groups/
 | `cn`          | Optionaler Anzeigename. Fehlt er oder ist er leer, verwendet Weldall `ou`.         |
 | `description` | Optionale Beschreibung. `null` ist zulässig.                                       |
 
-Weldall verwendet diese Liste für Verbindungstests, Gruppensuche und die Validierung neuer Zuweisungen. Die Suche erfolgt lokal über ID, Name und Beschreibung. Die Antwort darf höchstens 10.000 Gruppen enthalten.
+Weldall verwendet diese Liste für Verbindungstests und optionale Gruppensuchen. Beim Erstellen von Zuweisungen behandelt Weldall Gruppen-IDs als opak und ruft den Provider nicht auf. Die Suche erfolgt lokal über ID, Name und Beschreibung. Die Antwort darf höchstens 10.000 Gruppen enthalten.
 
 ## Eine Gruppe lesen
 

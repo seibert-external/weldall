@@ -33,6 +33,7 @@ model Scope {
   groupGrants        GroupScopeGrant[]
   resources          ResourceScope[]
   allowedForMachines MachineAllowedScope[]
+  iacBinding         IacObjectBinding?
 
   @@index([updatedAt])
 }
@@ -46,6 +47,7 @@ model EmailScopeAssignment {
   createdBy       String
   updatedBy       String
   grants          EmailScopeGrant[]
+  iacBinding      IacObjectBinding?
 
   @@index([updatedAt])
 }
@@ -87,7 +89,6 @@ model GroupScopeAssignment {
   id         String            @id @default(cuid())
   providerId String
   groupId    String
-  groupName  String
   version    Int               @default(1)
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
@@ -95,6 +96,7 @@ model GroupScopeAssignment {
   updatedBy  String
   provider   GroupProvider     @relation(fields: [providerId], references: [id], onDelete: Restrict)
   grants     GroupScopeGrant[]
+  iacBinding IacObjectBinding?
 
   @@unique([providerId, groupId])
   @@index([updatedAt])
@@ -162,6 +164,7 @@ model DownstreamResource {
   requestPrefixes       ResourceRequestPrefix[]
   discoveredCatalog     DiscoveredSkillCatalog?
   allowedForMachines    MachineAllowedResource[]
+  iacBinding            IacObjectBinding?
 
   @@index([name])
   @@index([updatedAt])
@@ -244,6 +247,7 @@ model MachineClient {
   keys             MachineClientKey[]
   allowedResources MachineAllowedResource[]
   allowedScopes    MachineAllowedScope[]
+  iacBinding       IacObjectBinding?
 
   @@index([enabled])
   @@index([updatedAt])
@@ -283,6 +287,98 @@ model MachineAllowedScope {
 
   @@id([machineClientId, scopeId])
   @@index([scopeId])
+}
+
+enum IacPrimitiveKind {
+  SCOPE
+  RESOURCE
+  MACHINE
+  EMAIL_ASSIGNMENT
+  GROUP_ASSIGNMENT
+}
+
+enum IacOperationType {
+  APPLY
+  IMPORT
+  UNMANAGE
+  STATE_MOVE
+}
+
+enum IacOperationStatus {
+  STARTED
+  SUCCEEDED
+  FAILED
+}
+
+/// Persistent database-installation identity advertised in discovery and pinned in IaC lockfiles.
+model InstallationIdentity {
+  /// Fixed singleton row key; this is not the installation UUID.
+  id             String   @id @default("default")
+  installationId String   @unique @db.Uuid
+  createdAt      DateTime @default(now())
+}
+
+model IacWorkspace {
+  id               String             @id @db.Uuid
+  name             String
+  issuer           String
+  revision         Int                @default(0)
+  lastConfigDigest String?
+  lastActorId      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  bindings         IacObjectBinding[]
+  operations       IacOperation[]
+
+  @@index([updatedAt])
+}
+
+model IacObjectBinding {
+  id                String                @id @default(cuid())
+  workspaceId       String                @db.Uuid
+  address           String
+  kind              IacPrimitiveKind
+  naturalIdentity   String
+  scopeId           String?               @unique
+  resourceId        String?               @unique
+  machineClientId   String?               @unique
+  emailAssignmentId String?               @unique
+  groupAssignmentId String?               @unique
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scope             Scope?                @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+  resource          DownstreamResource?   @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  machineClient     MachineClient?        @relation(fields: [machineClientId], references: [id], onDelete: SetNull)
+  emailAssignment   EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
+  groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, address])
+  @@index([workspaceId, kind])
+}
+
+model ReplayMarker {
+  key       String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model IacOperation {
+  id                String             @id @db.Uuid
+  workspaceId       String             @db.Uuid
+  type              IacOperationType
+  requestDigest     String
+  priorRevision     Int
+  resultingRevision Int?
+  status            IacOperationStatus @default(STARTED)
+  resultSummary     Json               @default("{}")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  workspace         IacWorkspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
 }
 
 model AuditEvent {

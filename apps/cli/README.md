@@ -1,8 +1,8 @@
 # Weldall CLI
 
-A macOS CLI for Weldall's DPoP-bound OAuth flow.
+A CLI for native YAML infrastructure on Linux and macOS, with interactive Weldall user sessions on macOS.
 
-> **Prototype:** Weldall uses pinned draft protocols and process-local replay protection. Review your server deployment's security boundary before production use. Every `weldall login` opens a browser approval screen; approve only when you started that login on the same device.
+> **Security note:** Weldall uses pinned draft protocols. Machine and IaC replay checks use shared PostgreSQL storage; native user OAuth and demo resource-server replay checks still include process-local stores. Review your deployment's security boundary before production use. Every `weldall login` opens a browser approval screen; approve only when you started that login on the same device.
 
 ## Installation
 
@@ -13,8 +13,10 @@ npm install --global @weldall/cli
 weldall --version
 ```
 
-The npm package supports macOS only. npm installs the matching native Keychain binding for the
-current Mac; no local compiler, Bun installation, or standalone release binary is required.
+The npm package and native YAML IaC commands support Linux and macOS. IaC uses M2M environment
+secrets and does not load Keychain or Preferences. Interactive login, capability discovery, and
+user-authenticated requests are supported on macOS, where the CLI stores sessions in Keychain and the
+issuer in Preferences.
 
 ## Configuration
 
@@ -46,6 +48,21 @@ stored separately per issuer in macOS Keychain. For local development, the equiv
 
 ```sh
 defaults write dev.seibert.weldall-cli Issuer -string "https://weldall.example.com"
+```
+
+## Native YAML infrastructure as code
+
+Native Weldall YAML manages one atomic configuration snapshot through the existing CLI. See [the IaC guide](../docs/src/content/docs/en/infrastructure-as-code.mdx).
+
+```sh
+weldall init --name platform-access --issuer https://weldall.example.com
+weldall validate
+weldall plan --json
+weldall up --yes
+weldall import scope expenses:read --as scope.expenses_read
+weldall unmanage scope.expenses_read --yes
+weldall state pull
+weldall state mv scope.old scope.new
 ```
 
 ## Commands

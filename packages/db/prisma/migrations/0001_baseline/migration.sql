@@ -80,7 +80,6 @@ CREATE TABLE "GroupScopeAssignment" (
     "id" TEXT NOT NULL,
     "providerId" TEXT NOT NULL,
     "groupId" TEXT NOT NULL,
-    "groupName" TEXT NOT NULL,
     "version" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -753,9 +752,6 @@ ALTER TABLE "GroupProvider"
 ALTER TABLE "GroupScopeAssignment"
   ADD CONSTRAINT "GroupScopeAssignment_group_id_length" CHECK (
     char_length(btrim("groupId")) BETWEEN 1 AND 191
-  ),
-  ADD CONSTRAINT "GroupScopeAssignment_group_name_length" CHECK (
-    char_length(btrim("groupName")) BETWEEN 1 AND 191
   ),
   ADD CONSTRAINT "GroupScopeAssignment_version" CHECK ("version" > 0);
 

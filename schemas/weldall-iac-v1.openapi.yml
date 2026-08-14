@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: Weldall native YAML IaC API
+  version: 1.0.0
+  description: Plan and atomically apply native Weldall YAML configuration.
+servers:
+  - url: https://weldall.example.com/api/iac/v1
+security:
+  - machineDpop: []
+paths:
+  /plan:
+    post:
+      operationId: plan
+      requestBody: { $ref: "#/components/requestBodies/Plan" }
+      responses:
+        {
+          "200": { $ref: "#/components/responses/Plan" },
+          "400": { $ref: "#/components/responses/Error" },
+          "401": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "413": { $ref: "#/components/responses/Error" },
+        }
+  /apply:
+    post:
+      operationId: apply
+      requestBody: { $ref: "#/components/requestBodies/Apply" }
+      responses:
+        {
+          "200": { $ref: "#/components/responses/Mutation" },
+          "400": { $ref: "#/components/responses/Error" },
+          "401": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "413": { $ref: "#/components/responses/Error" },
+        }
+  /import:
+    post:
+      operationId: importObject
+      requestBody: { $ref: "#/components/requestBodies/Import" }
+      responses:
+        {
+          "200": { $ref: "#/components/responses/Mutation" },
+          "400": { $ref: "#/components/responses/Error" },
+          "401": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /unmanage:
+    post:
+      operationId: unmanage
+      requestBody: { $ref: "#/components/requestBodies/Unmanage" }
+      responses:
+        {
+          "200": { $ref: "#/components/responses/Mutation" },
+          "400": { $ref: "#/components/responses/Error" },
+          "401": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /state/move:
+    post:
+      operationId: moveState
+      requestBody: { $ref: "#/components/requestBodies/Move" }
+      responses:
+        {
+          "200": { $ref: "#/components/responses/Mutation" },
+          "400": { $ref: "#/components/responses/Error" },
+          "401": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        }
+  /workspaces/{id}/state:
+    get:
+      operationId: pullState
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        {
+          "200": { $ref: "#/components/responses/State" },
+          "400": { $ref: "#/components/responses/Error" },
+          "401": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+        }
+components:
+  securitySchemes:
+    machineDpop: { type: http, scheme: DPoP, bearerFormat: JWT }
+  schemas:
+    LocalManifest:
+      $ref: ./weldall-manifest-v1.schema.json
+    SubmittedManifest:
+      type: object
+      additionalProperties: false
+      required: [apiVersion, workspace]
+      properties:
+        apiVersion: { const: weldall.dev/v1 }
+        workspace: { $ref: "#/components/schemas/Workspace" }
+        scopes: { $ref: "./weldall-manifest-v1.schema.json#/properties/scopes" }
+        resources: { $ref: "./weldall-manifest-v1.schema.json#/properties/resources" }
+        machines: { $ref: "./weldall-manifest-v1.schema.json#/properties/machines" }
+        emailAssignments: { $ref: "./weldall-manifest-v1.schema.json#/properties/emailAssignments" }
+        groupAssignments: { $ref: "./weldall-manifest-v1.schema.json#/properties/groupAssignments" }
+    Address:
+      type: string
+      pattern: '^(scope|resource|machine|emailAssignment|groupAssignment)\.[a-z][a-z0-9_-]{0,119}$'
+    Digest: { type: string, pattern: "^[a-f0-9]{64}$" }
+    OperationId: { type: string, format: uuid }
+    Workspace:
+      type: object
+      additionalProperties: false
+      required: [id, name, issuer]
+      properties:
+        {
+          id: { type: string, format: uuid },
+          name: { type: string, minLength: 1, maxLength: 200 },
+          issuer: { type: string, format: uri, pattern: "^https://" },
+        }
+    PlanRequest:
+      type: object
+      additionalProperties: false
+      required: [manifest]
+      properties: { manifest: { $ref: "#/components/schemas/SubmittedManifest" } }
+    ApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [manifest, plannedRevision, configDigest, planDigest, operationId]
+      properties:
+        {
+          manifest: { $ref: "#/components/schemas/SubmittedManifest" },
+          plannedRevision: { type: integer, minimum: 0 },
+          configDigest: { $ref: "#/components/schemas/Digest" },
+          planDigest: { $ref: "#/components/schemas/Digest" },
+          operationId: { $ref: "#/components/schemas/OperationId" },
+        }
+    ImportRequest:
+      type: object
+      additionalProperties: false
+      required: [workspace, kind, identity, address, operationId]
+      properties:
+        {
+          workspace: { $ref: "#/components/schemas/Workspace" },
+          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment] },
+          identity: { type: string, minLength: 1, maxLength: 160 },
+          address: { $ref: "#/components/schemas/Address" },
+          operationId: { $ref: "#/components/schemas/OperationId" },
+        }
+    UnmanageRequest:
+      type: object
+      additionalProperties: false
+      required: [workspaceId, address, manifest, configDigest, operationId]
+      properties:
+        {
+          workspaceId: { type: string, format: uuid },
+          address: { $ref: "#/components/schemas/Address" },
+          manifest: { $ref: "#/components/schemas/SubmittedManifest" },
+          configDigest: { $ref: "#/components/schemas/Digest" },
+          operationId: { $ref: "#/components/schemas/OperationId" },
+        }
+    MoveRequest:
+      type: object
+      additionalProperties: false
+      required: [workspaceId, from, to, operationId]
+      properties:
+        {
+          workspaceId: { type: string, format: uuid },
+          from: { $ref: "#/components/schemas/Address" },
+          to: { $ref: "#/components/schemas/Address" },
+          operationId: { $ref: "#/components/schemas/OperationId" },
+        }
+    Action:
+      type: object
+      additionalProperties: false
+      required: [address, kind, action, identity]
+      properties:
+        {
+          address: { $ref: "#/components/schemas/Address" },
+          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment] },
+          action:
+            { enum: [create, update, replace, delete, recreate, register_key, revoke_key, noop] },
+          identity: { type: string, maxLength: 320 },
+          drift: { type: boolean },
+          irreversible: { type: boolean },
+          keyId: { type: string, maxLength: 128 },
+          keyThumbprint: { type: string, maxLength: 100 },
+        }
+    Blocker:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        {
+          code: { type: string, maxLength: 100 },
+          address: { $ref: "#/components/schemas/Address" },
+          message: { type: string, maxLength: 2000 },
+          ownerWorkspaceId: { type: string, format: uuid },
+        }
+    Plan:
+      type: object
+      additionalProperties: false
+      required: [version, workspaceId, revision, configDigest, actions, blockers, digest]
+      properties:
+        {
+          version: { const: 1 },
+          workspaceId: { type: string, format: uuid },
+          revision: { type: integer, minimum: 0 },
+          configDigest: { $ref: "#/components/schemas/Digest" },
+          actions: { type: array, maxItems: 1200, items: { $ref: "#/components/schemas/Action" } },
+          blockers:
+            { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/Blocker" } },
+          digest: { $ref: "#/components/schemas/Digest" },
+        }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            {
+              code: { type: string, maxLength: 100 },
+              message: { type: string, maxLength: 2000 },
+              requestId: { type: string, maxLength: 200 },
+              currentRevision: { type: integer, minimum: 0 },
+              ownerWorkspaceId: { type: string, format: uuid },
+              blockers:
+                { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/Blocker" } },
+            }
+    MutationResult: { type: object, maxProperties: 20, additionalProperties: true }
+    State:
+      {
+        type: object,
+        additionalProperties: true,
+        required: [workspace, objects],
+        properties:
+          {
+            workspace: { type: object },
+            objects: { type: array, maxItems: 1000, items: { type: object } },
+          },
+      }
+  requestBodies:
+    Plan:
+      {
+        required: true,
+        content: { application/json: { schema: { $ref: "#/components/schemas/PlanRequest" } } },
+      }
+    Apply:
+      {
+        required: true,
+        content: { application/json: { schema: { $ref: "#/components/schemas/ApplyRequest" } } },
+      }
+    Import:
+      {
+        required: true,
+        content: { application/json: { schema: { $ref: "#/components/schemas/ImportRequest" } } },
+      }
+    Unmanage:
+      {
+        required: true,
+        content: { application/json: { schema: { $ref: "#/components/schemas/UnmanageRequest" } } },
+      }
+    Move:
+      {
+        required: true,
+        content: { application/json: { schema: { $ref: "#/components/schemas/MoveRequest" } } },
+      }
+  responses:
+    Plan:
+      {
+        description: Deterministic plan,
+        content: { application/json: { schema: { $ref: "#/components/schemas/Plan" } } },
+      }
+    Mutation:
+      {
+        description: Idempotent mutation result,
+        content: { application/json: { schema: { $ref: "#/components/schemas/MutationResult" } } },
+      }
+    State:
+      {
+        description: Authoritative ownership state,
+        content: { application/json: { schema: { $ref: "#/components/schemas/State" } } },
+      }
+    Error:
+      {
+        description: Structured redacted error,
+        content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } },
+      }

@@ -317,7 +317,6 @@ describe("Weldall token exchange", () => {
       data: {
         providerId: provider.id,
         groupId: "cli-users",
-        groupName: "CLI users",
         createdBy: "token-exchange-test",
         updatedBy: "token-exchange-test",
         grants: { create: { scopeId: loginScope.id, createdBy: "token-exchange-test" } },

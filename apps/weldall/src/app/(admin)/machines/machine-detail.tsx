@@ -23,6 +23,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import type { MachineClientDto } from "@/server/machines/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -245,6 +246,7 @@ export function MachineDetail({ machineId }: { machineId: string | null }) {
               <h2 className="m-0 text-xl font-semibold" id="machine-details-title">
                 {isNew ? "Register machine" : machine?.name}
               </h2>
+              {machine ? <ManagementBadge management={machine.management} /> : null}
               <Text color="secondary">
                 {machine
                   ? `Version ${machine.version} · Updated ${dateFormatter.format(new Date(machine.updatedAt))}`

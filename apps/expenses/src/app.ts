@@ -38,7 +38,7 @@ export const createApp = async () => {
       expenses: [
         {
           id: "expense-1",
-          description: "Prototype lunch",
+          description: "Team lunch",
           amount: 18.5,
           currency: "EUR",
         },

@@ -6,7 +6,7 @@ Planned.
 
 ## Decision
 
-Weldall IaC v1 will use **native Weldall YAML**, managed through the existing `weldall` CLI with `weldall plan`, `weldall up`, `weldall import`, and related commands.
+Weldall IaC v1 uses **native Weldall YAML**, managed through the existing `weldall` CLI with `weldall plan`, `weldall up`, `weldall import`, and related commands. One complete configuration snapshot is validated and committed atomically.
 
 **Terraform is not part of this plan.** We will not build a Terraform provider, consume Terraform state, use HCL, or make Terraform a supported v1 interface. The native Weldall workflow is the sole implementation target.
 
@@ -46,7 +46,7 @@ Terraform was evaluated and rejected for this feature because its normal resourc
 | Downstream resource    | Resource key              | Name, resource identifier, authorization server, downstream client ID, enabled flags, supported scopes, request prefixes |
 | Machine client         | Client ID                 | Name, enabled state, allowed resources, allowed scopes, active public keys                                               |
 | Email scope assignment | Normalized email          | Complete assigned scope set                                                                                              |
-| Group scope assignment | Provider key and group ID | Complete assigned scope set; group name remains server-fetched display metadata                                          |
+| Group scope assignment | Provider key and group ID | Complete assigned scope set; group IDs are opaque and no group metadata is persisted                                     |
 
 Nested rows such as grants, resource-scope links, request prefixes, machine access links, and machine public keys belong to their parent primitive. IaC owns the complete configurable state of an imported or created primitive.
 
@@ -70,7 +70,7 @@ repository/
 Example root:
 
 ```yaml
-apiVersion: weldall.dev/v1alpha1
+apiVersion: weldall.dev/v1
 
 workspace:
   name: platform-access
@@ -342,9 +342,9 @@ Before production use with multiple Weldall processes, replace the current proce
 
 ## Server-side data model
 
-### `IacInstallation`
+### `InstallationIdentity`
 
-A singleton containing a persistent installation UUID. It changes only when the database installation is intentionally recreated.
+A singleton containing the persistent random UUID advertised by the server and pinned in workspace lockfiles. The fixed `id: default` is only the singleton row key. The UUID changes when the database installation is recreated so an old lockfile cannot silently target a replacement server at the same issuer.
 
 ### `IacWorkspace`
 
@@ -439,7 +439,7 @@ The complete native manifest is the transaction boundary.
 9. It increments the workspace revision, stores the operation result, and commits.
 10. Any error rolls back every primitive, binding, revision, and audit event from that apply.
 
-Remote group lookup for a newly declared group assignment happens before opening the transaction. The transaction then verifies the group provider remains enabled and at the same version. Retaining or changing scopes on an existing group assignment should not require a healthy provider lookup.
+Group assignment creation resolves only the configured provider record inside the transaction. Group IDs are opaque: planning and apply never require provider connectivity or remote group existence, and no group display metadata is persisted.
 
 The database transaction cannot include the local lockfile write. Idempotent operation records and `state pull` cover that boundary.
 

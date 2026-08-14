@@ -1,4 +1,4 @@
-import { db, Prisma } from "@weldall/db";
+import { db, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
 import { z } from "zod";
 import {
   AdminDomainError,
@@ -6,8 +6,19 @@ import {
   MAX_PAGE_SIZE,
   parseScopeKey,
   type AdminActor,
+  type ManagementDto,
 } from "../admin/service";
 import { prismaAuditWriter } from "../audit/service";
+import {
+  lockConfigurationChanges,
+  managementBindingInclude,
+  managementMetadata,
+} from "../domain/configuration";
+import {
+  mutateGroupAssignment,
+  PrimitiveMutationError,
+  type MutationActor,
+} from "../domain/primitive-mutations";
 import { decryptProviderToken, encryptProviderToken } from "./credentials";
 import { createGroupProviderAdapter } from "./registry";
 import type { GroupProviderAdapterType, GroupProviderGroup } from "./types";
@@ -35,17 +46,18 @@ export interface GroupAssignmentDto {
   providerKey: string;
   providerName: string;
   groupId: string;
-  groupName: string;
   scopes: string[];
   version: number;
   createdAt: string;
   updatedAt: string;
+  management: ManagementDto;
 }
 
 const providerInclude = { _count: { select: { assignments: true } } } as const;
 const assignmentInclude = {
   provider: { select: { key: true, name: true } },
   grants: { include: { scope: { select: { key: true } } } },
+  iacBinding: managementBindingInclude,
 } as const;
 
 export async function listGroupProviders(): Promise<GroupProviderDto[]> {
@@ -77,6 +89,7 @@ export async function createGroupProvider(
   const token = parseProviderToken(input.token);
   try {
     return await db.$transaction(async (tx) => {
+      await lockConfigurationChanges(tx);
       const pending = await tx.groupProvider.create({
         data: {
           ...parsed,
@@ -118,6 +131,7 @@ export async function updateGroupProvider(
   const baseUrl = normalizeProviderBaseUrl(input.baseUrl);
   const replacementToken = input.token?.trim() ? parseProviderToken(input.token) : undefined;
   return db.$transaction(async (tx) => {
+    await lockConfigurationChanges(tx);
     const current = await tx.groupProvider.findUnique({ where: { id: input.id } });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
     assertVersion(current.version, input.expectedVersion, "Group provider");
@@ -161,6 +175,7 @@ export async function deleteGroupProvider(
   actor: AdminActor,
 ): Promise<{ id: string }> {
   return db.$transaction(async (tx) => {
+    await lockConfigurationChanges(tx);
     const provider = await tx.groupProvider.findUnique({
       where: { id: input.id },
       include: providerInclude,
@@ -291,7 +306,6 @@ export async function listGroupAssignments(input: {
     ? {
         OR: [
           { groupId: { contains: q, mode: "insensitive" } },
-          { groupName: { contains: q, mode: "insensitive" } },
           { provider: { key: { contains: q, mode: "insensitive" } } },
           { provider: { name: { contains: q, mode: "insensitive" } } },
         ],
@@ -300,7 +314,7 @@ export async function listGroupAssignments(input: {
   const [items, total] = await Promise.all([
     db.groupScopeAssignment.findMany({
       where,
-      orderBy: [{ provider: { name: "asc" } }, { groupName: "asc" }],
+      orderBy: [{ provider: { name: "asc" } }, { groupId: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: assignmentInclude,
@@ -325,62 +339,25 @@ export async function createGroupAssignments(
 ): Promise<GroupAssignmentDto[]> {
   const groupIds = parseGroupIds(input.groupIds);
   const scopeKeys = parseAssignmentScopeKeys(input.scopeKeys);
-  const providerSecret = await loadProviderSecret(input.providerId);
-  if (!providerSecret.enabled) {
-    throw new AdminDomainError("INVALID_PROVIDER", "The group provider is disabled.");
-  }
-  let liveGroups: GroupProviderGroup[];
-  try {
-    liveGroups = await adapterFor(providerSecret).getGroups(groupIds);
-  } catch {
-    throw new AdminDomainError("INVALID_PROVIDER", "Could not validate provider groups.");
-  }
-  const byId = new Map(liveGroups.map((group) => [group.id, group]));
-  const unknown = groupIds.find((id) => !byId.has(id));
-  if (unknown)
-    throw new AdminDomainError("INVALID_GROUP", `Provider group ${unknown} was not found.`);
-
+  if (scopeKeys.some((key) => key === IAC_SCOPE_KEY))
+    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
   try {
     return await db.$transaction(async (tx) => {
+      await lockConfigurationChanges(tx);
       const provider = await tx.groupProvider.findUnique({ where: { id: input.providerId } });
-      if (!provider?.enabled) {
-        throw new AdminDomainError("INVALID_PROVIDER", "The group provider is unavailable.");
-      }
-      if (provider.version !== providerSecret.version) {
-        throw new AdminDomainError(
-          "CONFLICT",
-          "The group provider changed during validation. Reload and try again.",
-        );
-      }
-      const scopes = await loadAssignmentScopes(tx, scopeKeys);
-      const duplicate = await tx.groupScopeAssignment.findFirst({
-        where: { providerId: provider.id, groupId: { in: groupIds } },
-        select: { groupId: true },
-      });
-      if (duplicate) {
-        throw new AdminDomainError(
-          "CONFLICT",
-          `Provider group ${duplicate.groupId} already has an assignment.`,
-        );
-      }
+      if (!provider) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
       const created: GroupAssignmentDto[] = [];
       for (const groupId of groupIds) {
-        const group = byId.get(groupId)!;
-        const assignment = await tx.groupScopeAssignment.create({
-          data: {
-            providerId: provider.id,
-            groupId,
-            groupName: group.name,
-            createdBy: actor.id,
-            updatedBy: actor.id,
-            grants: {
-              create: scopes.map((scope) => ({ scopeId: scope.id, createdBy: actor.id })),
-            },
-          },
-          include: assignmentInclude,
-        });
-        await writeGroupAudit(tx, actor, "group_scopes.created", assignment, [], scopeKeys, 0, 1);
-        created.push(serializeAssignment(assignment));
+        try {
+          const assignment = await mutateGroupAssignment(
+            tx,
+            { action: "create", providerKey: provider.key, groupId, scopeKeys },
+            mutationActor(actor),
+          );
+          created.push(serializeAssignment(assignment));
+        } catch (error) {
+          throw mapPrimitiveError(error);
+        }
       }
       return created;
     });
@@ -395,44 +372,21 @@ export async function replaceGroupAssignment(
   actor: AdminActor,
 ): Promise<GroupAssignmentDto> {
   const scopeKeys = parseAssignmentScopeKeys(input.scopeKeys);
+  if (scopeKeys.some((key) => key === IAC_SCOPE_KEY))
+    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
   return db.$transaction(async (tx) => {
-    const current = await tx.groupScopeAssignment.findUnique({
-      where: { id: input.id },
-      include: assignmentInclude,
-    });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Group assignment not found.");
-    assertVersion(current.version, input.expectedVersion, "Group assignment");
-    const before = current.grants.map(({ scope }) => parseScopeKey(scope.key)).sort();
-    if (sameStrings(before, scopeKeys)) return serializeAssignment(current);
-    const scopes = await loadAssignmentScopes(tx, scopeKeys);
-    await tx.groupScopeGrant.deleteMany({ where: { assignmentId: current.id } });
-    await tx.groupScopeGrant.createMany({
-      data: scopes.map((scope) => ({
-        assignmentId: current.id,
-        scopeId: scope.id,
-        createdBy: actor.id,
-      })),
-    });
-    const write = await tx.groupScopeAssignment.updateMany({
-      where: { id: current.id, version: input.expectedVersion },
-      data: { version: { increment: 1 }, updatedBy: actor.id },
-    });
-    if (write.count !== 1) throw conflict("Group assignment");
-    const updated = await tx.groupScopeAssignment.findUniqueOrThrow({
-      where: { id: current.id },
-      include: assignmentInclude,
-    });
-    await writeGroupAudit(
-      tx,
-      actor,
-      "group_scopes.replaced",
-      updated,
-      before,
-      scopeKeys,
-      current.version,
-      updated.version,
-    );
-    return serializeAssignment(updated);
+    await lockConfigurationChanges(tx);
+    try {
+      return serializeAssignment(
+        await mutateGroupAssignment(
+          tx,
+          { action: "update", id: input.id, scopeKeys, expectedVersion: input.expectedVersion },
+          mutationActor(actor),
+        ),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
   });
 }
 
@@ -441,28 +395,16 @@ export async function deleteGroupAssignment(
   actor: AdminActor,
 ): Promise<{ id: string }> {
   return db.$transaction(async (tx) => {
-    const current = await tx.groupScopeAssignment.findUnique({
-      where: { id: input.id },
-      include: assignmentInclude,
-    });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Group assignment not found.");
-    assertVersion(current.version, input.expectedVersion, "Group assignment");
-    const before = current.grants.map(({ scope }) => parseScopeKey(scope.key)).sort();
-    const deleted = await tx.groupScopeAssignment.deleteMany({
-      where: { id: current.id, version: input.expectedVersion },
-    });
-    if (deleted.count !== 1) throw conflict("Group assignment");
-    await writeGroupAudit(
-      tx,
-      actor,
-      "group_scopes.deleted",
-      current,
-      before,
-      [],
-      current.version,
-      current.version + 1,
-    );
-    return { id: current.id };
+    await lockConfigurationChanges(tx);
+    try {
+      return await mutateGroupAssignment(
+        tx,
+        { action: "delete", id: input.id, expectedVersion: input.expectedVersion },
+        mutationActor(actor),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
+    }
   });
 }
 
@@ -551,14 +493,6 @@ function parseAssignmentScopeKeys(values: string[]) {
   return parsed;
 }
 
-async function loadAssignmentScopes(tx: Prisma.TransactionClient, scopeKeys: string[]) {
-  const scopes = await tx.scope.findMany({ where: { key: { in: scopeKeys } } });
-  if (scopes.length !== scopeKeys.length) {
-    throw new AdminDomainError("INVALID_SCOPE", "One or more scopes do not exist.");
-  }
-  return scopes;
-}
-
 async function loadProviderSecret(id: string) {
   const provider = await db.groupProvider.findUnique({ where: { id } });
   if (!provider) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
@@ -605,12 +539,15 @@ function serializeAssignment(assignment: {
   id: string;
   providerId: string;
   groupId: string;
-  groupName: string;
   version: number;
   createdAt: Date;
   updatedAt: Date;
   provider: { key: string; name: string };
   grants: { scope: { key: string } }[];
+  iacBinding?: {
+    address: string;
+    workspace: { id: string; name: string };
+  } | null;
 }): GroupAssignmentDto {
   return {
     id: assignment.id,
@@ -618,11 +555,11 @@ function serializeAssignment(assignment: {
     providerKey: assignment.provider.key,
     providerName: assignment.provider.name,
     groupId: assignment.groupId,
-    groupName: assignment.groupName,
     scopes: assignment.grants.map(({ scope }) => parseScopeKey(scope.key)).sort(),
     version: assignment.version,
     createdAt: assignment.createdAt.toISOString(),
     updatedAt: assignment.updatedAt.toISOString(),
+    management: managementMetadata(assignment.iacBinding),
   };
 }
 
@@ -701,51 +638,6 @@ function providerTestAudit(
   };
 }
 
-async function writeGroupAudit(
-  tx: Prisma.TransactionClient,
-  actor: AdminActor,
-  eventType: "group_scopes.created" | "group_scopes.replaced" | "group_scopes.deleted",
-  assignment: {
-    id: string;
-    providerId: string;
-    groupId: string;
-    groupName: string;
-    provider: { key: string };
-  },
-  beforeScopes: string[],
-  afterScopes: string[],
-  versionBefore: number,
-  versionAfter: number,
-) {
-  await prismaAuditWriter.write(
-    {
-      eventType,
-      actorType: "user",
-      actorId: actor.id,
-      ...(actor.email ? { actorEmail: actor.email } : {}),
-      requestId: actor.requestId,
-      ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
-      outcome: "success",
-      subjectType: "group_scope_assignment",
-      subjectId: assignment.id,
-      metadata: {
-        providerId: assignment.providerId,
-        providerKey: assignment.provider.key,
-        groupId: assignment.groupId,
-        groupName: assignment.groupName,
-        beforeScopes,
-        afterScopes,
-        addedScopes: afterScopes.filter((scope) => !beforeScopes.includes(scope)),
-        removedScopes: beforeScopes.filter((scope) => !afterScopes.includes(scope)),
-        source: "admin_api",
-        versionBefore,
-        versionAfter,
-      },
-    },
-    tx,
-  );
-}
-
 function assertVersion(current: number, expected: number, subject: string) {
   if (current !== expected) throw conflict(subject);
 }
@@ -754,8 +646,20 @@ function conflict(subject: string) {
   return new AdminDomainError("CONFLICT", `${subject} changed. Reload and try again.`);
 }
 
-function sameStrings(left: readonly string[], right: readonly string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+function mutationActor(actor: AdminActor): MutationActor {
+  return {
+    type: "user",
+    id: actor.id,
+    ...(actor.email ? { email: actor.email } : {}),
+    requestId: actor.requestId,
+    ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+    source: "admin_api",
+  };
+}
+
+function mapPrimitiveError(error: unknown): unknown {
+  if (!(error instanceof PrimitiveMutationError)) return error;
+  return new AdminDomainError(error.code, error.message, error.details);
 }
 
 function isPrismaError(error: unknown, code: string): boolean {

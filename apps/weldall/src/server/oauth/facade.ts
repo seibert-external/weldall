@@ -6,7 +6,6 @@ import {
   WeldallAuthError,
   REFRESH_TOKEN_TYPE,
   TOKEN_EXCHANGE_GRANT,
-  inMemory,
   issueIdJag,
   oauthErrorResponse,
   safeEqual,
@@ -27,6 +26,7 @@ import { hasLoginScopeForUserId } from "../auth/login-policy";
 import { exchangePolicyRequiringSystemScopeFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
 import { auditMachineFailure, issueMachineToken, machineAuditContext } from "./machine";
+import { postgresReplayStore } from "./replay";
 
 const hash = (value: string) => createHash("sha256").update(value, "ascii").digest("base64url");
 const confirmationJkt = (value: unknown): string | undefined => {
@@ -43,7 +43,7 @@ const confirmationJkt = (value: unknown): string | undefined => {
   const jkt = (confirmation as Record<string, unknown>).jkt;
   return typeof jkt === "string" && jkt.length > 0 ? jkt : undefined;
 };
-const replay = inMemory({ suppressWarning: true });
+const replay = postgresReplayStore;
 interface ExchangeAuditContext {
   requestId: string;
   correlationId?: string;

@@ -26,6 +26,7 @@ const stringArray = z.array(z.string().min(1).max(2_000)).max(100);
 const scopeArray = z.array(z.string().min(1).max(160)).max(100);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const source = z.enum(["admin_api", "weldall_up", "static_manifest_import", "migration"]);
+const mutationSource = z.enum(["admin_api", "weldall_up", "static_manifest_import"]);
 
 const idJagRequestedMetadata = {
   audience: z.string().max(2_000).nullable(),
@@ -54,6 +55,7 @@ const machineClientMetadata = z
     name: z.string().min(1).max(200),
     enabled: z.boolean(),
     version: z.number().int().positive(),
+    source: mutationSource.optional(),
   })
   .strict();
 const machineKeyMetadata = z
@@ -62,6 +64,7 @@ const machineKeyMetadata = z
     kid: z.string().min(1).max(128),
     thumbprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
     revokedAt: z.string().datetime().nullable(),
+    source: mutationSource.optional(),
   })
   .strict();
 const machineAccessMetadata = z
@@ -73,6 +76,7 @@ const machineAccessMetadata = z
     afterScopes: scopeArray,
     versionBefore: z.number().int().nonnegative(),
     versionAfter: z.number().int().positive(),
+    source: mutationSource.optional(),
   })
   .strict();
 const machineTokenRequestedMetadata = z
@@ -93,6 +97,8 @@ const machineTokenIssuedMetadata = machineTokenRequestedMetadata.extend({
   expiresAt: z.string().datetime(),
 });
 
+const iacMetadata = z.object({}).passthrough();
+
 const userScopesMetadata = z
   .object({
     normalizedEmail: z.string().email().max(320),
@@ -100,7 +106,13 @@ const userScopesMetadata = z
     afterScopes: scopeArray,
     addedScopes: scopeArray,
     removedScopes: scopeArray,
-    source: z.enum(["admin_api", "scope_delete_cascade", "deployment_bootstrap"]),
+    source: z.enum([
+      "admin_api",
+      "weldall_up",
+      "static_manifest_import",
+      "scope_delete_cascade",
+      "deployment_bootstrap",
+    ]),
     versionBefore: z.number().int().nonnegative(),
     versionAfter: z.number().int().positive(),
   })
@@ -215,12 +227,11 @@ const groupScopesMetadata = z
     providerId: z.string().min(1).max(191),
     providerKey: z.string().min(1).max(120),
     groupId: z.string().min(1).max(191),
-    groupName: z.string().min(1).max(191),
     beforeScopes: scopeArray,
     afterScopes: scopeArray,
     addedScopes: scopeArray,
     removedScopes: scopeArray,
-    source: z.enum(["admin_api", "scope_delete_cascade"]),
+    source: z.enum(["admin_api", "weldall_up", "static_manifest_import", "scope_delete_cascade"]),
     versionBefore: z.number().int().nonnegative(),
     versionAfter: z.number().int().positive(),
   })
@@ -233,6 +244,7 @@ const metadataSchemas = {
   "machine_client.created": machineClientMetadata,
   "machine_client.updated": machineClientMetadata,
   "machine_client.deactivated": machineClientMetadata,
+  "machine_client.deleted": machineClientMetadata,
   "machine_key.registered": machineKeyMetadata,
   "machine_key.revoked": machineKeyMetadata,
   "machine_access.replaced": machineAccessMetadata,
@@ -256,6 +268,13 @@ const metadataSchemas = {
   "group_scopes.created": groupScopesMetadata,
   "group_scopes.replaced": groupScopesMetadata,
   "group_scopes.deleted": groupScopesMetadata,
+  "iac.plan.generated": iacMetadata,
+  "iac.apply.succeeded": iacMetadata,
+  "iac.apply.denied": iacMetadata,
+  "iac.apply.failed": iacMetadata,
+  "iac.object.imported": iacMetadata,
+  "iac.object.unmanaged": iacMetadata,
+  "iac.state.moved": iacMetadata,
 } satisfies Record<AuditEventType, z.ZodType>;
 
 const auditInputSchema = z
