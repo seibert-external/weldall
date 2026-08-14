@@ -1,6 +1,0 @@
-apiVersion: weldall.dev/v1
-workspace:
-  name: local-iac-test
-  issuer: https://weldall.seibert.localdev
-include:
-  - weldall/**/*.yml

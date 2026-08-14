@@ -1,4 +1,0 @@
-scopes:
-  test_read:
-    key: test:read
-    description: Read test data
