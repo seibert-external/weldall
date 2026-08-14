@@ -38,10 +38,129 @@
   [data-astryx-theme] {
     --color-border: #ebebeb;
     --color-border-emphasized: #ebebeb;
+    --radius-inner: 0;
+    --radius-element: 0;
+    --radius-container: 0;
+    --radius-page: 0;
+    --radius-chat: 0;
+    --radius-full: 0;
   }
 
   .astryx-app-shell-sidenav {
     overflow: clip !important;
+    background: linear-gradient(100deg, #fff -21.3%, #e8e8e8 89.88%) !important;
+  }
+
+  [data-theme="dark"] .astryx-app-shell-sidenav {
+    background: linear-gradient(100deg, #262626 -21.3%, #383838 89.88%) !important;
+  }
+
+  .admin-brand {
+    background: var(--color-background-surface);
+  }
+
+  .admin-brand-noise {
+    opacity: 0.3;
+  }
+
+  [data-theme="dark"] .admin-brand-noise {
+    filter: invert(1);
+    opacity: 0.12;
+  }
+
+  .admin-section-nav {
+    --admin-nav-neutral-from: #fff;
+    --admin-nav-neutral-to: #e8e8e8;
+
+    width: calc(100% + 1rem);
+    margin-top: -0.25rem;
+    margin-inline: -0.5rem;
+    padding-block: 0 !important;
+  }
+
+  [data-theme="dark"] .admin-section-nav {
+    --admin-nav-neutral-from: #262626;
+    --admin-nav-neutral-to: #383838;
+  }
+
+  .admin-section-nav > :last-child {
+    gap: 0 !important;
+  }
+
+  .admin-section-nav .admin-section-nav-item > div > :is(a, button) {
+    position: relative;
+    height: 2.75rem !important;
+    padding-inline-start: 1rem !important;
+    overflow: hidden;
+    border-radius: 0 !important;
+    background-color: var(--admin-nav-neutral-from) !important;
+    background-image: linear-gradient(
+      100deg,
+      var(--admin-nav-neutral-from) -21.3%,
+      var(--admin-nav-neutral-to) 89.88%
+    ) !important;
+    color: var(--color-text-primary) !important;
+  }
+
+  .admin-section-nav .admin-section-nav-item > div > :is(a, button)::before {
+    position: absolute;
+    inset: 0;
+    background-image: url("/assets/images/noise.png");
+    background-repeat: repeat;
+    content: "";
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
+  .admin-section-nav .admin-section-nav-item > div > :is(a, button) > * {
+    position: relative;
+  }
+
+  .admin-section-nav .admin-section-nav-item > div > :is(a, button) svg {
+    color: inherit !important;
+  }
+
+  .admin-section-nav .admin-section-nav-item > div > :is(a, button):hover {
+    filter: brightness(1.05);
+  }
+
+  .admin-section-nav .admin-section-nav-item[data-selected] > div > :is(a, button) {
+    background-color: var(--admin-nav-from) !important;
+    background-image: linear-gradient(
+      100deg,
+      var(--admin-nav-from) -21.3%,
+      var(--admin-nav-to) 89.88%
+    ) !important;
+    color: white !important;
+    font-weight: var(--font-weight-semibold);
+    text-shadow: 0 1px 1px rgb(0 0 0 / 20%);
+  }
+
+  .admin-footer-nav {
+    --admin-footer-hover: rgb(0 0 0 / 6%);
+
+    width: calc(100% + 1rem);
+    margin-inline: -0.5rem;
+    padding-block: 0 !important;
+  }
+
+  [data-theme="dark"] .admin-footer-nav {
+    --admin-footer-hover: rgb(255 255 255 / 8%);
+  }
+
+  .admin-footer-nav > :last-child {
+    gap: 0 !important;
+  }
+
+  .admin-footer-nav > :last-child > div > :is(a, button) {
+    height: 2.75rem !important;
+    padding-inline-start: 1rem !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+
+  .admin-footer-nav > :last-child > div > :is(a, button):hover {
+    background: var(--admin-footer-hover) !important;
   }
 
   .admin-dialog-form {
@@ -137,7 +256,6 @@
   .login-panel {
     width: min(28rem, 100%);
     border: 1px solid var(--color-border);
-    border-radius: 0.75rem;
     background: var(--color-background-surface);
     padding: 1.5rem;
   }
