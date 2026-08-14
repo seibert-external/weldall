@@ -36,18 +36,18 @@ Use `import` to explicitly claim an existing object by its natural identity. Use
 
 ## Commands
 
-| Command | Purpose |
-| --- | --- |
-| `weldall init` | Create a YAML workspace and lockfile. |
-| `weldall validate` | Validate and canonicalize YAML locally. |
-| `weldall plan` | Preview deterministic changes. |
-| `weldall plan --json` | Emit the plan as stable machine-readable JSON. |
-| `weldall up` | Apply after interactive confirmation. |
-| `weldall up --yes` | Apply non-interactively in CI. |
-| `weldall import <type> <identity> --as <address>` | Claim an existing object explicitly. |
-| `weldall unmanage <address> --yes` | Release ownership and preserve the object. |
-| `weldall state pull` | Rebuild lockfile mappings from server state. |
-| `weldall state mv <old> <new>` | Move an address without replacing its object. |
+| Command                                           | Purpose                                        |
+| ------------------------------------------------- | ---------------------------------------------- |
+| `weldall init`                                    | Create a YAML workspace and lockfile.          |
+| `weldall validate`                                | Validate and canonicalize YAML locally.        |
+| `weldall plan`                                    | Preview deterministic changes.                 |
+| `weldall plan --json`                             | Emit the plan as stable machine-readable JSON. |
+| `weldall up`                                      | Apply after interactive confirmation.          |
+| `weldall up --yes`                                | Apply non-interactively in CI.                 |
+| `weldall import <kind> <identity> --as <address>` | Claim an existing object explicitly.           |
+| `weldall unmanage <address> --yes`                | Release ownership and preserve the object.     |
+| `weldall state pull`                              | Rebuild lockfile mappings from server state.   |
+| `weldall state mv <old> <new>`                    | Move an address without replacing its object.  |
 
 ## Complete manifest example
 
@@ -69,7 +69,7 @@ resources:
   expenses:
     key: expenses
     name: Expense service
-    resourceIdentifier: https://expenses.example.com
+    resourceIdentifier: https://expenses.example.com/
     authorizationServer: https://expenses.example.com
     downstreamClientId: weldall-platform
     enabled: true

@@ -36,18 +36,18 @@ Mit `import` wird ein vorhandenes Objekt anhand seiner natürlichen Identität a
 
 ## Befehle
 
-| Befehl | Zweck |
-| --- | --- |
-| `weldall init` | YAML-Workspace und Lockdatei anlegen. |
-| `weldall validate` | YAML lokal validieren und kanonisieren. |
-| `weldall plan` | Deterministische Änderungen in der Vorschau anzeigen. |
-| `weldall plan --json` | Plan als stabiles, maschinenlesbares JSON ausgeben. |
-| `weldall up` | Nach interaktiver Bestätigung anwenden. |
-| `weldall up --yes` | In der CI ohne Interaktion anwenden. |
-| `weldall import <type> <identity> --as <address>` | Vorhandenes Objekt ausdrücklich übernehmen. |
-| `weldall unmanage <address> --yes` | Ownership freigeben und Objekt erhalten. |
-| `weldall state pull` | Lockdatei-Bindungen aus dem Serverzustand neu aufbauen. |
-| `weldall state mv <old> <new>` | Adresse ändern, ohne das Objekt zu ersetzen. |
+| Befehl                                            | Zweck                                                   |
+| ------------------------------------------------- | ------------------------------------------------------- |
+| `weldall init`                                    | YAML-Workspace und Lockdatei anlegen.                   |
+| `weldall validate`                                | YAML lokal validieren und kanonisieren.                 |
+| `weldall plan`                                    | Deterministische Änderungen in der Vorschau anzeigen.   |
+| `weldall plan --json`                             | Plan als stabiles, maschinenlesbares JSON ausgeben.     |
+| `weldall up`                                      | Nach interaktiver Bestätigung anwenden.                 |
+| `weldall up --yes`                                | In der CI ohne Interaktion anwenden.                    |
+| `weldall import <kind> <identity> --as <address>` | Vorhandenes Objekt ausdrücklich übernehmen.             |
+| `weldall unmanage <address> --yes`                | Ownership freigeben und Objekt erhalten.                |
+| `weldall state pull`                              | Lockdatei-Bindungen aus dem Serverzustand neu aufbauen. |
+| `weldall state mv <old> <new>`                    | Adresse ändern, ohne das Objekt zu ersetzen.            |
 
 ## Vollständiges Manifestbeispiel
 
@@ -69,7 +69,7 @@ resources:
   expenses:
     key: expenses
     name: Expense service
-    resourceIdentifier: https://expenses.example.com
+    resourceIdentifier: https://expenses.example.com/
     authorizationServer: https://expenses.example.com
     downstreamClientId: weldall-platform
     enabled: true
