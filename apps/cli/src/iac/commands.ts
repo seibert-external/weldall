@@ -139,7 +139,7 @@ export const iacInitCommand = define({
   run: async (context) => {
     const root = process.cwd();
     const manifest = {
-      apiVersion: "weldall.dev/v1alpha1" as const,
+      apiVersion: "weldall.dev/v1" as const,
       workspace: { name: context.values.name, issuer: context.values.issuer },
       include: ["weldall/**/*.yml"],
     };

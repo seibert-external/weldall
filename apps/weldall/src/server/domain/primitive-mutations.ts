@@ -10,8 +10,6 @@ import {
 import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
 import { prismaAuditWriter, type AuditEventType } from "../audit/service";
-import { decryptProviderToken } from "../group-providers/credentials";
-import { createGroupProviderAdapter } from "../group-providers/registry";
 import { scopeKeySchema } from "../policy/scope-key";
 
 export type MutationSource =
@@ -43,15 +41,6 @@ export class PrimitiveMutationError extends Error {
     super(message);
     this.name = "PrimitiveMutationError";
   }
-}
-
-export interface GroupAssignmentPreflight {
-  providerId: string;
-  providerKey: string;
-  providerVersion: number;
-  providerEnabled: boolean;
-  groupId: string;
-  groupName: string;
 }
 
 const resourceInclude = {
@@ -185,7 +174,6 @@ export async function mutateScope(
     providerId: assignment.providerId,
     providerKey: assignment.provider.key,
     groupId: assignment.groupId,
-    groupName: assignment.groupName,
     version: assignment.version,
     beforeScopes: assignment.grants.map(({ scope }) => scope.key).sort(),
   }));
@@ -235,7 +223,6 @@ export async function mutateScope(
         providerId: assignment.providerId,
         providerKey: assignment.providerKey,
         groupId: assignment.groupId,
-        groupName: assignment.groupName,
         beforeScopes: assignment.beforeScopes,
         afterScopes,
         addedScopes: [],
@@ -507,83 +494,36 @@ export async function mutateEmailAssignment(
   return saved;
 }
 
-export async function preflightGroupAssignment(
-  providerKey: string,
-  groupId: string,
-): Promise<GroupAssignmentPreflight> {
-  const provider = await (
-    await import("@weldall/db")
-  ).db.groupProvider.findUnique({ where: { key: providerKey } });
-  if (!provider)
-    throw new PrimitiveMutationError("INVALID_PROVIDER", `Provider ${providerKey} was not found.`);
-  if (!provider.enabled)
-    throw new PrimitiveMutationError("INVALID_PROVIDER", `Provider ${providerKey} is disabled.`);
-  let groups;
-  try {
-    groups = await createGroupProviderAdapter({
-      adapterType: z.literal("management-api-v1").parse(provider.adapterType),
-      baseUrl: provider.baseUrl,
-      token: decryptProviderToken(provider),
-    }).getGroups([groupId]);
-  } catch {
-    throw new PrimitiveMutationError(
-      "INVALID_PROVIDER",
-      `Could not validate provider group ${groupId}.`,
-    );
-  }
-  const group = groups.find((item) => item.id === groupId);
-  if (!group)
-    throw new PrimitiveMutationError("INVALID_GROUP", `Provider group ${groupId} was not found.`);
-  return {
-    providerId: provider.id,
-    providerKey: provider.key,
-    providerVersion: provider.version,
-    providerEnabled: provider.enabled,
-    groupId,
-    groupName: group.name,
-  };
-}
-
 export async function mutateGroupAssignment(
   tx: Prisma.TransactionClient,
   input:
-    | {
-        action: "create";
-        providerKey: string;
-        groupId: string;
-        scopeKeys: string[];
-        preflight: GroupAssignmentPreflight;
-      }
+    | { action: "create"; providerKey: string; groupId: string; scopeKeys: string[] }
     | { action: "update"; id: string; scopeKeys: string[]; expectedVersion: number }
     | { action: "delete"; id: string; expectedVersion: number },
   actor: MutationActor,
 ): Promise<any> {
   if (input.action === "create") {
     const keys = parseScopeKeys(input.scopeKeys, true);
-    const provider = await tx.groupProvider.findUnique({
-      where: { id: input.preflight.providerId },
-    });
-    if (!provider?.enabled)
-      throw new PrimitiveMutationError("INVALID_PROVIDER", "The group provider is unavailable.");
-    if (provider.key !== input.providerKey || provider.version !== input.preflight.providerVersion)
+    const groupId = z.string().trim().min(1).max(191).parse(input.groupId);
+    const provider = await tx.groupProvider.findUnique({ where: { key: input.providerKey } });
+    if (!provider)
       throw new PrimitiveMutationError(
-        "CONFLICT",
-        "The group provider changed during validation. Reload and try again.",
+        "INVALID_PROVIDER",
+        `Provider ${input.providerKey} was not found.`,
       );
     const scopes = await scopesByKeys(tx, keys);
     const duplicate = await tx.groupScopeAssignment.findUnique({
-      where: { providerId_groupId: { providerId: provider.id, groupId: input.groupId } },
+      where: { providerId_groupId: { providerId: provider.id, groupId } },
     });
     if (duplicate)
       throw new PrimitiveMutationError(
         "CONFLICT",
-        `Provider group ${input.groupId} already has an assignment.`,
+        `Provider group ${groupId} already has an assignment.`,
       );
     const saved = await tx.groupScopeAssignment.create({
       data: {
         providerId: provider.id,
-        groupId: input.groupId,
-        groupName: input.preflight.groupName,
+        groupId,
         createdBy: actor.id,
         updatedBy: actor.id,
         grants: { create: scopes.map((scope) => ({ scopeId: scope.id, createdBy: actor.id })) },
@@ -1065,7 +1005,6 @@ async function groupAudit(
     providerId: assignment.providerId,
     providerKey: assignment.provider.key,
     groupId: assignment.groupId,
-    groupName: assignment.groupName,
     beforeScopes,
     afterScopes,
     addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),

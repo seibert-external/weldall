@@ -39,8 +39,8 @@ export default defineConfig({
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {
-              label: "Native YAML IaC",
-              translations: { en: "Native YAML IaC" },
+              label: "Infrastructure as Code",
+              translations: { en: "Infrastructure as code" },
               link: "/infrastructure-as-code/",
             },
           ],

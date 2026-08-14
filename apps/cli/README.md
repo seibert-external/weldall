@@ -1,8 +1,8 @@
 # Weldall CLI
 
-A Linux and macOS CLI for Weldall's DPoP-bound OAuth flow and native YAML infrastructure as code.
+A CLI for native YAML infrastructure on Linux and macOS, with interactive Weldall user sessions on macOS.
 
-> **Prototype:** Weldall uses pinned draft protocols and process-local replay protection. Review your server deployment's security boundary before production use. Every `weldall login` opens a browser approval screen; approve only when you started that login on the same device.
+> **Security note:** Weldall uses pinned draft protocols. Machine and IaC replay checks use shared PostgreSQL storage; native user OAuth and demo resource-server replay checks still include process-local stores. Review your deployment's security boundary before production use. Every `weldall login` opens a browser approval screen; approve only when you started that login on the same device.
 
 ## Installation
 
@@ -13,9 +13,10 @@ npm install --global @weldall/cli
 weldall --version
 ```
 
-The npm package supports Linux and macOS. On macOS, npm optionally installs the native Keychain
-binding used by browser-login commands. Native YAML IaC commands use M2M environment secrets and do
-not load Keychain or Preferences, so they run in Linux CI without a browser or master password.
+The npm package and native YAML IaC commands support Linux and macOS. IaC uses M2M environment
+secrets and does not load Keychain or Preferences. Interactive login, capability discovery, and
+user-authenticated requests are supported on macOS, where the CLI stores sessions in Keychain and the
+issuer in Preferences.
 
 ## Configuration
 
@@ -51,8 +52,7 @@ defaults write dev.seibert.weldall-cli Issuer -string "https://weldall.example.c
 
 ## Native YAML infrastructure as code
 
-Native Weldall YAML is the only supported IaC interface in v1. Terraform, OpenTofu, HCL, and
-Terraform state are not supported. See [the IaC guide](../../docs/infrastructure-as-code.md).
+Native Weldall YAML manages one atomic configuration snapshot through the existing CLI. See [the IaC guide](../docs/src/content/docs/en/infrastructure-as-code.mdx).
 
 ```sh
 weldall init --name platform-access --issuer https://weldall.example.com

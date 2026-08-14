@@ -9,8 +9,8 @@ export async function GET(request: Request) {
   const response = await providerMetadata(request);
   if (!response.ok) return response;
   const metadata = (await response.json()) as Record<string, unknown>;
-  const installation = await db.iacInstallation.findUnique({ where: { id: "default" } });
-  return Response.json(extendOAuthMetadata(metadata, installation?.installationId), {
+  const identity = await db.installationIdentity.findUnique({ where: { id: "default" } });
+  return Response.json(extendOAuthMetadata(metadata, identity?.installationId), {
     headers: { "cache-control": "public, max-age=60" },
   });
 }

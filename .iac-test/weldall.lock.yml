@@ -1,0 +1,34 @@
+version: 1
+server:
+  issuer: https://weldall.seibert.localdev
+  installationId: 9f4e3f00-9e85-452f-9b36-b0598b04c72d
+workspace:
+  id: e752f69a-9032-4945-8af1-5bdcaa7ec86e
+  name: local-iac-test
+  observedRevision: 2
+objects:
+  emailAssignment.alice:
+    kind: emailAssignment
+    objectId: cmssqcfkk0000v72tkhwwolcw
+    identity: alice@example.com
+    observedVersion: 1
+  emailAssignment.bob:
+    kind: emailAssignment
+    objectId: cmssqckef000fv7puwwtvhe8v
+    identity: bob@example.com
+    observedVersion: 1
+  emailAssignment.carol:
+    kind: emailAssignment
+    objectId: cmssqckek000jv7putopcexu1
+    identity: carol@example.com
+    observedVersion: 1
+  groupAssignment.demo_group:
+    kind: groupAssignment
+    objectId: cmssqckeo000ov7putswp9fs4
+    identity: demo-provider:demo-group
+    observedVersion: 1
+  scope.test_read:
+    kind: scope
+    objectId: cmssqcke9000bv7puo6gmpkuo
+    identity: test:read
+    observedVersion: 1

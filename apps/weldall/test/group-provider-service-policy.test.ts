@@ -26,8 +26,7 @@ const actor: AdminActor = {
 let memberGroups = ["finance"];
 let malformedUserDetail = false;
 let lookupCount = 0;
-let groupListGate: Promise<void> | null = null;
-let groupListStarted: (() => void) | null = null;
+let groupListLookupCount = 0;
 let userDetailGate: Promise<void> | null = null;
 let userDetailStarted: (() => void) | null = null;
 
@@ -36,8 +35,7 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", async (input: string | URL | Request) => {
     const url = String(input);
     if (url.endsWith("/api/management/groups/")) {
-      groupListStarted?.();
-      if (groupListGate) await groupListGate;
+      groupListLookupCount += 1;
       return json([
         { ou: "finance", cn: "Finance", unrelated: "ignored" },
         { ou: "other", cn: "Other" },
@@ -60,14 +58,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllGlobals();
-  await db.groupScopeAssignment.deleteMany({ where: { provider: { key: providerKey } } });
-  await db.groupProvider.deleteMany({ where: { key: providerKey } });
+  await db.groupScopeAssignment.deleteMany({
+    where: { provider: { key: { startsWith: providerKey } } },
+  });
+  await db.groupProvider.deleteMany({ where: { key: { startsWith: providerKey } } });
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: email } });
   await db.auditEvent.deleteMany({ where: { actorId: actor.id } });
 });
 
 describe("group provider administration and effective policy", () => {
-  it("creates validated assignments and unions fresh provider groups with direct grants", async () => {
+  it("creates opaque group-ID assignments and unions live memberships with direct grants", async () => {
     await expect(
       testGroupProvider(
         {
@@ -143,33 +143,7 @@ describe("group provider administration and effective policy", () => {
     expect(encryptedAfter.encryptedToken).not.toBe(encryptedBefore.encryptedToken);
     expect(JSON.stringify(provider)).not.toContain("replacement-token");
 
-    let releaseGroupList!: () => void;
-    groupListGate = new Promise<void>((resolve) => {
-      releaseGroupList = resolve;
-    });
-    const groupListWasRequested = new Promise<void>((resolve) => {
-      groupListStarted = resolve;
-    });
-    const staleValidation = createGroupAssignments(
-      { providerId: provider.id, groupIds: ["finance"], scopeKeys: ["expenses:create"] },
-      actor,
-    );
-    await groupListWasRequested;
-    provider = await updateGroupProvider(
-      {
-        id: provider.id,
-        name: "Policy provider changed during validation",
-        baseUrl: provider.baseUrl,
-        enabled: true,
-        expectedVersion: provider.version,
-      },
-      actor,
-    );
-    releaseGroupList();
-    await expect(staleValidation).rejects.toMatchObject({ code: "CONFLICT" });
-    groupListGate = null;
-    groupListStarted = null;
-
+    const groupListsBeforeAssignment = groupListLookupCount;
     let [assignment] = await createGroupAssignments(
       {
         providerId: provider.id,
@@ -180,9 +154,10 @@ describe("group provider administration and effective policy", () => {
     );
     expect(assignment).toMatchObject({
       groupId: "finance",
-      groupName: "Finance",
       scopes: ["expenses:create", "weldall:administer", "weldall:login"],
     });
+    expect(assignment).not.toHaveProperty("groupName");
+    expect(groupListLookupCount).toBe(groupListsBeforeAssignment);
     const createdAudit = await db.auditEvent.findFirstOrThrow({
       where: { subjectId: assignment!.id, eventType: "group_scopes.created" },
     });
@@ -331,6 +306,42 @@ describe("group provider administration and effective policy", () => {
 
     await deleteGroupAssignment({ id: assignment.id, expectedVersion: assignment.version }, actor);
     await deleteGroupProvider({ id: provider.id, expectedVersion: disabled.version }, actor);
+  });
+
+  it("stages arbitrary group IDs for disabled providers without a provider request", async () => {
+    const provider = await createGroupProvider(
+      {
+        key: `${providerKey}-disabled`,
+        name: "Disabled staging provider",
+        adapterType: "management-api-v1",
+        baseUrl: "https://unavailable.invalid",
+        token: "unused-token",
+        enabled: false,
+      },
+      actor,
+    );
+    const groupListsBeforeAssignment = groupListLookupCount;
+    const [assignment] = await createGroupAssignments(
+      {
+        providerId: provider.id,
+        groupIds: ["future:team/id"],
+        scopeKeys: ["expenses:read"],
+      },
+      actor,
+    );
+
+    expect(assignment).toMatchObject({
+      providerId: provider.id,
+      groupId: "future:team/id",
+      scopes: ["expenses:read"],
+    });
+    expect(groupListLookupCount).toBe(groupListsBeforeAssignment);
+
+    await deleteGroupAssignment(
+      { id: assignment!.id, expectedVersion: assignment!.version },
+      actor,
+    );
+    await deleteGroupProvider({ id: provider.id, expectedVersion: provider.version }, actor);
   });
 });
 

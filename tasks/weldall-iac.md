@@ -6,11 +6,7 @@ Planned.
 
 ## Decision
 
-Weldall IaC v1 will use **native Weldall YAML**, managed through the existing `weldall` CLI with `weldall plan`, `weldall up`, `weldall import`, and related commands.
-
-**Terraform is not part of this plan.** We will not build a Terraform provider, consume Terraform state, use HCL, or make Terraform a supported v1 interface. The native Weldall workflow is the sole implementation target.
-
-Terraform was evaluated and rejected for this feature because its normal resource-by-resource CRUD and partial-apply model conflicts with the chosen requirement that one Weldall configuration snapshot is validated and committed atomically. A single aggregate Terraform resource could retain atomicity but would provide poor Terraform ergonomics and duplicate the native workflow. Terraform may be reconsidered later through a separate proposal after the native API and ownership model are stable; that possibility creates no v1 design or compatibility obligation.
+Weldall IaC v1 uses **native Weldall YAML**, managed through the existing `weldall` CLI with `weldall plan`, `weldall up`, `weldall import`, and related commands. One complete configuration snapshot is validated and committed atomically.
 
 ## Goals
 
@@ -28,7 +24,6 @@ Terraform was evaluated and rejected for this feature because its normal resourc
 
 ## Non-goals
 
-- Terraform, OpenTofu, HCL, Terraform state, or a Terraform provider.
 - Managing group providers, provider credentials, skills, CLI settings, users, discovered catalogs, audit records, or Better Auth tables in v1.
 - Sharing ownership of one primitive between repositories.
 - Field-level or relation-level ownership.
@@ -46,7 +41,7 @@ Terraform was evaluated and rejected for this feature because its normal resourc
 | Downstream resource    | Resource key              | Name, resource identifier, authorization server, downstream client ID, enabled flags, supported scopes, request prefixes |
 | Machine client         | Client ID                 | Name, enabled state, allowed resources, allowed scopes, active public keys                                               |
 | Email scope assignment | Normalized email          | Complete assigned scope set                                                                                              |
-| Group scope assignment | Provider key and group ID | Complete assigned scope set; group name remains server-fetched display metadata                                          |
+| Group scope assignment | Provider key and group ID | Complete assigned scope set; group IDs are opaque and no group metadata is persisted                                     |
 
 Nested rows such as grants, resource-scope links, request prefixes, machine access links, and machine public keys belong to their parent primitive. IaC owns the complete configurable state of an imported or created primitive.
 
@@ -70,7 +65,7 @@ repository/
 Example root:
 
 ```yaml
-apiVersion: weldall.dev/v1alpha1
+apiVersion: weldall.dev/v1
 
 workspace:
   name: platform-access
@@ -179,8 +174,6 @@ Rules:
 - Lockfile replacement is atomic on the local filesystem after a successful remote commit.
 - If the server commits but local lockfile writing fails, rerunning the idempotent operation or using `state pull` recovers safely.
 
-This file is Weldall workspace state. It is unrelated to Terraform's dependency lockfile or Terraform state.
-
 ## Ownership model
 
 Multiple repositories may manage different primitives on the same Weldall server, but each primitive has at most one owning IaC workspace.
@@ -257,7 +250,7 @@ weldall state mv scope.old scope.new
 - Authenticates, reads current server state, and computes a deterministic plan.
 - Shows creates, updates, replacements, deletes, key revocations, drift restoration, and blockers.
 - Never changes managed primitives or ownership.
-- Supports stable machine-readable JSON and a Terraform-style detailed exit code without adopting Terraform state or semantics.
+- Supports stable machine-readable JSON and a detailed exit code for automation.
 
 ### `weldall up`
 
@@ -342,9 +335,9 @@ Before production use with multiple Weldall processes, replace the current proce
 
 ## Server-side data model
 
-### `IacInstallation`
+### `InstallationIdentity`
 
-A singleton containing a persistent installation UUID. It changes only when the database installation is intentionally recreated.
+A singleton containing the persistent random UUID advertised by the server and pinned in workspace lockfiles. The fixed `id: default` is only the singleton row key. The UUID changes when the database installation is recreated so an old lockfile cannot silently target a replacement server at the same issuer.
 
 ### `IacWorkspace`
 
@@ -400,7 +393,7 @@ Requirements:
 - Structured errors containing logical addresses, collision owners, blockers, and current revisions without exposing secrets.
 - Discovery advertises the IaC API endpoint, supported manifest/API versions, installation UUID, and `weldall:iac`.
 - Publish JSON Schema for manifests and OpenAPI for the HTTP contract.
-- The API is designed for the native CLI only in v1; it is not a Terraform provider compatibility layer.
+- The API is designed for the native CLI in v1.
 
 ## Planning algorithm
 
@@ -439,7 +432,7 @@ The complete native manifest is the transaction boundary.
 9. It increments the workspace revision, stores the operation result, and commits.
 10. Any error rolls back every primitive, binding, revision, and audit event from that apply.
 
-Remote group lookup for a newly declared group assignment happens before opening the transaction. The transaction then verifies the group provider remains enabled and at the same version. Retaining or changing scopes on an existing group assignment should not require a healthy provider lookup.
+Group assignment creation resolves only the configured provider record inside the transaction. Group IDs are opaque: planning and apply never require provider connectivity or remote group existence, and no group display metadata is persisted.
 
 The database transaction cannot include the local lockfile write. Idempotent operation records and `state pull` cover that boundary.
 
@@ -548,7 +541,7 @@ For v1:
 
 ### Phase 1: contracts and architecture
 
-- Record the explicit native-YAML decision and Terraform non-goal.
+- Record the native-YAML configuration model.
 - Freeze v1 primitive boundaries and natural identities.
 - Define manifest, canonicalization, lockfile, plan, and error schemas.
 - Define atomicity, ownership, tombstone, import, and unmanage semantics.
@@ -608,7 +601,6 @@ For v1:
 - Document bootstrap, CI setup, key rotation, import, unmanage, recovery, drift, and deletion behavior.
 - Publish manifest JSON Schema and API OpenAPI documents.
 - Add Linux/macOS package checks, integration tests, E2E flows, and a Changeset.
-- Explicitly document that Terraform is unsupported and outside v1.
 
 ## Acceptance criteria
 
@@ -661,7 +653,3 @@ For v1:
 - Human plan output and `--json` are deterministic.
 - A no-change apply is idempotent and does not prompt.
 - Help and documentation consistently describe native Weldall YAML as the only supported IaC interface.
-
-## Future considerations
-
-A future proposal may independently evaluate Terraform or OpenTofu after Weldall's native ownership and API contracts are stable. Such a proposal must explicitly address partial apply, ownership interoperability, separate state, release engineering, and conflict with native workspaces. No Terraform provider, state compatibility, HCL schema, or provider-specific API behavior is reserved by this plan.

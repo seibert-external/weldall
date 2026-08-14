@@ -63,9 +63,11 @@ export function ResourcesTable() {
         header: "Name",
         cell: ({ row, getValue }) => (
           <div className="grid gap-1">
-            <span className="font-medium">{getValue<string>()}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{getValue<string>()}</span>
+              <ManagementBadge management={row.original.management} />
+            </div>
             <code className="text-xs">{row.original.key}</code>
-            <ManagementBadge management={row.original.management} />
           </div>
         ),
       },

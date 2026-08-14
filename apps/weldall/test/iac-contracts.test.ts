@@ -14,7 +14,7 @@ import { PrimitiveMutationError } from "../src/server/domain/primitive-mutations
 
 const manifest = () =>
   parseDesiredState({
-    apiVersion: "weldall.dev/v1alpha1",
+    apiVersion: "weldall.dev/v1",
     workspace: {
       id: "67ade6dc-0000-4000-8000-000000000000",
       name: "platform",
@@ -29,10 +29,29 @@ describe("native YAML IaC contracts", () => {
     expect(digest({ b: 2, a: 1 })).toBe(digest({ a: 1, b: 2 }));
   });
 
+  it("accepts provider group IDs up to the persistence limit", () => {
+    const desired = {
+      apiVersion: "weldall.dev/v1",
+      workspace: { id: crypto.randomUUID(), name: "x", issuer: "https://weldall.example.com" },
+      groupAssignments: {
+        staged: { provider: "directory", groupId: "g".repeat(191), scopes: ["expenses:read"] },
+      },
+    };
+    expect(parseDesiredState(desired).groupAssignments.staged?.groupId).toHaveLength(191);
+    expect(() =>
+      parseDesiredState({
+        ...desired,
+        groupAssignments: {
+          staged: { ...desired.groupAssignments.staged, groupId: "g".repeat(192) },
+        },
+      }),
+    ).toThrow();
+  });
+
   it("rejects private JWK material and machine-only human grants", () => {
     expect(() =>
       parseDesiredState({
-        apiVersion: "weldall.dev/v1alpha1",
+        apiVersion: "weldall.dev/v1",
         workspace: { id: crypto.randomUUID(), name: "x", issuer: "https://weldall.example.com" },
         machines: {
           runner: {
@@ -48,7 +67,7 @@ describe("native YAML IaC contracts", () => {
     ).toThrow();
     expect(() =>
       parseDesiredState({
-        apiVersion: "weldall.dev/v1alpha1",
+        apiVersion: "weldall.dev/v1",
         workspace: { id: crypto.randomUUID(), name: "x", issuer: "https://weldall.example.com" },
         emailAssignments: { alice: { email: "alice@example.com", scopes: ["weldall:iac"] } },
       }),
@@ -301,7 +320,7 @@ describe("native YAML IaC contracts", () => {
     };
     expect(unmanageRequestSchema.parse(request)).toMatchObject(request);
     const canonicalDefaults = parseDesiredState({
-      apiVersion: "weldall.dev/v1alpha1",
+      apiVersion: "weldall.dev/v1",
       workspace: desired.workspace,
       resources: {
         api: {
@@ -317,7 +336,7 @@ describe("native YAML IaC contracts", () => {
       },
     });
     expect(digest(canonicalDefaults)).toBe(
-      "26620cbee81118a71e72ad6d1905771cb01b1c5967c9673f064557ed3f3d152f",
+      "c5c7577a2a0a00a7bcd7bdd3fe951025152342acfa231906a703aecd3b6d2d1a",
     );
     expect(() =>
       unmanageRequestSchema.parse({
@@ -331,7 +350,7 @@ describe("native YAML IaC contracts", () => {
   it("rejects empty service relations, noncanonical URLs, and cross-kind state moves", () => {
     expect(() =>
       parseDesiredState({
-        apiVersion: "weldall.dev/v1alpha1",
+        apiVersion: "weldall.dev/v1",
         workspace: { id: crypto.randomUUID(), name: "x", issuer: "https://weldall.example.com" },
         resources: {
           api: {

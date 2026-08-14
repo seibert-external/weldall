@@ -33,7 +33,7 @@ model Scope {
   groupGrants        GroupScopeGrant[]
   resources          ResourceScope[]
   allowedForMachines MachineAllowedScope[]
-  iacBinding        IacObjectBinding?
+  iacBinding         IacObjectBinding?
 
   @@index([updatedAt])
 }
@@ -89,7 +89,6 @@ model GroupScopeAssignment {
   id         String            @id @default(cuid())
   providerId String
   groupId    String
-  groupName  String
   version    Int               @default(1)
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
@@ -311,7 +310,9 @@ enum IacOperationStatus {
   FAILED
 }
 
-model IacInstallation {
+/// Persistent database-installation identity advertised in discovery and pinned in IaC lockfiles.
+model InstallationIdentity {
+  /// Fixed singleton row key; this is not the installation UUID.
   id             String   @id @default("default")
   installationId String   @unique @db.Uuid
   createdAt      DateTime @default(now())

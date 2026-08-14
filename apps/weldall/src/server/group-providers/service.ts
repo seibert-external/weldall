@@ -46,7 +46,6 @@ export interface GroupAssignmentDto {
   providerKey: string;
   providerName: string;
   groupId: string;
-  groupName: string;
   scopes: string[];
   version: number;
   createdAt: string;
@@ -307,7 +306,6 @@ export async function listGroupAssignments(input: {
     ? {
         OR: [
           { groupId: { contains: q, mode: "insensitive" } },
-          { groupName: { contains: q, mode: "insensitive" } },
           { provider: { key: { contains: q, mode: "insensitive" } } },
           { provider: { name: { contains: q, mode: "insensitive" } } },
         ],
@@ -316,7 +314,7 @@ export async function listGroupAssignments(input: {
   const [items, total] = await Promise.all([
     db.groupScopeAssignment.findMany({
       where,
-      orderBy: [{ provider: { name: "asc" } }, { groupName: "asc" }],
+      orderBy: [{ provider: { name: "asc" } }, { groupId: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: assignmentInclude,
@@ -343,54 +341,17 @@ export async function createGroupAssignments(
   const scopeKeys = parseAssignmentScopeKeys(input.scopeKeys);
   if (scopeKeys.some((key) => key === IAC_SCOPE_KEY))
     throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
-  const providerSecret = await loadProviderSecret(input.providerId);
-  if (!providerSecret.enabled) {
-    throw new AdminDomainError("INVALID_PROVIDER", "The group provider is disabled.");
-  }
-  let liveGroups: GroupProviderGroup[];
-  try {
-    liveGroups = await adapterFor(providerSecret).getGroups(groupIds);
-  } catch {
-    throw new AdminDomainError("INVALID_PROVIDER", "Could not validate provider groups.");
-  }
-  const byId = new Map(liveGroups.map((group) => [group.id, group]));
-  const unknown = groupIds.find((id) => !byId.has(id));
-  if (unknown)
-    throw new AdminDomainError("INVALID_GROUP", `Provider group ${unknown} was not found.`);
-
   try {
     return await db.$transaction(async (tx) => {
       await lockConfigurationChanges(tx);
       const provider = await tx.groupProvider.findUnique({ where: { id: input.providerId } });
-      if (!provider?.enabled) {
-        throw new AdminDomainError("INVALID_PROVIDER", "The group provider is unavailable.");
-      }
-      if (provider.version !== providerSecret.version) {
-        throw new AdminDomainError(
-          "CONFLICT",
-          "The group provider changed during validation. Reload and try again.",
-        );
-      }
+      if (!provider) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
       const created: GroupAssignmentDto[] = [];
       for (const groupId of groupIds) {
-        const group = byId.get(groupId)!;
         try {
           const assignment = await mutateGroupAssignment(
             tx,
-            {
-              action: "create",
-              providerKey: provider.key,
-              groupId,
-              scopeKeys,
-              preflight: {
-                providerId: provider.id,
-                providerKey: provider.key,
-                providerVersion: providerSecret.version,
-                providerEnabled: providerSecret.enabled,
-                groupId,
-                groupName: group.name,
-              },
-            },
+            { action: "create", providerKey: provider.key, groupId, scopeKeys },
             mutationActor(actor),
           );
           created.push(serializeAssignment(assignment));
@@ -578,7 +539,6 @@ function serializeAssignment(assignment: {
   id: string;
   providerId: string;
   groupId: string;
-  groupName: string;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -595,7 +555,6 @@ function serializeAssignment(assignment: {
     providerKey: assignment.provider.key,
     providerName: assignment.provider.name,
     groupId: assignment.groupId,
-    groupName: assignment.groupName,
     scopes: assignment.grants.map(({ scope }) => parseScopeKey(scope.key)).sort(),
     version: assignment.version,
     createdAt: assignment.createdAt.toISOString(),

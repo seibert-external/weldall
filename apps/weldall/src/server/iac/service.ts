@@ -10,9 +10,7 @@ import {
   mutateGroupAssignment,
   mutateResource,
   mutateScope,
-  preflightGroupAssignment,
   reconcileMachine,
-  type GroupAssignmentPreflight,
   type MutationActor,
   PrimitiveMutationError,
 } from "../domain/primitive-mutations";
@@ -35,8 +33,8 @@ export interface IacActor {
   correlationId?: string;
 }
 
-export async function getInstallation() {
-  return db.iacInstallation.findUniqueOrThrow({ where: { id: "default" } });
+export async function getInstallationIdentity() {
+  return db.installationIdentity.findUniqueOrThrow({ where: { id: "default" } });
 }
 
 export async function planIac(value: unknown, actor?: IacActor): Promise<IacPlan> {
@@ -78,7 +76,6 @@ export async function applyIac(
         );
       if (committed.status === "SUCCEEDED") return committed.resultSummary;
     }
-    const groupPreflights = await preflightNewGroupAssignments(manifest);
     return await db.$transaction(
       async (tx) => {
         await lockIacConfiguration(tx);
@@ -116,7 +113,7 @@ export async function applyIac(
             priorRevision: workspace.revision,
           },
         });
-        await executeDesiredState(tx, manifest, actor, groupPreflights);
+        await executeDesiredState(tx, manifest, actor);
         const resultingRevision = workspace.revision + 1;
         const summary = {
           operationId: input.operationId,
@@ -167,7 +164,6 @@ async function executeDesiredState(
   tx: Prisma.TransactionClient,
   manifest: DesiredState,
   actor: IacActor,
-  groupPreflights: ReadonlyMap<string, GroupAssignmentPreflight>,
 ) {
   const desired = desiredObjects(manifest);
   const desiredAddresses = new Set(desired.map((item) => item.address));
@@ -209,14 +205,7 @@ async function executeDesiredState(
       await tx.iacObjectBinding.delete({ where: { id: existing.id } });
       existing = undefined;
     }
-    const objectId = await upsertObject(
-      tx,
-      item.kind,
-      state as never,
-      existing,
-      actor,
-      groupPreflights.get(item.address),
-    );
+    const objectId = await upsertObject(tx, item.kind, state as never, existing, actor);
     const target = bindingTarget(item.kind, objectId);
     if (existing) await tx.iacObjectBinding.update({ where: { id: existing.id }, data: target });
     else {
@@ -333,7 +322,6 @@ async function upsertObject(
   state: any,
   binding: any,
   actor: IacActor,
-  groupPreflight?: GroupAssignmentPreflight,
 ): Promise<string> {
   const mutation = mutationActor(actor);
   if (kind === "scope") {
@@ -422,8 +410,6 @@ async function upsertObject(
           mutation,
         )
       ).id;
-    if (!groupPreflight)
-      throw new IacError("GROUP_PREFLIGHT_REQUIRED", "New group assignment was not validated", 409);
     return (
       await mutateGroupAssignment(
         tx,
@@ -432,7 +418,6 @@ async function upsertObject(
           providerKey: state.provider,
           groupId: state.groupId,
           scopeKeys: state.scopes,
-          preflight: groupPreflight,
         },
         mutation,
       )
@@ -481,7 +466,7 @@ export async function importIac(
       await lockIacConfiguration(tx);
       await assertCallerAuthorized(tx, actor);
       const manifest = parseDesiredState({
-        apiVersion: "weldall.dev/v1alpha1",
+        apiVersion: "weldall.dev/v1",
         workspace: input.workspace,
       });
       const workspace = await ensureWorkspace(tx, manifest, actor.clientId);
@@ -782,26 +767,6 @@ async function ensureWorkspace(
     current ?? tx.iacWorkspace.create({ data: { ...manifest.workspace, lastActorId: actorId } })
   );
 }
-async function preflightNewGroupAssignments(manifest: DesiredState) {
-  const bindings = await db.iacObjectBinding.findMany({
-    where: { workspaceId: manifest.workspace.id, kind: "GROUP_ASSIGNMENT" },
-    select: { address: true, groupAssignmentId: true },
-  });
-  const existing = new Map(bindings.map((binding) => [binding.address, binding.groupAssignmentId]));
-  const entries = await Promise.all(
-    Object.entries(manifest.groupAssignments)
-      .filter(([name]) => !existing.get(`groupAssignment.${name}`))
-      .map(
-        async ([name, assignment]) =>
-          [
-            `groupAssignment.${name}`,
-            await preflightGroupAssignment(assignment.provider, assignment.groupId),
-          ] as const,
-      ),
-  );
-  return new Map(entries);
-}
-
 function mutationActor(actor: IacActor): MutationActor {
   return {
     type: "machine",

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://weldall.dev/schemas/manifest/v1alpha1.json",
+  "$id": "https://weldall.dev/schemas/manifest/v1.json",
   "title": "Weldall native YAML manifest",
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "workspace"],
   "properties": {
     "apiVersion": {
-      "const": "weldall.dev/v1alpha1"
+      "const": "weldall.dev/v1"
     },
     "workspace": {
       "type": "object",
@@ -245,7 +245,7 @@
           "groupId": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 160
+            "maxLength": 191
           },
           "scopes": {
             "type": "array",

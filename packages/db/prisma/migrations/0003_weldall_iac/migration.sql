@@ -3,13 +3,13 @@ CREATE TYPE "IacPrimitiveKind" AS ENUM ('SCOPE', 'RESOURCE', 'MACHINE', 'EMAIL_A
 CREATE TYPE "IacOperationType" AS ENUM ('APPLY', 'IMPORT', 'UNMANAGE', 'STATE_MOVE');
 CREATE TYPE "IacOperationStatus" AS ENUM ('STARTED', 'SUCCEEDED', 'FAILED');
 
-CREATE TABLE "IacInstallation" (
+CREATE TABLE "InstallationIdentity" (
   "id" TEXT NOT NULL DEFAULT 'default',
   "installationId" UUID NOT NULL,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "IacInstallation_pkey" PRIMARY KEY ("id")
+  CONSTRAINT "InstallationIdentity_pkey" PRIMARY KEY ("id")
 );
-CREATE UNIQUE INDEX "IacInstallation_installationId_key" ON "IacInstallation"("installationId");
+CREATE UNIQUE INDEX "InstallationIdentity_installationId_key" ON "InstallationIdentity"("installationId");
 
 CREATE TABLE "IacWorkspace" (
   "id" UUID NOT NULL,
@@ -70,4 +70,51 @@ CREATE TABLE "IacOperation" (
 CREATE INDEX "IacOperation_workspaceId_createdAt_idx" ON "IacOperation"("workspaceId", "createdAt");
 ALTER TABLE "IacOperation" ADD CONSTRAINT "IacOperation_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "IacWorkspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-INSERT INTO "IacInstallation" ("id", "installationId") VALUES ('default', gen_random_uuid());
+INSERT INTO "InstallationIdentity" ("id", "installationId") VALUES ('default', gen_random_uuid());
+
+-- Shared, cross-process replay protection for OAuth assertions and DPoP proofs.
+CREATE TABLE "ReplayMarker" (
+  "key" TEXT NOT NULL,
+  "expiresAt" TIMESTAMP(3) NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ReplayMarker_pkey" PRIMARY KEY ("key")
+);
+CREATE INDEX "ReplayMarker_expiresAt_idx" ON "ReplayMarker"("expiresAt");
+
+ALTER TABLE "AuditEvent" DROP CONSTRAINT "AuditEvent_event_type";
+UPDATE "AuditEvent"
+SET "eventType" = regexp_replace("eventType", '^workload_', 'machine_')
+WHERE "eventType" LIKE 'workload\_%' ESCAPE '\';
+ALTER TABLE "AuditEvent"
+  ADD CONSTRAINT "AuditEvent_event_type" CHECK (
+    "eventType" IN (
+      'id_jag.issued', 'id_jag.denied', 'id_jag.failed',
+      'machine_client.created', 'machine_client.updated', 'machine_client.deactivated',
+      'machine_client.deleted', 'machine_key.registered', 'machine_key.revoked',
+      'machine_access.replaced', 'machine_token.issued', 'machine_token.denied',
+      'machine_token.failed', 'user_scopes.created', 'user_scopes.replaced',
+      'user_scopes.deleted', 'resource_scopes.created', 'resource_scopes.replaced',
+      'resource_scopes.deleted', 'cli_settings.updated', 'skill.created', 'skill.updated',
+      'skill.deleted', 'group_provider.created', 'group_provider.updated',
+      'group_provider.deleted', 'group_provider.tested', 'group_scopes.created',
+      'group_scopes.replaced', 'group_scopes.deleted', 'iac.plan.generated',
+      'iac.apply.succeeded', 'iac.apply.denied', 'iac.apply.failed',
+      'iac.object.imported', 'iac.object.unmanaged', 'iac.state.moved'
+    )
+  );
+
+-- Tighten IaC singleton and typed ownership invariants.
+ALTER TABLE "InstallationIdentity"
+  ADD CONSTRAINT "InstallationIdentity_singleton_id" CHECK ("id" = 'default');
+
+ALTER TABLE "IacObjectBinding"
+  DROP CONSTRAINT "IacObjectBinding_one_target_check";
+ALTER TABLE "IacObjectBinding"
+  ADD CONSTRAINT "IacObjectBinding_kind_target_check" CHECK (
+    num_nonnulls("scopeId", "resourceId", "machineClientId", "emailAssignmentId", "groupAssignmentId") = 0
+    OR ("kind" = 'SCOPE' AND "scopeId" IS NOT NULL AND num_nonnulls("resourceId", "machineClientId", "emailAssignmentId", "groupAssignmentId") = 0)
+    OR ("kind" = 'RESOURCE' AND "resourceId" IS NOT NULL AND num_nonnulls("scopeId", "machineClientId", "emailAssignmentId", "groupAssignmentId") = 0)
+    OR ("kind" = 'MACHINE' AND "machineClientId" IS NOT NULL AND num_nonnulls("scopeId", "resourceId", "emailAssignmentId", "groupAssignmentId") = 0)
+    OR ("kind" = 'EMAIL_ASSIGNMENT' AND "emailAssignmentId" IS NOT NULL AND num_nonnulls("scopeId", "resourceId", "machineClientId", "groupAssignmentId") = 0)
+    OR ("kind" = 'GROUP_ASSIGNMENT' AND "groupAssignmentId" IS NOT NULL AND num_nonnulls("scopeId", "resourceId", "machineClientId", "emailAssignmentId") = 0)
+  );

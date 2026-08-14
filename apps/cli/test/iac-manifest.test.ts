@@ -24,7 +24,7 @@ import { IacClient } from "../src/iac/client.js";
 async function workspace(root: string, extra = "") {
   await writeFile(
     join(root, "weldall.yml"),
-    `apiVersion: weldall.dev/v1alpha1\nworkspace:\n  name: platform\n  issuer: https://weldall.example.com\n${extra}`,
+    `apiVersion: weldall.dev/v1\nworkspace:\n  name: platform\n  issuer: https://weldall.example.com\n${extra}`,
   );
 }
 
@@ -233,7 +233,7 @@ describe("native YAML workspaces", () => {
       issuer: "https://weldall.example.com",
     };
     const omittedAndUnsorted = {
-      apiVersion: "weldall.dev/v1alpha1",
+      apiVersion: "weldall.dev/v1",
       workspace,
       resources: {
         api: {
@@ -265,7 +265,7 @@ describe("native YAML workspaces", () => {
     };
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(canonicalManifestDigest(canonical));
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(
-      "26620cbee81118a71e72ad6d1905771cb01b1c5967c9673f064557ed3f3d152f",
+      "c5c7577a2a0a00a7bcd7bdd3fe951025152342acfa231906a703aecd3b6d2d1a",
     );
     const lock = {
       version: 1 as const,
@@ -278,7 +278,7 @@ describe("native YAML workspaces", () => {
 
   it("reconstructs the complete lock from authoritative state, including no-op objects", () => {
     const manifest = {
-      apiVersion: "weldall.dev/v1alpha1" as const,
+      apiVersion: "weldall.dev/v1" as const,
       workspace: { name: "platform", issuer: "https://weldall.example.com" },
     };
     const lock = newLock(manifest);
@@ -352,6 +352,23 @@ describe("native YAML workspaces", () => {
       "emailAssignments:\n  alice:\n    email: alice@example.com\n    scopes: []\n",
     );
     await expect(loadWorkspace(root)).rejects.toThrow(/scopes/);
+  });
+
+  it("accepts provider group IDs up to the persistence limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    const groupId = "g".repeat(191);
+    await workspace(
+      root,
+      `groupAssignments:\n  staged:\n    provider: directory\n    groupId: ${groupId}\n    scopes: [expenses:read]\n`,
+    );
+    expect((await loadWorkspace(root)).manifest.groupAssignments?.staged).toMatchObject({
+      groupId,
+    });
+    await workspace(
+      root,
+      `groupAssignments:\n  staged:\n    provider: directory\n    groupId: ${"g".repeat(192)}\n    scopes: [expenses:read]\n`,
+    );
+    await expect(loadWorkspace(root)).rejects.toThrow(/groupId/);
   });
 
   it("rejects aliases, private keys, duplicate addresses, and escaping includes", async () => {

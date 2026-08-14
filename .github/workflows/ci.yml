@@ -95,8 +95,10 @@ jobs:
           pnpm --filter @weldall/cli test
           pnpm --filter @weldall/cli pack:check
 
+  # Exercise the published artifact outside the monorepo, including its OS metadata,
+  # bundled files/bin, and IaC startup without optional native dependencies.
   cli-tarball-startup:
-    name: CLI tarball startup (${{ matrix.os }})
+    name: Packed CLI IaC startup without optional dependencies (${{ matrix.os }})
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -117,14 +119,12 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --filter @weldall/cli build
           pnpm --filter @weldall/cli pack --pack-destination "$RUNNER_TEMP"
-      - name: Install tarball without keychain and start IaC commands
-        env:
-          npm_config_ignore_scripts: "true"
+      - name: Install packed artifact without optional dependencies and start IaC commands
         run: |
           mkdir "$RUNNER_TEMP/weldall-cli-smoke"
           cd "$RUNNER_TEMP/weldall-cli-smoke"
           npm init -y
-          npm install "$RUNNER_TEMP"/weldall-cli-*.tgz
+          npm install --omit=optional "$RUNNER_TEMP"/weldall-cli-*.tgz
           ./node_modules/.bin/weldall validate --help
           ./node_modules/.bin/weldall plan --help
           ./node_modules/.bin/weldall state --help

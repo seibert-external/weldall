@@ -1,99 +1,99 @@
-# Weldall OAuth-, DPoP- und ID-JAG-Flow
+# Weldall OAuth, DPoP, and ID-JAG flow
 
-Dieses Dokument beschreibt den aktuell implementierten Prototyp. Tokens und Codes sind in den HTTP-Beispielen gekürzt.
+This document describes the implemented flow. Tokens and codes are shortened in the HTTP examples.
 
-## 1. Beteiligte Systeme und URLs
+## 1. Systems and URLs
 
 ```text
 ┌──────────────────────────┐
-│ Weldall CLI               │
-│ Public Native Client     │
-│ client_id = weldall-cli   │
+│ Weldall CLI              │
+│ Public native client     │
+│ client_id = weldall-cli  │
 └────────────┬─────────────┘
-             │ Browser + HTTP Requests
+             │ Browser + HTTP requests
              ▼
 ┌──────────────────────────┐          ┌──────────────────────────┐
-│ Weldall                   │─────────►│ Google                   │
-│ OAuth/OIDC IdP-AS        │  Login   │ Upstream Identity        │
-│ Next.js + Better Auth    │◄─────────│ Provider                 │
+│ Weldall                  │─────────►│ Google                   │
+│ OAuth/OIDC IdP and AS    │  Login   │ Upstream identity       │
+│ Next.js + Better Auth    │◄─────────│ provider                 │
 └────────────┬─────────────┘          └──────────────────────────┘
              │ ID-JAG
              ▼
 ┌──────────────────────────┐
-│ Expenses Authorization   │
-│ Server                   │
-│ Hono, ohne Datenbank     │
+│ Expenses authorization   │
+│ server                   │
+│ Hono, without a database │
 └────────────┬─────────────┘
-             │ Expenses Access Token
+             │ Expenses access token
              ▼
 ┌──────────────────────────┐
-│ Expenses Resource Server │
+│ Expenses resource server │
 │ GET/POST/DELETE API      │
 └──────────────────────────┘
 ```
 
-| System                         | Öffentliche URL                                              |
+| System                         | Public URL                                                   |
 | ------------------------------ | ------------------------------------------------------------ |
 | Weldall                        | `https://weldall.seibert.localdev`                           |
-| Weldall Authorization Endpoint | `https://weldall.seibert.localdev/api/auth/oauth2/authorize` |
-| Weldall Token Endpoint         | `https://weldall.seibert.localdev/api/auth/oauth2/token`     |
-| Weldall Revocation Endpoint    | `https://weldall.seibert.localdev/api/auth/oauth2/revoke`    |
+| Weldall authorization endpoint | `https://weldall.seibert.localdev/api/auth/oauth2/authorize` |
+| Weldall token endpoint         | `https://weldall.seibert.localdev/api/auth/oauth2/token`     |
+| Weldall revocation endpoint    | `https://weldall.seibert.localdev/api/auth/oauth2/revoke`    |
 | Weldall API                    | `https://weldall.seibert.localdev/api`                       |
-| Expenses Authorization Server  | `https://expenses.seibert.localdev`                          |
-| Expenses Token Endpoint        | `https://expenses.seibert.localdev/oauth/token`              |
+| Expenses authorization server  | `https://expenses.seibert.localdev`                          |
+| Expenses token endpoint        | `https://expenses.seibert.localdev/oauth/token`              |
 | Expenses API                   | `https://expenses.seibert.localdev/api`                      |
 
-Caddy terminiert lokal TLS und leitet Weldall intern an Port `3000` sowie Expenses an Port `3001` weiter. Protokollvergleiche verwenden immer die öffentlichen HTTPS-URLs.
+Caddy terminates local TLS and proxies Weldall to port `3000` and Expenses to port `3001`. Protocol comparisons always use the public HTTPS URLs.
 
-Die einzigen HTTP-Ausnahmen sind:
+The only HTTP exceptions are:
 
-- Googles lokaler Callback `http://localhost:3000/api/auth/callback/google`
-- der zufällige native CLI-Callback `http://127.0.0.1:<port>/callback`
+- Google's local callback at `http://localhost:3000/api/auth/callback/google`
+- the random native CLI callback at `http://127.0.0.1:<port>/callback`
 
-## 2. Gesamtablauf
+## 2. Complete flow
 
 ```text
 CLI                  Browser          Weldall          Google       Expenses AS      Expenses API
  │                      │                 │                │              │                │
- │ weldall login         │                 │                │              │                │
- │─ Authorization URL ─►│                 │                │              │                │
+ │ weldall login        │                 │                │              │                │
+ │─ authorization URL ─►│                 │                │              │                │
  │                      │─ authorize ────►│                │              │                │
- │                      │                 │─ Google Login ─►│              │                │
- │                      │                 │◄─ Identity ─────│              │                │
+ │                      │                 │─ Google login ─►│              │                │
+ │                      │                 │◄─ identity ─────│              │                │
  │                      │◄─ CLI code ─────│                │              │                │
  │◄─ loopback callback ─│                 │                │              │                │
  │                                        │                │              │                │
  │─ code + PKCE + DPoP ──────────────────►│                │              │                │
- │◄─ Access + ID + Refresh Token ─────────│                │              │                │
+ │◄─ access + ID + refresh token ─────────│                │              │                │
  │                                        │                │              │                │
  │ weldall request                        │                │              │                │
- │─ Refresh Token + DPoP ────────────────►│                │              │                │
- │◄─ Weldall Access + neuer Refresh ───────│                │              │                │
+ │─ refresh token + DPoP ────────────────►│                │              │                │
+ │◄─ Weldall access + new refresh token ──│                │              │                │
  │─ GET /api/me/scopes + DPoP ──────────►│                │              │                │
- │◄─ Resource Registry + Scopes ──────────│                │              │                │
+ │◄─ resource registry + scopes ──────────│                │              │                │
  │                                        │                │              │                │
- │─ Refresh Token als subject_token ─────►│                │              │                │
+ │─ refresh token as subject_token ─────►│                │              │                │
  │◄─ ID-JAG ──────────────────────────────│                │              │                │
  │                                                                         │                │
  │─ ID-JAG + DPoP ────────────────────────────────────────────────────────►│                │
- │◄─ Expenses Access Token ────────────────────────────────────────────────│                │
+ │◄─ Expenses access token ────────────────────────────────────────────────│                │
  │                                                                                          │
- │─ Access Token + DPoP ──────────────────────────────────────────────────────────────────►│
- │◄─ API Response ─────────────────────────────────────────────────────────────────────────│
+ │─ access token + DPoP ──────────────────────────────────────────────────────────────────►│
+ │◄─ API response ─────────────────────────────────────────────────────────────────────────│
 ```
 
-## 3. DPoP-Grundlagen
+## 3. DPoP basics
 
-Jede CLI-Installation erzeugt beim Login ein eigenes ES256-P-256-Keypair.
+Each CLI installation creates its own ES256 P-256 key pair during login.
 
 ```text
 macOS Keychain
-├── Device Private JWK
-├── Device Public JWK
-└── aktueller Weldall Refresh Token
+├── device private JWK
+├── device public JWK
+└── current Weldall refresh token
 ```
 
-Der Private Key verlässt das Gerät nicht. Weldall und Expenses speichern beziehungsweise übernehmen nur den RFC-7638-Thumbprint des Public Keys:
+The private key never leaves the device. Weldall and Expenses store or carry only the RFC 7638 thumbprint of the public key:
 
 ```json
 {
@@ -103,13 +103,13 @@ Der Private Key verlässt das Gerät nicht. Weldall und Expenses speichern bezie
 }
 ```
 
-Jeder geschützte Request enthält einen neuen `DPoP`-Header:
+Every protected request contains a fresh `DPoP` header:
 
 ```http
 DPoP: <proof-jwt>
 ```
 
-Header des Proof-JWT:
+Proof JWT header:
 
 ```json
 {
@@ -124,59 +124,60 @@ Header des Proof-JWT:
 }
 ```
 
-Payload eines Token-Endpoint-Proofs:
+Token-endpoint proof payload:
 
 ```json
 {
   "htm": "POST",
   "htu": "https://weldall.seibert.localdev/api/auth/oauth2/token",
   "iat": 1780000000,
-  "jti": "einmalige-proof-id"
+  "jti": "unique-proof-id"
 }
 ```
 
-Bei einem API-Request kommt `ath` hinzu:
+An API request also includes `ath`:
 
 ```json
 {
   "htm": "GET",
   "htu": "https://expenses.seibert.localdev/api/expenses",
-  "ath": "base64url-sha256-des-access-tokens",
+  "ath": "base64url-sha256-of-access-token",
   "iat": 1780000010,
-  "jti": "weitere-einmalige-proof-id"
+  "jti": "another-unique-proof-id"
 }
 ```
 
-| Claim | Zweck                                                   |
-| ----- | ------------------------------------------------------- |
-| `htm` | Bindung an die HTTP-Methode                             |
-| `htu` | Bindung an die öffentliche Ziel-URL ohne Query/Fragment |
-| `iat` | enges Gültigkeitsfenster                                |
-| `jti` | Replay-Erkennung                                        |
-| `ath` | Bindung an einen konkreten Access Token                 |
+| Claim | Purpose                                                     |
+| ----- | ----------------------------------------------------------- |
+| `htm` | Binds the proof to the HTTP method                          |
+| `htu` | Binds the proof to the public target URL without query/hash |
+| `iat` | Enforces a narrow validity window                           |
+| `jti` | Enables replay detection                                    |
+| `ath` | Binds the proof to one access token                         |
 
-Token Endpoints verlangen kein `ath`, weil dort kein Access Token als API-Credential präsentiert wird. Geschützte Resource Requests verlangen dagegen immer `ath`.
+Token endpoints do not accept `ath` because no access token is presented as the API credential. Protected resource requests always require `ath`.
 
 ## 4. `weldall login`
 
-### 4.1 Lokale Vorbereitung
+### 4.1 Local preparation
 
-Die CLI:
+The CLI:
 
-1. erzeugt ein ES256-Device-Keypair,
-2. erzeugt `state`, OIDC-`nonce` und einen PKCE-Verifier,
-3. berechnet `code_challenge = BASE64URL(SHA-256(code_verifier))`,
-4. startet einen HTTP-Server auf `127.0.0.1` mit zufälligem Port,
-5. öffnet den Browser.
+1. creates an ES256 device key pair,
+2. creates `state`, an OIDC `nonce`, and a PKCE verifier,
+3. computes `code_challenge = BASE64URL(SHA-256(code_verifier))`,
+4. starts an HTTP server on `127.0.0.1` with a random port,
+5. opens the browser.
 
-### 4.2 Authorization Request der CLI
+### 4.2 CLI authorization request
 
 ```http
 GET /api/auth/oauth2/authorize?
   response_type=code&
+  prompt=consent&
   client_id=weldall-cli&
   redirect_uri=http%3A%2F%2F127.0.0.1%3A43123%2Fcallback&
-  scope=openid%20offline_access%20weldall%3Ascopes&
+  scope=openid%20profile%20email%20offline_access%20weldall%3Ascopes&
   state=<random-state>&
   nonce=<random-nonce>&
   code_challenge=<pkce-challenge>&
@@ -186,25 +187,27 @@ GET /api/auth/oauth2/authorize?
 Host: weldall.seibert.localdev
 ```
 
-Bedeutung der wichtigsten Parameter:
+Important parameters:
 
-| Parameter        | Bedeutung                                            |
-| ---------------- | ---------------------------------------------------- |
-| `client_id`      | fest registrierter öffentlicher Client `weldall-cli` |
-| `redirect_uri`   | dynamischer nativer Loopback-Callback                |
-| `state`          | CSRF- und Request/Response-Bindung                   |
-| `nonce`          | Bindung des ID Tokens an diesen Login                |
-| `code_challenge` | PKCE-Schutz des Authorization Codes                  |
-| `resource`       | gewünschte Audience des Weldall Access Tokens        |
-| `dpop_jkt`       | Device-Key-Bindung des Codes und der Tokens          |
+| Parameter        | Meaning                                                  |
+| ---------------- | -------------------------------------------------------- |
+| `prompt`         | Requires an approval screen for every CLI login          |
+| `client_id`      | Fixed public client `weldall-cli`                        |
+| `redirect_uri`   | Dynamic native loopback callback                         |
+| `scope`          | Requests identity claims, offline access, and CLI access |
+| `state`          | CSRF protection and request/response binding             |
+| `nonce`          | Binds the ID token to this login                         |
+| `code_challenge` | PKCE protection for the authorization code               |
+| `resource`       | Requested audience for the Weldall access token          |
+| `dpop_jkt`       | Binds the code and tokens to the device key              |
 
-Der Client ist durch Prisma-Migrationen ohne Secret registriert. PKCE und DPoP sind für ihn verpflichtend.
+The client is registered without a secret by the Prisma migrations. PKCE and DPoP are mandatory.
 
-### 4.3 Google-Login innerhalb Weldalls
+### 4.3 Google login inside Weldall
 
-Wenn noch keine Weldall-Browser-Session existiert, leitet Better Auth auf `/login` um. Der Login-Button startet den Google Social Login.
+If no Weldall browser session exists, Better Auth redirects to `/login`. The login button starts Google social login.
 
-Vereinfacht erzeugt Better Auth folgenden Google-Request:
+A simplified Google request looks like this:
 
 ```http
 GET https://accounts.google.com/o/oauth2/v2/auth?
@@ -215,7 +218,7 @@ GET https://accounts.google.com/o/oauth2/v2/auth?
   state=<better-auth-state>
 ```
 
-Google ruft nach erfolgreichem Login zurück:
+After login, Google calls:
 
 ```http
 GET http://localhost:3000/api/auth/callback/google?
@@ -223,13 +226,13 @@ GET http://localhost:3000/api/auth/callback/google?
   state=<better-auth-state>
 ```
 
-Der Google Authorization Code ist nicht der spätere Weldall Authorization Code. Better Auth tauscht den Google Code serverseitig mit `GOOGLE_CLIENT_ID` und `GOOGLE_CLIENT_SECRET` aus, erstellt beziehungsweise lädt User, Google Account und Browser-Session und setzt den ursprünglichen Weldall-Authorize-Flow fort.
+The Google authorization code is not the later Weldall authorization code. Better Auth exchanges the Google code server-side with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, creates or loads the user, Google account, and browser session, and resumes the original Weldall authorization flow.
 
-Da Google `.localdev` nicht als Callback akzeptiert, transportiert Better Auths OAuth-Proxy-Plugin das Ergebnis kurzlebig verschlüsselt von `localhost:3000` zurück zu `https://weldall.seibert.localdev`.
+Google does not accept `.localdev` callbacks, so Better Auth's OAuth proxy plugin carries the result in a short-lived encrypted value from `localhost:3000` back to `https://weldall.seibert.localdev`.
 
-### 4.4 Authorization Response an die CLI
+### 4.4 Authorization response to the CLI
 
-Weldall schickt einen eigenen, einmalig verwendbaren Authorization Code an den Loopback-Callback:
+Weldall sends its own single-use authorization code to the loopback callback:
 
 ```http
 GET http://127.0.0.1:43123/callback?
@@ -238,20 +241,20 @@ GET http://127.0.0.1:43123/callback?
   iss=https%3A%2F%2Fweldall.seibert.localdev
 ```
 
-Die CLI prüft:
+The CLI verifies:
 
-- Callback-Pfad `/callback`,
-- exakt passendes `state`,
-- exakt passenden Issuer `iss`,
-- einmalige Verwendung und Timeout.
+- callback path `/callback`,
+- exact `state` match,
+- exact issuer in `iss`,
+- single use and timeout.
 
-### 4.5 Code Exchange mit PKCE und DPoP
+### 4.5 Code exchange with PKCE and DPoP
 
 ```http
 POST /api/auth/oauth2/token HTTP/1.1
 Host: weldall.seibert.localdev
 Content-Type: application/x-www-form-urlencoded
-DPoP: <proof-fuer-weldall-token-endpoint>
+DPoP: <proof-for-weldall-token-endpoint>
 
 grant_type=authorization_code
 &client_id=weldall-cli
@@ -260,15 +263,15 @@ grant_type=authorization_code
 &code_verifier=<pkce-verifier>
 ```
 
-Weldall/Better Auth prüft:
+Weldall and Better Auth verify:
 
-- Client und Redirect URI,
-- Authorization Code aktiv und noch nicht verwendet,
-- PKCE-S256-Verifier,
-- DPoP-Signatur, `htm`, `htu`, `iat` und `jti`,
-- DPoP-Key gegen `dpop_jkt` des Authorization Requests.
+- client and redirect URI,
+- active, unused authorization code,
+- PKCE S256 verifier,
+- DPoP signature, `htm`, `htu`, `iat`, and `jti`,
+- DPoP key against the authorization request's `dpop_jkt`.
 
-Antwort:
+Response:
 
 ```http
 HTTP/1.1 200 OK
@@ -281,11 +284,11 @@ Cache-Control: no-store
   "id_token": "<weldall-id-token>",
   "refresh_token": "<opaque-refresh-token>",
   "expires_in": 3600,
-  "scope": "openid offline_access weldall:scopes"
+  "scope": "openid profile email offline_access weldall:scopes"
 }
 ```
 
-Der Weldall Access Token enthält unter anderem:
+The Weldall access token includes:
 
 ```json
 {
@@ -295,32 +298,32 @@ Der Weldall Access Token enthält unter anderem:
     "https://weldall.seibert.localdev/api",
     "https://weldall.seibert.localdev/api/auth/oauth2/userinfo"
   ],
-  "scope": "openid offline_access weldall:scopes",
+  "scope": "openid profile email offline_access weldall:scopes",
   "cnf": { "jkt": "<device-key-thumbprint>" }
 }
 ```
 
-Die CLI validiert Access Token, ID Token, Signatur, Issuer, Audience, Zeitclaims, ID-Token-`nonce` und `cnf.jkt`.
+The CLI validates the access token, ID token, signatures, issuer, audiences, time claims, ID-token `nonce`, and `cnf.jkt`.
 
-Danach speichert sie nur Device Key und Refresh Token im Keychain. Access Token und ID Token werden nicht dauerhaft gespeichert.
+It then stores only the device key and refresh token in Keychain. Access and ID tokens are not stored persistently.
 
-### 4.6 Weldall-Persistenz beim Login
+### 4.6 Weldall persistence during login
 
-Better Auth speichert unter anderem:
+Better Auth stores records including:
 
 ```text
 User
 Account (Google)
-Session (Browser)
+Session (browser)
 OauthRefreshToken
 ```
 
-Die Token-Facade ergänzt:
+The token facade adds:
 
 ```text
 OAuthDeviceRefreshBinding
-├── Hash des Refresh Tokens
-├── User-ID
+├── refresh-token hash
+├── user ID
 ├── client_id = weldall-cli
 ├── familyId
 ├── dpopJkt
@@ -329,71 +332,71 @@ OAuthDeviceRefreshBinding
 └── replacementHash
 ```
 
-Der rohe Refresh Token steht nicht in dieser Sidecar-Tabelle.
+The raw refresh token is not stored in this sidecar table.
 
-## 5. Refresh und `weldall scopes`
+## 5. Refresh and `weldall scopes`
 
-Da jeder CLI-Aufruf ein neuer Prozess ist, liest die CLI den aktuellen Refresh Token und Device Key aus dem Keychain.
+Each CLI command is a new process, so it reads the current refresh token and device key from Keychain.
 
-### 5.1 Refresh Request
+### 5.1 Refresh request
 
 ```http
 POST /api/auth/oauth2/token HTTP/1.1
 Host: weldall.seibert.localdev
 Content-Type: application/x-www-form-urlencoded
-DPoP: <neuer-proof>
+DPoP: <new-proof>
 
 grant_type=refresh_token
-&refresh_token=<aktueller-refresh-token>
+&refresh_token=<current-refresh-token>
 &client_id=weldall-cli
 ```
 
-Weldall prüft zusätzlich zur Better-Auth-Validierung:
+In addition to Better Auth validation, Weldall verifies:
 
-- Sidecar-Binding aktiv,
-- Refresh Token nicht bereits rotiert,
-- DPoP-Thumbprint entspricht `dpopJkt`,
-- Token-Familie nicht widerrufen.
+- active sidecar binding,
+- refresh token has not already been rotated,
+- DPoP thumbprint matches `dpopJkt`,
+- token family has not been revoked.
 
-Antwort:
+Response:
 
 ```json
 {
   "token_type": "DPoP",
-  "access_token": "<neuer-weldall-access-token>",
-  "refresh_token": "<rotierter-refresh-token>"
+  "access_token": "<new-weldall-access-token>",
+  "refresh_token": "<rotated-refresh-token>"
 }
 ```
 
-Die CLI ersetzt den bisherigen Refresh Token im Keychain atomar unter ihrem prozessübergreifenden CLI-Lock.
+The CLI atomically replaces the previous refresh token in Keychain while holding its cross-process lock.
 
 ```text
-Refresh Token A ──refresh──► Refresh Token B
+Refresh token A ──refresh──► Refresh token B
       │                           │
-      └─ rotatedAt gesetzt        └─ gleicher familyId
+      └─ rotatedAt set            └─ same familyId
 ```
 
-Wird Token A später erneut verwendet, wird die gesamte Familie widerrufen.
+If token A is used again, the entire family is revoked.
 
-### 5.2 Scope Request
+### 5.2 Scope request
 
 ```http
 GET /api/me/scopes HTTP/1.1
 Host: weldall.seibert.localdev
 Authorization: DPoP <weldall-access-token>
-DPoP: <proof-mit-ath>
+DPoP: <proof-with-ath>
 ```
 
-Weldall prüft:
+Weldall verifies:
 
-- Signatur, Issuer und Audience des Access Tokens,
-- Scope `weldall:scopes`,
-- `cnf.jkt` gegen den Proof-Key,
-- `ath` gegen den Access Token,
-- `htm=GET`, kanonisches `htu`, `iat` und Replay-`jti`,
-- User existiert und besitzt eine verifizierte E-Mail.
+- access-token signature, issuer, and audience,
+- `weldall:scopes` scope,
+- `cnf.jkt` against the proof key,
+- `ath` against the access token,
+- `htm=GET`, canonical `htu`, `iat`, and replay `jti`,
+- user exists and has a verified email address.
 
-Die Antwort ist gleichzeitig die Resource Registry der CLI:
+The response is also the CLI resource registry:
 
 ```json
 [
@@ -410,63 +413,62 @@ Die Antwort ist gleichzeitig die Resource Registry der CLI:
 ]
 ```
 
-Resource-Definitionen, Präfixe und unterstützte Scopes stammen aus der Downstream-Registry in PostgreSQL. `grantedScopes` wird unabhängig davon aus direkten E-Mail-Assignments und live aufgelösten Provider-Gruppen abgeleitet. Jede aktive Resource wird ausgegeben; auch geschützte System-Scopes wie `weldall:administer` können als unterstützte Scopes konfiguriert werden. Provider-Fehler, Deaktivierung, Versionsänderungen oder entfernte Mitgliedschaften entziehen gruppenbasierte Scopes fail-closed, während unabhängige direkte Grants erhalten bleiben.
+Resource definitions, prefixes, and supported scopes come from the downstream registry in PostgreSQL. `grantedScopes` is derived independently from direct email assignments and live provider-group membership. Every active resource is returned; protected system scopes such as `weldall:administer` can also be configured as supported scopes. Provider errors, provider deactivation, version changes, or removed memberships revoke group-based scopes fail-closed while independent direct grants remain active.
 
 ## 6. `weldall request`
 
-Beispiel:
+Example:
 
 ```bash
 weldall request --scope expenses:read \
   https://expenses.seibert.localdev/api/expenses
 ```
 
-Die CLI führt dabei vier Schritte aus:
+The CLI performs four stages:
 
 ```text
-1. Weldall Access Token erneuern und Scope-/Resource-Registry laden
-2. Ziel-URL anhand von Origin und Pfadsegmenten genau einer Resource zuordnen
-3. Unterstützte und gewährte Scopes prüfen und bei Weldall einen ID-JAG anfordern
-4. ID-JAG beim registrierten AS gegen einen Access Token tauschen
-5. Die vollständige HTTPS-URL direkt mit einem dafür gebundenen DPoP-Proof aufrufen
+1. Refresh the Weldall access token, load the registry, match the target URL, and check scopes
+2. Request an ID-JAG from Weldall
+3. Exchange the ID-JAG at the registered authorization server
+4. Call the complete HTTPS URL directly with a DPoP proof bound to the access token
 ```
 
-### 6.1 Schritt 1: Refresh und Registry
+### 6.1 Stage 1: refresh and registry
 
-`weldall request` verwendet denselben Refresh- und `GET /api/me/scopes`-Ablauf wie `weldall scopes`. Die Ziel-URL stammt direkt aus dem CLI-Aufruf und wird nicht aus einem Endpunktkatalog zusammengesetzt. Vor jedem Token Exchange muss sie aber anhand des exakten Origins und einer Pfadsegment-Grenze genau einem registrierten Präfix entsprechen. Erst danach prüft die CLI unterstützte und gewährte Scopes. Redirects werden nicht verfolgt.
+`weldall request` uses the same refresh and `GET /api/me/scopes` flow as `weldall scopes`. The target URL comes directly from the CLI command; it is not assembled from an endpoint catalog. Before token exchange, its exact origin and a path-segment boundary must match exactly one registered prefix. Only then does the CLI check supported and granted scopes. Redirects are not followed.
 
-### 6.2 Schritt 2: ID-JAG bei Weldall anfordern
+### 6.2 Stage 2: request an ID-JAG from Weldall
 
 ```http
 POST /api/auth/oauth2/token HTTP/1.1
 Host: weldall.seibert.localdev
 Content-Type: application/x-www-form-urlencoded
-DPoP: <proof-fuer-weldall-token-endpoint>
+DPoP: <proof-for-weldall-token-endpoint>
 
 grant_type=urn:ietf:params:oauth:grant-type:token-exchange
 &requested_token_type=urn:ietf:params:oauth:token-type:id-jag
 &audience=https%3A%2F%2Fexpenses.seibert.localdev
 &resource=https%3A%2F%2Fexpenses.seibert.localdev%2Fapi
 &scope=expenses%3Aread
-&subject_token=<aktueller-weldall-refresh-token>
+&subject_token=<current-weldall-refresh-token>
 &subject_token_type=urn:ietf:params:oauth:token-type:refresh_token
 &client_id=weldall-cli
 ```
 
-`subject_token` ist in diesem Profil der aktuelle Weldall Refresh Token. Er weist die bestehende Weldall-Anmeldung nach. Weldall prüft dazu sowohl Better Auths `OauthRefreshToken` als auch `OAuthDeviceRefreshBinding`.
+In this profile, `subject_token` is the current Weldall refresh token. It proves the existing Weldall login. Weldall checks both Better Auth's `OauthRefreshToken` and the `OAuthDeviceRefreshBinding`.
 
-Der ID-JAG Draft-04 zeigt primär einen ID Token als `subject_token`, erlaubt aber in §4.3.2 auch die hier implementierte Refresh-Token-Variante, wenn der IdP sie unterstützt.
+ID-JAG draft 04 primarily shows an ID token as `subject_token`, but section 4.3.2 also permits the refresh-token variant implemented here when the identity provider supports it.
 
-Weldall prüft:
+Weldall verifies:
 
-- Refresh Token aktiv, unrotiert und nicht widerrufen,
-- Better-Auth- und Sidecar-Datensatz stimmen überein,
-- User, Public Client und Device-Key-Bindung,
-- Ziel-Audience und Resource wählen exakt dieselbe aktive DB-Resource,
-- angeforderte Scopes werden von dieser Resource unterstützt und sind dem User gewährt,
-- DPoP-Proof ist gültig und noch nicht verwendet.
+- active, unrotated, unrevoked refresh token,
+- matching Better Auth and sidecar records,
+- user, public client, and device-key binding,
+- target audience and resource resolve to the same active database resource,
+- requested scopes are supported by that resource and granted to the user,
+- valid, unused DPoP proof.
 
-Antwort gemäß Token Exchange:
+Token-exchange response:
 
 ```http
 HTTP/1.1 200 OK
@@ -482,14 +484,16 @@ Cache-Control: no-store
 }
 ```
 
-Das Feld heißt aus historischen Gründen `access_token`, obwohl der ID-JAG kein API Access Token ist.
+The response field is named `access_token` for protocol compatibility even though the ID-JAG is not an API access token.
 
-Der ID-JAG enthält:
+The ID-JAG contains:
 
 ```json
 {
   "iss": "https://weldall.seibert.localdev",
   "sub": "<weldall-user-id>",
+  "email": "<verified-email>",
+  "email_verified": true,
   "aud": "https://expenses.seibert.localdev",
   "client_id": "weldall-cli-at-expenses",
   "resource": "https://expenses.seibert.localdev/api",
@@ -502,7 +506,7 @@ Der ID-JAG enthält:
 }
 ```
 
-JWT-Header:
+JWT header:
 
 ```json
 {
@@ -512,33 +516,34 @@ JWT-Header:
 }
 ```
 
-### 6.3 Schritt 3: ID-JAG beim Expenses AS einlösen
+### 6.3 Stage 3: exchange the ID-JAG at the Expenses authorization server
 
 ```http
 POST /oauth/token HTTP/1.1
 Host: expenses.seibert.localdev
 Content-Type: application/x-www-form-urlencoded
-DPoP: <neuer-proof-fuer-expenses-token-endpoint>
+DPoP: <new-proof-for-expenses-token-endpoint>
 
 grant_type=urn:ietf:params:oauth:grant-type:jwt-dpop
 &assertion=<signed-id-jag>
 ```
 
-Expenses prüft:
+Expenses verifies:
 
-- ID-JAG-Signatur mit Weldalls Public Key,
-- `typ=oauth-id-jag+jwt` und `alg=ES256`,
-- exakten Weldall-Issuer,
+- ID-JAG signature with Weldall's public key,
+- `typ=oauth-id-jag+jwt` and `alg=ES256`,
+- exact Weldall issuer,
+- non-empty `email` with `email_verified=true`,
 - `aud=https://expenses.seibert.localdev`,
 - `resource=https://expenses.seibert.localdev/api`,
 - `client_id=weldall-cli-at-expenses`,
-- `iat`, `exp`, maximale Laufzeit und `jti`,
-- alle Scopes werden lokal unterstützt,
-- DPoP-Signatur und Request-Bindung,
-- Proof-Key-Thumbprint entspricht `ID-JAG.cnf.jkt`,
-- Proof-`jti` und ID-JAG-`jti` wurden noch nicht verwendet.
+- `iat`, `exp`, maximum lifetime, and `jti`,
+- all scopes are supported locally,
+- DPoP signature and request binding,
+- proof-key thumbprint matches `ID-JAG.cnf.jkt`,
+- proof `jti` and ID-JAG `jti` have not been used.
 
-Antwort:
+Response:
 
 ```http
 HTTP/1.1 200 OK
@@ -553,12 +558,14 @@ Cache-Control: no-store
 }
 ```
 
-Der Expenses Access Token enthält:
+The Expenses access token contains:
 
 ```json
 {
   "iss": "https://expenses.seibert.localdev",
   "sub": "<weldall-user-id>",
+  "email": "<verified-email>",
+  "email_verified": true,
   "aud": "https://expenses.seibert.localdev/api",
   "client_id": "weldall-cli-at-expenses",
   "scope": "expenses:read",
@@ -569,29 +576,29 @@ Der Expenses Access Token enthält:
 }
 ```
 
-Der Token ist mit dem Expenses Signing Key signiert und hat `typ=at+jwt`.
+The token is signed with the Expenses signing key and has `typ=at+jwt`.
 
-### 6.4 Schritt 4: Expenses API direkt aufrufen
+### 6.4 Stage 4: call the Expenses API directly
 
 #### GET
 
-CLI-Aufruf:
+CLI command:
 
 ```bash
 weldall request --scope expenses:read \
   https://expenses.seibert.localdev/api/expenses
 ```
 
-HTTP-Request:
+HTTP request:
 
 ```http
 GET /api/expenses HTTP/1.1
 Host: expenses.seibert.localdev
 Authorization: DPoP <expenses-access-token>
-DPoP: <proof-mit-ath>
+DPoP: <proof-with-ath>
 ```
 
-Benötigte Scopes:
+Required scopes:
 
 ```text
 expenses:read
@@ -599,7 +606,7 @@ expenses:read
 
 #### POST
 
-CLI-Aufruf:
+CLI command:
 
 ```bash
 weldall request --method POST \
@@ -608,14 +615,14 @@ weldall request --method POST \
   https://expenses.seibert.localdev/api/expenses
 ```
 
-HTTP-Request:
+HTTP request:
 
 ```http
 POST /api/expenses HTTP/1.1
 Host: expenses.seibert.localdev
 Content-Type: application/json
 Authorization: DPoP <expenses-access-token>
-DPoP: <proof-mit-ath>
+DPoP: <proof-with-ath>
 
 {
   "description": "Train",
@@ -623,15 +630,15 @@ DPoP: <proof-mit-ath>
 }
 ```
 
-Benötigte Scopes:
+Required scopes:
 
 ```text
 expenses:create
 ```
 
-#### DELETE mit All-of-Scopes
+#### DELETE with all-of scopes
 
-CLI-Aufruf:
+CLI command:
 
 ```bash
 weldall request --method DELETE \
@@ -640,37 +647,37 @@ weldall request --method DELETE \
   https://expenses.seibert.localdev/api/expenses/expense-1
 ```
 
-HTTP-Request:
+HTTP request:
 
 ```http
 DELETE /api/expenses/expense-1 HTTP/1.1
 Host: expenses.seibert.localdev
 Authorization: DPoP <expenses-access-token>
-DPoP: <proof-mit-ath>
+DPoP: <proof-with-ath>
 ```
 
-Beide Scopes müssen im Token vorhanden sein:
+Both scopes must be present in the token:
 
 ```text
 expenses:delete AND expenses:write
 ```
 
-Für jeden API-Request prüft die gemeinsame Hono-Middleware:
+For every API request, the shared Hono middleware verifies:
 
 ```text
-Expenses-Signatur des Access Tokens
-+ exakter Issuer und Audience
+Expenses access-token signature
++ exact issuer and audience
 + client_id
-+ Ablauf und erforderliche All-of-Scopes
-+ Access Token cnf.jkt
-+ DPoP-Proof-Signatur
-+ htm / kanonisches öffentliches htu
++ expiration and required all-of scopes
++ access-token cnf.jkt
++ DPoP proof signature
++ htm / canonical public htu
 + ath
-+ enges iat-Fenster
-+ einmalige Proof-jti
++ narrow iat window
++ unique proof jti
 ```
 
-Weldall ist an diesem API-Aufruf nicht beteiligt und sieht weder den Expenses Access Token noch Request oder Response.
+Weldall is not involved in this API call and sees neither the Expenses access token nor the request or response.
 
 ## 7. `weldall logout`
 
@@ -678,23 +685,23 @@ Weldall ist an diesem API-Aufruf nicht beteiligt und sieht weder den Expenses Ac
 POST /api/auth/oauth2/revoke HTTP/1.1
 Host: weldall.seibert.localdev
 Content-Type: application/x-www-form-urlencoded
-DPoP: <proof-fuer-revocation-endpoint>
+DPoP: <proof-for-revocation-endpoint>
 
-token=<aktueller-refresh-token>
+token=<current-refresh-token>
 &token_type_hint=refresh_token
 &client_id=weldall-cli
 ```
 
-Die Revocation-Facade:
+The revocation facade:
 
-1. findet das Binding über den Refresh-Token-Hash,
-2. prüft den DPoP-Key gegen `dpopJkt`,
-3. delegiert die eigentliche Revocation an Better Auth,
-4. markiert die gesamte Sidecar-Familie als widerrufen.
+1. finds the binding by refresh-token hash,
+2. verifies the DPoP key against `dpopJkt`,
+3. delegates token revocation to Better Auth,
+4. marks the entire sidecar family as revoked.
 
-Die CLI entfernt anschließend den Keychain-Eintrag mit Device Key und Refresh Token. Das geschieht auch dann lokal, wenn der Remote-Revocation-Request fehlschlägt; der Fehler wird ausgegeben.
+The CLI then removes the Keychain entry containing the device key and refresh token. It also removes the local entry if the remote revocation request fails and reports the error.
 
-## 8. Facade-Aufteilung in Weldall
+## 8. Weldall facade split
 
 ```text
 POST /api/auth/oauth2/token
@@ -703,33 +710,33 @@ POST /api/auth/oauth2/token
       tokenFacade
        ├── grant_type=authorization_code
        │     └── Better Auth
-       │           └── Facade prüft Antwort und legt Device-Binding an
+       │           └── facade verifies response and creates device binding
        │
        ├── grant_type=refresh_token
-       │     ├── Sidecar-/DPoP-Vorprüfung
-       │     ├── Better Auth Rotation
-       │     └── Sidecar-Rotation / Family Revocation
+       │     ├── sidecar/DPoP preflight
+       │     ├── Better Auth rotation
+       │     └── sidecar rotation / family revocation
        │
        └── grant_type=...:token-exchange
-             └── eigene ID-JAG-Ausstellung
+             └── custom ID-JAG issuance
 
 POST /api/auth/oauth2/revoke
             │
             ▼
     revocationFacade
-       ├── Sidecar-/DPoP-Prüfung
-       ├── Better Auth Revocation
-       └── Sidecar-Familie widerrufen
+       ├── sidecar/DPoP verification
+       ├── Better Auth revocation
+       └── sidecar family revocation
 
-alle anderen /api/auth/* Requests
+all other /api/auth/* requests
             │
             ▼
-      Better Auth Catch-all
+      Better Auth catch-all
 ```
 
-Better Auth bleibt für Standard-OAuth-Grants, Sessions und Google zuständig. Die Facades ergänzen das Weldall-spezifische ID-JAG-/DPoP-Profil.
+Better Auth remains responsible for standard OAuth grants, sessions, and Google login. The facades add the Weldall-specific ID-JAG and DPoP profile.
 
-## 9. Discovery- und JWKS-Endpunkte
+## 9. Discovery and JWKS endpoints
 
 ### Weldall
 
@@ -749,41 +756,46 @@ GET /.well-known/oauth-protected-resource/api
 GET /.well-known/jwks.json
 ```
 
-Die CLI verwendet die bei jedem Request aus PostgreSQL erzeugte Registry von `GET /api/me/scopes`. Für Downstream-Services findet keine Discovery statt; der Token Endpoint ist vertraglich `<authorizationServer>/oauth/token`. Die Well-Known-Endpunkte der Demo dokumentieren trotzdem Issuer, Resource und JWKS.
+For each request, the CLI uses the registry generated from PostgreSQL by `GET /api/me/scopes`. It does not perform downstream-service discovery; the downstream token endpoint is contractually `<authorizationServer>/oauth/token`. The demo well-known endpoints still document issuer, resource, and JWKS metadata.
 
-## 10. Persistenz und Lebensdauer
+## 10. Persistence and lifetime
 
 ```text
 macOS Keychain
-├── Device Private/Public Key
-└── aktueller Weldall Refresh Token
+├── device private/public key
+└── current Weldall refresh token
 
-CLI-Arbeitsspeicher
-├── Weldall Access Token
-├── Weldall ID Token
+CLI memory
+├── Weldall access token
+├── Weldall ID token
 ├── ID-JAG
-├── Expenses Access Token
-└── DPoP-Proofs
+├── Expenses access token
+└── DPoP proofs
 
 Weldall PostgreSQL
-├── Better Auth User / Account / Session
-├── OAuth Client / Resource
+├── Better Auth user / account / session
+├── OAuth client / resource
 ├── OauthRefreshToken
-└── OAuthDeviceRefreshBinding
+├── OAuthDeviceRefreshBinding
+└── ReplayMarker for token/revocation DPoP, machine assertions, and IaC DPoP
 
-Expenses-Prozessspeicher
-├── DPoP-jti Replay Store
-└── ID-JAG-jti Replay Store
+Weldall process memory
+├── /api/me/* CLI API DPoP replay store
+└── Better Auth native OAuth DPoP replay store
+
+Expenses process memory
+├── DPoP-jti replay store
+└── ID-JAG-jti replay store
 ```
 
-| Objekt                | Persistiert?                                    |
-| --------------------- | ----------------------------------------------- |
-| Device Private Key    | macOS Keychain                                  |
-| Weldall Refresh Token | macOS Keychain und gehasht bei Weldall          |
-| Weldall Access Token  | nur CLI-Arbeitsspeicher                         |
-| ID Token              | nur CLI-Arbeitsspeicher während Login           |
-| ID-JAG                | nur CLI-Arbeitsspeicher                         |
-| Expenses Access Token | nur CLI-Arbeitsspeicher                         |
-| DPoP-Proof            | nicht persistiert; nur Replay-`jti` gespeichert |
+| Object                | Persistence                                  |
+| --------------------- | -------------------------------------------- |
+| Device private key    | macOS Keychain                               |
+| Weldall refresh token | macOS Keychain and hashed at Weldall         |
+| Weldall access token  | CLI memory only                              |
+| ID token              | CLI memory during login only                 |
+| ID-JAG                | CLI memory only                              |
+| Expenses access token | CLI memory only                              |
+| DPoP proof            | Not stored; only replay markers are retained |
 
-Die In-Memory-Replay-Stores gelten nur pro Prozess und werden bei einem Neustart geleert. Der Prototyp muss daher mit genau einer Instanz je Server betrieben werden.
+The Weldall token and revocation facades, machine assertions, and IaC DPoP verification use shared PostgreSQL `ReplayMarker` rows. Those checks survive restarts and work across Weldall instances. DPoP verification for `/api/me/*`, Better Auth's native OAuth DPoP checks, and the Expenses demo replay stores remain process-local and are cleared on restart. Only those remaining paths need shared atomic replay storage before they can be scaled safely across multiple processes.

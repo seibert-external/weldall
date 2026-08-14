@@ -7,6 +7,10 @@ import { auditRequestIdentifiers } from "../audit/service";
 import { postgresReplayStore } from "../oauth/replay";
 import type { IacActor } from "./service";
 
+export function canonicalIacRequestUrl(request: Request): string {
+  return `${WELDALL_ISSUER}${new URL(request.url).pathname}`;
+}
+
 export async function requireIacMachine(
   request: Request,
   store: ReplayStore = postgresReplayStore,
@@ -38,7 +42,7 @@ export async function requireIacMachine(
   const keyThumbprint = (claims.cnf as { jkt: string }).jkt;
   await verifyStrictDpop(proof, {
     method: request.method,
-    url: request.url,
+    url: canonicalIacRequestUrl(request),
     replay: store,
     expectedJkt: keyThumbprint,
     accessToken: token,

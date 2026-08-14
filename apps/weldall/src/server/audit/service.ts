@@ -227,7 +227,6 @@ const groupScopesMetadata = z
     providerId: z.string().min(1).max(191),
     providerKey: z.string().min(1).max(120),
     groupId: z.string().min(1).max(191),
-    groupName: z.string().min(1).max(191),
     beforeScopes: scopeArray,
     afterScopes: scopeArray,
     addedScopes: scopeArray,

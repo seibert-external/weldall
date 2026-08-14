@@ -14,7 +14,7 @@ export async function seedProduction(prisma: PrismaClient = db): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await ensureSystemScopes(tx, actor);
     await Promise.all([
-      tx.iacInstallation.upsert({
+      tx.installationIdentity.upsert({
         where: { id: "default" },
         create: { id: "default", installationId: randomUUID() },
         update: {},

@@ -272,7 +272,7 @@ describe("IaC database transaction contracts", () => {
       requestId: `${prefix}-apply-request`,
     };
     const manifest = parseDesiredState({
-      apiVersion: "weldall.dev/v1alpha1",
+      apiVersion: "weldall.dev/v1",
       workspace: {
         id: randomUUID(),
         name: `${prefix}-workspace`,
@@ -365,6 +365,68 @@ describe("IaC database transaction contracts", () => {
     ).resolves.not.toBeNull();
   });
 
+  it("applies an opaque group ID without contacting the configured provider", async () => {
+    const runner = await db.machineClient.findUniqueOrThrow({
+      where: { clientId: `${prefix}-apply-runner` },
+      include: { keys: true },
+    });
+    const provider = await db.groupProvider.create({
+      data: {
+        key: `${prefix}-unavailable-provider`,
+        name: "Unavailable provider",
+        adapterType: "management-api-v1",
+        baseUrl: "https://unavailable.invalid",
+        encryptedToken: "not-used",
+        encryptionKeyVersion: 1,
+        enabled: false,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+    const manifest = parseDesiredState({
+      apiVersion: "weldall.dev/v1",
+      workspace: {
+        id: randomUUID(),
+        name: `${prefix}-opaque-group-workspace`,
+        issuer: "https://weldall.example.com",
+      },
+      groupAssignments: {
+        staged: {
+          provider: provider.key,
+          groupId: "future:group/id",
+          scopes: [`${prefix}:managed`],
+        },
+      },
+    });
+    const plan = await planIac(manifest);
+    await applyIac(
+      {
+        manifest,
+        plannedRevision: plan.revision,
+        configDigest: plan.configDigest,
+        planDigest: plan.digest,
+        operationId: randomUUID(),
+      },
+      {
+        clientId: runner.clientId,
+        keyId: runner.keys[0]!.kid,
+        keyThumbprint: runner.keys[0]!.thumbprint,
+        requestId: `${prefix}-opaque-group-request`,
+      },
+    );
+
+    const assignment = await db.groupScopeAssignment.findUniqueOrThrow({
+      where: { providerId_groupId: { providerId: provider.id, groupId: "future:group/id" } },
+      include: { grants: { include: { scope: true } } },
+    });
+    expect(assignment).not.toHaveProperty("groupName");
+    expect(assignment.grants.map(({ scope }) => scope.key)).toEqual([`${prefix}:managed`]);
+    const audit = await db.auditEvent.findFirstOrThrow({
+      where: { requestId: `${prefix}-opaque-group-request`, eventType: "group_scopes.created" },
+    });
+    expect(audit.metadata).not.toHaveProperty("groupName");
+  });
+
   it("rejects replacing the authenticated machine through a clientId change", async () => {
     const runner = await db.machineClient.findUniqueOrThrow({
       where: { clientId: `${prefix}-apply-runner` },
@@ -392,7 +454,7 @@ describe("IaC database transaction contracts", () => {
       },
     });
     const manifest = parseDesiredState({
-      apiVersion: "weldall.dev/v1alpha1",
+      apiVersion: "weldall.dev/v1",
       workspace,
       machines: {
         runner: {
@@ -444,7 +506,7 @@ describe("IaC database transaction contracts", () => {
     };
     const resource = (identifier: string) =>
       parseDesiredState({
-        apiVersion: "weldall.dev/v1alpha1",
+        apiVersion: "weldall.dev/v1",
         workspace,
         resources: {
           api: {
@@ -505,7 +567,7 @@ describe("IaC database transaction contracts", () => {
     };
     const makeManifest = (scopeKey: string) =>
       parseDesiredState({
-        apiVersion: "weldall.dev/v1alpha1",
+        apiVersion: "weldall.dev/v1",
         workspace,
         scopes: { access: { key: scopeKey, description: "Access" } },
         resources: {
@@ -612,7 +674,7 @@ describe("IaC database transaction contracts", () => {
       db.$executeRaw`UPDATE "IacObjectBinding" SET "kind" = 'RESOURCE' WHERE "id" = ${scopeBinding.id}`,
     ).rejects.toThrow();
     await expect(
-      db.$executeRaw`INSERT INTO "IacInstallation" ("id", "installationId") VALUES ('extra', ${randomUUID()}::uuid)`,
+      db.$executeRaw`INSERT INTO "InstallationIdentity" ("id", "installationId") VALUES ('extra', ${randomUUID()}::uuid)`,
     ).rejects.toThrow();
     await db.emailScopeAssignment.create({
       data: {
@@ -638,14 +700,13 @@ describe("IaC database transaction contracts", () => {
       data: {
         providerId: provider.id,
         groupId: "manual-group",
-        groupName: "Manual group",
         createdBy: actor.id,
         updatedBy: actor.id,
         grants: { create: { scopeId: scope.id, createdBy: actor.id } },
       },
     });
     const manifest = parseDesiredState({
-      apiVersion: "weldall.dev/v1alpha1",
+      apiVersion: "weldall.dev/v1",
       workspace: {
         id: workspaceId,
         name: `${prefix}-references`,
@@ -754,7 +815,7 @@ describe("IaC database transaction contracts", () => {
         scopeId: manual.id,
       },
     });
-    const absent = parseDesiredState({ apiVersion: "weldall.dev/v1alpha1", workspace });
+    const absent = parseDesiredState({ apiVersion: "weldall.dev/v1", workspace });
     await raceRevocation(
       (tx) => tx.machineClient.update({ where: { id: runner.id }, data: { enabled: false } }),
       () =>
@@ -830,7 +891,7 @@ describe("IaC database transaction contracts", () => {
     };
     const first = await importIac(firstRequest, iacActor);
     await expect(importIac(firstRequest, iacActor)).resolves.toEqual(first);
-    const absent = parseDesiredState({ apiVersion: "weldall.dev/v1alpha1", workspace });
+    const absent = parseDesiredState({ apiVersion: "weldall.dev/v1", workspace });
     await unmanageIac(
       {
         workspaceId: workspace.id,
@@ -917,7 +978,6 @@ describe("IaC database transaction contracts", () => {
       data: {
         providerId: provider.id,
         groupId: "team:finance",
-        groupName: "Finance",
         createdBy: actor.id,
         updatedBy: actor.id,
       },
@@ -965,7 +1025,7 @@ describe("IaC database transaction contracts", () => {
       requestId: `${prefix}-unmanage-request`,
     };
     const declared = parseDesiredState({
-      apiVersion: "weldall.dev/v1alpha1",
+      apiVersion: "weldall.dev/v1",
       workspace: {
         id: owned.workspace.id,
         name: owned.workspace.name,
@@ -1005,7 +1065,7 @@ describe("IaC database transaction contracts", () => {
     const workspaceId = randomUUID();
     const key = `${prefix}:audit-rollback`;
     const manifest = parseDesiredState({
-      apiVersion: "weldall.dev/v1alpha1",
+      apiVersion: "weldall.dev/v1",
       workspace: {
         id: workspaceId,
         name: `${prefix}-failing-workspace`,

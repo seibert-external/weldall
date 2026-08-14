@@ -205,7 +205,6 @@ describe("admin tRPC middleware", () => {
       data: {
         providerId: provider.id,
         groupId: "admins",
-        groupName: "Admins",
         createdBy: adminUserId,
         updatedBy: adminUserId,
         grants: { create: { scopeId: adminScopeId, createdBy: adminUserId } },
@@ -332,7 +331,6 @@ describe("admin tRPC middleware", () => {
       data: {
         providerId: created.id,
         groupId: `trpc-group-${runId}`,
-        groupName: "tRPC group",
         createdBy: adminUserId,
         updatedBy: adminUserId,
         grants: { create: { scopeId: scope.id, createdBy: adminUserId } },
@@ -343,7 +341,7 @@ describe("admin tRPC middleware", () => {
     ).resolves.toMatchObject({
       id: assignment.id,
       providerId: created.id,
-      groupName: "tRPC group",
+      groupId: `trpc-group-${runId}`,
       scopes: ["expenses:read"],
     });
     await expect(

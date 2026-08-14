@@ -46,7 +46,7 @@ GET <baseUrl>/api/management/groups/
 | `cn`          | Optional display name. Weldall uses `ou` when it is missing or empty. |
 | `description` | Optional description. `null` is accepted.                             |
 
-Weldall uses this list for connection tests, group searches, and validation of new assignments. Search runs locally across the ID, name, and description. The response may contain at most 10,000 groups.
+Weldall uses this list for connection tests and optional group searches. Assignment creation treats group IDs as opaque and does not call the provider. Search runs locally across the ID, name, and description. The response may contain at most 10,000 groups.
 
 ## Get one group
 

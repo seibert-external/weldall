@@ -6,7 +6,7 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 
-export const IAC_MANIFEST_VERSION = "weldall.dev/v1alpha1" as const;
+export const IAC_MANIFEST_VERSION = "weldall.dev/v1" as const;
 export const IAC_API_VERSION = "v1" as const;
 export const IAC_SCOPE = "weldall:iac" as const;
 export const IAC_LIMITS = {
@@ -18,6 +18,7 @@ export const IAC_LIMITS = {
 } as const;
 
 const key = z.string().trim().min(1).max(160);
+const groupId = z.string().trim().min(1).max(191);
 const scopeKey = z
   .string()
   .regex(/^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/)
@@ -123,10 +124,7 @@ export const desiredStateSchema = z
       )
       .default({}),
     groupAssignments: z
-      .record(
-        addressKey,
-        z.object({ provider: key, groupId: key, scopes: nonEmptyStringSet }).strict(),
-      )
+      .record(addressKey, z.object({ provider: key, groupId, scopes: nonEmptyStringSet }).strict())
       .default({}),
   })
   .strict()

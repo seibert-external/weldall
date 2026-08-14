@@ -29,7 +29,7 @@ export function extendOAuthMetadata(
     scopes_supported: append(metadata.scopes_supported, [IAC_SCOPE_KEY]),
     weldall_iac: {
       endpoint: `${WELDALL_ISSUER}/api/iac/v1`,
-      manifestVersions: ["weldall.dev/v1alpha1"],
+      manifestVersions: ["weldall.dev/v1"],
       apiVersions: ["v1"],
       scope: IAC_SCOPE_KEY,
       ...(installationId ? { installationId } : {}),

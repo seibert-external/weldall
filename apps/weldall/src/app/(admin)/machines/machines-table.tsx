@@ -41,7 +41,7 @@ export function MachinesTable() {
         accessorKey: "name",
         header: "Name",
         cell: ({ row, getValue }) => (
-          <div className="grid gap-1">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{getValue<string>()}</span>
             <ManagementBadge management={row.original.management} />
           </div>

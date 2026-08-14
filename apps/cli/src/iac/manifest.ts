@@ -5,7 +5,7 @@ import { createPublicKey } from "node:crypto";
 import { parseDocument } from "yaml";
 import { CliError } from "../errors.js";
 
-export const MANIFEST_VERSION = "weldall.dev/v1alpha1";
+export const MANIFEST_VERSION = "weldall.dev/v1";
 export const MANIFEST_FILE = "weldall.yml";
 export const LOCK_FILE = "weldall.lock.yml";
 export const MAX_INCLUDES = 100;
@@ -268,7 +268,7 @@ function validatePrimitive(
     list("scopes", true);
   } else {
     text("provider", 160);
-    text("groupId", 160);
+    text("groupId", 191);
     list("scopes", true);
   }
 }

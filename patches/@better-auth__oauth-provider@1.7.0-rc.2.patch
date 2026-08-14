@@ -11,7 +11,7 @@ index 3896e50f99997176d2f99c934d52701cf076d11b..9b7783f8b0d18410303b62a6ffdf28be
  import { SignJWT, base64url, compactVerify, createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from "jose";
  import { resolveSigningKey, signJWT, toExpJWT } from "better-auth/plugins";
  import { SafeUrlSchema } from "@better-auth/core/utils/redirect-uri";
-+// Weldall prototype policy: one process-local replay store shared by all native grant requests.
++// Weldall OAuth policy: one process-local replay store shared by all native grant requests.
 +const weldallDpopReplayStore = createInMemoryDpopReplayStore();
  //#region src/authentication-context.ts
  const RESERVED_ID_TOKEN_CLAIMS = /* @__PURE__ */ new Set([

@@ -1,7 +1,7 @@
 {
   "name": "@weldall/cli",
   "version": "0.6.0",
-  "description": "Secure Linux and macOS CLI for Weldall APIs and native YAML infrastructure",
+  "description": "Weldall CLI for Linux/macOS IaC and macOS user sessions",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

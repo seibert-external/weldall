@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -8,20 +8,14 @@ import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
-import { Typeahead, type SearchSource } from "@astryxdesign/core/Typeahead";
-import { useForm, useStore } from "@tanstack/react-form";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions, HerocrumbsTitle } from "../../_components/herocrumbs";
 import { ScopeChecklist } from "../../_components/scope-checklist";
 import { useOperationToast } from "../../_components/use-operation-toast";
-
-interface ProviderGroupTypeaheadItem {
-  id: string;
-  label: string;
-  auxiliaryData: { description?: string };
-}
 
 export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string | null }) {
   const trpc = useTRPC();
@@ -30,7 +24,6 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
   const formId = useId();
   const isNew = assignmentId === null;
   const operationToast = useOperationToast();
-  const [groupSearchError, setGroupSearchError] = useState<Error | null>(null);
   const assignmentQuery = useQuery({
     ...trpc.admin.groupAssignments.get.queryOptions({ id: assignmentId ?? "new" }),
     enabled: !isNew,
@@ -58,7 +51,7 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
   const form = useForm({
     defaultValues: {
       providerId: "",
-      group: null as ProviderGroupTypeaheadItem | null,
+      groupId: "",
       scopeKeys: [] as string[],
     },
     onSubmit: async ({ value }) => {
@@ -70,10 +63,9 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
           expectedVersion: assignment.version,
         });
       } else {
-        if (!value.group) return;
         await createMutation.mutateAsync({
           providerId: value.providerId,
-          groupIds: [value.group.id],
+          groupIds: [value.groupId.trim()],
           scopeKeys: value.scopeKeys,
         });
       }
@@ -86,57 +78,16 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
     if (!assignmentQuery.data) return;
     form.reset({
       providerId: assignmentQuery.data.providerId,
-      group: {
-        id: assignmentQuery.data.groupId,
-        label: assignmentQuery.data.groupName,
-        auxiliaryData: {},
-      },
+      groupId: assignmentQuery.data.groupId,
       scopeKeys: assignmentQuery.data.scopes,
     });
   }, [assignmentQuery.data, form]);
-
-  const providerId = useStore(form.store, (state) => state.values.providerId);
-  const assignedGroupIdsQuery = useQuery({
-    ...trpc.admin.groupAssignments.assignedGroupIds.queryOptions({ providerId }),
-    enabled: isNew && Boolean(providerId),
-  });
-  const assignedGroupIds = useMemo(
-    () => new Set(assignedGroupIdsQuery.data ?? []),
-    [assignedGroupIdsQuery.data],
-  );
-  const groupSearchSource = useMemo<SearchSource<ProviderGroupTypeaheadItem>>(() => {
-    const loadGroups = async (query: string): Promise<ProviderGroupTypeaheadItem[]> => {
-      if (!providerId) return [];
-      try {
-        setGroupSearchError(null);
-        const groups = await queryClient.fetchQuery(
-          trpc.admin.groupProviders.searchGroups.queryOptions({
-            providerId,
-            query,
-            limit: 50,
-          }),
-        );
-        return groups.map((group) => ({
-          id: group.id,
-          label: group.name,
-          auxiliaryData: group.description ? { description: group.description } : {},
-        }));
-      } catch (error) {
-        setGroupSearchError(asError(error));
-        throw error;
-      }
-    };
-    return {
-      search: loadGroups,
-      bootstrap: () => loadGroups(""),
-    };
-  }, [providerId, queryClient, trpc]);
 
   const assignment = assignmentQuery.data;
   const title = isNew
     ? "Create group assignment"
     : assignment
-      ? `Edit ${assignment.groupName}`
+      ? `Edit ${assignment.groupId}`
       : "Edit group assignment";
 
   if (!isNew && assignmentQuery.isPending) {
@@ -162,20 +113,8 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
   }
 
   const scopes = scopesQuery.data ?? [];
-  const loadError =
-    (isNew ? (providersQuery.error ?? assignedGroupIdsQuery.error ?? groupSearchError) : null) ??
-    scopesQuery.error ??
-    null;
-  const optionsPending =
-    scopesQuery.isPending ||
-    (isNew && (providersQuery.isPending || assignedGroupIdsQuery.isPending));
-  const groupDisabledMessage = !providerId
-    ? "Choose a provider first."
-    : assignedGroupIdsQuery.isPending
-      ? "Loading existing assignments."
-      : assignedGroupIdsQuery.error
-        ? "Existing assignments could not be loaded."
-        : undefined;
+  const loadError = (isNew ? providersQuery.error : null) ?? scopesQuery.error ?? null;
+  const optionsPending = scopesQuery.isPending || (isNew && providersQuery.isPending);
 
   return (
     <>
@@ -235,12 +174,12 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
                       label="Provider"
                       onChange={(value) => {
                         field.handleChange(value);
-                        form.setFieldValue("group", null);
-                        setGroupSearchError(null);
+                        form.setFieldValue("groupId", "");
                       }}
-                      options={(providersQuery.data ?? [])
-                        .filter((provider) => provider.enabled)
-                        .map((provider) => ({ value: provider.id, label: provider.name }))}
+                      options={(providersQuery.data ?? []).map((provider) => ({
+                        value: provider.id,
+                        label: provider.enabled ? provider.name : `${provider.name} (disabled)`,
+                      }))}
                       placeholder="Choose a provider…"
                       {...fieldStatusProps(field)}
                       value={field.state.value}
@@ -249,61 +188,20 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
                   )}
                 </form.Field>
                 <form.Field
-                  name="group"
+                  name="groupId"
                   validators={{
-                    onChange: ({ value }) => validateProviderGroup(value, assignedGroupIds),
-                    onSubmit: ({ value }) => validateProviderGroup(value, assignedGroupIds),
+                    onBlur: ({ value }) => validateGroupId(value),
+                    onChange: ({ value }) => validateGroupId(value),
+                    onSubmit: ({ value }) => validateGroupId(value),
                   }}
                 >
                   {(field) => (
-                    <Typeahead
-                      debounceMs={250}
-                      description="Search by group name or ID."
-                      {...(groupDisabledMessage ? { disabledMessage: groupDisabledMessage } : {})}
-                      emptySearchResultsText="No provider groups found"
-                      hasEntriesOnFocus
-                      isDisabled={
-                        !providerId ||
-                        assignedGroupIdsQuery.isPending ||
-                        Boolean(assignedGroupIdsQuery.error)
-                      }
+                    <TextInput
                       isRequired
-                      label="Group"
-                      maxMenuItems={50}
+                      label="Group ID"
+                      onBlur={field.handleBlur}
                       onChange={field.handleChange}
-                      placeholder="Find a group…"
-                      renderItem={(item) => (
-                        <div className="admin-dropdown-option group-provider-option">
-                          <span
-                            className="admin-dropdown-option-title group-provider-option-title"
-                            title={item.label}
-                          >
-                            {item.label}
-                          </span>
-                          <div className="group-provider-option-meta">
-                            <span
-                              className="admin-dropdown-option-subtitle group-provider-option-id"
-                              title={item.id}
-                            >
-                              {item.id}
-                            </span>
-                            {assignedGroupIds.has(item.id) ? (
-                              <span className="admin-dropdown-option-subtitle shrink-0 text-[var(--color-text-danger)]">
-                                Already assigned
-                              </span>
-                            ) : null}
-                          </div>
-                          {item.auxiliaryData?.description ? (
-                            <span
-                              className="admin-dropdown-option-subtitle group-provider-option-description"
-                              title={item.auxiliaryData.description}
-                            >
-                              {item.auxiliaryData.description}
-                            </span>
-                          ) : null}
-                        </div>
-                      )}
-                      searchSource={groupSearchSource}
+                      placeholder="team:finance"
                       {...fieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
@@ -337,18 +235,10 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
   );
 }
 
-function validateProviderGroup(
-  value: ProviderGroupTypeaheadItem | null,
-  assignedGroupIds: ReadonlySet<string>,
-): string | undefined {
-  if (!value) return "Choose a group.";
-  return assignedGroupIds.has(value.id)
-    ? `${value.label} already has an assignment. Edit the existing assignment instead.`
-    : undefined;
-}
-
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error("Could not search provider groups.");
+function validateGroupId(value: string): string | undefined {
+  const groupId = value.trim();
+  if (!groupId) return "Enter a group ID.";
+  return groupId.length <= 191 ? undefined : "Group ID must be 191 characters or fewer.";
 }
 
 function requiredSelection(value: unknown, label: string): string | undefined {

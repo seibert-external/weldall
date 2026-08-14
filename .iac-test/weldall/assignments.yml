@@ -1,0 +1,16 @@
+emailAssignments:
+  bob:
+    email: bob@example.com
+    scopes:
+      - test:read
+  carol:
+    email: carol@example.com
+    scopes:
+      - test:read
+
+groupAssignments:
+  demo_group:
+    provider: demo-provider
+    groupId: demo-group
+    scopes:
+      - test:read

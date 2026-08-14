@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { generateEs256KeyPair } from "@weldall/sdk";
+import { createDpopProof, generateEs256KeyPair, verifyStrictDpop } from "@weldall/sdk";
 import { decodeProtectedHeader } from "jose";
 import { MACHINE_TOKEN_TYP } from "@weldall/sdk";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "../src/server/oauth/constants";
 import { signWeldallJwt } from "../src/server/oauth/jwt";
-import { verifyWeldallMachineToken } from "../src/server/iac/auth";
+import { canonicalIacRequestUrl, verifyWeldallMachineToken } from "../src/server/iac/auth";
 
 const prior = {
   kid: process.env.WELDALL_SIGNING_KID,
@@ -19,6 +19,31 @@ afterEach(() => {
   else process.env.WELDALL_SIGNING_PRIVATE_JWK = prior.privateJwk;
   if (prior.publicJwk === undefined) delete process.env.WELDALL_SIGNING_PUBLIC_JWK;
   else process.env.WELDALL_SIGNING_PUBLIC_JWK = prior.publicJwk;
+});
+
+describe("IaC DPoP request URL", () => {
+  it("uses the public issuer when Next.js exposes a reverse-proxy upstream URL", async () => {
+    const key = await generateEs256KeyPair();
+    const endpoint = `${WELDALL_ISSUER}/api/iac/v1/plan`;
+    const proof = await createDpopProof({
+      method: "POST",
+      url: endpoint,
+      privateJwk: key.privateJwk,
+      publicJwk: key.publicJwk,
+    });
+    const proxiedRequest = new Request("http://localhost:3000/api/iac/v1/plan", {
+      method: "POST",
+    });
+
+    expect(canonicalIacRequestUrl(proxiedRequest)).toBe(endpoint);
+    await expect(
+      verifyStrictDpop(proof, {
+        method: proxiedRequest.method,
+        url: canonicalIacRequestUrl(proxiedRequest),
+        replay: "disabled",
+      }),
+    ).resolves.toMatchObject({ publicJwk: key.publicJwk });
+  });
 });
 
 describe("IaC machine token signing key", () => {

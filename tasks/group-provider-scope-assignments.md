@@ -253,15 +253,14 @@ The token is write-only and is never included in DTOs.
 
 ### `GroupScopeAssignment`
 
-| Field                    | Purpose                            |
-| ------------------------ | ---------------------------------- |
-| `id`                     | CUID primary key                   |
-| `providerId`             | Owning provider                    |
-| `groupId`                | Opaque provider group ID           |
-| `groupName`              | Display snapshot from the provider |
-| `version`                | Optimistic concurrency version     |
-| `createdAt`, `updatedAt` | Timestamps                         |
-| `createdBy`, `updatedBy` | Actor identifiers                  |
+| Field                    | Purpose                        |
+| ------------------------ | ------------------------------ |
+| `id`                     | CUID primary key               |
+| `providerId`             | Owning provider                |
+| `groupId`                | Opaque provider group ID       |
+| `version`                | Optimistic concurrency version |
+| `createdAt`, `updatedAt` | Timestamps                     |
+| `createdBy`, `updatedBy` | Actor identifiers              |
 
 Constraint: `UNIQUE(providerId, groupId)`.
 
@@ -406,15 +405,15 @@ Deletion fails with `CONFLICT` while group assignments reference the provider. D
 - `replace`
 - `delete`
 
-`createMany` accepts one provider, one or more group IDs, and one or more scope keys. It validates:
+`createMany` accepts one provider, one or more opaque group IDs, and one or more scope keys. It validates:
 
-- Provider exists and is enabled.
-- Group IDs exist in the provider's current group list.
+- The configured provider record exists; it may be disabled while assignments are staged.
+- Group IDs satisfy local format and length limits.
 - Scopes exist.
 - No provider/group assignment already exists.
 - Input limits are respected.
 
-Live group validation happens before the database transaction. The transaction revalidates local provider/scopes and atomically creates all requested assignment rows and grants.
+Creation performs no provider HTTP request. The transaction resolves the local provider and scopes and atomically creates all requested assignment rows and grants.
 
 ## Administration UI
 
@@ -448,15 +447,14 @@ Add a separate `Group assignments` navigation item and `/group-assignments` page
 
 Group-assignment creation uses one TanStack Form:
 
-1. Select a provider.
-2. Search and select one group through a single debounced Typeahead backed by `admin.groupProviders.searchGroups` and TanStack Query.
-3. Validate the selected group against `admin.groupAssignments.assignedGroupIds`. If it already has an assignment, show an inline validation error explaining that the existing assignment must be edited instead.
-4. Select scopes, including protected system scopes when required.
-5. Save the assignment.
+1. Select any configured provider, including a disabled provider.
+2. Enter the opaque group ID directly.
+3. Select scopes, including protected system scopes when required.
+4. Save the assignment; the server remains authoritative for duplicate provider/group conflicts.
 
 The batch-capable service API remains available, but the administration UI intentionally creates one group assignment at a time.
 
-The table shows provider, group ID/name, scopes, and update time. Stored group names allow the table to remain usable while the provider is unavailable.
+The table shows provider, opaque group ID, scopes, and update time. Group names are not persisted; the provider and group ID form the stable assignment identity.
 
 ## Audit events
 
@@ -472,7 +470,7 @@ Add strict audit event types and metadata schemas:
 
 Provider audit metadata includes provider key, adapter type, normalized base URL, enabled state, version, and whether the credential changed. It never includes credential material.
 
-Group-assignment metadata includes provider ID/key, group ID/name snapshot, before/after scopes, added/removed scopes, source, and versions.
+Group-assignment metadata includes provider ID/key, opaque group ID, before/after scopes, added/removed scopes, source, and versions.
 
 Update both:
 
@@ -500,8 +498,8 @@ Authorization lookup failures should produce structured sanitized server logs. T
 
 - Provider CRUD, test, optimistic conflicts, disable, and restricted deletion.
 - Write-only token behavior and replacement.
-- Batch group assignment creation and rollback.
-- Unknown provider/group/scope rejection.
+- Batch group assignment creation and rollback without provider connectivity.
+- Unknown provider and scope rejection; group IDs remain opaque.
 - Duplicate assignment conflict.
 - System-scope create and replacement with complete audit metadata.
 - Scope deletion versioning and auditing for group assignments.
@@ -555,14 +553,14 @@ Authorization lookup failures should produce structured sanitized server logs. T
 2. Add the database migration and provider administration service/tRPC APIs with audit events.
 3. Add group-assignment service/tRPC APIs, optimistic concurrency, scope deletion handling, and tests.
 4. Add the uncached email-to-user-to-groups authorization lookup and centralize effective-scope resolution across resources, token exchange, grants, and skills.
-5. Add separate group-provider and group-assignment pages, fuzzy group search, and batched selected-group loading with TanStack Query.
+5. Add separate group-provider and group-assignment pages; assignment creation uses configured providers and direct opaque group-ID input.
 6. Add browser coverage, deployment configuration, and operational documentation.
 
 ## Acceptance criteria
 
 - Existing email assignments continue to pass their current tests without data migration.
 - Administrators can register and test a generic `management-api-v1` provider without any deployment/vendor name appearing in source or UI.
-- Administrators can select a provider, one group, and scopes through a Typeahead-backed TanStack Form; selecting an already-assigned group produces an explanatory validation error.
+- Administrators can select any configured provider, enter one opaque group ID, and select scopes through a TanStack Form without provider connectivity; the server rejects duplicate assignments.
 - An active provider user receives the sorted union of direct and matching group scopes in resource discovery, token exchange, `/api/me/grants`, `/api/me/scopes`, and skill visibility.
 - Removing effective group membership stops group-derived grants on the next ID-JAG decision; an already-issued access token remains valid for its existing ten-minute lifetime.
 - Provider outages or malformed responses never create provider-derived grants, while direct grants remain effective.
