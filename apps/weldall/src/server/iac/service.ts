@@ -1,7 +1,7 @@
 import { db, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
 import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
 import { createPlan, desiredObjects, loadPlanningState } from "./planner";
-import { lockConfigurationChanges } from "../domain/configuration";
+import { lockSkillScopeChanges } from "../domain/configuration";
 import { prismaAuditWriter, type AuditEventInput } from "../audit/service";
 import type { AuditReasonCode } from "../../lib/audit";
 import {
@@ -10,6 +10,7 @@ import {
   mutateGroupAssignment,
   mutateResource,
   mutateScope,
+  mutateSkill,
   reconcileMachine,
   type MutationActor,
   PrimitiveMutationError,
@@ -231,6 +232,7 @@ async function executeDesiredState(
     "machine",
     "emailAssignment",
     "groupAssignment",
+    "skill",
   ] as const)
     for (const item of desired.filter((candidate) => candidate.kind === kind)) {
       if (
@@ -256,6 +258,12 @@ async function executeDesiredState(
           ...(item.state as object),
           resources: state.resources.filter((key) => !replacementResources.has(key)),
           scopes: withoutReplacedScopes(state.scopes),
+        });
+      } else if (kind === "skill" && replacementScopes.size) {
+        const state = item.state as { requiredScopes: string[] };
+        await reconcile(item, {
+          ...(item.state as object),
+          requiredScopes: withoutReplacedScopes(state.requiredScopes),
         });
       } else if (
         (kind === "emailAssignment" || kind === "groupAssignment") &&
@@ -311,7 +319,13 @@ async function executeDesiredState(
       Object.assign(binding, data);
     }
   if (replacementResources.size || replacementScopes.size)
-    for (const kind of ["resource", "machine", "emailAssignment", "groupAssignment"] as const)
+    for (const kind of [
+      "resource",
+      "machine",
+      "emailAssignment",
+      "groupAssignment",
+      "skill",
+    ] as const)
       for (const item of desired.filter((candidate) => candidate.kind === kind))
         await reconcile(item);
 }
@@ -370,6 +384,37 @@ async function upsertObject(
               key: state.key,
               resourceIdentifier: state.resourceIdentifier,
               ...common,
+            },
+        mutation,
+      )
+    ).id;
+  }
+  if (kind === "skill") {
+    const current = binding?.skillId
+      ? await tx.skill.findUnique({ where: { id: binding.skillId } })
+      : null;
+    if (!current && (await tx.skill.findUnique({ where: { slug: state.slug } })))
+      throw new IacError("MANUAL_COLLISION", `${state.slug} must be imported`, 409);
+    return (
+      await mutateSkill(
+        tx,
+        current
+          ? {
+              action: "update",
+              id: current.id,
+              expectedVersion: current.version,
+              title: state.title,
+              content: state.content,
+              requiredScopes: state.requiredScopes,
+              visibility: state.visibility,
+            }
+          : {
+              action: "create",
+              slug: state.slug,
+              title: state.title,
+              content: state.content,
+              requiredScopes: state.requiredScopes,
+              visibility: state.visibility,
             },
         mutation,
       )
@@ -645,7 +690,8 @@ export async function getIacState(workspaceId: string) {
           item.resourceId ??
           item.machineClientId ??
           item.emailAssignmentId ??
-          item.groupAssignmentId;
+          item.groupAssignmentId ??
+          item.skillId;
         return {
           address: item.address,
           kind: fromDbKind(item.kind),
@@ -746,6 +792,13 @@ async function observedVersion(client: typeof db, binding: any): Promise<number>
     return (
       await client.groupScopeAssignment.findUniqueOrThrow({
         where: { id: binding.groupAssignmentId },
+        select: { version: true },
+      })
+    ).version;
+  if (binding.skillId)
+    return (
+      await client.skill.findUniqueOrThrow({
+        where: { id: binding.skillId },
         select: { version: true },
       })
     ).version;
@@ -855,10 +908,34 @@ async function assertFinalReferencesSafe(tx: Prisma.TransactionClient, manifest:
         select: { address: true, naturalIdentity: true },
       })
     )
-      .filter((binding) => !Object.hasOwn(manifest.scopes, binding.address.slice("scope.".length)))
+      .filter((binding) => {
+        const desired = manifest.scopes[binding.address.slice("scope.".length)];
+        return !desired || desired.key !== binding.naturalIdentity;
+      })
       .map((binding) => binding.naturalIdentity),
   );
   if (!deletingScopeKeys.size) return;
+  for (const resource of Object.values(manifest.resources))
+    if (resource.scopes.some((key) => deletingScopeKeys.has(key)))
+      throw new IacError(
+        "PLAN_BLOCKED",
+        `Resource ${resource.key} still references a deleted scope`,
+        409,
+      );
+  for (const machine of Object.values(manifest.machines))
+    if (machine.scopes.some((key) => deletingScopeKeys.has(key)))
+      throw new IacError(
+        "PLAN_BLOCKED",
+        `Machine ${machine.clientId} still references a deleted scope`,
+        409,
+      );
+  for (const skill of Object.values(manifest.skills))
+    if (skill.requiredScopes.some((key) => deletingScopeKeys.has(key)))
+      throw new IacError(
+        "PLAN_BLOCKED",
+        `Skill ${skill.slug} still references a deleted scope`,
+        409,
+      );
   for (const assignment of Object.values(manifest.emailAssignments))
     if (assignment.scopes.some((key) => deletingScopeKeys.has(key)))
       throw new IacError(
@@ -952,6 +1029,13 @@ async function deleteBoundObject(tx: Prisma.TransactionClient, binding: any, act
       { action: "delete", id: current.id, expectedVersion: current.version },
       actor,
     );
+  } else if (binding.skillId) {
+    const current = await tx.skill.findUniqueOrThrow({ where: { id: binding.skillId } });
+    await mutateSkill(
+      tx,
+      { action: "delete", id: current.id, expectedVersion: current.version },
+      actor,
+    );
   }
 }
 
@@ -959,6 +1043,7 @@ function compareBindingDeletes(left: any, right: any) {
   const rank: Record<string, number> = {
     GROUP_ASSIGNMENT: 1,
     EMAIL_ASSIGNMENT: 1,
+    SKILL: 1,
     MACHINE: 2,
     RESOURCE: 3,
     SCOPE: 4,
@@ -968,7 +1053,7 @@ function compareBindingDeletes(left: any, right: any) {
   );
 }
 async function lockIacConfiguration(tx: Prisma.TransactionClient) {
-  await lockConfigurationChanges(tx);
+  await lockSkillScopeChanges(tx);
 }
 function assertDigest(received: string, expected: string, code: string) {
   if (received !== expected)
@@ -982,6 +1067,7 @@ function toDbKind(kind: string): any {
       machine: "MACHINE",
       emailAssignment: "EMAIL_ASSIGNMENT",
       groupAssignment: "GROUP_ASSIGNMENT",
+      skill: "SKILL",
     } as any
   )[kind];
 }
@@ -993,6 +1079,7 @@ function fromDbKind(kind: string): any {
       MACHINE: "machine",
       EMAIL_ASSIGNMENT: "emailAssignment",
       GROUP_ASSIGNMENT: "groupAssignment",
+      SKILL: "skill",
     } as any
   )[kind];
 }
@@ -1004,6 +1091,7 @@ function bindingTarget(kind: string, id: string) {
       machine: { machineClientId: id },
       emailAssignment: { emailAssignmentId: id },
       groupAssignment: { groupAssignmentId: id },
+      skill: { skillId: id },
     } as any
   )[kind];
 }
@@ -1015,6 +1103,7 @@ function nullBindingTarget(kind: string) {
       machine: { machineClientId: null },
       emailAssignment: { emailAssignmentId: null },
       groupAssignment: { groupAssignmentId: null },
+      skill: { skillId: null },
     } as any
   )[kind];
 }
@@ -1044,7 +1133,7 @@ async function findNatural(
       where: { normalizedEmail: identity },
       include: { grants: { include: { scope: true } } },
     });
-  else {
+  else if (kind === "groupAssignment") {
     const separator = identity.indexOf(":");
     const provider = identity.slice(0, separator);
     const groupId = identity.slice(separator + 1);
@@ -1055,7 +1144,8 @@ async function findNatural(
         where: { providerId_groupId: { providerId: p.id, groupId } },
         include: { provider: true, grants: { include: { scope: true } } },
       });
-  }
+  } else if (kind === "skill") row = await tx.skill.findUnique({ where: { slug: identity } });
+  else return null;
   if (!row) return null;
   const owned = await tx.iacObjectBinding.findFirst({
     where: {
@@ -1065,6 +1155,7 @@ async function findNatural(
         { machineClientId: row.id },
         { emailAssignmentId: row.id },
         { groupAssignmentId: row.id },
+        { skillId: row.id },
       ],
     },
   });
@@ -1102,11 +1193,19 @@ async function findNatural(
                 email: row.normalizedEmail,
                 scopes: row.grants.map((item: any) => item.scope.key).sort(),
               }
-            : {
-                provider: row.provider.key,
-                groupId: row.groupId,
-                scopes: row.grants.map((item: any) => item.scope.key).sort(),
-              };
+            : kind === "groupAssignment"
+              ? {
+                  provider: row.provider.key,
+                  groupId: row.groupId,
+                  scopes: row.grants.map((item: any) => item.scope.key).sort(),
+                }
+              : {
+                  slug: row.slug,
+                  title: row.title,
+                  content: row.content,
+                  requiredScopes: [...row.requiredScopes].sort(),
+                  visibility: row.visibility,
+                };
   return { id: row.id, owned: owned?.workspaceId, state };
 }
 async function writeIacAudit(

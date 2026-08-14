@@ -1,6 +1,6 @@
 ---
 title: Infrastructure as Code
-description: Weldall-Scopes, Ressourcen, Machines und Zuweisungen mit YAML verwalten.
+description: Weldall-Scopes, Ressourcen, Machines, Skills und Zuweisungen mit YAML verwalten.
 sidebar:
   label: Infrastructure as Code
   order: 8
@@ -8,7 +8,7 @@ sidebar:
 
 import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
 
-Alle administrativen Funktionen des Weldall-Servers lassen sich über die Benutzeroberfläche verwalten. Die wichtigsten Bausteine – Scopes, Ressourcen, Machine Clients und Zuweisungen – können zusätzlich in YAML-Dateien beschrieben werden. So wird aus der Konfiguration Infrastructure as Code (IaC).
+Alle administrativen Funktionen des Weldall-Servers lassen sich über die Benutzeroberfläche verwalten. Die wichtigsten Bausteine – Scopes, Ressourcen, Machine Clients, administrativ verwaltete Skills und Zuweisungen – können zusätzlich in YAML-Dateien beschrieben werden. So wird aus der Konfiguration Infrastructure as Code (IaC).
 
 <Aside type="tip" title="Warum IaC?">
   In einem versionierten Git-Repository bleibt jede Änderung nachvollziehbar. Pull Requests bieten
@@ -141,6 +141,24 @@ machines:
 
 Ins Manifest gehören nur öffentliche Machine-Schlüssel.
 
+Administrativ verwaltete Skills enthalten das Markdown direkt und geben alle konfigurierbaren Felder explizit an:
+
+```yaml
+skills:
+  review_expenses:
+    slug: expenses.review
+    title: Ausgaben prüfen
+    content: |
+      # Ausgaben prüfen
+
+      Prüfe jede Ausgabe anhand der Richtlinie.
+    requiredScopes:
+      - expenses:read
+    visibility: HIDDEN_IF_UNALLOWED
+```
+
+Der Slug ist die Identität des Skills; eine Änderung ersetzt den Skill. Ein über IaC verwalteter Skill bleibt in der Admin-Oberfläche bearbeitbar. Solche Änderungen gelten als Drift und werden beim nächsten Apply auf den YAML-Zustand zurückgesetzt. Administrativ verwaltete Skills dürfen einen von einer Ressource veröffentlichten Skill mit derselben kanonischen ID überschreiben. Entdeckte Skills und Kataloge können weder importiert noch verwaltet werden.
+
 ## Die wichtigsten CLI-Befehle
 
 | Befehl                                             | Zweck                                                                                          |
@@ -164,6 +182,7 @@ Ein passendes manuelles Objekt wird nie automatisch übernommen. Der Import ist 
 ```sh
 weldall import emailAssignment alice@example.com --as emailAssignment.alice
 weldall import scope expenses:read --as scope.expenses_read
+weldall import skill expenses.review --as skill.review_expenses
 ```
 
 Der Import erhält das Objekt, schreibt seine aktuelle Konfiguration nach `weldall/imports/` und aktualisiert die Lockdatei.

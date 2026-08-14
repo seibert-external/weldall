@@ -137,6 +137,51 @@
         }
       }
     },
+    "skills": {
+      "type": "object",
+      "maxProperties": 1000,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "title", "content", "requiredScopes", "visibility"],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          },
+          "requiredScopes": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$"
+            }
+          },
+          "visibility": {
+            "enum": ["DEFAULT", "HIDDEN_IF_UNALLOWED"]
+          }
+        }
+      }
+    },
     "machines": {
       "type": "object",
       "maxProperties": 1000,

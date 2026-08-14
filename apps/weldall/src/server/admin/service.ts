@@ -18,6 +18,7 @@ import {
   mutateEmailAssignment,
   mutateResource,
   mutateScope,
+  mutateSkill,
   PrimitiveMutationError,
   type MutationActor,
 } from "../domain/primitive-mutations";
@@ -44,6 +45,7 @@ const assignmentInclude = {
   grants: { include: { scope: { select: { key: true } } } },
   iacBinding: managementBindingInclude,
 } as const;
+const skillInclude = { iacBinding: managementBindingInclude } as const;
 
 export type AdminErrorCode =
   | "CONFLICT"
@@ -139,6 +141,7 @@ export interface SkillDto {
   disabled: boolean;
   scopeWarnings: string[];
   overridden: boolean;
+  management: ManagementDto;
 }
 
 export interface CliSettingsDto {
@@ -718,7 +721,9 @@ export async function listSkills(input: {
     ...(source && source !== "manual" ? { catalog: { resourceId: source } } : {}),
   };
   const [manual, discovered, scopes, manualSlugs] = await Promise.all([
-    includeManual ? db.skill.findMany({ where: textFilter }) : Promise.resolve([]),
+    includeManual
+      ? db.skill.findMany({ where: textFilter, include: skillInclude })
+      : Promise.resolve([]),
     includeDiscovered
       ? db.discoveredSkill.findMany({
           where: discoveredFilter,
@@ -752,7 +757,7 @@ export async function listSkills(input: {
 
 export async function getSkill(id: string): Promise<SkillDto> {
   const [manual, discovered, scopes] = await Promise.all([
-    db.skill.findUnique({ where: { id } }),
+    db.skill.findUnique({ where: { id }, include: skillInclude }),
     db.discoveredSkill.findUnique({
       where: { id },
       include: { catalog: { include: { resource: true } } },
@@ -784,35 +789,16 @@ export async function createSkill(
   },
   actor: AdminActor,
 ): Promise<SkillDto> {
-  const parsed = parseSkillInput(input);
-  try {
-    return await db.$transaction(async (tx) => {
-      await lockSkillScopeChanges(tx);
-      await assertSkillScopesExist(tx, parsed.requiredScopes);
-      const skill = await tx.skill.create({
-        data: { ...parsed, createdBy: actor.id, updatedBy: actor.id },
-      });
-      await writeAudit(tx, actor, {
-        eventType: "skill.created",
-        subjectType: "skill",
-        subjectId: skill.id,
-        metadata: {
-          slug: skill.slug,
-          title: skill.title,
-          requiredScopes: skill.requiredScopes,
-          visibility: skill.visibility,
-          contentSha256: contentHash(skill.content),
-          version: skill.version,
-        },
-      });
-      return serializeSkill(skill);
-    });
-  } catch (error) {
-    if (isPrismaError(error, "P2002")) {
-      throw new AdminDomainError("CONFLICT", `Skill ${parsed.slug} already exists.`);
+  return db.$transaction(async (tx) => {
+    await lockSkillScopeChanges(tx);
+    try {
+      return serializeSkill(
+        await mutateSkill(tx, { action: "create", ...input }, mutationActor(actor)),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
     }
-    throw error;
-  }
+  });
 }
 
 export async function updateSkill(
@@ -826,61 +812,15 @@ export async function updateSkill(
   },
   actor: AdminActor,
 ): Promise<SkillDto> {
-  const parsed = parseSkillInput({ ...input, slug: "placeholder" }, false);
   return db.$transaction(async (tx) => {
     await lockSkillScopeChanges(tx);
-    await assertSkillScopesExist(tx, parsed.requiredScopes);
-    const current = await tx.skill.findUnique({ where: { id: input.id } });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Skill not found.");
-    assertVersion(current.version, input.expectedVersion);
-    if (
-      current.title === parsed.title &&
-      current.content === parsed.content &&
-      current.visibility === parsed.visibility &&
-      sameStrings(current.requiredScopes, parsed.requiredScopes)
-    ) {
-      return serializeSkill(current);
+    try {
+      return serializeSkill(
+        await mutateSkill(tx, { action: "update", ...input }, mutationActor(actor)),
+      );
+    } catch (error) {
+      throw mapPrimitiveError(error);
     }
-    const write = await tx.skill.updateMany({
-      where: { id: current.id, version: input.expectedVersion },
-      data: {
-        title: parsed.title,
-        content: parsed.content,
-        requiredScopes: parsed.requiredScopes,
-        visibility: parsed.visibility,
-        version: { increment: 1 },
-        updatedBy: actor.id,
-      },
-    });
-    if (write.count !== 1) {
-      throw new AdminDomainError("CONFLICT", "The skill changed. Reload and try again.");
-    }
-    const updated = await tx.skill.findUniqueOrThrow({
-      where: { id: current.id },
-    });
-    await writeAudit(tx, actor, {
-      eventType: "skill.updated",
-      subjectType: "skill",
-      subjectId: current.id,
-      metadata: {
-        slug: current.slug,
-        before: {
-          title: current.title,
-          requiredScopes: current.requiredScopes,
-          visibility: current.visibility,
-          contentSha256: contentHash(current.content),
-          version: current.version,
-        },
-        after: {
-          title: updated.title,
-          requiredScopes: updated.requiredScopes,
-          visibility: updated.visibility,
-          contentSha256: contentHash(updated.content),
-          version: updated.version,
-        },
-      },
-    });
-    return serializeSkill(updated);
   });
 }
 
@@ -889,29 +829,12 @@ export async function deleteSkill(
   actor: AdminActor,
 ): Promise<{ id: string }> {
   return db.$transaction(async (tx) => {
-    const current = await tx.skill.findUnique({ where: { id: input.id } });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Skill not found.");
-    assertVersion(current.version, input.expectedVersion);
-    const deleted = await tx.skill.deleteMany({
-      where: { id: current.id, version: input.expectedVersion },
-    });
-    if (deleted.count !== 1) {
-      throw new AdminDomainError("CONFLICT", "The skill changed. Reload and try again.");
+    await lockSkillScopeChanges(tx);
+    try {
+      return await mutateSkill(tx, { action: "delete", ...input }, mutationActor(actor));
+    } catch (error) {
+      throw mapPrimitiveError(error);
     }
-    await writeAudit(tx, actor, {
-      eventType: "skill.deleted",
-      subjectType: "skill",
-      subjectId: current.id,
-      metadata: {
-        slug: current.slug,
-        title: current.title,
-        requiredScopes: current.requiredScopes,
-        visibility: current.visibility,
-        contentSha256: contentHash(current.content),
-        version: current.version,
-      },
-    });
-    return { id: current.id };
   });
 }
 
@@ -1381,6 +1304,10 @@ function serializeSkill(skill: {
   version: number;
   createdAt: Date;
   updatedAt: Date;
+  iacBinding?: {
+    address: string;
+    workspace: { id: string; name: string };
+  } | null;
 }): SkillDto {
   return {
     id: skill.id,
@@ -1397,6 +1324,7 @@ function serializeSkill(skill: {
     disabled: false,
     scopeWarnings: [],
     overridden: false,
+    management: managementMetadata(skill.iacBinding),
   };
 }
 
@@ -1469,77 +1397,13 @@ function serializeDiscoveredSkill(
     disabled: !resource.enabled || !resource.skillDiscoveryEnabled,
     scopeWarnings,
     overridden,
+    management: { type: "manual" },
   };
 }
 
 async function lockSkillScopeChanges(tx: Prisma.TransactionClient): Promise<void> {
   // Serialize skill-scope reference checks after the shared configuration lock.
   await lockAllSkillScopeChanges(tx);
-}
-
-async function assertSkillScopesExist(
-  tx: Prisma.TransactionClient,
-  requiredScopes: string[],
-): Promise<void> {
-  if (!requiredScopes.length) return;
-  const knownScopes = await tx.scope.findMany({
-    where: { key: { in: requiredScopes } },
-    select: { key: true },
-  });
-  const known = new Set(knownScopes.map((scope) => scope.key));
-  const unknownScopes = requiredScopes.filter((scope) => !known.has(scope));
-  if (unknownScopes.length) {
-    throw new AdminDomainError("INVALID_SCOPE", "One or more scopes do not exist.", {
-      unknownScopes,
-    });
-  }
-}
-
-function parseSkillInput(
-  input: {
-    slug: string;
-    title: string;
-    content: string;
-    requiredScopes: string[];
-    visibility: SkillVisibilityDto;
-  },
-  validateSlug = true,
-): {
-  slug: string;
-  title: string;
-  content: string;
-  requiredScopes: string[];
-  visibility: SkillVisibilityDto;
-} {
-  const slug = input.slug.trim();
-  const title = input.title.trim();
-  const content = input.content.trim();
-  if (validateSlug && (slug.length > 120 || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(slug))) {
-    throw new AdminDomainError(
-      "INVALID_SKILL",
-      "Skill IDs must use lowercase letters, numbers, dots, dashes, or underscores.",
-    );
-  }
-  if (title.length < 1 || title.length > 200) {
-    throw new AdminDomainError("INVALID_SKILL", "Skill titles must contain 1 to 200 characters.");
-  }
-  if (content.length < 1 || content.length > 100_000) {
-    throw new AdminDomainError(
-      "INVALID_SKILL",
-      "Skill Markdown must contain 1 to 100,000 characters.",
-    );
-  }
-  const requiredScopes = sortedUnique(input.requiredScopes.map(parseScopeKey));
-  if (requiredScopes.length > MAX_ASSIGNMENT_SCOPES) {
-    throw new AdminDomainError(
-      "INVALID_SKILL",
-      `A skill may require at most ${MAX_ASSIGNMENT_SCOPES} scopes.`,
-    );
-  }
-  if (!(["DEFAULT", "HIDDEN_IF_UNALLOWED"] as const).includes(input.visibility)) {
-    throw new AdminDomainError("INVALID_SKILL", "Skill visibility is invalid.");
-  }
-  return { slug, title, content, requiredScopes, visibility: input.visibility };
 }
 
 function serializeUser(user: {
@@ -1594,10 +1458,6 @@ function parseScopeKeys(rawKeys: string[]): string[] {
 
 function sortedUnique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
-
-function sameStrings(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function assertVersion(current: number, expected: number): void {

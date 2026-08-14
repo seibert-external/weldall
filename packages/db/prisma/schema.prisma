@@ -132,6 +132,7 @@ model Skill {
   updatedAt      DateTime        @updatedAt
   createdBy      String
   updatedBy      String
+  iacBinding     IacObjectBinding?
 
   @@index([updatedAt])
 }
@@ -295,6 +296,7 @@ enum IacPrimitiveKind {
   MACHINE
   EMAIL_ASSIGNMENT
   GROUP_ASSIGNMENT
+  SKILL
 }
 
 enum IacOperationType {
@@ -344,6 +346,7 @@ model IacObjectBinding {
   machineClientId   String?               @unique
   emailAssignmentId String?               @unique
   groupAssignmentId String?               @unique
+  skillId           String?               @unique
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -352,6 +355,7 @@ model IacObjectBinding {
   machineClient     MachineClient?        @relation(fields: [machineClientId], references: [id], onDelete: SetNull)
   emailAssignment   EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
   groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
+  skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])

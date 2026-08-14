@@ -1,6 +1,6 @@
 ---
 title: Infrastructure as code
-description: Manage Weldall scopes, resources, machines, and assignments from YAML.
+description: Manage Weldall scopes, resources, machines, skills, and assignments from YAML.
 sidebar:
   label: Infrastructure as code
   order: 8
@@ -8,7 +8,7 @@ sidebar:
 
 import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
 
-All administrative features of the Weldall server can be managed through its user interface. The most important building blocks – scopes, resources, machine clients, and assignments – can also be described in YAML files. This turns the configuration into infrastructure as code (IaC).
+All administrative features of the Weldall server can be managed through its user interface. The most important building blocks – scopes, resources, machine clients, administrator-managed skills, and assignments – can also be described in YAML files. This turns the configuration into infrastructure as code (IaC).
 
 <Aside type="tip" title="Why IaC?">
   Every change remains traceable in a version-controlled Git repository. Pull requests provide a
@@ -141,6 +141,24 @@ machines:
 
 Only public machine keys belong in the manifest.
 
+Administrator-managed skills use inline Markdown and explicitly declare every configurable field:
+
+```yaml
+skills:
+  review_expenses:
+    slug: expenses.review
+    title: Review expenses
+    content: |
+      # Review expenses
+
+      Check each expense against the policy.
+    requiredScopes:
+      - expenses:read
+    visibility: HIDDEN_IF_UNALLOWED
+```
+
+The slug is the skill identity, so changing it replaces the skill. An IaC-managed skill remains editable in the admin UI; such edits are drift and the next apply restores the YAML state. Administrator-managed skills may override resource-published skills with the same canonical ID. Discovered skills and catalogs cannot be imported or managed.
+
 ## Essential CLI commands
 
 | Command                                            | Purpose                                                                                        |
@@ -164,6 +182,7 @@ A matching manual object is never claimed automatically. Import it explicitly:
 ```sh
 weldall import emailAssignment alice@example.com --as emailAssignment.alice
 weldall import scope expenses:read --as scope.expenses_read
+weldall import skill expenses.review --as skill.review_expenses
 ```
 
 Import preserves the object, writes its current configuration to `weldall/imports/`, and updates the lockfile.

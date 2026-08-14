@@ -29,6 +29,181 @@ describe("native YAML IaC contracts", () => {
     expect(digest({ b: 2, a: 1 })).toBe(digest({ a: 1, b: 2 }));
   });
 
+  it("canonicalizes skills and keeps Markdown out of plan actions", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      skills: {
+        review: {
+          slug: "expenses.review",
+          title: "Review expenses",
+          content: "# Private operating instructions",
+          requiredScopes: ["expenses:write", "expenses:read", "expenses:read"],
+          visibility: "HIDDEN_IF_UNALLOWED",
+        },
+      },
+    });
+    expect(desired.skills.review?.requiredScopes).toEqual(["expenses:read", "expenses:write"]);
+    const plan = createPlan(desired, { revision: 0, objects: [] });
+    expect(plan.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ address: "skill.review", kind: "skill", action: "create" }),
+      ]),
+    );
+    expect(JSON.stringify(plan)).not.toContain("Private operating instructions");
+    expect(
+      digest(
+        parseDesiredState({
+          apiVersion: "weldall.dev/v1",
+          workspace: {
+            id: "67ade6dc-0000-4000-8000-000000000000",
+            name: "platform",
+            issuer: "https://weldall.example.com",
+          },
+          skills: {
+            review: {
+              slug: "expenses.review",
+              title: "Review",
+              content: "# Review",
+              requiredScopes: ["expenses:write", "expenses:read"],
+              visibility: "DEFAULT",
+            },
+          },
+        }),
+      ),
+    ).toBe("990a499264dbf19bde564967075d9abaa74fbcdffec75d1141fdecf723607ff3");
+    expect(() =>
+      parseDesiredState({
+        ...manifest(),
+        skills: {
+          bad: {
+            slug: "Bad slug",
+            title: "Bad",
+            content: " ",
+            requiredScopes: [],
+            visibility: "PUBLIC",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("uses slug replacement semantics and requires import for manual collisions", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      scopes: {},
+      skills: {
+        review: {
+          slug: "expenses.review",
+          title: "Review expenses",
+          content: "# Review",
+          requiredScopes: [],
+          visibility: "DEFAULT",
+        },
+      },
+    });
+    const bound = {
+      address: "skill.review",
+      kind: "skill" as const,
+      id: "old",
+      identity: "expenses.old",
+      version: 1,
+      ownerWorkspaceId: desired.workspace.id,
+      state: {
+        ...desired.skills.review,
+        slug: "expenses.old",
+      },
+    };
+    expect(createPlan(desired, { revision: 1, objects: [bound] }).actions[0]).toMatchObject({
+      action: "replace",
+      kind: "skill",
+    });
+    const collision = { ...bound, address: undefined, id: "manual", identity: "expenses.review" };
+    const blocked = createPlan(desired, { revision: 1, objects: [collision] });
+    expect(blocked.blockers[0]).toMatchObject({ code: "MANUAL_COLLISION" });
+  });
+
+  it("blocks a live skill collision before recreating a tombstoned binding", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      scopes: {},
+      skills: {
+        review: {
+          slug: "expenses.review",
+          title: "Review expenses",
+          content: "# Review",
+          requiredScopes: [],
+          visibility: "DEFAULT",
+        },
+      },
+    });
+    const tombstone = {
+      address: "skill.review",
+      kind: "skill" as const,
+      id: "binding",
+      identity: "expenses.review",
+      version: 0,
+      ownerWorkspaceId: desired.workspace.id,
+      state: null,
+      tombstone: true,
+    };
+    for (const collision of [
+      {
+        kind: "skill" as const,
+        id: "manual",
+        identity: "expenses.review",
+        version: 1,
+        state: desired.skills.review,
+      },
+      {
+        address: "skill.other",
+        kind: "skill" as const,
+        id: "other",
+        identity: "expenses.review",
+        version: 2,
+        ownerWorkspaceId: "67ade6dc-0000-4000-8000-000000000001",
+        state: desired.skills.review,
+      },
+    ]) {
+      const plan = createPlan(desired, { revision: 2, objects: [collision, tombstone] });
+      expect(plan.actions).toEqual([]);
+      expect(plan.blockers).toEqual([
+        expect.objectContaining({
+          address: "skill.review",
+          code: collision.ownerWorkspaceId ? "OWNED_BY_OTHER_WORKSPACE" : "MANUAL_COLLISION",
+        }),
+      ]);
+    }
+  });
+
+  it("includes observed object versions in the canonical plan contract", () => {
+    const desired = manifest();
+    const current = {
+      address: "scope.read",
+      kind: "scope" as const,
+      id: "managed",
+      identity: "expenses:read",
+      version: 4,
+      ownerWorkspaceId: desired.workspace.id,
+      state: { key: "expenses:read", description: "Admin-edited" },
+    };
+    const first = createPlan(desired, { revision: 3, objects: [current] });
+    const second = createPlan(desired, {
+      revision: 3,
+      objects: [{ ...current, version: current.version + 1 }],
+    });
+
+    expect(first.actions).toEqual([
+      expect.objectContaining({
+        address: "scope.read",
+        action: "update",
+        observedVersion: 4,
+      }),
+    ]);
+    expect(first.digest).toBe("bfde721857f189ea2f4404433c1aff5859abfb48a89d91690d2eb812199f6e15");
+    expect(first.digest).not.toBe(second.digest);
+    expect(JSON.stringify(first)).not.toContain("Admin-edited");
+  });
+
   it("accepts provider group IDs up to the persistence limit", () => {
     const desired = {
       apiVersion: "weldall.dev/v1",
@@ -336,7 +511,7 @@ describe("native YAML IaC contracts", () => {
       },
     });
     expect(digest(canonicalDefaults)).toBe(
-      "c5c7577a2a0a00a7bcd7bdd3fe951025152342acfa231906a703aecd3b6d2d1a",
+      "c2e1311af97134bca5534c104566d7efa1d873bc61d3ff8f71f2ddf3caa6a054",
     );
     expect(() =>
       unmanageRequestSchema.parse({
