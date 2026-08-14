@@ -79,7 +79,6 @@ export function GroupAssignmentsPage() {
               <ManagementBadge management={row.original.management} />
             </div>
             <code className="text-xs">{row.original.providerKey}</code>
-            <ManagementBadge management={row.original.management} />
           </div>
         ),
       },
