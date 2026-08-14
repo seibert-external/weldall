@@ -15,7 +15,7 @@ machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> res
 ## Major components
 
 - **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
-- **Weldall CLI** — a published, macOS-only native OAuth client. It keeps its device key and rotating session in macOS Keychain, discovers skills and grants, obtains resource-specific credentials, and sends the final API request without exposing tokens to the calling agent.
+- **Weldall CLI** — a published Linux and macOS client. Native YAML IaC commands use machine credentials on either platform; interactive OAuth commands keep their device key and rotating session in macOS Keychain. The CLI discovers skills and grants, obtains resource-specific credentials, and sends the final API request without exposing tokens to the calling agent.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
 - **Supporting services** — the Prisma database package, a local Development IdP, an Expenses resource-server example, documentation, framework examples, and the Playwright/Docker E2E system.
 
@@ -25,23 +25,23 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 
 [`pnpm-workspace.yaml`](pnpm-workspace.yaml) includes every directory under `apps/*`, `examples/*`, `packages/*`, and `tooling/*`.
 
-| Workspace                                       | Purpose                                                                                                                                                               |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@weldall/cli`](apps/cli/)                     | Published macOS CLI for sign-in, capability discovery, scope inspection, and authenticated requests. See its [package README](apps/cli/README.md).                    |
-| [`@weldall/dev-idp`](apps/dev-idp/)             | Local-only Hono OpenID Connect provider that offers passwordless selection among test identities from `DEV_IDP_USERS_JSON`.                                           |
-| [`@weldall/docs`](apps/docs/)                   | Astro Starlight documentation site with German pages and English translations. See its [README](apps/docs/README.md).                                                 |
-| [`@weldall/e2e`](apps/e2e/)                     | Playwright black-box tests for the Docker Compose stack, browser authorization flow, real CLI, and protected APIs.                                                    |
-| [`@weldall/expenses`](apps/expenses/)           | Hono demo resource server protected by `@weldall/sdk`; implements read, create, and all-of-scope delete operations and publishes the `expenses.review` skill.         |
-| [`@weldall/weldall`](apps/weldall/)             | Private Next.js authorization server, employee APIs, and administration UI for users, scopes, assignments, resources, groups, skills, CLI settings, and audit events. |
-| [`@weldall/example-astro`](examples/astro/)     | Astro 7 Node SSR example using SDK middleware, request-local auth, and endpoint handlers.                                                                             |
-| [`@weldall/example-basic`](examples/basic/)     | Framework-neutral Fetch example exporting `verify` and `verifyNoThrow`.                                                                                               |
-| [`@weldall/example-hono`](examples/hono/)       | Standalone Hono example that registers SDK infrastructure routes and protects an Expenses endpoint.                                                                   |
-| [`@weldall/example-next`](examples/next/)       | Next.js 16 App Router example using Node.js route handlers and the SDK's Next.js adapter.                                                                             |
-| [`@weldall/db`](packages/db/)                   | Private Prisma package containing the PostgreSQL schema, generated client export, migrations, production initialization, and development seed data.                   |
-| [`@weldall/sdk`](packages/sdk/)                 | Published resource-server SDK and Fetch, Hono, Next.js, and Astro adapters. See its [package README](packages/sdk/README.md).                                         |
-| [`@weldall/eslint-config`](tooling/eslint/)     | Shared ESLint flat configuration for TypeScript workspaces.                                                                                                           |
-| [`@weldall/prettier-config`](tooling/prettier/) | Shared Prettier configuration, including Astro formatting support.                                                                                                    |
-| [`@weldall/tsconfig`](tooling/typescript/)      | Shared TypeScript configuration bases used by repository packages and apps.                                                                                           |
+| Workspace                                       | Purpose                                                                                                                                                                       |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@weldall/cli`](apps/cli/)                     | Published Linux and macOS CLI for native YAML IaC, sign-in, capability discovery, scope inspection, and authenticated requests. See its [package README](apps/cli/README.md). |
+| [`@weldall/dev-idp`](apps/dev-idp/)             | Local-only Hono OpenID Connect provider that offers passwordless selection among test identities from `DEV_IDP_USERS_JSON`.                                                   |
+| [`@weldall/docs`](apps/docs/)                   | Astro Starlight documentation site with German pages and English translations. See its [README](apps/docs/README.md).                                                         |
+| [`@weldall/e2e`](apps/e2e/)                     | Playwright black-box tests for the Docker Compose stack, browser authorization flow, real CLI, and protected APIs.                                                            |
+| [`@weldall/expenses`](apps/expenses/)           | Hono demo resource server protected by `@weldall/sdk`; implements read, create, and all-of-scope delete operations and publishes the `expenses.review` skill.                 |
+| [`@weldall/weldall`](apps/weldall/)             | Private Next.js authorization server, employee APIs, and administration UI for users, scopes, assignments, resources, groups, skills, CLI settings, and audit events.         |
+| [`@weldall/example-astro`](examples/astro/)     | Astro 7 Node SSR example using SDK middleware, request-local auth, and endpoint handlers.                                                                                     |
+| [`@weldall/example-basic`](examples/basic/)     | Framework-neutral Fetch example exporting `verify` and `verifyNoThrow`.                                                                                                       |
+| [`@weldall/example-hono`](examples/hono/)       | Standalone Hono example that registers SDK infrastructure routes and protects an Expenses endpoint.                                                                           |
+| [`@weldall/example-next`](examples/next/)       | Next.js 16 App Router example using Node.js route handlers and the SDK's Next.js adapter.                                                                                     |
+| [`@weldall/db`](packages/db/)                   | Private Prisma package containing the PostgreSQL schema, generated client export, migrations, production initialization, and development seed data.                           |
+| [`@weldall/sdk`](packages/sdk/)                 | Published resource-server SDK and Fetch, Hono, Next.js, and Astro adapters. See its [package README](packages/sdk/README.md).                                                 |
+| [`@weldall/eslint-config`](tooling/eslint/)     | Shared ESLint flat configuration for TypeScript workspaces.                                                                                                                   |
+| [`@weldall/prettier-config`](tooling/prettier/) | Shared Prettier configuration, including Astro formatting support.                                                                                                            |
+| [`@weldall/tsconfig`](tooling/typescript/)      | Shared TypeScript configuration bases used by repository packages and apps.                                                                                                   |
 
 ## Install and use the CLI
 

@@ -39,10 +39,14 @@ describe("native YAML workspaces", () => {
     process.chdir(root);
     try {
       await expect(
-        (iacInitCommand as any).run({ values: { issuer: "http://weldall.example.com", name: "platform" } }),
+        (iacInitCommand as any).run({
+          values: { issuer: "http://weldall.example.com", name: "platform" },
+        }),
       ).rejects.toThrow(/HTTPS/);
       await expect(access(join(root, "weldall.yml"))).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(access(join(root, "weldall.lock.yml"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(join(root, "weldall.lock.yml"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       await expect(access(join(root, "weldall"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       process.chdir(previous);
@@ -59,11 +63,11 @@ describe("native YAML workspaces", () => {
     const previous = process.cwd();
     process.chdir(root);
     try {
-      await expect(
-        (iacImportCommand as any).run(importContext),
-      ).rejects.toThrow("unreachable");
+      await expect((iacImportCommand as any).run(importContext)).rejects.toThrow("unreachable");
       expect(await readFile(join(root, "weldall.yml"), "utf8")).toBe(originalManifest);
-      await expect(access(join(root, "weldall", "imports"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(join(root, "weldall", "imports"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     } finally {
       process.chdir(previous);
       connect.mockRestore();
@@ -111,9 +115,7 @@ describe("native YAML workspaces", () => {
       expect(await readFile(join(root, "weldall", "imports", "scope-read.yml"), "utf8")).toBe(
         "scopes:\n  read:\n    key: expenses:read\n    description: Read expenses\n",
       );
-      expect(await readFile(join(root, "weldall.yml"), "utf8")).toContain(
-        "- weldall/**/*.yml",
-      );
+      expect(await readFile(join(root, "weldall.yml"), "utf8")).toContain("- weldall/**/*.yml");
     } finally {
       process.chdir(previous);
       connect.mockRestore();

@@ -27,7 +27,11 @@ export async function iacRoute(
       const headers = new Headers(error.headers);
       headers.set("cache-control", "no-store");
       headers.set("x-request-id", requestId);
-      return new Response(error.body, { status: error.status, statusText: error.statusText, headers });
+      return new Response(error.body, {
+        status: error.status,
+        statusText: error.statusText,
+        headers,
+      });
     }
     const known = error instanceof IacError;
     return Response.json(
