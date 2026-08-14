@@ -21,7 +21,7 @@ All administrative features of the Weldall server can be managed through its use
   every planned change is applied or none of them are.
 </Aside>
 
-Even when using IaC, people with the appropriate permissions can continue to use the user interface to make changes or create new scopes, resources, and other objects. Manual changes to managed objects appear as drift in the next plan and are reset to the state described in YAML when the configuration is applied. This only affects objects created or imported through IaC. Everything else remains untouched.
+Even when using IaC, people with the appropriate permissions can continue to use the user interface to make changes or create new scopes, resources, and other objects. Manual changes to managed objects appear as drift in the next plan and are reset to the state described in YAML when the configuration is applied. If a managed object is manually deleted, Weldall plans to recreate it. This only affects objects created or imported through IaC. Everything else remains untouched.
 
 ## Start a workspace
 
