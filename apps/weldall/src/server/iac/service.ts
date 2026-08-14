@@ -471,7 +471,10 @@ export async function importIac(
   },
   actor: IacActor,
 ) {
-  if (["weldall:login", "weldall:administer", IAC_SCOPE_KEY].includes(input.identity))
+  if (
+    input.kind === "scope" &&
+    ["weldall:login", "weldall:administer", IAC_SCOPE_KEY].includes(input.identity)
+  )
     throw new IacError("SYSTEM_SCOPE", "System scopes cannot be imported");
   return db.$transaction(
     async (tx) => {
@@ -1077,7 +1080,9 @@ async function findNatural(
       include: { grants: { include: { scope: true } } },
     });
   else {
-    const [provider, groupId] = identity.split(":", 2);
+    const separator = identity.indexOf(":");
+    const provider = identity.slice(0, separator);
+    const groupId = identity.slice(separator + 1);
     if (!provider || !groupId) return null;
     const p = await tx.groupProvider.findUnique({ where: { key: provider } });
     if (p)

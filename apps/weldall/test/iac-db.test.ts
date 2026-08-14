@@ -53,6 +53,7 @@ afterAll(async () => {
     where: { OR: [{ actorId: { startsWith: prefix } }, { requestId: { startsWith: prefix } }] },
   });
   await db.machineClient.deleteMany({ where: { clientId: { startsWith: prefix } } });
+  await db.machineClient.deleteMany({ where: { clientId: IAC_SCOPE_KEY } });
   await db.downstreamResource.deleteMany({ where: { key: { startsWith: prefix } } });
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: { contains: runId } } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
@@ -850,6 +851,102 @@ describe("IaC database transaction contracts", () => {
         where: { workspaceId: workspace.id, type: "IMPORT", status: "SUCCEEDED" },
       }),
     ).resolves.toBe(2);
+  });
+
+  it("imports a machine whose client ID matches a protected scope key", async () => {
+    const runner = await db.machineClient.findUniqueOrThrow({
+      where: { clientId: `${prefix}-apply-runner` },
+      include: { keys: true },
+    });
+    const workspace = {
+      id: randomUUID(),
+      name: `${prefix}-protected-name-import`,
+      issuer: "https://weldall.example.com",
+    };
+    const machine = await db.machineClient.create({
+      data: {
+        clientId: IAC_SCOPE_KEY,
+        name: "Machine named like the IaC scope",
+        enabled: true,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+
+    const imported = await importIac(
+      {
+        workspace,
+        kind: "machine",
+        identity: machine.clientId,
+        address: "machine.scope_named",
+        operationId: randomUUID(),
+      },
+      {
+        clientId: runner.clientId,
+        keyId: runner.keys[0]!.kid,
+        keyThumbprint: runner.keys[0]!.thumbprint,
+        requestId: `${prefix}-protected-name-import-request`,
+      },
+    );
+
+    expect(imported).toMatchObject({
+      objectId: machine.id,
+      state: { clientId: IAC_SCOPE_KEY, name: machine.name },
+    });
+  });
+
+  it("imports a group assignment with colons in its complete group ID", async () => {
+    const runner = await db.machineClient.findUniqueOrThrow({
+      where: { clientId: `${prefix}-apply-runner` },
+      include: { keys: true },
+    });
+    const provider = await db.groupProvider.create({
+      data: {
+        key: `${prefix}-colon-provider`,
+        name: "Colon group provider",
+        adapterType: "management-api-v1",
+        baseUrl: "https://colon-provider.example.com",
+        encryptedToken: "test-token",
+        encryptionKeyVersion: 1,
+        enabled: true,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+    const assignment = await db.groupScopeAssignment.create({
+      data: {
+        providerId: provider.id,
+        groupId: "team:finance",
+        groupName: "Finance",
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+
+    const imported = await importIac(
+      {
+        workspace: {
+          id: randomUUID(),
+          name: `${prefix}-colon-group-import`,
+          issuer: "https://weldall.example.com",
+        },
+        kind: "groupAssignment",
+        identity: `${provider.key}:${assignment.groupId}`,
+        address: "groupAssignment.finance",
+        operationId: randomUUID(),
+      },
+      {
+        clientId: runner.clientId,
+        keyId: runner.keys[0]!.kid,
+        keyThumbprint: runner.keys[0]!.thumbprint,
+        requestId: `${prefix}-colon-group-import-request`,
+      },
+    );
+
+    expect(imported).toMatchObject({
+      objectId: assignment.id,
+      state: { provider: provider.key, groupId: "team:finance" },
+    });
   });
 
   it("enforces declaration absence for REST unmanage and replays idempotently", async () => {
