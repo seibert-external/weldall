@@ -95,10 +95,9 @@ jobs:
           pnpm --filter @weldall/cli test
           pnpm --filter @weldall/cli pack:check
 
-  # Exercise the published artifact outside the monorepo, including its OS metadata,
-  # bundled files/bin, and IaC startup without optional native dependencies.
-  cli-tarball-startup:
-    name: Packed CLI IaC startup without optional dependencies (${{ matrix.os }})
+  # Exercise the published artifact outside the monorepo without optional native dependencies.
+  packed-cli:
+    name: Packed CLI (${{ matrix.os }})
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -114,12 +113,12 @@ jobs:
         with:
           node-version: 22.15.0
           cache: pnpm
-      - name: Install and pack CLI
+      - name: Pack CLI
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter @weldall/cli build
           pnpm --filter @weldall/cli pack --pack-destination "$RUNNER_TEMP"
-      - name: Install packed artifact without optional dependencies and start IaC commands
+      - name: Smoke-test IaC startup
         run: |
           mkdir "$RUNNER_TEMP/weldall-cli-smoke"
           cd "$RUNNER_TEMP/weldall-cli-smoke"
@@ -156,7 +155,7 @@ jobs:
     needs:
       - verify
       - package-compat
-      - cli-tarball-startup
+      - packed-cli
       - e2e
     runs-on: weldall
     timeout-minutes: 20

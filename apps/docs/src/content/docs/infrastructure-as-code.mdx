@@ -6,16 +6,19 @@ sidebar:
   order: 8
 ---
 
-import { Aside, FileTree, Steps } from '@astrojs/starlight/components';
+import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
 
 Alle administrativen Funktionen des Weldall-Servers lassen sich über die Benutzeroberfläche verwalten. Die wichtigsten Bausteine – Scopes, Ressourcen, Machine Clients und Zuweisungen – können zusätzlich in YAML-Dateien beschrieben werden. So wird aus der Konfiguration Infrastructure as Code (IaC).
 
 <Aside type="tip" title="Warum IaC?">
-  In einem versionierten Git-Repository bleibt jede Änderung nachvollziehbar. Pull Requests bieten Raum für Diskussionen und Freigaben, und Kommentare im YAML dokumentieren direkt, warum eine bestimmte Berechtigung existiert.
+  In einem versionierten Git-Repository bleibt jede Änderung nachvollziehbar. Pull Requests bieten
+  Raum für Diskussionen und Freigaben, und Kommentare im YAML dokumentieren direkt, warum eine
+  bestimmte Berechtigung existiert.
 </Aside>
 
 <Aside title="Atomare Änderungen">
-  Weldall fasst die YAML-Dateien in einem Workspace zusammen und wendet den gewünschten Zustand atomar an: Entweder werden alle geplanten Änderungen durchgeführt oder keine.
+  Weldall fasst die YAML-Dateien in einem Workspace zusammen und wendet den gewünschten Zustand
+  atomar an: Entweder werden alle geplanten Änderungen durchgeführt oder keine.
 </Aside>
 
 Auch bei der Nutzung von IaC können Personen mit den entsprechenden Rechten weiterhin die Benutzeroberfläche verwenden, um Änderungen vorzunehmen oder neue Scopes, Ressourcen und andere Elemente anzulegen. Manuelle Änderungen an verwalteten Elementen erscheinen im nächsten Plan als Drift und werden beim Anwenden auf den in der YAML-Konfiguration beschriebenen Zustand zurückgesetzt. Das betrifft nur Elemente, die über IaC angelegt oder importiert wurden. Alle anderen Elemente bleiben unberührt.
@@ -25,18 +28,18 @@ Auch bei der Nutzung von IaC können Personen mit den entsprechenden Rechten wei
 <Steps>
 1. **Machine Client vorbereiten**
 
-   Für IaC-Befehle wird die Weldall CLI verwendet. Sie authentifiziert sich mit einem zuvor in Weldall angelegten Machine Client, dem der Scope `weldall:iac` zugewiesen wurde. Die CLI liest Client-ID und Schlüssel aus Umgebungsvariablen:
+Für IaC-Befehle wird die Weldall CLI verwendet. Sie authentifiziert sich mit einem zuvor in Weldall angelegten Machine Client, dem der Scope `weldall:iac` zugewiesen wurde. Die CLI liest Client-ID und Schlüssel aus Umgebungsvariablen:
 
-   ```sh
-   export WELDALL_M2M_CLIENT_ID=platform-ci
-   export WELDALL_M2M_KID=ci-2026
-   export WELDALL_M2M_PRIVATE_JWK='<privater P-256-JWK als JSON>'
-   export WELDALL_M2M_PUBLIC_JWK='<öffentlicher P-256-JWK als JSON>'
-   ```
+```sh
+export WELDALL_M2M_CLIENT_ID=platform-ci
+export WELDALL_M2M_KID=ci-2026
+export WELDALL_M2M_PRIVATE_JWK='<privater P-256-JWK als JSON>'
+export WELDALL_M2M_PUBLIC_JWK='<öffentlicher P-256-JWK als JSON>'
+```
 
-   <Aside type="caution" title="Privaten Schlüssel schützen">
-     Der private Schlüssel gehört weder in die YAML-Konfiguration noch ins Git-Repository.
-   </Aside>
+<Aside type="caution" title="Privaten Schlüssel schützen">
+  Der private Schlüssel gehört weder in die YAML-Konfiguration noch ins Git-Repository.
+</Aside>
 
 2. **Workspace initialisieren**
 
@@ -46,21 +49,18 @@ Auch bei der Nutzung von IaC können Personen mit den entsprechenden Rechten wei
    ```
 
    Der Befehl erzeugt `weldall.yml`, `weldall.lock.yml` und das Verzeichnis `weldall/`. Manifest und Lockdatei werden gemeinsam versioniert.
-</Steps>
+
+   </Steps>
 
 ### Workspace in Fragmente aufteilen
 
 Ein Workspace kann zum Beispiel so aufgebaut sein:
 
 <FileTree>
-- platform-access/
-  - **weldall.yml** Root-Manifest
-  - weldall.lock.yml Versionierter Serverzustand und Objektzuordnungen
-  - weldall/
-    - access.yml Scopes und Zuweisungen
-    - runtime.yml Ressourcen und Machine Clients
-    - imports/ Optional, wird von `weldall import` verwendet
-      - emailAssignment-alice.yml Erzeugtes Importfragment
+  - platform-access/ - **weldall.yml** Root-Manifest - weldall.lock.yml Versionierter Serverzustand
+  und Objektzuordnungen - weldall/ - access.yml Scopes und Zuweisungen - runtime.yml Ressourcen und
+  Machine Clients - imports/ Optional, wird von `weldall import` verwendet -
+  emailAssignment-alice.yml Erzeugtes Importfragment
 </FileTree>
 
 Das von `init` erzeugte Root-Manifest enthält die Metadaten des Workspaces und bindet alle YAML-Dateien unter `weldall/` ein:
@@ -143,17 +143,17 @@ Ins Manifest gehören nur öffentliche Machine-Schlüssel.
 
 ## Die wichtigsten CLI-Befehle
 
-| Befehl                                             | Zweck                                                                                         |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `weldall init --name … --issuer …`                 | Legt einen neuen Workspace mit Root-Manifest, Lockdatei und Fragmentverzeichnis an.           |
+| Befehl                                             | Zweck                                                                                          |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `weldall init --name … --issuer …`                 | Legt einen neuen Workspace mit Root-Manifest, Lockdatei und Fragmentverzeichnis an.            |
 | `weldall validate`                                 | Liest und prüft das Root-Manifest sowie alle Fragmente lokal, ohne den Server zu kontaktieren. |
 | `weldall plan`                                     | Vergleicht die YAML-Konfiguration mit dem aktuellen Serverzustand, ohne etwas zu ändern.       |
 | `weldall up`                                       | Zeigt einen aktuellen Plan, fragt nach Bestätigung und wendet ihn anschließend an.             |
 | `weldall up --yes`                                 | Wendet den Plan ohne Rückfrage an, zum Beispiel in der CI.                                     |
-| `weldall import <kind> <identity> --as <iac-name>` | Übernimmt ein vorhandenes Objekt und gibt ihm einen Namen für diesen IaC-Workspace.             |
+| `weldall import <kind> <identity> --as <iac-name>` | Übernimmt ein vorhandenes Objekt und gibt ihm einen Namen für diesen IaC-Workspace.            |
 | `weldall unmanage <iac-name> --yes`                | Beendet die Verwaltung eines Objekts, ohne das Objekt selbst zu löschen.                       |
-| `weldall state mv <old> <new>`                     | Ändert den Namen, unter dem IaC das Objekt verwaltet; das Weldall-Objekt bleibt unverändert.     |
-| `weldall state pull`                               | Stellt die Zuordnungen in der Lockdatei aus dem Serverzustand wieder her.                       |
+| `weldall state mv <old> <new>`                     | Ändert den Namen, unter dem IaC das Objekt verwaltet; das Weldall-Objekt bleibt unverändert.   |
+| `weldall state pull`                               | Stellt die Zuordnungen in der Lockdatei aus dem Serverzustand wieder her.                      |
 
 `weldall plan --json` gibt den Plan als maschinenlesbares JSON aus. Mit `weldall plan --detailed-exit-code` signalisiert Exit-Code `2`, dass Änderungen anstehen.
 
