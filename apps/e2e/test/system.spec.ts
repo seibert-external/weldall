@@ -403,6 +403,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
     "the weldall:login scope must be assigned to your account",
   );
 
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/access-denied");
   await page.goto("https://weldall.seibert.localdev/");
   await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible();
 });
