@@ -303,7 +303,7 @@ function containsPrivateJwk(value: unknown): boolean {
   if (Object.prototype.hasOwnProperty.call(value, "d")) return true;
   return Object.values(value).some(containsPrivateJwk);
 }
-async function expandIncludes(root: string, patterns: string[]): Promise<string[]> {
+export async function expandIncludes(root: string, patterns: string[]): Promise<string[]> {
   const glob = (await import("node:fs/promises")).glob;
   const paths: string[] = [];
   for (const pattern of patterns) {

@@ -8,6 +8,7 @@ import { CliError } from "../errors.js";
 import { IacClient } from "./client.js";
 import {
   canonicalManifestDigest,
+  expandIncludes,
   loadWorkspace,
   MANIFEST_FILE,
   newLock,
@@ -110,10 +111,13 @@ async function rootIncludesPath(root: string, path: string) {
     await readFile(join(root, MANIFEST_FILE), "utf8"),
   ) as any;
   const includedPath = relative(root, path).split("\\").join("/");
+  const includes = Array.isArray(document.include) ? document.include : [];
   return {
     document,
     includedPath,
-    included: Array.isArray(document.include) && document.include.includes(includedPath),
+    included: (await expandIncludes(root, includes)).some(
+      (included) => relative(included, path) === "",
+    ),
   };
 }
 
