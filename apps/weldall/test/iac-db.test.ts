@@ -124,6 +124,65 @@ describe("IaC database transaction contracts", () => {
     });
   });
 
+  it("plans recreation after an IaC-managed resource is manually deleted", async () => {
+    const key = `${prefix}-resource-tombstone`;
+    const resourceIdentifier = `https://${key}.example.com/api`;
+    const workspace = {
+      id: randomUUID(),
+      name: `${prefix}-resource-tombstone-workspace`,
+      issuer: "https://weldall.example.com",
+    };
+    const resource = await db.downstreamResource.create({
+      data: {
+        key,
+        name: "Managed resource",
+        resourceIdentifier,
+        authorizationServer: `https://${key}.example.com`,
+        downstreamClientId: key,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+    await db.iacWorkspace.create({ data: workspace });
+    await db.iacObjectBinding.create({
+      data: {
+        workspaceId: workspace.id,
+        address: "resource.managed",
+        kind: "RESOURCE",
+        naturalIdentity: key,
+        resourceId: resource.id,
+      },
+    });
+    await db.downstreamResource.delete({ where: { id: resource.id } });
+
+    const manifest = parseDesiredState({
+      apiVersion: "weldall.dev/v1",
+      workspace,
+      resources: {
+        managed: {
+          key,
+          name: "Managed resource",
+          resourceIdentifier,
+          authorizationServer: `https://${key}.example.com`,
+          downstreamClientId: key,
+          enabled: true,
+          requestPrefixes: [resourceIdentifier],
+          scopes: [],
+        },
+      },
+    });
+
+    await expect(planIac(manifest)).resolves.toMatchObject({
+      actions: [
+        expect.objectContaining({
+          action: "recreate",
+          address: "resource.managed",
+          drift: true,
+        }),
+      ],
+    });
+  });
+
   it("serializes group-provider admin writes under the configuration lock and version", async () => {
     const priorEncryptionKey = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
     process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");

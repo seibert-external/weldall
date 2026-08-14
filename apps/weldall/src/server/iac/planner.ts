@@ -361,6 +361,7 @@ export async function loadPlanningState(
           desiredObject.kind !== object.kind ||
           desiredObject.identity !== object.identity ||
           (object.kind === "resource" &&
+            !object.tombstone &&
             (object.state as { resourceIdentifier?: string }).resourceIdentifier !==
               (desiredObject.state as { resourceIdentifier?: string }).resourceIdentifier)
         );
