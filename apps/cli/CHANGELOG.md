@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.8.0
+
+### Minor Changes
+
+- 43587f9: Add native Weldall YAML infrastructure-as-code commands for scopes, resources, machine clients, administrator-managed skills, and assignments, with committed lockfile state, atomic planning/apply workflows, and Linux packaging with optional macOS Keychain support.
+
 ## 0.7.0
 
 ### Minor Changes
