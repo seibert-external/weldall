@@ -8,6 +8,10 @@ Planned.
 
 Weldall IaC v1 uses **native Weldall YAML**, managed through the existing `weldall` CLI with `weldall plan`, `weldall up`, `weldall import`, and related commands. One complete configuration snapshot is validated and committed atomically.
 
+**Terraform is not part of this plan.** We will not build a Terraform provider, consume Terraform state, use HCL, or make Terraform a supported v1 interface. The native Weldall workflow is the sole implementation target.
+
+Terraform was evaluated and rejected for this feature because its normal resource-by-resource CRUD and partial-apply model conflicts with the chosen requirement that one Weldall configuration snapshot is validated and committed atomically. A single aggregate Terraform resource could retain atomicity but would provide poor Terraform ergonomics and duplicate the native workflow. Terraform may be reconsidered later through a separate proposal after the native API and ownership model are stable; that possibility creates no v1 design or compatibility obligation.
+
 ## Goals
 
 - Manage Weldall's core administrative primitives declaratively in source control.
@@ -24,6 +28,7 @@ Weldall IaC v1 uses **native Weldall YAML**, managed through the existing `welda
 
 ## Non-goals
 
+- Terraform, OpenTofu, HCL, Terraform state, or a Terraform provider.
 - Managing group providers, provider credentials, skills, CLI settings, users, discovered catalogs, audit records, or Better Auth tables in v1.
 - Sharing ownership of one primitive between repositories.
 - Field-level or relation-level ownership.
@@ -174,6 +179,8 @@ Rules:
 - Lockfile replacement is atomic on the local filesystem after a successful remote commit.
 - If the server commits but local lockfile writing fails, rerunning the idempotent operation or using `state pull` recovers safely.
 
+This file is Weldall workspace state. It is unrelated to Terraform's dependency lockfile or Terraform state.
+
 ## Ownership model
 
 Multiple repositories may manage different primitives on the same Weldall server, but each primitive has at most one owning IaC workspace.
@@ -250,7 +257,7 @@ weldall state mv scope.old scope.new
 - Authenticates, reads current server state, and computes a deterministic plan.
 - Shows creates, updates, replacements, deletes, key revocations, drift restoration, and blockers.
 - Never changes managed primitives or ownership.
-- Supports stable machine-readable JSON and a detailed exit code for automation.
+- Supports stable machine-readable JSON and a Terraform-style detailed exit code without adopting Terraform state or semantics.
 
 ### `weldall up`
 
@@ -393,7 +400,7 @@ Requirements:
 - Structured errors containing logical addresses, collision owners, blockers, and current revisions without exposing secrets.
 - Discovery advertises the IaC API endpoint, supported manifest/API versions, installation UUID, and `weldall:iac`.
 - Publish JSON Schema for manifests and OpenAPI for the HTTP contract.
-- The API is designed for the native CLI in v1.
+- The API is designed for the native CLI only in v1; it is not a Terraform provider compatibility layer.
 
 ## Planning algorithm
 
@@ -541,7 +548,7 @@ For v1:
 
 ### Phase 1: contracts and architecture
 
-- Record the native-YAML configuration model.
+- Record the explicit native-YAML decision and Terraform non-goal.
 - Freeze v1 primitive boundaries and natural identities.
 - Define manifest, canonicalization, lockfile, plan, and error schemas.
 - Define atomicity, ownership, tombstone, import, and unmanage semantics.
@@ -601,6 +608,7 @@ For v1:
 - Document bootstrap, CI setup, key rotation, import, unmanage, recovery, drift, and deletion behavior.
 - Publish manifest JSON Schema and API OpenAPI documents.
 - Add Linux/macOS package checks, integration tests, E2E flows, and a Changeset.
+- Explicitly document that Terraform is unsupported and outside v1.
 
 ## Acceptance criteria
 
@@ -653,3 +661,7 @@ For v1:
 - Human plan output and `--json` are deterministic.
 - A no-change apply is idempotent and does not prompt.
 - Help and documentation consistently describe native Weldall YAML as the only supported IaC interface.
+
+## Future considerations
+
+A future proposal may independently evaluate Terraform or OpenTofu after Weldall's native ownership and API contracts are stable. Such a proposal must explicitly address partial apply, ownership interoperability, separate state, release engineering, and conflict with native workspaces. No Terraform provider, state compatibility, HCL schema, or provider-specific API behavior is reserved by this plan.
