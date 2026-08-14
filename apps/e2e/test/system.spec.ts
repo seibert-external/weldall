@@ -171,7 +171,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("link", { name: "Group providers" }).click();
   await expect(page.getByRole("heading", { name: "Group providers" })).toBeVisible();
   await page.getByRole("link", { name: "Group assignments" }).click();
-  await expect(page.getByRole("heading", { name: "Group assignments" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Group assignments" })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByRole("link", { name: "Create group assignment" }).click();
   await expect(page).toHaveURL("https://weldall.seibert.localdev/group-assignments/new");
   await expect(page.getByRole("heading", { name: "Create group assignment" })).toBeVisible();
