@@ -64,6 +64,8 @@ describe("built-in system scope provisioning", () => {
       await expect(
         db.$transaction(async (tx) => {
           await tx.emailScopeGrant.deleteMany({ where: { scope: { key } } });
+          await tx.machineAllowedScope.deleteMany({ where: { scope: { key } } });
+          await tx.resourceScope.deleteMany({ where: { scope: { key } } });
           await tx.scope.deleteMany({ where: { key } });
           await tx.scope.create({
             data: {
@@ -91,7 +93,7 @@ describe("built-in system scope provisioning", () => {
         const prisma = {
           $transaction: async (operation: (nested: Prisma.TransactionClient) => Promise<unknown>) =>
             operation(tx),
-          groupProvider: tx.groupProvider,
+          groupProvider: { findMany: async () => [] },
         } as unknown as PrismaClient;
 
         await seedProduction(prisma);
