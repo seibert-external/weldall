@@ -4,6 +4,7 @@ import {
   ADMIN_SCOPE_KEY,
   db,
   ensureSystemScopes,
+  IAC_SCOPE_KEY,
   LOGIN_SCOPE_KEY,
   Prisma,
   SYSTEM_SCOPE_DEFINITIONS,
@@ -14,7 +15,7 @@ import { prepareProductionDatabase } from "../src/server/deployment.js";
 const rollback = new Error("rollback system scope test");
 
 describe("built-in system scope provisioning", () => {
-  it("creates the login scope on an empty installation and reruns without granting it", async () => {
+  it("creates missing system scopes and reruns without granting login", async () => {
     const grantsBefore = await db.emailScopeGrant.count({
       where: { scope: { key: LOGIN_SCOPE_KEY } },
     });
@@ -28,10 +29,10 @@ describe("built-in system scope provisioning", () => {
         await ensureSystemScopes(tx, "system-scope-test-second");
 
         const scopes = await tx.scope.findMany({
-          where: { key: { in: [ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY] } },
+          where: { key: { in: [ADMIN_SCOPE_KEY, IAC_SCOPE_KEY, LOGIN_SCOPE_KEY] } },
           orderBy: { key: "asc" },
         });
-        expect(scopes).toHaveLength(2);
+        expect(scopes).toHaveLength(SYSTEM_SCOPE_DEFINITIONS.length);
         expect(scopes).toEqual(
           expect.arrayContaining(
             SYSTEM_SCOPE_DEFINITIONS.map((definition) =>
@@ -57,7 +58,7 @@ describe("built-in system scope provisioning", () => {
     ).resolves.toBe(grantsBefore);
   });
 
-  it.each([ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY])(
+  it.each([ADMIN_SCOPE_KEY, IAC_SCOPE_KEY, LOGIN_SCOPE_KEY])(
     "fails closed instead of promoting a user-created %s collision",
     async (key) => {
       await expect(
