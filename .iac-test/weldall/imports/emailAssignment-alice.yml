@@ -1,6 +1,0 @@
-emailAssignments:
-  alice:
-    email: alice@example.com
-    scopes:
-      - weldall:administer
-      - weldall:login
