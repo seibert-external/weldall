@@ -12,6 +12,7 @@ import {
   MANIFEST_FILE,
   newLock,
   serverManifest,
+  validateRoot,
   writeLock,
   type Lockfile,
 } from "./manifest.js";
@@ -133,6 +134,12 @@ export const iacInitCommand = define({
   args: { issuer: { type: "string", required: true }, name: { type: "string", required: true } },
   run: async (context) => {
     const root = process.cwd();
+    const manifest = {
+      apiVersion: "weldall.dev/v1alpha1" as const,
+      workspace: { name: context.values.name, issuer: context.values.issuer },
+      include: ["weldall/**/*.yml"],
+    };
+    validateRoot(manifest);
     for (const path of [MANIFEST_FILE, "weldall.lock.yml"])
       await access(join(root, path))
         .then(() => {
@@ -141,11 +148,6 @@ export const iacInitCommand = define({
         .catch((error) => {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         });
-    const manifest = {
-      apiVersion: "weldall.dev/v1alpha1" as const,
-      workspace: { name: context.values.name, issuer: new URL(context.values.issuer).origin },
-      include: ["weldall/**/*.yml"],
-    };
     await mkdir(join(root, "weldall"), { recursive: true });
     await writeFile(join(root, MANIFEST_FILE), stringify(manifest), { flag: "wx" });
     await writeLock(root, newLock(manifest));
@@ -282,10 +284,6 @@ export const iacImportCommand = define({
         canonicalJson(existingDeclaration) !== canonicalJson(existingGeneratedState))
     )
       throw new CliError(`Logical address ${context.values.as} is already declared`);
-    if (existingDeclaration === undefined && existingFragment !== undefined)
-      throw new CliError(`Import fragment ${path} already exists; refusing to overwrite it`);
-    await mkdir(dirname(path), { recursive: true });
-    await ensureImportedFragmentIncluded(workspace.root, path);
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
     const result = await client.request("/import", "POST", {
       workspace: { ...workspace.manifest.workspace, id: workspace.lock.workspace.id },
@@ -305,6 +303,7 @@ export const iacImportCommand = define({
     if (existingFragment !== undefined && existingFragment !== generatedFragment)
       throw new CliError(`Import fragment ${path} does not match the committed import result`);
     await writeImportedFragment(path, generatedFragment);
+    await ensureImportedFragmentIncluded(workspace.root, path);
     const state = await client.request(`/workspaces/${workspace.lock.workspace.id}/state`, "GET");
     const repaired = lockFromState(workspace.lock, client.installationId, state);
     await writeLock(workspace.root, repaired);

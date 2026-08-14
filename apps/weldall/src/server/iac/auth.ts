@@ -10,6 +10,7 @@ import type { IacActor } from "./service";
 export async function requireIacMachine(
   request: Request,
   store: ReplayStore = postgresReplayStore,
+  identifiers: ReturnType<typeof auditRequestIdentifiers> = auditRequestIdentifiers(request),
 ): Promise<IacActor> {
   const authorization = request.headers.get("authorization");
   const proof = request.headers.get("dpop");
@@ -58,7 +59,7 @@ export async function requireIacMachine(
     clientId: machine.clientId,
     keyId: key.kid,
     keyThumbprint: key.thumbprint,
-    ...auditRequestIdentifiers(request),
+    ...identifiers,
   };
 }
 

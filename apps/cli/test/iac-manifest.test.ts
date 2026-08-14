@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -12,11 +12,14 @@ import {
 import {
   declaredImportValue,
   ensureImportedFragmentIncluded,
+  iacImportCommand,
+  iacInitCommand,
   lockFromState,
   printPlan,
   stableOperationId,
   writeImportedFragment,
 } from "../src/iac/commands.js";
+import { IacClient } from "../src/iac/client.js";
 
 async function workspace(root: string, extra = "") {
   await writeFile(
@@ -26,6 +29,45 @@ async function workspace(root: string, extra = "") {
 }
 
 describe("native YAML workspaces", () => {
+  it("rejects a noncanonical HTTPS init issuer without creating workspace files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    const previous = process.cwd();
+    process.chdir(root);
+    try {
+      await expect(
+        (iacInitCommand as any).run({ values: { issuer: "http://weldall.example.com", name: "platform" } }),
+      ).rejects.toThrow(/HTTPS/);
+      await expect(access(join(root, "weldall.yml"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(join(root, "weldall.lock.yml"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(join(root, "weldall"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      process.chdir(previous);
+    }
+  });
+
+  it("does not mutate local import files before the remote import succeeds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(root);
+    const loaded = await loadWorkspace(root);
+    await writeLock(root, newLock(loaded.manifest));
+    const originalManifest = await readFile(join(root, "weldall.yml"), "utf8");
+    const connect = vi.spyOn(IacClient, "connect").mockRejectedValue(new Error("unreachable"));
+    const previous = process.cwd();
+    process.chdir(root);
+    try {
+      await expect(
+        (iacImportCommand as any).run({
+          values: { kind: "scope", identity: "expenses:read", as: "scope.read" },
+        }),
+      ).rejects.toThrow("unreachable");
+      expect(await readFile(join(root, "weldall.yml"), "utf8")).toBe(originalManifest);
+      await expect(access(join(root, "weldall", "imports"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      process.chdir(previous);
+      connect.mockRestore();
+    }
+  });
+
   it("loads sorted fragments, creates an opaque UUID lock, and injects it only for the API", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
     await mkdir(join(root, "weldall"));

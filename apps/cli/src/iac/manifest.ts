@@ -101,7 +101,7 @@ function parseYaml(source: string, path: string): unknown {
   return document.toJS({ maxAliasCount: 0 });
 }
 
-function validateRoot(value: Manifest) {
+export function validateRoot(value: Manifest) {
   const root = record(value);
   for (const field of Object.keys(root))
     if (!["apiVersion", "workspace", "include", ...objectSections].includes(field))
