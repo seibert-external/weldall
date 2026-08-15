@@ -60,8 +60,18 @@ const baseEnvironment = Object.fromEntries(
 );
 baseEnvironment.PATH = hostileBin;
 
-const launch = capturedLauncher(executable, [], { baseEnvironment });
-const terminalLaunch = terminalLauncher(executable, [], { baseEnvironment });
+// The guarded native keyring diagnostic permits up to 30 seconds for a newly
+// provisioned macOS Keychain write to become visible. Keep process supervision
+// outside that operation's bounded propagation window.
+const artifactTimeoutMs = 45_000;
+const launch = capturedLauncher(executable, [], {
+  baseEnvironment,
+  timeoutMs: artifactTimeoutMs,
+});
+const terminalLaunch = terminalLauncher(executable, [], {
+  baseEnvironment,
+  timeoutMs: artifactTimeoutMs,
+});
 
 try {
   await smokeNativeTerminal({

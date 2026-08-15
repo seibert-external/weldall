@@ -188,7 +188,11 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
       interruptedResult = await interrupted;
     }
   }
-  assert.notEqual(interruptedResult.status, 0, output(interruptedResult));
+  // PowerShell can normalize an interrupted native child's exit status to zero
+  // after ConPTY delivers Ctrl-C. The process-exit and filesystem assertions
+  // below are the portable evidence that the interruption took effect.
+  if (process.platform !== "win32")
+    assert.notEqual(interruptedResult.status, 0, output(interruptedResult));
   assert.equal(interruptedResult.exited, true, "interrupted terminal process must not survive");
   assert.deepEqual(await readFile(paths.download), oldDestination);
   assert.deepEqual(
