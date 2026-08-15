@@ -106,6 +106,8 @@ jobs:
           bun-version: 1.3.14
       - name: Install immutable-commit dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build CLI workspace dependencies
+        run: pnpm --filter @weldall/sdk build
       - name: Revalidate release identity and notices
         run: |
           node apps/cli/scripts/validate-release-context.mjs --tag "$RELEASE_TAG"
