@@ -1,14 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import type { JWK } from "jose";
 import { CliError } from "../errors.js";
 
 const SERVICE = "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 1;
-const testCredentialsFile = process.env.WELDALL_E2E_CREDENTIALS_FILE;
+// Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
+const runtimeEnvironmentValue = (name: string) => process.env[name];
+const testCredentialsFile = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
 
-if (testCredentialsFile && process.env.NODE_ENV !== "test")
+if (testCredentialsFile && runtimeEnvironmentValue("NODE_ENV") !== "test")
   throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
 
 export interface StoredIdentity {
@@ -83,13 +87,92 @@ const readTestKeychain = (): TestKeychain => {
 const writeTestKeychain = (value: TestKeychain) => {
   if (!testCredentialsFile) return;
   const temporary = join(dirname(testCredentialsFile), `.weldall-${randomUUID()}.tmp`);
-  writeFileSync(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-  renameSync(temporary, testCredentialsFile);
+  try {
+    writeFileSync(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
+    renameSync(temporary, testCredentialsFile);
+  } finally {
+    try {
+      rmSync(temporary, { force: true });
+    } catch {
+      // Best-effort cleanup must not hide the original write or replacement error.
+    }
+  }
 };
 
+const credentialStoreHint =
+  "Install the optional @napi-rs/keyring dependency and ensure your operating system's secure credential service is available.";
+
+const execFileAsync = promisify(execFile);
+const usesMacOsSecurity =
+  process.platform === "darwin" &&
+  (globalThis as typeof globalThis & { Bun?: unknown }).Bun !== undefined;
+
+const security = async (args: string[]) =>
+  execFileAsync("/usr/bin/security", args, { encoding: "utf8", maxBuffer: 1024 * 1024 });
+
 const nativeEntry = async (issuer: string) => {
-  const { Entry } = await import("@napi-rs/keyring");
-  return new Entry(SERVICE, accountFor(issuer));
+  const { AsyncEntry } = await import("@napi-rs/keyring");
+  return new AsyncEntry(SERVICE, accountFor(issuer));
+};
+
+export const nativeCredentialStore = {
+  async get(service: string, account: string) {
+    if (usesMacOsSecurity) {
+      try {
+        const { stdout } = await security([
+          "find-generic-password",
+          "-s",
+          service,
+          "-a",
+          account,
+          "-w",
+        ]);
+        return stdout.replace(/\r?\n$/, "");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException & { code?: number }).code === 44) return null;
+        throw error;
+      }
+    }
+    const { AsyncEntry } = await import("@napi-rs/keyring");
+    const raw = await new AsyncEntry(service, account).getPassword();
+    if (raw !== null && raw !== undefined) return raw;
+    const { findCredentialsAsync } = await import("@napi-rs/keyring");
+    return (
+      (await findCredentialsAsync(service)).find((credential) => credential.account === account)
+        ?.password ?? null
+    );
+  },
+
+  async set(service: string, account: string, password: string) {
+    if (usesMacOsSecurity) {
+      await security(["add-generic-password", "-U", "-s", service, "-a", account, "-w", password]);
+      return;
+    }
+    const { AsyncEntry } = await import("@napi-rs/keyring");
+    await new AsyncEntry(service, account).setPassword(password);
+  },
+
+  async clear(service: string, account: string) {
+    if (usesMacOsSecurity) {
+      await security(["delete-generic-password", "-s", service, "-a", account]);
+      return;
+    }
+    const { AsyncEntry } = await import("@napi-rs/keyring");
+    await new AsyncEntry(service, account).deletePassword();
+  },
+};
+
+const readNativePassword = async (issuer: string) => {
+  if (usesMacOsSecurity) return nativeCredentialStore.get(SERVICE, accountFor(issuer));
+  const entry = await nativeEntry(issuer);
+  const raw = await entry.getPassword();
+  const bun = (globalThis as typeof globalThis & { Bun?: unknown }).Bun;
+  if ((raw !== null && raw !== undefined) || !bun) return raw;
+  const { findCredentialsAsync } = await import("@napi-rs/keyring");
+  return (
+    (await findCredentialsAsync(SERVICE)).find(({ account }) => account === accountFor(issuer))
+      ?.password ?? null
+  );
 };
 
 export const keychain = {
@@ -102,9 +185,12 @@ export const keychain = {
 
     let raw: string | null;
     try {
-      raw = (await nativeEntry(issuer)).getPassword();
+      raw = (await readNativePassword(issuer)) ?? null;
     } catch (error) {
-      throw new CliError("Unable to read the Weldall session from Keychain", { cause: error });
+      throw new CliError("Unable to read the Weldall session from the secure credential store", {
+        cause: error,
+        hint: credentialStoreHint,
+      });
     }
     return raw ? parseCredentials(raw, issuer) : null;
   },
@@ -122,9 +208,12 @@ export const keychain = {
       return;
     }
     try {
-      (await nativeEntry(issuer)).setPassword(JSON.stringify(stored));
+      await nativeCredentialStore.set(SERVICE, accountFor(issuer), JSON.stringify(stored));
     } catch (error) {
-      throw new CliError("Unable to save the Weldall session in Keychain", { cause: error });
+      throw new CliError("Unable to save the Weldall session in the secure credential store", {
+        cause: error,
+        hint: credentialStoreHint,
+      });
     }
   },
 
@@ -138,9 +227,12 @@ export const keychain = {
       return;
     }
     try {
-      (await nativeEntry(issuer)).deletePassword();
+      await nativeCredentialStore.clear(SERVICE, accountFor(issuer));
     } catch (error) {
-      throw new CliError("Unable to remove the Weldall session from Keychain", { cause: error });
+      throw new CliError("Unable to remove the Weldall session from the secure credential store", {
+        cause: error,
+        hint: credentialStoreHint,
+      });
     }
   },
 };

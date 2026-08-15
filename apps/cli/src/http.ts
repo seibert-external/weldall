@@ -68,8 +68,23 @@ const httpsRequest = (
 
 export const createHttpsDeadlineFetch = (timeoutMs: number): typeof fetch => {
   const deadline = Date.now() + timeoutMs;
-  return ((input: string | URL | Request, init?: RequestInit) =>
-    httpsRequest(input, init, deadline - Date.now())) as typeof fetch;
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw timeoutError();
+    // The test-only global bridge must also cover bounded help-header discovery.
+    // Normal production traffic keeps the direct HTTPS implementation below.
+    if (process.env["WELDALL_E2E_HTTP_BRIDGE"] !== undefined) {
+      if (process.env["NODE_ENV"] !== "test")
+        throw new CliError("WELDALL_E2E_HTTP_BRIDGE is only allowed when NODE_ENV=test");
+      const sourceSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+      const timeoutSignal = AbortSignal.timeout(remaining);
+      return fetch(input, {
+        ...init,
+        signal: sourceSignal ? AbortSignal.any([sourceSignal, timeoutSignal]) : timeoutSignal,
+      });
+    }
+    return httpsRequest(input, init, remaining);
+  }) as typeof fetch;
 };
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>

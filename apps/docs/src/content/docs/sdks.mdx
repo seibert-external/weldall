@@ -11,11 +11,71 @@ Weldall veröffentlicht zwei npm-Pakete. Die CLI läuft auf dem Gerät eines Mit
 
 [`@weldall/cli`](https://www.npmjs.com/package/@weldall/cli) installiert den Befehl `weldall`. Mitarbeitende melden sich damit an. Agenten entdecken Skills und senden freigegebene Requests an Unternehmensservices.
 
+Wähle entweder das JavaScript-npm-Paket (Node.js 22.15 oder neuer erforderlich) oder eine eigenständige, selbstenthaltene ausführbare Datei (kein Node.js, npm, Bun oder `node_modules` erforderlich). Beide enthalten die vollständige CLI.
+
 ```sh
-npm install --global @weldall/cli
+npm install --global @weldall/cli@latest
 ```
 
-Das Paket benötigt Node.js 22.15 oder neuer. Native-YAML-IaC-Befehle unterstützen Linux und macOS. Interaktive Benutzersitzungen werden auf macOS unterstützt und speichern Zugangsdaten im Schlüsselbund.
+| System         | Unterstützte Version               | Architektur           | npm | Standalone-Archiv     |
+| -------------- | ---------------------------------- | --------------------- | --- | --------------------- |
+| Ubuntu Linux   | Aktuell unterstützte Ubuntu-LTS    | x64                   | Ja  | `linux-x64.tar.gz`    |
+| Windows-Client | Windows 10 Version 1809 oder neuer | x64                   | Ja  | `windows-x64.zip`     |
+| Windows Server | Windows Server 2019 oder neuer     | x64                   | Ja  | `windows-x64.zip`     |
+| macOS          | Aktuell unterstützte Versionen     | ARM64 / Apple Silicon | Ja  | `darwin-arm64.tar.gz` |
+| macOS          | Aktuell unterstützte Versionen     | Intel x64             | Ja  | `darwin-x64.tar.gz`   |
+
+Die Windows-Untergrenze gilt für beide Distributionen und folgt der strengeren gemeinsamen Voraussetzung von Node.js 22 und der eingebetteten Bun-1.3-Laufzeit. Standalone-Dateien sind derzeit **nicht signiert**. Sie sind weder von Apple notarisiert noch mit Authenticode signiert; Installer, Homebrew und WinGet werden nicht angeboten. Lade sie nur aus dem GitHub Release mit dem Tag `@weldall/cli@X.Y.Z` und prüfe `SHA256SUMS`, bevor du die ausführbare Datei ersetzt.
+
+POSIX-Beispiel (wähle `linux-x64`, `darwin-arm64` oder `darwin-x64`):
+
+```sh
+VERSION=1.2.3
+TARGET=linux-x64
+ARCHIVE="weldall-v${VERSION}-${TARGET}.tar.gz"
+BASE="https://github.com/seibert-external/weldall/releases/download/%40weldall%2Fcli%40${VERSION}"
+curl -fLO "$BASE/$ARCHIVE" && curl -fLO "$BASE/SHA256SUMS"
+EXPECTED="$(awk -v file="$ARCHIVE" '$2 == file { print $1 }' SHA256SUMS)"
+if command -v shasum >/dev/null 2>&1; then
+  ACTUAL="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+else
+  ACTUAL="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+fi
+test -n "$EXPECTED" && test "$ACTUAL" = "$EXPECTED"
+mkdir -p "$HOME/.local/bin"
+tar -xzf "$ARCHIVE"
+install -m 0755 weldall "$HOME/.local/bin/weldall"
+```
+
+PowerShell-Beispiel:
+
+```powershell
+$Version = "1.2.3"
+$Archive = "weldall-v$Version-windows-x64.zip"
+$Tag = [uri]::EscapeDataString("@weldall/cli@$Version")
+$Base = "https://github.com/seibert-external/weldall/releases/download/$Tag"
+Invoke-WebRequest "$Base/$Archive" -OutFile $Archive
+Invoke-WebRequest "$Base/SHA256SUMS" -OutFile SHA256SUMS
+$Expected = ((Select-String SHA256SUMS -Pattern "^[0-9a-f]{64}  $([regex]::Escape($Archive))$").Line -split "  ")[0]
+if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) { throw "Prüfsummenfehler" }
+Expand-Archive $Archive .\weldall-release -Force
+$Bin = "$HOME\bin"
+New-Item -ItemType Directory -Force $Bin | Out-Null
+Copy-Item .\weldall-release\weldall.exe "$Bin\weldall.exe" -Force
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($UserPath -split ";") -notcontains $Bin) {
+  [Environment]::SetEnvironmentVariable("Path", "$Bin;$UserPath", "User")
+}
+$env:Path = "$Bin;$env:Path"
+```
+
+Die Änderung des Benutzer-`Path` gilt dauerhaft für künftige Windows-Sitzungen. Die Zuweisung an `$env:Path` wirkt nur im aktuellen PowerShell-Prozess; öffne bei Bedarf ein neues Terminal.
+
+Aktualisiere npm-Installationen mit `npm install --global @weldall/cli@latest`. Für ein Standalone-Upgrade prüfst du das neue Archiv und ersetzt anschließend die ausführbare Datei.
+
+Die nicht geheime Issuer-Einstellung liegt unter Linux in `~/.weldall/config.json`, unter Windows in `%USERPROFILE%\.weldall\config.json` und unter macOS weiterhin im Defaults-Domain/Key `dev.seibert.weldall-cli/Issuer`. Ein temporäres Override setzt du in POSIX-Shells mit `export WELDALL_ISSUER=https://weldall.example.com` und in PowerShell mit `$env:WELDALL_ISSUER = "https://weldall.example.com"`.
+
+Zugangsdaten und DPoP-Schlüssel liegen im Windows Credential Manager, macOS-Schlüsselbund oder Linux Secret Service mit Kernel-keyutils-Fallback – niemals in der Issuer-Datei. Unter Ubuntu Desktop muss der Login-Schlüsselbund entsperrt sein. Headless-Linux-Sitzungen benötigen einen Benutzer-D-Bus mit entsperrtem Secret Service (etwa `gnome-keyring-daemon`) oder eine nutzbare Kernel-Keyring/keyutils-Umgebung. Andernfalls schlagen Sitzungsbefehle mit dem sichtbaren Backend-Fehler fehl, statt Klartextzugangsdaten zu speichern.
 
 ## `@weldall/sdk`
 

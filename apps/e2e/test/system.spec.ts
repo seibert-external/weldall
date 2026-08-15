@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -13,10 +13,28 @@ const cliEnv = {
   WELDALL_ISSUER: "https://weldall.seibert.localdev",
   WELDALL_E2E_CREDENTIALS_FILE: credentialsFile,
   WELDALL_E2E_BROWSER_URL_FILE: browserUrlFile,
-  PATH: `${join(workspace, "e2e/bin")}:${process.env.PATH ?? ""}`,
 };
 
 type CliResult = { code: number; stdout: string; stderr: string };
+
+const activeCliChildren = new Set<ChildProcess>();
+
+const terminateCliChild = async (child: ChildProcess) => {
+  await new Promise<void>((resolve) => {
+    let forceTimer: ReturnType<typeof setTimeout> | undefined;
+    const finished = () => {
+      if (forceTimer) clearTimeout(forceTimer);
+      resolve();
+    };
+    child.once("close", finished);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finished();
+      return;
+    }
+    forceTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    child.kill("SIGTERM");
+  });
+};
 
 const normalizePanelOutput = (output: string) =>
   output
@@ -30,6 +48,8 @@ const startCli = (args: string[], timeoutMs = 45_000) => {
     env: cliEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  activeCliChildren.add(child);
+  child.once("close", () => activeCliChildren.delete(child));
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk) => (stdout += String(chunk)));
@@ -59,7 +79,9 @@ const describeCliResult = ({ code, stdout, stderr }: CliResult) =>
   );
 
 const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
-  const deadline = Date.now() + 30_000;
+  // The public welcome page no longer prewarms login during the stack health check,
+  // so OAuth discovery and authorization may compile cold on a loaded CI runner.
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     const event = await Promise.race([
       readFile(browserUrlFile, "utf8")
@@ -79,12 +101,16 @@ const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
   login.child.kill("SIGTERM");
   const result = await login.result;
   throw new Error(
-    `CLI did not invoke the browser opener within 30 seconds.\n${describeCliResult(result)}`,
+    `CLI did not invoke the browser opener within 90 seconds.\n${describeCliResult(result)}`,
   );
 };
 
 test.beforeEach(async () => {
   await Promise.all([rm(credentialsFile, { force: true }), rm(browserUrlFile, { force: true })]);
+});
+
+test.afterEach(async () => {
+  await Promise.all([...activeCliChildren].map(terminateCliChild));
 });
 
 test("runs login, skill discovery, a DPoP request, and logout end to end", async ({
@@ -96,7 +122,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
   await page.getByRole("button", { name: "Development login" }).click();
-  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByLabel("Email").selectOption("alice@example.com");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
@@ -414,7 +442,9 @@ test("denies CLI login without weldall:login while preserving browser authentica
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
   await page.getByRole("button", { name: "Development login" }).click();
-  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByLabel("Email").selectOption("bob@example.com");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
@@ -436,7 +466,10 @@ test("denies CLI login without weldall:login while preserving browser authentica
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy Prompt" })).toBeVisible();
   await page.getByRole("link", { name: "I’m an admin, let me in" }).click();
-  await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible();
+  await expect(page).toHaveURL(/\/access-denied$/, { timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible({
+    timeout: 30_000,
+  });
 });
 
 test("publishes metadata and rejects unauthenticated or unsupported requests", async ({

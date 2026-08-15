@@ -1,7 +1,7 @@
 {
   "name": "@weldall/cli",
   "version": "0.8.0",
-  "description": "Weldall CLI for Linux/macOS IaC and macOS user sessions",
+  "description": "Secure cross-platform CLI for Weldall APIs and infrastructure as code",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -9,13 +9,14 @@
     "directory": "apps/cli"
   },
   "type": "module",
-  "os": [
-    "darwin",
-    "linux"
-  ],
   "engines": {
     "node": ">=22.15.0"
   },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
   "files": [
     "dist/index.js",
     "README.md",
@@ -34,6 +35,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "pack:check": "pnpm build && node scripts/verify-package.mjs",
+    "smoke:packed": "pnpm build && node scripts/smoke-packed.mjs",
+    "standalone:build": "bun scripts/build-standalone.mjs",
+    "standalone:smoke": "node scripts/smoke-standalone.mjs",
+    "standalone:archive": "node scripts/create-standalone-archive.mjs",
+    "standalone:notices": "node scripts/generate-third-party-notices.mjs",
+    "standalone:debris": "node scripts/assert-no-package-debris.mjs",
     "prepack": "pnpm build",
     "check": "tsc -p tsconfig.json --noEmit"
   },
@@ -50,6 +57,7 @@
     "@napi-rs/keyring": "1.3.0"
   },
   "devDependencies": {
+    "@lydell/node-pty": "1.2.0-beta.15",
     "@types/node": "catalog:",
     "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^19.2.17",

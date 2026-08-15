@@ -87,14 +87,34 @@ describe("issuer configuration", () => {
     ).rejects.toThrow("different issuer");
   });
 
-  it("uses WELDALL_ISSUER before the macOS preference", async () => {
+  it("uses WELDALL_ISSUER before the persistent preference", async () => {
     vi.stubEnv("WELDALL_ISSUER", "https://override.example.com");
-    await expect(
-      selectIssuer({ preferences: memoryPreferences(issuer), allowPrompt: false }),
-    ).resolves.toEqual({
+    const preferences = memoryPreferences(issuer);
+    await expect(selectIssuer({ preferences, allowPrompt: false })).resolves.toEqual({
       issuer: "https://override.example.com",
       source: "environment",
     });
+    expect(preferences.read).not.toHaveBeenCalled();
+  });
+
+  it("uses the persistent preference before prompting", async () => {
+    const prompt = vi.fn(async () => "https://prompt.example.com");
+    await expect(selectIssuer({ preferences: memoryPreferences(issuer), prompt })).resolves.toEqual(
+      {
+        issuer,
+        source: "preferences",
+      },
+    );
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it("prompts only when environment and persistent preferences are missing", async () => {
+    const prompt = vi.fn(async () => "https://prompt.example.com");
+    await expect(selectIssuer({ preferences: memoryPreferences(), prompt })).resolves.toEqual({
+      issuer: "https://prompt.example.com",
+      source: "prompt",
+    });
+    expect(prompt).toHaveBeenCalledOnce();
   });
 
   it("stores a prompted issuer only after successful discovery", async () => {

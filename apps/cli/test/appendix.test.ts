@@ -28,7 +28,8 @@ describe("CLI appendix cache", () => {
       await expect(cache.read("https://other.example.com")).resolves.toBeNull();
       const files = await readdir(directory);
       expect(files).toHaveLength(1);
-      expect((await stat(join(directory, files[0]!))).mode & 0o777).toBe(0o600);
+      if (process.platform !== "win32")
+        expect((await stat(join(directory, files[0]!))).mode & 0o777).toBe(0o600);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
