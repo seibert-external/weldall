@@ -132,6 +132,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build CLI workspace dependencies
+        run: pnpm --filter @weldall/sdk build
       - name: Typecheck and test complete CLI source suite
         run: |
           pnpm --filter @weldall/cli typecheck
@@ -179,6 +181,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build CLI workspace dependencies
+        run: pnpm --filter @weldall/sdk build
       - name: Provision Linux Secret Service and D-Bus
         if: matrix.target == 'linux-x64'
         run: sudo apt-get update && sudo apt-get install --yes dbus-x11 gnome-keyring
@@ -247,6 +251,8 @@ jobs:
           bun-version: 1.3.14
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build CLI workspace dependencies
+        run: pnpm --filter @weldall/sdk build
       - name: Provision Linux Secret Service and D-Bus
         if: matrix.target == 'linux-x64'
         run: sudo apt-get update && sudo apt-get install --yes dbus-x11 gnome-keyring

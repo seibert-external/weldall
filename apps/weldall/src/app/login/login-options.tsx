@@ -45,7 +45,9 @@ export function LoginOptions({ google, dev }: { google: boolean; dev: boolean })
     <VStack gap={2} hAlign="stretch">
       {google ? (
         <Button
-          isDisabled={pendingProvider !== null && pendingProvider !== "google"}
+          isDisabled={
+            session.isPending || (pendingProvider !== null && pendingProvider !== "google")
+          }
           isLoading={pendingProvider === "google"}
           label="Continue with Google"
           onClick={() => void signIn("google")}
@@ -54,7 +56,9 @@ export function LoginOptions({ google, dev }: { google: boolean; dev: boolean })
       ) : null}
       {dev ? (
         <Button
-          isDisabled={pendingProvider !== null && pendingProvider !== "dev-oidc"}
+          isDisabled={
+            session.isPending || (pendingProvider !== null && pendingProvider !== "dev-oidc")
+          }
           isLoading={pendingProvider === "dev-oidc"}
           label="Development login"
           onClick={() => void signIn("dev-oidc")}
