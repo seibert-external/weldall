@@ -74,7 +74,7 @@ export async function runTestRuntimeHook(
     try {
       entry.setPassword(secret);
       let stored = entry.getPassword();
-      for (let attempt = 1; stored !== secret && attempt < 20; attempt++) {
+      for (let attempt = 1; stored !== secret && attempt < 100; attempt++) {
         await (dependencies.wait ?? wait)(100);
         stored = entry.getPassword();
       }

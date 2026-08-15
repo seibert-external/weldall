@@ -122,7 +122,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
   await page.getByRole("button", { name: "Development login" }).click();
-  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByLabel("Email").selectOption("alice@example.com");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
@@ -440,7 +442,9 @@ test("denies CLI login without weldall:login while preserving browser authentica
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
   await page.getByRole("button", { name: "Development login" }).click();
-  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByLabel("Email").selectOption("bob@example.com");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({

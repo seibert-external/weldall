@@ -28,7 +28,10 @@ function quoteCmdArgument(value) {
 
 function windowsCmdLauncher(path) {
   return (args, options) => {
-    const commandLine = `"${[path, ...args].map(quoteCmdArgument).join(" ")}"`;
+    // CALL gives cmd.exe an unambiguous batch-file boundary. Wrapping the entire
+    // command in another quote pair makes /s strip quotes differently when the
+    // npm shim and its working directory both contain spaces.
+    const commandLine = `call ${[path, ...args].map(quoteCmdArgument).join(" ")}`;
     return capturedLauncher(process.env.ComSpec ?? "cmd.exe", ["/d", "/v:off", "/s", "/c"])(
       [commandLine],
       options,
