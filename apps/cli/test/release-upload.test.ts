@@ -36,7 +36,10 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe("CLI release upload", () => {
   it("keeps tag verification self-contained for immutable release checkouts", async () => {
-    const workflow = await readFile(new URL("../../../.github/workflows/release-cli-assets.yml", import.meta.url), "utf8");
+    const workflow = await readFile(
+      new URL("../../../.github/workflows/release-cli-assets.yml", import.meta.url),
+      "utf8",
+    );
     expect(workflow).not.toContain("verify-release-tag.mjs");
     expect(workflow.match(/git rev-parse 'FETCH_HEAD\^\{commit\}'/g)).toHaveLength(2);
     expect(workflow.match(/ACTUAL_SHA=|EXPECTED_SHA/g)?.length).toBeGreaterThanOrEqual(4);
