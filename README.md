@@ -45,23 +45,31 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 
 ## Install and use the CLI
 
-### Requirements and distributions
+### npm (recommended)
 
-The npm package supports Ubuntu, Windows, and macOS and requires Node.js 22.15.0 or newer. Supported x64 Windows releases are Windows 10 version 1809 or newer and Windows Server 2019 or newer; the same floor applies to the standalone executable. Self-contained standalone GitHub Release executables require no Node.js, npm, Bun, or `node_modules`. Initial standalone targets are Ubuntu Linux x64, Windows x64, macOS Apple silicon, and macOS Intel x64. The standalone assets are **unsigned** and must be checksum-verified; signing, installers, Homebrew, and WinGet are not claimed.
-
-Install or upgrade the npm package and select the Weldall host:
+The npm package supports Ubuntu, Windows 10 version 1809 or newer, Windows Server 2019 or newer, and current macOS releases. It requires Node.js 22.15 or newer.
 
 ```sh
 npm install --global @weldall/cli@latest
 weldall --version
 weldall config set-issuer https://weldall.example.com
-weldall config get-issuer
 weldall login
 ```
 
-PowerShell uses native environment syntax, for example `$env:WELDALL_ISSUER = "https://weldall.example.com"`; POSIX shells use `export WELDALL_ISSUER=https://weldall.example.com` or a one-command prefix. `config set-issuer` validates discovery before saving the HTTPS origin. Saved non-secret issuer preferences live at `~/.weldall/config.json` on Linux, `%USERPROFILE%\.weldall\config.json` on Windows, and the preserved `dev.seibert.weldall-cli/Issuer` macOS Preferences key. Sessions are isolated by issuer and stored in Linux Secret Service/keyutils, Windows Credential Manager, or macOS Keychain—never in the issuer file.
+### Experimental standalone binaries
 
-For standalone archive names, POSIX and PowerShell checksum/install commands, unsigned warnings, upgrades, and actionable headless Linux secure-store requirements, see the [npm-visible CLI README](apps/cli/README.md#choose-an-installation).
+Standalone binaries require no Node.js, npm, or Bun. Initial targets are Linux x64, Windows x64, and macOS ARM64/x64. They are currently unsigned. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases).
+
+```sh
+# macOS, after downloading the trusted binary
+xattr -d com.apple.quarantine ./weldall
+chmod +x ./weldall
+
+# Linux
+chmod +x ./weldall
+```
+
+Windows PowerShell: `Unblock-File .\\weldall.exe`. Run `./weldall --help` or `weldall.exe --help` for usage.
 
 ### Command overview
 
