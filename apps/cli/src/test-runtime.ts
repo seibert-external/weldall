@@ -6,13 +6,16 @@ const keyringHook = "WELDALL_TEST_KEYRING_SMOKE";
 const keychainGetHook = "WELDALL_TEST_KEYCHAIN_GET";
 
 interface KeyringEntry {
-  setPassword(secret: string): void;
-  getPassword(): string | null;
-  deletePassword(): void;
+  setPassword(secret: string): void | Promise<void>;
+  getPassword(): string | null | undefined | Promise<string | null | undefined>;
+  deletePassword(): void | Promise<unknown>;
 }
 
 interface TestRuntimeDependencies {
-  loadKeyring?: () => Promise<{ Entry: new (service: string, account: string) => KeyringEntry }>;
+  loadKeyring?: () => Promise<{
+    Entry: new (service: string, account: string) => KeyringEntry;
+    AsyncEntry?: new (service: string, account: string) => KeyringEntry;
+  }>;
   keychainGet?: (issuer: string) => Promise<unknown>;
   wait?: (milliseconds: number) => Promise<void>;
 }
@@ -66,20 +69,21 @@ export async function runTestRuntimeHook(
   };
 
   if (keyringId !== undefined) {
-    const { Entry } = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
+    const keyring = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
+    const Entry = keyring.AsyncEntry ?? keyring.Entry;
     const entry = new Entry(`dev.seibert.weldall-cli.smoke.${keyringId}`, `account-${keyringId}`);
     const secret = randomBytes(32).toString("base64url");
     let primaryError: unknown;
     let cleanupError: unknown;
     try {
-      entry.setPassword(secret);
-      let stored = entry.getPassword();
+      await entry.setPassword(secret);
+      let stored = await entry.getPassword();
       // macOS Keychain writes can become visible slowly on a newly provisioned,
       // loaded Intel CI runner. Keep the real native round trip, but bound its
       // propagation allowance independently from command execution timeouts.
       for (let attempt = 1; stored !== secret && attempt < 300; attempt++) {
         await (dependencies.wait ?? wait)(100);
-        stored = entry.getPassword();
+        stored = await entry.getPassword();
       }
       if (stored !== secret) throw new Error("Secure credential round trip differed");
       result.keyringRoundTrip = true;
@@ -87,7 +91,7 @@ export async function runTestRuntimeHook(
       primaryError = error;
     } finally {
       try {
-        entry.deletePassword();
+        await entry.deletePassword();
       } catch (error) {
         cleanupError = error;
       }

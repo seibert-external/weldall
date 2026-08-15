@@ -11,7 +11,12 @@ const environmentStrings = (environment) =>
 export function terminalLauncher(
   command,
   prefix = [],
-  { baseEnvironment = process.env, timeoutMs = 30_000, spawn = spawnPty } = {},
+  {
+    baseEnvironment = process.env,
+    timeoutMs = 30_000,
+    spawn = spawnPty,
+    platform = process.platform,
+  } = {},
 ) {
   return (args, options) => {
     const terminal = spawn(command, [...prefix, ...args], {
@@ -39,11 +44,15 @@ export function terminalLauncher(
         clearTimeout(timer);
         dataSubscription.dispose();
         exitSubscription.dispose();
+        // node-pty can leave the ConPTY host pipe referenced after the child has
+        // exited, which keeps the smoke process alive indefinitely. kill() also
+        // closes that native terminal resource and is safe after the exit event.
+        if (platform === "win32") terminal.kill();
         resolve({
           status: signal ? 128 + signal : exitCode,
           signal: signal || null,
           stdout: output,
-          stderr: timedOut ? "Terminal process exceeded 30 second timeout" : "",
+          stderr: timedOut ? `Terminal process exceeded ${timeoutMs}ms timeout` : "",
           exited: true,
         });
       });

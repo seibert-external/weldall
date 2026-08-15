@@ -117,6 +117,23 @@ describe("native process launchers", () => {
     expect(disposeData).toHaveBeenCalledOnce();
     expect(disposeExit).toHaveBeenCalledOnce();
   });
+
+  it("closes the native ConPTY resource after the Windows child exits", async () => {
+    const terminal = {
+      onData: () => ({ dispose: vi.fn() }),
+      onExit: (callback: (event: { exitCode: number; signal: number }) => void) => {
+        queueMicrotask(() => callback({ exitCode: 0, signal: 0 }));
+        return { dispose: vi.fn() };
+      },
+      kill: vi.fn(),
+      write: vi.fn(),
+    };
+    await terminalLauncher("weldall", [], {
+      spawn: () => terminal,
+      platform: "win32",
+    })([], { cwd: ".", env: {} });
+    expect(terminal.kill).toHaveBeenCalledOnce();
+  });
 });
 
 describe("Ink optional peer plugin", () => {
