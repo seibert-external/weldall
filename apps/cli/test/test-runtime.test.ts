@@ -63,22 +63,22 @@ describe("test-only runtime hook", () => {
     expect(String(write.mock.calls[0]?.[0])).not.toMatch(/[A-Za-z0-9_-]{40,}/);
   });
 
-  it("round-trips through the async keyring binding when it is exported", async () => {
+  it("round-trips through the production keyring binding when an async binding is also exported", async () => {
     let stored: string | null = null;
     class Entry {
-      constructor() {
-        throw new Error("synchronous binding must not be used");
+      setPassword(secret: string) {
+        stored = secret;
+      }
+      getPassword() {
+        return stored;
+      }
+      deletePassword() {
+        stored = null;
       }
     }
     class AsyncEntry {
-      async setPassword(secret: string) {
-        stored = secret;
-      }
-      async getPassword() {
-        return stored;
-      }
-      async deletePassword() {
-        stored = null;
+      constructor() {
+        throw new Error("alternate async binding must not be used");
       }
     }
 
