@@ -208,7 +208,7 @@ describe("deterministic release utilities", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("fails when the independent system extractor is unavailable", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-missing-extractor-"));

@@ -71,21 +71,22 @@ export async function runTestRuntimeHook(
   if (keyringId !== undefined) {
     const keyring = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
     // Exercise the same binding used by the production keychain. In Bun standalone
-    // builds the async macOS binding can return stale reads after a successful write.
+    // builds a reused macOS entry can return stale reads after a successful write.
     const Entry = keyring.Entry;
-    const entry = new Entry(`dev.seibert.weldall-cli.smoke.${keyringId}`, `account-${keyringId}`);
+    const createEntry = () =>
+      new Entry(`dev.seibert.weldall-cli.smoke.${keyringId}`, `account-${keyringId}`);
     const secret = randomBytes(32).toString("base64url");
     let primaryError: unknown;
     let cleanupError: unknown;
     try {
-      await entry.setPassword(secret);
-      let stored = await entry.getPassword();
+      await createEntry().setPassword(secret);
+      let stored = await createEntry().getPassword();
       // macOS Keychain writes can become visible slowly on a newly provisioned,
       // loaded Intel CI runner. Keep the real native round trip, but bound its
       // propagation allowance independently from command execution timeouts.
       for (let attempt = 1; stored !== secret && attempt < 300; attempt++) {
         await (dependencies.wait ?? wait)(100);
-        stored = await entry.getPassword();
+        stored = await createEntry().getPassword();
       }
       if (stored !== secret) throw new Error("Secure credential round trip differed");
       result.keyringRoundTrip = true;
@@ -93,7 +94,7 @@ export async function runTestRuntimeHook(
       primaryError = error;
     } finally {
       try {
-        await entry.deletePassword();
+        await createEntry().deletePassword();
       } catch (error) {
         cleanupError = error;
       }

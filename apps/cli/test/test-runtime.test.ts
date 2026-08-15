@@ -91,6 +91,35 @@ describe("test-only runtime hook", () => {
     expect(stored).toBeNull();
   });
 
+  it("uses fresh secure-store entries for writes, reads, and cleanup", async () => {
+    let stored: string | null = null;
+    let constructions = 0;
+    class Entry {
+      private readonly snapshot = stored;
+      constructor() {
+        constructions += 1;
+      }
+      setPassword(secret: string) {
+        stored = secret;
+      }
+      getPassword() {
+        return this.snapshot;
+      }
+      deletePassword() {
+        stored = null;
+      }
+    }
+
+    await expect(
+      runTestRuntimeHook(
+        { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "fresh-entries" },
+        { loadKeyring: async () => ({ Entry }) },
+      ),
+    ).resolves.toBe(true);
+    expect(constructions).toBe(3);
+    expect(stored).toBeNull();
+  });
+
   it("allows a bounded secure-store propagation delay before validating the round trip", async () => {
     let stored: string | null = null;
     let reads = 0;
