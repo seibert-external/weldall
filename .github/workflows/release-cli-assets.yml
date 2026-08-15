@@ -35,6 +35,13 @@ jobs:
       version: ${{ steps.identity.outputs.version }}
       sha: ${{ steps.commit.outputs.sha }}
     steps:
+      # Fetch main through checkout while its short-lived token is available; later build steps get no Git credentials.
+      - name: Check out main with full history for ancestry validation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
       - name: Check out exact release tag with full history
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -50,7 +57,6 @@ jobs:
         run: node apps/cli/scripts/validate-release-context.mjs --tag "$RELEASE_TAG"
       - name: Require the exact tag commit to belong to main
         run: |
-          git fetch --no-tags origin main
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main
           git diff --exit-code
