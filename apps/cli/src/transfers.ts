@@ -35,6 +35,12 @@ const parseFormPart = (value: string): FormPart => {
 
 const fileBlob = async (path: string, contentType: string) => {
   try {
+    const bun = (
+      globalThis as typeof globalThis & {
+        Bun?: { file(path: string, options?: { type?: string }): Blob };
+      }
+    ).Bun;
+    if (bun) return bun.file(path, { type: contentType });
     return await openAsBlob(path, { type: contentType });
   } catch (error) {
     throw new CliError(`Cannot open upload file ${JSON.stringify(path)}`, { cause: error });

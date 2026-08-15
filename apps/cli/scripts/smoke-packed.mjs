@@ -25,8 +25,8 @@ function quoteCmdArgument(value) {
 
 function windowsCmdLauncher(path) {
   return (args, options) => {
-    const commandLine = `"${[path, ...args].map(quoteCmdArgument).join(" ")}"`;
-    return capturedLauncher(process.env.ComSpec ?? "cmd.exe", ["/d", "/v:off", "/s", "/c"])(
+    const commandLine = `call ${[path, ...args].map(quoteCmdArgument).join(" ")}`;
+    return capturedLauncher(process.env.ComSpec ?? "cmd.exe", ["/d", "/v:off", "/c"])(
       [commandLine],
       options,
     );

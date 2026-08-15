@@ -159,7 +159,16 @@ export async function validateArchiveInteroperability(path, format, entries, spa
   try {
     const invocation =
       format === "tar.gz"
-        ? { command: "tar", args: ["-xzf", path, "-C", extractionRoot] }
+        ? {
+            command: "tar",
+            args: [
+              ...(process.platform === "win32" ? ["--force-local"] : []),
+              "-xzf",
+              path,
+              "-C",
+              extractionRoot,
+            ],
+          }
         : process.platform === "win32"
           ? {
               command: "powershell.exe",

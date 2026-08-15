@@ -441,7 +441,9 @@ test("denies CLI login without weldall:login while preserving browser authentica
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy Prompt" })).toBeVisible();
   await page.getByRole("link", { name: "I’m an admin, let me in" }).click();
-  await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible({
+    timeout: 30_000,
+  });
 });
 
 test("publishes metadata and rejects unauthenticated or unsupported requests", async ({

@@ -54,7 +54,7 @@ describe("test-only runtime hook", () => {
     await expect(
       runTestRuntimeHook(
         { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "injected-success" },
-        { loadKeyring: async () => ({ Entry }) },
+        { loadKeyring: async () => ({ AsyncEntry: Entry }) },
       ),
     ).resolves.toBe(true);
     expect(calls).toEqual(["set", "get", "delete"]);
@@ -81,7 +81,7 @@ describe("test-only runtime hook", () => {
     await expect(
       runTestRuntimeHook(
         { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "injected-primary" },
-        { loadKeyring: async () => ({ Entry }) },
+        { loadKeyring: async () => ({ AsyncEntry: Entry }) },
       ),
     ).rejects.toBe(primary);
     expect(deletion).toHaveBeenCalledOnce();
@@ -105,7 +105,7 @@ describe("test-only runtime hook", () => {
     await expect(
       runTestRuntimeHook(
         { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "injected-cleanup" },
-        { loadKeyring: async () => ({ Entry }) },
+        { loadKeyring: async () => ({ AsyncEntry: Entry }) },
       ),
     ).rejects.toBe(cleanup);
   });
@@ -127,7 +127,7 @@ describe("test-only runtime hook", () => {
 
     const failure = await runTestRuntimeHook(
       { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "injected-aggregate" },
-      { loadKeyring: async () => ({ Entry }) },
+      { loadKeyring: async () => ({ AsyncEntry: Entry }) },
     ).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(AggregateError);
     expect((failure as AggregateError).errors).toEqual([primary, cleanup]);

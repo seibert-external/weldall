@@ -259,7 +259,11 @@ jobs:
       - name: Build native standalone into runner.temp
         run: |
           OUTPUT_DIR="$RUNNER_TEMP/weldall-standalone" ARCHIVE_DIR="$RUNNER_TEMP/weldall-archive" node -e 'const fs = require("node:fs"); for (const path of [process.env.OUTPUT_DIR, process.env.ARCHIVE_DIR]) { fs.rmSync(path, { recursive: true, force: true }); fs.mkdirSync(path, { recursive: true }); }'
-          bun apps/cli/scripts/build-standalone.mjs --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/weldall-standalone"
+          for attempt in 1 2 3; do
+            bun apps/cli/scripts/build-standalone.mjs --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/weldall-standalone" && break
+            if test "$attempt" = 3; then exit 1; fi
+            rm -rf "$RUNNER_TEMP/weldall-standalone/.bun-build"
+          done
       - name: Smoke copied standalone on Linux with secure-store diagnostics
         if: matrix.target == 'linux-x64'
         run: |

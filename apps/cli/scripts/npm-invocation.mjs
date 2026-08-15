@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { win32 } from "node:path";
 
 export function resolveNpmInvocation(
   platform = process.platform,
@@ -7,10 +7,10 @@ export function resolveNpmInvocation(
   pathExists = existsSync,
 ) {
   if (platform !== "win32") return { command: "npm", prefix: [] };
-  const executableDirectory = dirname(nodeExecutable);
+  const executableDirectory = win32.dirname(nodeExecutable);
   const candidates = [
-    resolve(executableDirectory, "node_modules", "npm", "bin", "npm-cli.js"),
-    resolve(executableDirectory, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+    win32.resolve(executableDirectory, "node_modules", "npm", "bin", "npm-cli.js"),
+    win32.resolve(executableDirectory, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
   ];
   const npmCli = candidates.find(pathExists);
   if (!npmCli)

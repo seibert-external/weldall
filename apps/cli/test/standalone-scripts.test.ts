@@ -275,12 +275,12 @@ describe("deterministic release utilities", () => {
       prefix: [],
     });
     expect(
-      resolveNpmInvocation("win32", "/setup/node.exe", (path) =>
-        path.endsWith("/node_modules/npm/bin/npm-cli.js"),
+      resolveNpmInvocation("win32", "C:\\setup\\node.exe", (path) =>
+        path.replaceAll("\\", "/").endsWith("/node_modules/npm/bin/npm-cli.js"),
       ),
     ).toEqual({
-      command: "/setup/node.exe",
-      prefix: ["/setup/node_modules/npm/bin/npm-cli.js"],
+      command: "C:\\setup\\node.exe",
+      prefix: ["C:\\setup\\node_modules\\npm\\bin\\npm-cli.js"],
     });
     expect(() => resolveNpmInvocation("win32", "/setup/node.exe", () => false)).toThrow(
       /Unable to locate setup-node's npm-cli\.js/,

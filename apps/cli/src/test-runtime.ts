@@ -6,13 +6,15 @@ const keyringHook = "WELDALL_TEST_KEYRING_SMOKE";
 const keychainGetHook = "WELDALL_TEST_KEYCHAIN_GET";
 
 interface KeyringEntry {
-  setPassword(secret: string): void;
-  getPassword(): string | null;
-  deletePassword(): void;
+  setPassword(secret: string): void | Promise<void>;
+  getPassword(): string | null | undefined | Promise<string | null | undefined>;
+  deletePassword(): unknown | Promise<unknown>;
 }
 
 interface TestRuntimeDependencies {
-  loadKeyring?: () => Promise<{ Entry: new (service: string, account: string) => KeyringEntry }>;
+  loadKeyring?: () => Promise<{
+    AsyncEntry: new (service: string, account: string) => KeyringEntry;
+  }>;
   keychainGet?: (issuer: string) => Promise<unknown>;
 }
 
@@ -62,20 +64,24 @@ export async function runTestRuntimeHook(
   };
 
   if (keyringId !== undefined) {
-    const { Entry } = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
-    const entry = new Entry(`dev.seibert.weldall-cli.smoke.${keyringId}`, `account-${keyringId}`);
+    const { AsyncEntry } = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
+    const entry = new AsyncEntry(
+      `dev.seibert.weldall-cli.smoke.${keyringId}`,
+      `account-${keyringId}`,
+    );
     const secret = randomBytes(32).toString("base64url");
     let primaryError: unknown;
     let cleanupError: unknown;
     try {
-      entry.setPassword(secret);
-      if (entry.getPassword() !== secret) throw new Error("Secure credential round trip differed");
+      await entry.setPassword(secret);
+      if ((await entry.getPassword()) !== secret)
+        throw new Error("Secure credential round trip differed");
       result.keyringRoundTrip = true;
     } catch (error) {
       primaryError = error;
     } finally {
       try {
-        entry.deletePassword();
+        await entry.deletePassword();
       } catch (error) {
         cleanupError = error;
       }

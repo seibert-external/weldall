@@ -101,8 +101,8 @@ const credentialStoreHint =
   "Install the optional @napi-rs/keyring dependency and ensure your operating system's secure credential service is available.";
 
 const nativeEntry = async (issuer: string) => {
-  const { Entry } = await import("@napi-rs/keyring");
-  return new Entry(SERVICE, accountFor(issuer));
+  const { AsyncEntry } = await import("@napi-rs/keyring");
+  return new AsyncEntry(SERVICE, accountFor(issuer));
 };
 
 export const keychain = {
@@ -113,9 +113,9 @@ export const keychain = {
       return stored ? parseCredentials(JSON.stringify(stored), issuer) : null;
     }
 
-    let raw: string | null;
+    let raw: string | null | undefined;
     try {
-      raw = (await nativeEntry(issuer)).getPassword();
+      raw = await (await nativeEntry(issuer)).getPassword();
     } catch (error) {
       throw new CliError("Unable to read the Weldall session from the secure credential store", {
         cause: error,
@@ -138,7 +138,7 @@ export const keychain = {
       return;
     }
     try {
-      (await nativeEntry(issuer)).setPassword(JSON.stringify(stored));
+      await (await nativeEntry(issuer)).setPassword(JSON.stringify(stored));
     } catch (error) {
       throw new CliError("Unable to save the Weldall session in the secure credential store", {
         cause: error,
@@ -157,7 +157,7 @@ export const keychain = {
       return;
     }
     try {
-      (await nativeEntry(issuer)).deletePassword();
+      await (await nativeEntry(issuer)).deletePassword();
     } catch (error) {
       throw new CliError("Unable to remove the Weldall session from the secure credential store", {
         cause: error,

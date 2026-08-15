@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bunLicensePath = join(cliRoot, "licenses", "BUN-1.3.14-LICENSE.md");
 const licenseName = /^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i;
+const normalizedText = async (path) => (await readFile(path, "utf8")).replaceAll("\r\n", "\n");
 
 async function packageJsonPath(name, fromRoot) {
   try {
@@ -109,7 +110,7 @@ async function licenseFiles(dependency, inventory) {
     return Promise.all(
       names.map(async (name) => ({
         name,
-        content: await readFile(join(dependency.root, name), "utf8"),
+        content: await normalizedText(join(dependency.root, name)),
       })),
     );
 
@@ -118,7 +119,7 @@ async function licenseFiles(dependency, inventory) {
     return [
       {
         name: `vendored/${vendoredName}`,
-        content: await readFile(join(cliRoot, "licenses", "npm", vendoredName), "utf8"),
+        content: await normalizedText(join(cliRoot, "licenses", "npm", vendoredName)),
       },
     ];
   } catch (error) {
@@ -147,7 +148,7 @@ export async function generateThirdPartyNotice() {
     }
   }
   sections.push("Bun 1.3.14", "-".repeat(80), `[${basename(bunLicensePath)}]`);
-  sections.push((await readFile(bunLicensePath, "utf8")).trimEnd(), "");
+  sections.push((await normalizedText(bunLicensePath)).trimEnd(), "");
   return `${sections.join("\n").trimEnd()}\n`;
 }
 
