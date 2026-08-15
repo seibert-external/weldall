@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.9.0
+
+### Minor Changes
+
+- 16b8064: Add complete Ubuntu, macOS, and Windows CLI support plus self-contained standalone release assets. Initial standalone assets are unsigned and should be verified with the published SHA-256 checksums.
+
 ## 0.8.0
 
 ### Minor Changes
