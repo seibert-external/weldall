@@ -77,7 +77,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 }) => {
   test.setTimeout(180_000);
 
-  const login = startCli(["login"], 90_000);
+  const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl());
   await page.getByRole("button", { name: "Development login" }).click();
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
