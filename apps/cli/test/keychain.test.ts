@@ -19,8 +19,25 @@ describe("E2E credential store", () => {
     );
   });
 
+  it("fails closed with an actionable platform-neutral error when the native store is unavailable", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.doMock("@napi-rs/keyring", () => {
+      throw new Error("native binding unavailable");
+    });
+    try {
+      const { keychain } = await import("../src/storage/keychain.js");
+
+      await expect(keychain.get(issuer)).rejects.toMatchObject({
+        message: expect.stringContaining("secure credential store"),
+        hint: expect.stringContaining("@napi-rs/keyring"),
+      });
+    } finally {
+      vi.doUnmock("@napi-rs/keyring");
+    }
+  });
+
   it("isolates issuer sessions and persists them with owner-only permissions", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "weldall-keychain-test-"));
+    const directory = await mkdtemp(join(tmpdir(), "weldall keychain ünicode "));
     const path = join(directory, "credentials.json");
     try {
       vi.stubEnv("NODE_ENV", "test");
@@ -48,7 +65,7 @@ describe("E2E credential store", () => {
       });
       expect((await keychain.get(legacyIssuer))?.identity).toBeUndefined();
       await expect(keychain.get("https://other.example.com")).resolves.toBeNull();
-      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
       expect(Object.values(JSON.parse(await readFile(path, "utf8")) as object)).toHaveLength(2);
 
       await keychain.clear(issuer);

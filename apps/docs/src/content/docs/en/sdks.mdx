@@ -11,11 +11,64 @@ Weldall publishes two npm packages. The CLI runs on an employee's device. The SD
 
 [`@weldall/cli`](https://www.npmjs.com/package/@weldall/cli) installs the `weldall` command. Employees use it to sign in. Agents use it to discover skills and send approved requests to company services.
 
+Choose either the JavaScript npm package (Node.js 22.15 or newer required) or a self-contained standalone executable (no Node.js, npm, Bun, or `node_modules` required). Both contain the complete CLI.
+
 ```sh
-npm install --global @weldall/cli
+npm install --global @weldall/cli@latest
 ```
 
-The package requires Node.js 22.15 or newer. Native YAML IaC commands support Linux and macOS. Interactive user sessions are supported on macOS and store credentials in Keychain.
+| System       | Architecture          | npm | Standalone archive    |
+| ------------ | --------------------- | --- | --------------------- |
+| Ubuntu Linux | x64                   | Yes | `linux-x64.tar.gz`    |
+| Windows      | x64                   | Yes | `windows-x64.zip`     |
+| macOS        | ARM64 / Apple silicon | Yes | `darwin-arm64.tar.gz` |
+| macOS        | Intel x64             | Yes | `darwin-x64.tar.gz`   |
+
+Standalone assets are currently **unsigned**. They are not Apple-notarized or Authenticode-signed; installers, Homebrew, and WinGet are not provided. Download only from the scoped `@weldall/cli@X.Y.Z` GitHub Release and verify `SHA256SUMS` before replacing the executable.
+
+POSIX example (select `linux-x64`, `darwin-arm64`, or `darwin-x64`):
+
+```sh
+VERSION=1.2.3
+TARGET=linux-x64
+ARCHIVE="weldall-v${VERSION}-${TARGET}.tar.gz"
+BASE="https://github.com/seibert-external/weldall/releases/download/%40weldall%2Fcli%40${VERSION}"
+curl -fLO "$BASE/$ARCHIVE" && curl -fLO "$BASE/SHA256SUMS"
+grep "  $ARCHIVE\$" SHA256SUMS | shasum -a 256 --check
+mkdir -p "$HOME/.local/bin"
+tar -xzf "$ARCHIVE"
+install -m 0755 weldall "$HOME/.local/bin/weldall"
+```
+
+PowerShell example:
+
+```powershell
+$Version = "1.2.3"
+$Archive = "weldall-v$Version-windows-x64.zip"
+$Tag = [uri]::EscapeDataString("@weldall/cli@$Version")
+$Base = "https://github.com/seibert-external/weldall/releases/download/$Tag"
+Invoke-WebRequest "$Base/$Archive" -OutFile $Archive
+Invoke-WebRequest "$Base/SHA256SUMS" -OutFile SHA256SUMS
+$Expected = ((Select-String SHA256SUMS -Pattern "^[0-9a-f]{64}  $([regex]::Escape($Archive))$").Line -split "  ")[0]
+if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) { throw "Checksum mismatch" }
+Expand-Archive $Archive .\weldall-release -Force
+$Bin = "$HOME\bin"
+New-Item -ItemType Directory -Force $Bin | Out-Null
+Copy-Item .\weldall-release\weldall.exe "$Bin\weldall.exe" -Force
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($UserPath -split ";") -notcontains $Bin) {
+  [Environment]::SetEnvironmentVariable("Path", "$Bin;$UserPath", "User")
+}
+$env:Path = "$Bin;$env:Path"
+```
+
+The user `Path` update persists for future Windows sessions. The `$env:Path` assignment affects only the current PowerShell process; open a new terminal when needed.
+
+Upgrade npm installations with `npm install --global @weldall/cli@latest`. Upgrade standalone installations by checksum-verifying the new archive and replacing the executable.
+
+The non-secret issuer preference is `~/.weldall/config.json` on Linux, `%USERPROFILE%\.weldall\config.json` on Windows, and the preserved `dev.seibert.weldall-cli/Issuer` defaults domain/key on macOS. Use `export WELDALL_ISSUER=https://weldall.example.com` in POSIX shells or `$env:WELDALL_ISSUER = "https://weldall.example.com"` in PowerShell for an ephemeral override.
+
+Credentials and DPoP keys use Windows Credential Manager, macOS Keychain, or Linux Secret Service with a kernel keyutils fallback—never the issuer file. Ubuntu desktop users should unlock their login keyring. Headless Linux sessions need a user D-Bus session with an unlocked Secret Service (such as `gnome-keyring-daemon`) or a usable kernel keyring/keyutils environment; otherwise session commands fail closed with the backend error instead of storing plaintext credentials.
 
 ## `@weldall/sdk`
 

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -13,10 +13,28 @@ const cliEnv = {
   WELDALL_ISSUER: "https://weldall.seibert.localdev",
   WELDALL_E2E_CREDENTIALS_FILE: credentialsFile,
   WELDALL_E2E_BROWSER_URL_FILE: browserUrlFile,
-  PATH: `${join(workspace, "e2e/bin")}:${process.env.PATH ?? ""}`,
 };
 
 type CliResult = { code: number; stdout: string; stderr: string };
+
+const activeCliChildren = new Set<ChildProcess>();
+
+const terminateCliChild = async (child: ChildProcess) => {
+  await new Promise<void>((resolve) => {
+    let forceTimer: ReturnType<typeof setTimeout> | undefined;
+    const finished = () => {
+      if (forceTimer) clearTimeout(forceTimer);
+      resolve();
+    };
+    child.once("close", finished);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finished();
+      return;
+    }
+    forceTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    child.kill("SIGTERM");
+  });
+};
 
 const normalizePanelOutput = (output: string) =>
   output
@@ -30,6 +48,8 @@ const startCli = (args: string[], timeoutMs = 45_000) => {
     env: cliEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  activeCliChildren.add(child);
+  child.once("close", () => activeCliChildren.delete(child));
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk) => (stdout += String(chunk)));
@@ -85,6 +105,10 @@ const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
 
 test.beforeEach(async () => {
   await Promise.all([rm(credentialsFile, { force: true }), rm(browserUrlFile, { force: true })]);
+});
+
+test.afterEach(async () => {
+  await Promise.all([...activeCliChildren].map(terminateCliChild));
 });
 
 test("runs login, skill discovery, a DPoP request, and logout end to end", async ({

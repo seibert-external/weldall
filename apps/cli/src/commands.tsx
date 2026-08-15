@@ -405,7 +405,7 @@ export const skillsCommand = define({
 
 const setIssuerCommand = define({
   name: "set-issuer",
-  description: "Validate and save a Weldall issuer in macOS Preferences",
+  description: "Validate and save the Weldall issuer preference",
   args: {
     issuer: {
       type: "positional",
@@ -452,7 +452,7 @@ const getIssuerCommand = define({
 
 const resetIssuerCommand = define({
   name: "reset-issuer",
-  description: "Remove the Weldall issuer from macOS Preferences",
+  description: "Remove the saved Weldall issuer preference",
   run: async () => {
     await issuerPreferences.clear();
     success("Cleared the saved Weldall issuer.");

@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { createDpopProof } from "@weldall/sdk";
 import { WELDALL_CLIENT_ID } from "../oauth/constants.js";
 import type { WeldallConfig } from "../config.js";
@@ -15,11 +14,7 @@ import {
 } from "../oauth/session.js";
 import { keychain, type StoredCredentials } from "../storage/keychain.js";
 import { withLock } from "../storage/lock.js";
-
-const openBrowser = (url: string) =>
-  new Promise<void>((resolve, reject) => {
-    execFile("open", [url], (error) => (error ? reject(error) : resolve()));
-  });
+import { browserOpener, type BrowserOpener } from "./browser.js";
 
 const saveCredentials = async (issuer: string, credentials: StoredCredentials) =>
   keychain.set(issuer, {
@@ -29,13 +24,21 @@ const saveCredentials = async (issuer: string, credentials: StoredCredentials) =
     ...(credentials.identity === undefined ? {} : { identity: credentials.identity }),
   });
 
-export async function login(config: WeldallConfig) {
-  return withLock(async () => {
+type LoginLock = <T>(operation: () => Promise<T>) => Promise<T>;
+
+export async function login(
+  config: WeldallConfig,
+  openBrowser: BrowserOpener = browserOpener,
+  lock: LoginLock = withLock,
+) {
+  return lock(async () => {
     const key = await generateEs256KeyPair();
     const state = randomValue();
     const nonce = randomValue();
     const pkce = createPkce();
     const callback = await loopback(state, config.issuer);
+    const callbackCode = callback.code;
+    void callbackCode.catch(() => undefined);
     const authorize = new URL(config.authorize);
     for (const [name, value] of Object.entries({
       response_type: "code",
@@ -56,11 +59,14 @@ export async function login(config: WeldallConfig) {
       await openBrowser(authorize.toString());
     } catch (error) {
       callback.close(new Error("unable to open the login page"));
-      await callback.code.catch(() => undefined);
-      throw new CliError("Unable to open the Weldall login page", { cause: error });
+      await callbackCode.catch(() => undefined);
+      throw new CliError("Unable to open the Weldall login page in your browser", {
+        cause: error,
+        hint: "Check that a default browser and your platform URL opener are available, then run `weldall login` again.",
+      });
     }
 
-    const code = await callback.code;
+    const code = await callbackCode;
     const result = await tokenRequest(
       config,
       new URLSearchParams({

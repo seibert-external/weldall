@@ -1,0 +1,305 @@
+name: Release CLI standalone assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact scoped CLI release tag (@weldall/cli@X.Y.Z)
+        required: true
+        type: string
+      upload:
+        description: Upload missing assets (false is a read-only dry run)
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: cli-release-assets-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, '@weldall/cli@')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Check out exact release tag with full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+      - name: Validate scoped tag and package identity
+        id: identity
+        run: node apps/cli/scripts/validate-release-context.mjs --tag "$RELEASE_TAG"
+      - name: Require the exact tag commit to belong to main
+        run: |
+          git fetch --no-tags origin main
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          git merge-base --is-ancestor HEAD origin/main
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Export the immutable release commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-native:
+    # Keep runner labels hard-coded; the build validates WELDALL_RUNNER_LABEL against the target descriptor.
+    name: Build release asset (${{ matrix.target }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+            executable: weldall
+          - runner: windows-latest
+            target: windows-x64
+            executable: weldall.exe
+          - runner: macos-15
+            target: darwin-arm64
+            executable: weldall
+          - runner: macos-15-intel
+            target: darwin-x64
+            executable: weldall
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      WELDALL_RUNNER_LABEL: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+      - name: Install immutable-commit dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Revalidate release identity and notices
+        run: |
+          node apps/cli/scripts/validate-release-context.mjs --tag "$RELEASE_TAG"
+          node apps/cli/scripts/generate-third-party-notices.mjs --check
+      - name: Provision Linux Secret Service and D-Bus
+        if: matrix.target == 'linux-x64'
+        run: sudo apt-get update && sudo apt-get install --yes dbus-x11 gnome-keyring
+      - name: Build native executable into runner.temp
+        run: |
+          OUTPUT_DIR="$RUNNER_TEMP/standalone" ARCHIVE_DIR="$RUNNER_TEMP/archive" node -e 'const fs = require("node:fs"); for (const path of [process.env.OUTPUT_DIR, process.env.ARCHIVE_DIR]) { fs.rmSync(path, { recursive: true, force: true }); fs.mkdirSync(path, { recursive: true }); }'
+          bun apps/cli/scripts/build-standalone.mjs --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/standalone"
+      - name: Smoke copied Linux executable with secure-store diagnostics
+        if: matrix.target == 'linux-x64'
+        run: |
+          dbus-run-session -- bash -euxo pipefail -c '
+            printf "ci-keyring-password" | gnome-keyring-daemon --unlock
+            gnome-keyring-daemon --start --components=secrets
+            busctl --user list
+            node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/standalone/${{ matrix.executable }}"
+          '
+      - name: Smoke copied native executable with system-CA diagnostics
+        if: matrix.target != 'linux-x64'
+        run: node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/standalone/${{ matrix.executable }}"
+      - name: Create and independently extract the target archive
+        run: node apps/cli/scripts/create-standalone-archive.mjs --target "${{ matrix.target }}" --version "${{ needs.prepare.outputs.version }}" --executable "$RUNNER_TEMP/standalone/${{ matrix.executable }}" --output-dir "$RUNNER_TEMP/archive"
+      - name: Assert immutable-commit build left no repository debris
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+          node apps/cli/scripts/assert-no-package-debris.mjs
+      - name: Upload one raw standalone executable artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-executable-${{ matrix.target }}
+          path: ${{ runner.temp }}/standalone/${{ matrix.executable }}
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload one native archive artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-archive-${{ matrix.target }}
+          path: ${{ runner.temp }}/archive/*
+          if-no-files-found: error
+          retention-days: 7
+
+  detached-smoke:
+    # No checkout is intentional: this matrix may consume only each raw executable artifact.
+    name: Detached release executable (${{ matrix.target }})
+    needs: build-native
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+            executable: weldall
+          - runner: windows-latest
+            target: windows-x64
+            executable: weldall.exe
+          - runner: macos-15
+            target: darwin-arm64
+            executable: weldall
+          - runner: macos-15-intel
+            target: darwin-x64
+            executable: weldall
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download only this target's raw executable
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-executable-${{ matrix.target }}
+          path: ${{ runner.temp }}/detached-weldall
+      - name: Start outside a checkout with Node and Bun absent from PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/empty-path" "$RUNNER_TEMP/unrelated-cwd"
+          EXECUTABLE="$RUNNER_TEMP/detached-weldall/${{ matrix.executable }}"
+          if test "${{ matrix.target }}" != "windows-x64"; then chmod 0755 "$EXECUTABLE"; fi
+          cd "$RUNNER_TEMP/unrelated-cwd"
+          env PATH="$RUNNER_TEMP/empty-path" "$EXECUTABLE" --version
+          env PATH="$RUNNER_TEMP/empty-path" "$EXECUTABLE" --help
+          env PATH="$RUNNER_TEMP/empty-path" "$EXECUTABLE" init --help
+
+  assemble:
+    needs: [prepare, build-native, detached-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+      - name: Download exactly the four native archive artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: cli-archive-*
+          path: ${{ runner.temp }}/release-assets
+          merge-multiple: true
+      - name: Reject missing or extra archives and create one verified checksum file
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          mapfile -d '' ARCHIVES < <(find "$RUNNER_TEMP/release-assets" -maxdepth 1 -type f -print0)
+          node apps/cli/scripts/release-upload.mjs validate-archives --tag "$TAG" "${ARCHIVES[@]}"
+          node apps/cli/scripts/checksums.mjs create --output "$RUNNER_TEMP/release-assets/SHA256SUMS" "${ARCHIVES[@]}"
+          node apps/cli/scripts/checksums.mjs verify "$RUNNER_TEMP/release-assets/SHA256SUMS"
+      - name: Upload the exact assembled release asset set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-release-assets
+          path: ${{ runner.temp }}/release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  attach-dry-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.upload == false
+    needs: [prepare, assemble]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+      - name: Download assembled assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-release-assets
+          path: ${{ runner.temp }}/release-assets
+      - name: Verify checksums before release API access
+        run: node apps/cli/scripts/checksums.mjs verify "$RUNNER_TEMP/release-assets/SHA256SUMS"
+      - name: Verify the remote tag and report the read-only attachment plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git fetch --force --no-tags origin "refs/tags/$TAG"
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$EXPECTED_SHA"
+          mapfile -d '' ASSETS < <(find "$RUNNER_TEMP/release-assets" -maxdepth 1 -type f -print0)
+          node apps/cli/scripts/release-upload.mjs upload --tag "$TAG" --dry-run "${ASSETS[@]}"
+
+  attach-upload:
+    if: github.event_name == 'release' || inputs.upload == true
+    needs: [prepare, assemble]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+      - name: Download assembled assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-release-assets
+          path: ${{ runner.temp }}/release-assets
+      - name: Verify checksums before release API access
+        run: node apps/cli/scripts/checksums.mjs verify "$RUNNER_TEMP/release-assets/SHA256SUMS"
+      - name: Reverify the remote tag immediately before upload, then attach safely
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git fetch --force --no-tags origin "refs/tags/$TAG"
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$EXPECTED_SHA"
+          mapfile -d '' ASSETS < <(find "$RUNNER_TEMP/release-assets" -maxdepth 1 -type f -print0)
+          node apps/cli/scripts/release-upload.mjs upload --tag "$TAG" "${ASSETS[@]}"
+
+# Changesets publishes with RELEASE_GITHUB_TOKEN (a PAT/App token), not the
+# default workflow token, so its release.published event can trigger this workflow.

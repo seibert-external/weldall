@@ -35,6 +35,8 @@ import {
   type CliHeaderSnapshot,
 } from "./storage/appendix.js";
 import { keychain, type StoredIdentity } from "./storage/keychain.js";
+import { installTestHttpBridge } from "./test-http-bridge.js";
+import { runTestRuntimeHook } from "./test-runtime.js";
 import { printFriendlyValidation } from "./validation.js";
 
 interface LocalHeader extends CliHeaderSnapshot {
@@ -106,6 +108,8 @@ export async function runCli(argv = process.argv.slice(2)) {
   let localHeader: Promise<LocalHeader> | undefined;
 
   try {
+    installTestHttpBridge();
+    if (await runTestRuntimeHook()) return;
     await cli(argv.length === 0 ? ["--help"] : argv, mainCommand, {
       name: "weldall",
       version: packageJson.version,

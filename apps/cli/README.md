@@ -1,50 +1,122 @@
 # Weldall CLI
 
-A CLI for native YAML infrastructure on Linux and macOS, with interactive Weldall user sessions on macOS.
+A cross-platform CLI for Weldall user sessions, authenticated requests, and native YAML infrastructure as code.
 
 > **Security note:** Weldall uses pinned draft protocols. Machine and IaC replay checks use shared PostgreSQL storage; native user OAuth and demo resource-server replay checks still include process-local stores. Review your deployment's security boundary before production use. Every `weldall login` opens a browser approval screen; approve only when you started that login on the same device.
 
-## Installation
+## Choose an installation
 
-Node.js 22.15 or newer is required. Install the public package globally:
+| Distribution          | Runtime on the user machine | Upgrade method                             |
+| --------------------- | --------------------------- | ------------------------------------------ |
+| npm package           | Node.js 22.15 or newer      | `npm install --global @weldall/cli@latest` |
+| Standalone executable | None                        | Download and replace the executable        |
+
+Both distributions contain the complete CLI. The npm package is best when Node.js is already managed on the machine. The self-contained GitHub Release executable embeds Bun and does not require Node.js, npm, Bun, or `node_modules`.
+
+| Operating system | Architecture          | npm | Standalone asset suffix |
+| ---------------- | --------------------- | --- | ----------------------- |
+| Ubuntu Linux     | x64                   | Yes | `linux-x64.tar.gz`      |
+| Windows          | x64                   | Yes | `windows-x64.zip`       |
+| macOS            | Apple silicon (ARM64) | Yes | `darwin-arm64.tar.gz`   |
+| macOS            | Intel x64             | Yes | `darwin-x64.tar.gz`     |
+
+Linux ARM64/musl and Windows ARM64 are not part of the initial standalone matrix.
+
+### Install or upgrade with npm
 
 ```sh
-npm install --global @weldall/cli
+npm install --global @weldall/cli@latest
 weldall --version
 ```
 
-The npm package and native YAML IaC commands support Linux and macOS. IaC uses M2M environment
-secrets and does not load Keychain or Preferences. Interactive login, capability discovery, and
-user-authenticated requests are supported on macOS, where the CLI stores sessions in Keychain and the
-issuer in Preferences.
+The same command upgrades an existing npm installation. Node runs the published JavaScript package with system certificate authorities enabled.
 
-## Configuration
+### Install or upgrade a standalone executable
+
+Standalone assets are currently **unsigned**: they are not Apple-notarized or Authenticode-signed. Verify `SHA256SUMS`, obtain releases only from this repository, and apply your organization's review policy. macOS Gatekeeper or Windows SmartScreen may warn on first launch.
+
+POSIX example (set the version and choose `linux-x64`, `darwin-arm64`, or `darwin-x64`):
+
+```sh
+VERSION=1.2.3
+TARGET=darwin-arm64
+BASE="https://github.com/seibert-external/weldall/releases/download/%40weldall%2Fcli%40${VERSION}"
+ARCHIVE="weldall-v${VERSION}-${TARGET}.tar.gz"
+curl --fail --location --remote-name "$BASE/$ARCHIVE"
+curl --fail --location --remote-name "$BASE/SHA256SUMS"
+grep "  $ARCHIVE\$" SHA256SUMS | shasum -a 256 --check
+mkdir -p "$HOME/.local/bin"
+tar -xzf "$ARCHIVE"
+install -m 0755 weldall "$HOME/.local/bin/weldall"
+"$HOME/.local/bin/weldall" --version
+```
+
+PowerShell example for Windows x64:
+
+```powershell
+$Version = "1.2.3"
+$Archive = "weldall-v$Version-windows-x64.zip"
+$Tag = [uri]::EscapeDataString("@weldall/cli@$Version")
+$Base = "https://github.com/seibert-external/weldall/releases/download/$Tag"
+Invoke-WebRequest "$Base/$Archive" -OutFile $Archive
+Invoke-WebRequest "$Base/SHA256SUMS" -OutFile SHA256SUMS
+$Expected = ((Select-String -Path SHA256SUMS -Pattern "^[0-9a-f]{64}  $([regex]::Escape($Archive))$").Line -split "  ")[0]
+$Actual = (Get-FileHash -Algorithm SHA256 $Archive).Hash.ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "SHA-256 mismatch for $Archive" }
+Expand-Archive -LiteralPath $Archive -DestinationPath .\weldall-release -Force
+New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
+Copy-Item .\weldall-release\weldall.exe "$HOME\bin\weldall.exe" -Force
+$Bin = "$HOME\bin"
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($UserPath -split ";") -notcontains $Bin) {
+  [Environment]::SetEnvironmentVariable("Path", "$Bin;$UserPath", "User")
+}
+$env:Path = "$Bin;$env:Path"
+weldall --version
+```
+
+Setting the user `Path` persists the command for future Windows sessions; changing `$env:Path` only makes it available to the current PowerShell process. Open a new terminal after installation when needed.
+
+To upgrade a standalone installation, repeat the verified download for the new version and replace the old executable. Preserve no files from the old archive.
+
+## Configuration and credential storage
 
 The CLI resolves its Weldall issuer in this order:
 
 1. `WELDALL_ISSUER` environment variable
-2. macOS Preference `dev.seibert.weldall-cli/Issuer`
+2. Saved non-secret preference
 3. Interactive first-run prompt
 
-The environment variable is an ephemeral override and is never persisted. The issuer must be an
-HTTPS origin. Weldall validates authorization-server and protected-resource discovery before using or
-saving it.
-
-Before `weldall login` can complete, a Weldall administrator must assign the user the
-`weldall:login` scope for that server, either directly by email or through a matching provider group.
-Identity-provider sign-in alone does not grant CLI access, and group-derived access is resolved live
-and fails closed when its provider is unavailable or no longer reports the membership.
+The environment variable is an ephemeral override and is never persisted. The issuer must be an HTTPS origin. Weldall validates authorization-server and protected-resource discovery before using or saving it.
 
 ```sh
 weldall config set-issuer https://weldall.example.com
 weldall config get-issuer
 weldall config reset-issuer
-
 WELDALL_ISSUER=https://weldall-dev.example.com weldall login
 ```
 
-MDM can deploy the same `Issuer` key in the `dev.seibert.weldall-cli` preference domain. Sessions are
-stored separately per issuer in macOS Keychain. For local development, the equivalent preference is:
+```powershell
+weldall config set-issuer https://weldall.example.com
+weldall config get-issuer
+$env:WELDALL_ISSUER = "https://weldall-dev.example.com"
+weldall login
+Remove-Item Env:WELDALL_ISSUER
+```
+
+Saved issuer locations are:
+
+- Linux: `~/.weldall/config.json`
+- Windows: `%USERPROFILE%\.weldall\config.json`
+- macOS: Preferences domain/key `dev.seibert.weldall-cli/Issuer` (preserved for MDM and existing installations)
+
+The issuer is not a credential. Sessions, refresh tokens, and DPoP keys remain in the native secure store: Windows Credential Manager, macOS Keychain, or Linux Secret Service with the keyutils fallback provided by `@napi-rs/keyring`. There is no plaintext fallback.
+
+On Ubuntu desktop, sign in to a normal user session and ensure the keyring is unlocked. On a headless Linux host, provide a user D-Bus session with an unlocked Secret Service implementation (for example `gnome-keyring-daemon`) or a usable kernel keyring/keyutils environment. If neither backend is usable, `login` and session commands fail closed and report the secure-store error; do not bypass this by writing credentials to files.
+
+Before `weldall login` can complete, a Weldall administrator must assign the user the `weldall:login` scope for that server, either directly by email or through a matching provider group. Identity-provider sign-in alone does not grant CLI access, and group-derived access is resolved live and fails closed when its provider is unavailable or no longer reports the membership.
+
+On macOS, MDM can deploy the `Issuer` key in the existing preference domain. For local development:
 
 ```sh
 defaults write dev.seibert.weldall-cli Issuer -string "https://weldall.example.com"
