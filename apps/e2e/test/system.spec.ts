@@ -54,7 +54,9 @@ const runCli = async (...args: string[]) => {
 };
 
 const waitForBrowserUrl = async () => {
-  const deadline = Date.now() + 15_000;
+  // The public welcome page no longer prewarms login during the stack health check,
+  // so OAuth discovery and authorization may compile cold here.
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     try {
       const value = await readFile(browserUrlFile, "utf8");
