@@ -54,7 +54,9 @@ const runCli = async (...args: string[]) => {
 };
 
 const waitForBrowserUrl = async () => {
-  const deadline = Date.now() + 15_000;
+  // The public welcome page no longer prewarms login during the stack health check,
+  // so OAuth discovery and authorization may compile cold here.
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     try {
       const value = await readFile(browserUrlFile, "utf8");
@@ -75,7 +77,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 }) => {
   test.setTimeout(180_000);
 
-  const login = startCli(["login"], 90_000);
+  const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl());
   await page.getByRole("button", { name: "Development login" }).click();
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
@@ -391,11 +393,12 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 test("denies CLI login without weldall:login while preserving browser authentication", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
 
-  const login = startCli(["login"], 60_000);
+  const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl());
   await page.getByRole("button", { name: "Development login" }).click();
+  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
   await page.getByLabel("Email").selectOption("bob@example.com");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
