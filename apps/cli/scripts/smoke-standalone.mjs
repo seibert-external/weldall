@@ -60,9 +60,8 @@ const baseEnvironment = Object.fromEntries(
 );
 baseEnvironment.PATH = hostileBin;
 
-// The guarded native keyring diagnostic permits up to 30 seconds for a newly
-// provisioned macOS Keychain write to become visible. Keep process supervision
-// outside that operation's bounded propagation window.
+// Native credential services and PTY startup can be slow on newly provisioned
+// runners. Keep process supervision outside those bounded system operations.
 const artifactTimeoutMs = 45_000;
 const launch = capturedLauncher(executable, [], {
   baseEnvironment,

@@ -72,54 +72,84 @@ export async function runTestRuntimeHook(
   };
 
   if (keyringId !== undefined) {
-    const keyring = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
-    // Exercise the same binding used by the production keychain.
-    const Entry = keyring.AsyncEntry ?? keyring.Entry;
-    const service = `dev.seibert.weldall-cli.smoke.${keyringId}`;
-    const account = `account-${keyringId}`;
-    const createEntry = () => new Entry(service, account);
-    const readPassword = async () => {
-      const exact = await createEntry().getPassword();
-      // Bun 1.3.14's compiled Intel macOS N-API path can return null for an
-      // exact Entry lookup even though the native Keychain item was written.
-      // Enumerating the same service still exercises and reads the OS store.
-      if (exact !== null && exact !== undefined) return exact;
-      if (!bun) return exact;
-      return (await keyring.findCredentialsAsync?.(service))?.find(
-        (item) => item.account === account,
-      )?.password;
-    };
-    const secret = randomBytes(32).toString("base64url");
-    let primaryError: unknown;
-    let cleanupError: unknown;
-    try {
-      await createEntry().setPassword(secret);
-      let stored = await readPassword();
-      // macOS Keychain writes can become visible slowly on a newly provisioned,
-      // loaded Intel CI runner. Keep the real native round trip, but bound its
-      // propagation allowance independently from command execution timeouts.
-      for (let attempt = 1; stored !== secret && attempt < 300; attempt++) {
-        await (dependencies.wait ?? wait)(100);
-        stored = await readPassword();
-      }
-      if (stored !== secret) throw new Error("Secure credential round trip differed");
-      result.keyringRoundTrip = true;
-    } catch (error) {
-      primaryError = error;
-    } finally {
+    if (dependencies.loadKeyring === undefined) {
+      const { nativeCredentialStore } = await import("./storage/keychain.js");
+      const service = `dev.seibert.weldall-cli.smoke.${keyringId}`;
+      const account = `account-${keyringId}`;
+      const secret = randomBytes(32).toString("base64url");
+      let primaryError: unknown;
+      let cleanupError: unknown;
       try {
-        await createEntry().deletePassword();
+        await nativeCredentialStore.set(service, account, secret);
+        if ((await nativeCredentialStore.get(service, account)) !== secret)
+          throw new Error("Secure credential round trip differed");
+        result.keyringRoundTrip = true;
       } catch (error) {
-        cleanupError = error;
+        primaryError = error;
+      } finally {
+        try {
+          await nativeCredentialStore.clear(service, account);
+        } catch (error) {
+          cleanupError = error;
+        }
       }
+      if (primaryError !== undefined && cleanupError !== undefined)
+        throw new AggregateError(
+          [primaryError, cleanupError],
+          "Secure credential round trip and cleanup both failed",
+        );
+      if (cleanupError !== undefined) throw cleanupError;
+      if (primaryError !== undefined) throw primaryError;
+    } else {
+      const keyring = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
+      // Exercise the same binding used by the production keychain.
+      const Entry = keyring.AsyncEntry ?? keyring.Entry;
+      const service = `dev.seibert.weldall-cli.smoke.${keyringId}`;
+      const account = `account-${keyringId}`;
+      const createEntry = () => new Entry(service, account);
+      const readPassword = async () => {
+        const exact = await createEntry().getPassword();
+        // Bun 1.3.14's compiled Intel macOS N-API path can return null for an
+        // exact Entry lookup even though the native Keychain item was written.
+        // Enumerating the same service still exercises and reads the OS store.
+        if (exact !== null && exact !== undefined) return exact;
+        if (!bun) return exact;
+        return (await keyring.findCredentialsAsync?.(service))?.find(
+          (item) => item.account === account,
+        )?.password;
+      };
+      const secret = randomBytes(32).toString("base64url");
+      let primaryError: unknown;
+      let cleanupError: unknown;
+      try {
+        await createEntry().setPassword(secret);
+        let stored = await readPassword();
+        // macOS Keychain writes can become visible slowly on a newly provisioned,
+        // loaded Intel CI runner. Keep the real native round trip, but bound its
+        // propagation allowance independently from command execution timeouts.
+        for (let attempt = 1; stored !== secret && attempt < 300; attempt++) {
+          await (dependencies.wait ?? wait)(100);
+          stored = await readPassword();
+        }
+        if (stored !== secret) throw new Error("Secure credential round trip differed");
+        result.keyringRoundTrip = true;
+      } catch (error) {
+        primaryError = error;
+      } finally {
+        try {
+          await createEntry().deletePassword();
+        } catch (error) {
+          cleanupError = error;
+        }
+      }
+      if (primaryError !== undefined && cleanupError !== undefined)
+        throw new AggregateError(
+          [primaryError, cleanupError],
+          "Secure credential round trip and cleanup both failed",
+        );
+      if (cleanupError !== undefined) throw cleanupError;
+      if (primaryError !== undefined) throw primaryError;
     }
-    if (primaryError !== undefined && cleanupError !== undefined)
-      throw new AggregateError(
-        [primaryError, cleanupError],
-        "Secure credential round trip and cleanup both failed",
-      );
-    if (cleanupError !== undefined) throw cleanupError;
-    if (primaryError !== undefined) throw primaryError;
   }
 
   if (keychainIssuer !== undefined) {
