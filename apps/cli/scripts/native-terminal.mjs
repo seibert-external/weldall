@@ -60,7 +60,9 @@ export function terminalLauncher(
   };
 }
 
-const colorSequence = /\u001B\[[0-9;]*m/;
+// ConPTY emits terminal-management SGR resets even when the child has color disabled.
+// Match an actual ANSI foreground color so the assertion measures the CLI's output.
+const colorSequence = /\u001B\[(?:3[0-7]|9[0-7])m/;
 
 export async function smokeNativeTerminal({ launch, cwd, label }) {
   const commonEnvironment = {

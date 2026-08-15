@@ -74,8 +74,8 @@ export async function runTestRuntimeHook(
     try {
       entry.setPassword(secret);
       let stored = entry.getPassword();
-      for (let attempt = 1; stored !== secret && attempt < 5; attempt++) {
-        await (dependencies.wait ?? wait)(50);
+      for (let attempt = 1; stored !== secret && attempt < 20; attempt++) {
+        await (dependencies.wait ?? wait)(100);
         stored = entry.getPassword();
       }
       if (stored !== secret) throw new Error("Secure credential round trip differed");

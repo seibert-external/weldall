@@ -177,7 +177,7 @@ export async function validateArchiveInteroperability(path, format, entries, spa
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
-                "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1]",
+                "& { param([string] $Archive, [string] $Destination) Expand-Archive -LiteralPath $Archive -DestinationPath $Destination }",
                 path,
                 extractionRoot,
               ],

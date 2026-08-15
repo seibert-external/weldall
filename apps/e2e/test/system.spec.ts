@@ -79,7 +79,9 @@ const describeCliResult = ({ code, stdout, stderr }: CliResult) =>
   );
 
 const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
-  const deadline = Date.now() + 30_000;
+  // The public welcome page no longer prewarms login during the stack health check,
+  // so OAuth discovery and authorization may compile cold on a loaded CI runner.
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     const event = await Promise.race([
       readFile(browserUrlFile, "utf8")
@@ -99,7 +101,7 @@ const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
   login.child.kill("SIGTERM");
   const result = await login.result;
   throw new Error(
-    `CLI did not invoke the browser opener within 30 seconds.\n${describeCliResult(result)}`,
+    `CLI did not invoke the browser opener within 90 seconds.\n${describeCliResult(result)}`,
   );
 };
 

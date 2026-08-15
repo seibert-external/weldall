@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream, openAsBlob } from "node:fs";
-import { rename, rm } from "node:fs/promises";
+import { readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -45,6 +45,14 @@ const fileBlob = async (path: string, contentType: string) => {
     if (bun) {
       const file = bun.file(path, { type: contentType });
       if (!(await file.exists())) throw new Error("Upload file does not exist");
+      // Bun 1.3.14 can crash when a file-backed Blob is forwarded through a rewritten
+      // Request. Only the guarded test transport rewrites requests; production keeps
+      // Bun's streaming file-backed Blob.
+      if (
+        process.env["NODE_ENV"] === "test" &&
+        process.env["WELDALL_E2E_HTTP_BRIDGE"] !== undefined
+      )
+        return new Blob([await readFile(path)], { type: contentType });
       return file;
     }
     return await openAsBlob(path, { type: contentType });
