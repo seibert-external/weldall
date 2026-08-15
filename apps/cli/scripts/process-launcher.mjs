@@ -59,6 +59,7 @@ export function capturedLauncher(
     timeoutMs = 30_000,
     spawnProcess = spawn,
     terminate = terminateProcessTree,
+    windowsVerbatimArguments = false,
   } = {},
 ) {
   return (args, options) => {
@@ -66,6 +67,7 @@ export function capturedLauncher(
       cwd: options.cwd,
       env: { ...baseEnvironment, ...options.env },
       windowsHide: true,
+      windowsVerbatimArguments,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout = [];

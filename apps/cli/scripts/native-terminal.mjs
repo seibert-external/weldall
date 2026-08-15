@@ -34,10 +34,11 @@ export function terminalLauncher(
         timedOut = true;
         terminal.kill();
       }, timeoutMs);
-      terminal.onExit(({ exitCode, signal }) => {
+      const exitSubscription = terminal.onExit(({ exitCode, signal }) => {
         exited = true;
         clearTimeout(timer);
         dataSubscription.dispose();
+        exitSubscription.dispose();
         resolve({
           status: signal ? 128 + signal : exitCode,
           signal: signal || null,

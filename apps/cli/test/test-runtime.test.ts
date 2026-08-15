@@ -74,7 +74,7 @@ describe("test-only runtime hook", () => {
       }
       getPassword() {
         reads += 1;
-        return reads < 3 ? null : stored;
+        return reads < 150 ? null : stored;
       }
       deletePassword() {
         stored = null;
@@ -87,8 +87,8 @@ describe("test-only runtime hook", () => {
         { loadKeyring: async () => ({ Entry }), wait },
       ),
     ).resolves.toBe(true);
-    expect(reads).toBe(3);
-    expect(wait).toHaveBeenCalledTimes(2);
+    expect(reads).toBe(150);
+    expect(wait).toHaveBeenCalledTimes(149);
     expect(stored).toBeNull();
     expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({ keyringRoundTrip: true });
   });

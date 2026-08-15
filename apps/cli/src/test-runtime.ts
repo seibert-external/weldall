@@ -74,7 +74,10 @@ export async function runTestRuntimeHook(
     try {
       entry.setPassword(secret);
       let stored = entry.getPassword();
-      for (let attempt = 1; stored !== secret && attempt < 100; attempt++) {
+      // macOS Keychain writes can become visible slowly on a newly provisioned,
+      // loaded Intel CI runner. Keep the real native round trip, but bound its
+      // propagation allowance independently from command execution timeouts.
+      for (let attempt = 1; stored !== secret && attempt < 300; attempt++) {
         await (dependencies.wait ?? wait)(100);
         stored = entry.getPassword();
       }

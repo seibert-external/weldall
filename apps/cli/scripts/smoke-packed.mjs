@@ -28,14 +28,12 @@ function quoteCmdArgument(value) {
 
 function windowsCmdLauncher(path) {
   return (args, options) => {
-    // CALL gives cmd.exe an unambiguous batch-file boundary. Wrapping the entire
-    // command in another quote pair makes /s strip quotes differently when the
-    // npm shim and its working directory both contain spaces.
-    const commandLine = `call ${[path, ...args].map(quoteCmdArgument).join(" ")}`;
-    return capturedLauncher(process.env.ComSpec ?? "cmd.exe", ["/d", "/v:off", "/s", "/c"])(
-      [commandLine],
-      options,
-    );
+    // /s requires one outer quote pair around a quoted command path. Passing the
+    // command line verbatim prevents Node from escaping those quotes into literals.
+    const commandLine = `"${[path, ...args].map(quoteCmdArgument).join(" ")}"`;
+    return capturedLauncher(process.env.ComSpec ?? "cmd.exe", ["/d", "/v:off", "/s", "/c"], {
+      windowsVerbatimArguments: true,
+    })([commandLine], options);
   };
 }
 

@@ -4,7 +4,7 @@ import { gunzipSync } from "node:zlib";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { inspectBinaryHeader } from "../scripts/binary-format.mjs";
 import { findPackageDebris } from "../scripts/assert-no-package-debris.mjs";
 import {
@@ -18,7 +18,8 @@ import { canonicalOutputDirectory } from "../scripts/output-paths.mjs";
 import { assertPublishableManifest, readPackedManifest } from "../scripts/packed-manifest.mjs";
 import { resolveNpmInvocation } from "../scripts/npm-invocation.mjs";
 import { resolvePnpmInvocation } from "../scripts/pnpm-invocation.mjs";
-import { terminateProcessTree } from "../scripts/process-launcher.mjs";
+import { terminalLauncher } from "../scripts/native-terminal.mjs";
+import { capturedLauncher, terminateProcessTree } from "../scripts/process-launcher.mjs";
 import {
   archiveNameFor,
   getNativeStandaloneTarget,
@@ -66,6 +67,55 @@ describe("standalone target descriptor", () => {
     expect(archiveNameFor(getStandaloneTarget("linux-x64"), "1.2.3-alpha.1+build.5")).toBe(
       "weldall-v1.2.3-alpha.1+build.5-linux-x64.tar.gz",
     );
+  });
+});
+
+describe("native process launchers", () => {
+  it("passes an exact cmd command line through without Node quote rewriting", async () => {
+    let observedOptions: Record<string, unknown> | undefined;
+    let observedArgs: string[] | undefined;
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    const child = Object.assign(new EventEmitter(), { stdout, stderr });
+    const spawnProcess = (_command: string, args: string[], options: Record<string, unknown>) => {
+      observedArgs = args;
+      observedOptions = options;
+      queueMicrotask(() => child.emit("close", 0, null));
+      return child;
+    };
+    const result = await capturedLauncher("cmd.exe", ["/d", "/s", "/c"], {
+      spawnProcess,
+      windowsVerbatimArguments: true,
+    })(['""C:\\Program Files\\weldall.cmd" "--version""'], { cwd: ".", env: {} });
+    expect(result.status).toBe(0);
+    expect(observedArgs).toEqual([
+      "/d",
+      "/s",
+      "/c",
+      '""C:\\Program Files\\weldall.cmd" "--version""',
+    ]);
+    expect(observedOptions?.windowsVerbatimArguments).toBe(true);
+  });
+
+  it("disposes native terminal subscriptions after the child exits", async () => {
+    const disposeData = vi.fn();
+    const disposeExit = vi.fn();
+    const terminal = {
+      onData: () => ({ dispose: disposeData }),
+      onExit: (callback: (event: { exitCode: number; signal: number }) => void) => {
+        queueMicrotask(() => callback({ exitCode: 0, signal: 0 }));
+        return { dispose: disposeExit };
+      },
+      kill: vi.fn(),
+      write: vi.fn(),
+    };
+    const result = await terminalLauncher("weldall", [], { spawn: () => terminal })([], {
+      cwd: ".",
+      env: {},
+    });
+    expect(result.status).toBe(0);
+    expect(disposeData).toHaveBeenCalledOnce();
+    expect(disposeExit).toHaveBeenCalledOnce();
   });
 });
 
