@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTestRuntimeHook } from "../src/test-runtime.js";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("test-only runtime hook", () => {
   it("does nothing when no hook is requested", async () => {
@@ -148,6 +151,39 @@ describe("test-only runtime hook", () => {
     expect(wait).toHaveBeenCalledTimes(149);
     expect(stored).toBeNull();
     expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({ keyringRoundTrip: true });
+  });
+
+  it("reads a Bun native credential by service when an exact entry lookup stays stale", async () => {
+    vi.stubGlobal("Bun", { version: "1.3.14" });
+    let stored: string | null = null;
+    class Entry {
+      setPassword(secret: string) {
+        stored = secret;
+      }
+      getPassword() {
+        return null;
+      }
+      deletePassword() {
+        stored = null;
+      }
+    }
+
+    await expect(
+      runTestRuntimeHook(
+        { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "service-fallback" },
+        {
+          loadKeyring: async () => ({
+            Entry,
+            findCredentials: () => [
+              { account: "unrelated", password: "wrong" },
+              { account: "account-service-fallback", password: stored ?? "" },
+            ],
+          }),
+          wait: async () => {},
+        },
+      ),
+    ).resolves.toBe(true);
+    expect(stored).toBeNull();
   });
 
   it("deletes after a primary secure-store failure", async () => {

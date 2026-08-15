@@ -105,6 +105,17 @@ const nativeEntry = async (issuer: string) => {
   return new Entry(SERVICE, accountFor(issuer));
 };
 
+const readNativePassword = async (issuer: string) => {
+  const entry = await nativeEntry(issuer);
+  const raw = entry.getPassword();
+  const bun = (globalThis as typeof globalThis & { Bun?: unknown }).Bun;
+  if (raw !== null || !bun) return raw;
+  const { findCredentials } = await import("@napi-rs/keyring");
+  return (
+    findCredentials(SERVICE).find(({ account }) => account === accountFor(issuer))?.password ?? null
+  );
+};
+
 export const keychain = {
   async get(issuer: string): Promise<StoredCredentials | null> {
     const account = accountFor(issuer);
@@ -115,7 +126,7 @@ export const keychain = {
 
     let raw: string | null;
     try {
-      raw = (await nativeEntry(issuer)).getPassword();
+      raw = await readNativePassword(issuer);
     } catch (error) {
       throw new CliError("Unable to read the Weldall session from the secure credential store", {
         cause: error,

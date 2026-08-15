@@ -15,6 +15,7 @@ interface TestRuntimeDependencies {
   loadKeyring?: () => Promise<{
     Entry: new (service: string, account: string) => KeyringEntry;
     AsyncEntry?: new (service: string, account: string) => KeyringEntry;
+    findCredentials?: (service: string) => Array<{ account: string; password: string }>;
   }>;
   keychainGet?: (issuer: string) => Promise<unknown>;
   wait?: (milliseconds: number) => Promise<void>;
@@ -70,23 +71,32 @@ export async function runTestRuntimeHook(
 
   if (keyringId !== undefined) {
     const keyring = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
-    // Exercise the same binding used by the production keychain. In Bun standalone
-    // builds a reused macOS entry can return stale reads after a successful write.
+    // Exercise the same binding used by the production keychain.
     const Entry = keyring.Entry;
-    const createEntry = () =>
-      new Entry(`dev.seibert.weldall-cli.smoke.${keyringId}`, `account-${keyringId}`);
+    const service = `dev.seibert.weldall-cli.smoke.${keyringId}`;
+    const account = `account-${keyringId}`;
+    const createEntry = () => new Entry(service, account);
+    const readPassword = async () => {
+      const exact = await createEntry().getPassword();
+      // Bun 1.3.14's compiled Intel macOS N-API path can return null for an
+      // exact Entry lookup even though the native Keychain item was written.
+      // Enumerating the same service still exercises and reads the OS store.
+      if (exact !== null && exact !== undefined) return exact;
+      if (!bun) return exact;
+      return keyring.findCredentials?.(service).find((item) => item.account === account)?.password;
+    };
     const secret = randomBytes(32).toString("base64url");
     let primaryError: unknown;
     let cleanupError: unknown;
     try {
       await createEntry().setPassword(secret);
-      let stored = await createEntry().getPassword();
+      let stored = await readPassword();
       // macOS Keychain writes can become visible slowly on a newly provisioned,
       // loaded Intel CI runner. Keep the real native round trip, but bound its
       // propagation allowance independently from command execution timeouts.
       for (let attempt = 1; stored !== secret && attempt < 300; attempt++) {
         await (dependencies.wait ?? wait)(100);
-        stored = await createEntry().getPassword();
+        stored = await readPassword();
       }
       if (stored !== secret) throw new Error("Secure credential round trip differed");
       result.keyringRoundTrip = true;
