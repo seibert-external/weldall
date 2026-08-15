@@ -53,18 +53,34 @@ const runCli = async (...args: string[]) => {
   return result;
 };
 
-const waitForBrowserUrl = async () => {
-  // The public welcome page no longer prewarms login during the stack health check,
-  // so OAuth discovery and authorization may compile cold here.
-  const deadline = Date.now() + 90_000;
+const describeCliResult = ({ code, stdout, stderr }: CliResult) =>
+  [`exit code: ${code}`, `stdout:\n${stdout || "(empty)"}`, `stderr:\n${stderr || "(empty)"}`].join(
+    "\n",
+  );
+
+const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    try {
-      const value = await readFile(browserUrlFile, "utf8");
-      if (value.startsWith("https://")) return value;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const event = await Promise.race([
+      readFile(browserUrlFile, "utf8")
+        .then((value) => ({ type: "browser-url" as const, value }))
+        .catch(() => ({ type: "pending" as const })),
+      login.result.then((result) => ({ type: "cli-exit" as const, result })),
+      new Promise<{ type: "pending" }>((resolve) =>
+        setTimeout(() => resolve({ type: "pending" }), 50),
+      ),
+    ]);
+    if (event.type === "browser-url" && event.value.startsWith("https://")) return event.value;
+    if (event.type === "cli-exit")
+      throw new Error(
+        `CLI exited before invoking the browser opener.\n${describeCliResult(event.result)}`,
+      );
   }
-  throw new Error("CLI did not invoke the browser opener");
+  login.child.kill("SIGTERM");
+  const result = await login.result;
+  throw new Error(
+    `CLI did not invoke the browser opener within 30 seconds.\n${describeCliResult(result)}`,
+  );
 };
 
 test.beforeEach(async () => {
@@ -78,7 +94,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   test.setTimeout(180_000);
 
   const login = startCli(["login"], 150_000);
-  await page.goto(await waitForBrowserUrl());
+  await page.goto(await waitForBrowserUrl(login));
   await page.getByRole("button", { name: "Development login" }).click();
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
   await page.getByLabel("Email").selectOption("alice@example.com");
@@ -396,7 +412,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   test.setTimeout(180_000);
 
   const login = startCli(["login"], 150_000);
-  await page.goto(await waitForBrowserUrl());
+  await page.goto(await waitForBrowserUrl(login));
   await page.getByRole("button", { name: "Development login" }).click();
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible();
   await page.getByLabel("Email").selectOption("bob@example.com");
