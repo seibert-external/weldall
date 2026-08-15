@@ -4,8 +4,8 @@ Install the Weldall CLI on this machine for the current user.
 
 ## Choose a distribution
 
-- **npm package:** supports Ubuntu, macOS, and Windows and requires Node.js 22.15.0 or newer plus npm.
-- **Standalone executable:** requires no Node.js, npm, or Bun. Download it from the scoped [`@weldall/cli` GitHub Release](https://github.com/seibert-external/weldall/releases). Standalone files are currently unsigned; verify the archive against the release's `SHA256SUMS` before extracting or running it, and expect possible Gatekeeper or SmartScreen warnings.
+- **npm package:** supports Ubuntu, macOS, Windows 10 version 1809 or newer, and Windows Server 2019 or newer. It requires Node.js 22.15.0 or newer plus npm.
+- **Standalone executable:** uses the same Windows release floor and requires no Node.js, npm, or Bun. Download it from the scoped [`@weldall/cli` GitHub Release](https://github.com/seibert-external/weldall/releases). Standalone files are currently unsigned; verify the archive against the release's `SHA256SUMS` before extracting or running it, and expect possible Gatekeeper or SmartScreen warnings.
 
 Do not replace a working Node.js installation that already meets the version requirement. Ask before using `sudo` or making another system-wide change that requires elevation.
 

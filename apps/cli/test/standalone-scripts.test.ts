@@ -15,7 +15,9 @@ import {
 import { verifySha256Sums, writeSha256Sums } from "../scripts/checksums.mjs";
 import { generateThirdPartyNotice } from "../scripts/generate-third-party-notices.mjs";
 import { canonicalOutputDirectory } from "../scripts/output-paths.mjs";
+import { assertPublishableManifest } from "../scripts/packed-manifest.mjs";
 import { resolveNpmInvocation } from "../scripts/npm-invocation.mjs";
+import { resolvePnpmInvocation } from "../scripts/pnpm-invocation.mjs";
 import { terminateProcessTree } from "../scripts/process-launcher.mjs";
 import {
   archiveNameFor,
@@ -285,6 +287,54 @@ describe("deterministic release utilities", () => {
     expect(() => resolveNpmInvocation("win32", "/setup/node.exe", () => false)).toThrow(
       /Unable to locate setup-node's npm-cli\.js/,
     );
+  });
+
+  it("runs publication-fidelity packing through pnpm's JavaScript entrypoint", () => {
+    expect(
+      resolvePnpmInvocation(
+        { npm_execpath: "/tools/pnpm/bin/pnpm.cjs" },
+        "/node/bin/node",
+        (path) => path === "/tools/pnpm/bin/pnpm.cjs",
+      ),
+    ).toEqual({
+      command: "/node/bin/node",
+      prefix: ["/tools/pnpm/bin/pnpm.cjs"],
+    });
+    expect(() => resolvePnpmInvocation({}, "/node/bin/node", () => false)).toThrow(
+      /JavaScript entrypoint/,
+    );
+    expect(() =>
+      resolvePnpmInvocation(
+        { npm_execpath: "/tools/npm/bin/npm-cli.js" },
+        "/node/bin/node",
+        () => false,
+      ),
+    ).toThrow(/JavaScript entrypoint/);
+  });
+
+  it("rejects repository-local protocols from every packed dependency section", () => {
+    const manifest = {
+      name: "@weldall/cli",
+      os: ["darwin", "linux", "win32"],
+      dependencies: { production: "1.0.0" },
+      devDependencies: { development: "2.0.0" },
+      optionalDependencies: { optional: "3.0.0" },
+      peerDependencies: { peer: "4.0.0" },
+    };
+    expect(assertPublishableManifest(manifest)).toBe(manifest);
+    for (const [section, protocol] of [
+      ["dependencies", "workspace:*"],
+      ["devDependencies", "catalog:"],
+      ["optionalDependencies", "file:../local"],
+      ["peerDependencies", "link:../local"],
+    ] as const) {
+      expect(() =>
+        assertPublishableManifest({
+          ...manifest,
+          [section]: { ...manifest[section], invalid: protocol },
+        }),
+      ).toThrow(new RegExp(section));
+    }
   });
 });
 

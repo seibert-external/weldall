@@ -17,14 +17,15 @@ Wähle entweder das JavaScript-npm-Paket (Node.js 22.15 oder neuer erforderlich)
 npm install --global @weldall/cli@latest
 ```
 
-| System       | Architektur           | npm | Standalone-Archiv     |
-| ------------ | --------------------- | --- | --------------------- |
-| Ubuntu Linux | x64                   | Ja  | `linux-x64.tar.gz`    |
-| Windows      | x64                   | Ja  | `windows-x64.zip`     |
-| macOS        | ARM64 / Apple Silicon | Ja  | `darwin-arm64.tar.gz` |
-| macOS        | Intel x64             | Ja  | `darwin-x64.tar.gz`   |
+| System         | Unterstützte Version               | Architektur           | npm | Standalone-Archiv     |
+| -------------- | ---------------------------------- | --------------------- | --- | --------------------- |
+| Ubuntu Linux   | Aktuell unterstützte Ubuntu-LTS    | x64                   | Ja  | `linux-x64.tar.gz`    |
+| Windows-Client | Windows 10 Version 1809 oder neuer | x64                   | Ja  | `windows-x64.zip`     |
+| Windows Server | Windows Server 2019 oder neuer     | x64                   | Ja  | `windows-x64.zip`     |
+| macOS          | Aktuell unterstützte Versionen     | ARM64 / Apple Silicon | Ja  | `darwin-arm64.tar.gz` |
+| macOS          | Aktuell unterstützte Versionen     | Intel x64             | Ja  | `darwin-x64.tar.gz`   |
 
-Standalone-Dateien sind derzeit **nicht signiert**. Sie sind weder von Apple notarisiert noch mit Authenticode signiert; Installer, Homebrew und WinGet werden nicht angeboten. Lade sie nur aus dem GitHub Release mit dem Tag `@weldall/cli@X.Y.Z` und prüfe `SHA256SUMS`, bevor du die ausführbare Datei ersetzt.
+Die Windows-Untergrenze gilt für beide Distributionen und folgt der strengeren gemeinsamen Voraussetzung von Node.js 22 und der eingebetteten Bun-1.3-Laufzeit. Standalone-Dateien sind derzeit **nicht signiert**. Sie sind weder von Apple notarisiert noch mit Authenticode signiert; Installer, Homebrew und WinGet werden nicht angeboten. Lade sie nur aus dem GitHub Release mit dem Tag `@weldall/cli@X.Y.Z` und prüfe `SHA256SUMS`, bevor du die ausführbare Datei ersetzt.
 
 POSIX-Beispiel (wähle `linux-x64`, `darwin-arm64` oder `darwin-x64`):
 

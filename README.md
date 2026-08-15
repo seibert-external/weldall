@@ -47,7 +47,7 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 
 ### Requirements and distributions
 
-The npm package supports Ubuntu, Windows, and macOS and requires Node.js 22.15.0 or newer. Self-contained standalone GitHub Release executables require no Node.js, npm, Bun, or `node_modules`. Initial standalone targets are Ubuntu Linux x64, Windows x64, macOS Apple silicon, and macOS Intel x64. The standalone assets are **unsigned** and must be checksum-verified; signing, installers, Homebrew, and WinGet are not claimed.
+The npm package supports Ubuntu, Windows, and macOS and requires Node.js 22.15.0 or newer. Supported x64 Windows releases are Windows 10 version 1809 or newer and Windows Server 2019 or newer; the same floor applies to the standalone executable. Self-contained standalone GitHub Release executables require no Node.js, npm, Bun, or `node_modules`. Initial standalone targets are Ubuntu Linux x64, Windows x64, macOS Apple silicon, and macOS Intel x64. The standalone assets are **unsigned** and must be checksum-verified; signing, installers, Homebrew, and WinGet are not claimed.
 
 Install or upgrade the npm package and select the Weldall host:
 

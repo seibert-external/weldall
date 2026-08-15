@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runBlackBoxHarness } from "./black-box-harness.mjs";
+import { readPackedManifest } from "./packed-manifest.mjs";
+import { smokeNativeTerminal, terminalLauncher } from "./native-terminal.mjs";
 import { resolveNpmInvocation } from "./npm-invocation.mjs";
+import { resolvePnpmInvocation } from "./pnpm-invocation.mjs";
 import { capturedLauncher } from "./process-launcher.mjs";
 
 const cliRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,15 +36,18 @@ function windowsCmdLauncher(path) {
   };
 }
 
-async function packArtifact(root, npm) {
-  const packDirectory = join(root, "actual npm pack");
+async function packArtifact(root, pnpm) {
+  const packDirectory = join(root, "actual pnpm publication pack");
   await mkdir(packDirectory, { recursive: true });
   const packed = JSON.parse(
-    tool(npm.command, [...npm.prefix, "pack", "--json", "--pack-destination", packDirectory], {
+    tool(pnpm.command, [...pnpm.prefix, "pack", "--json", "--pack-destination", packDirectory], {
       cwd: cliRoot,
     }).stdout,
-  )[0];
-  return join(packDirectory, packed.filename);
+  );
+  const tarball = packed.filename;
+  assert.equal(dirname(tarball), packDirectory);
+  readPackedManifest(tarball);
+  return tarball;
 }
 
 async function installLocal(root, name, omitOptional, npm, tarball) {
@@ -54,6 +60,15 @@ async function installLocal(root, name, omitOptional, npm, tarball) {
   tool(npm.command, [...npm.prefix, ...args], { cwd: consumer });
   return consumer;
 }
+
+const powershellPrefix = (script) => [
+  "-NoLogo",
+  "-NoProfile",
+  "-ExecutionPolicy",
+  "Bypass",
+  "-File",
+  script,
+];
 
 function launchersFor(binDirectory) {
   return process.platform === "win32"
@@ -75,24 +90,40 @@ function launchersFor(binDirectory) {
     : [["POSIX", capturedLauncher(join(binDirectory, "weldall"))]];
 }
 
+function terminalLauncherFor(binDirectory) {
+  return process.platform === "win32"
+    ? terminalLauncher("powershell.exe", powershellPrefix(join(binDirectory, "weldall.ps1")))
+    : terminalLauncher(join(binDirectory, "weldall"));
+}
+
 async function main() {
   const packageJson = JSON.parse(await readFile(join(cliRoot, "package.json"), "utf8"));
   const npm = resolveNpmInvocation();
+  const pnpm = resolvePnpmInvocation();
   const root = await mkdtemp(join(tmpdir(), "weldall packed smoke ü "));
   try {
-    const tarball = await packArtifact(root, npm);
+    const tarball = await packArtifact(root, pnpm);
     assert.match(tarball, /\.tgz$/);
     for (const [name, omitOptional] of [
       ["normal", false],
       ["omit optional", true],
     ]) {
       const consumer = await installLocal(root, name, omitOptional, npm, tarball);
-      const launchers = launchersFor(join(consumer, "node_modules", ".bin"));
+      const binDirectory = join(consumer, "node_modules", ".bin");
+      const launchers = launchersFor(binDirectory);
+      const terminalLaunch = terminalLauncherFor(binDirectory);
+      if (!omitOptional)
+        await smokeNativeTerminal({
+          launch: terminalLaunch,
+          cwd: consumer,
+          label: "Packed npm CLI",
+        });
 
       for (const [index, [shim, launch]] of launchers.entries()) {
         await runBlackBoxHarness({
           version: packageJson.version,
           launch,
+          interruptLaunch: terminalLaunch,
           expectRuntime: "node",
           expectSystemCa: true,
           authenticated: !omitOptional && index === 0,
@@ -149,7 +180,7 @@ async function main() {
       console.log(`${shim} full black-box harness passed (global --prefix install)`);
     }
     console.log(
-      "Packed npm black-box smoke passed for local normal/omit-optional and global-prefix installs",
+      "pnpm publication-fidelity packed npm smoke passed for local normal/omit-optional and global-prefix installs",
     );
   } finally {
     await rm(root, { recursive: true, force: true });

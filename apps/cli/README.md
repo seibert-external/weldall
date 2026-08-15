@@ -13,14 +13,15 @@ A cross-platform CLI for Weldall user sessions, authenticated requests, and nati
 
 Both distributions contain the complete CLI. The npm package is best when Node.js is already managed on the machine. The self-contained GitHub Release executable embeds Bun and does not require Node.js, npm, Bun, or `node_modules`.
 
-| Operating system | Architecture          | npm | Standalone asset suffix |
-| ---------------- | --------------------- | --- | ----------------------- |
-| Ubuntu Linux     | x64                   | Yes | `linux-x64.tar.gz`      |
-| Windows          | x64                   | Yes | `windows-x64.zip`       |
-| macOS            | Apple silicon (ARM64) | Yes | `darwin-arm64.tar.gz`   |
-| macOS            | Intel x64             | Yes | `darwin-x64.tar.gz`     |
+| Operating system | Supported release                | Architecture          | npm | Standalone asset suffix |
+| ---------------- | -------------------------------- | --------------------- | --- | ----------------------- |
+| Ubuntu Linux     | Current supported Ubuntu LTS     | x64                   | Yes | `linux-x64.tar.gz`      |
+| Windows client   | Windows 10 version 1809 or newer | x64                   | Yes | `windows-x64.zip`       |
+| Windows Server   | Windows Server 2019 or newer     | x64                   | Yes | `windows-x64.zip`       |
+| macOS            | Current supported macOS releases | Apple silicon (ARM64) | Yes | `darwin-arm64.tar.gz`   |
+| macOS            | Current supported macOS releases | Intel x64             | Yes | `darwin-x64.tar.gz`     |
 
-Linux ARM64/musl and Windows ARM64 are not part of the initial standalone matrix.
+The Windows floor is the stricter runtime baseline shared by Node.js 22 and the embedded Bun 1.3 runtime: Windows 10 version 1809, with Windows Server 2019 as the corresponding server generation. Linux ARM64/musl and Windows ARM64 are not part of the initial standalone matrix.
 
 ### Install or upgrade with npm
 

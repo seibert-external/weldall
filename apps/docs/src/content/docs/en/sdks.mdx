@@ -17,14 +17,15 @@ Choose either the JavaScript npm package (Node.js 22.15 or newer required) or a 
 npm install --global @weldall/cli@latest
 ```
 
-| System       | Architecture          | npm | Standalone archive    |
-| ------------ | --------------------- | --- | --------------------- |
-| Ubuntu Linux | x64                   | Yes | `linux-x64.tar.gz`    |
-| Windows      | x64                   | Yes | `windows-x64.zip`     |
-| macOS        | ARM64 / Apple silicon | Yes | `darwin-arm64.tar.gz` |
-| macOS        | Intel x64             | Yes | `darwin-x64.tar.gz`   |
+| System         | Supported release                | Architecture          | npm | Standalone archive    |
+| -------------- | -------------------------------- | --------------------- | --- | --------------------- |
+| Ubuntu Linux   | Current supported Ubuntu LTS     | x64                   | Yes | `linux-x64.tar.gz`    |
+| Windows client | Windows 10 version 1809 or newer | x64                   | Yes | `windows-x64.zip`     |
+| Windows Server | Windows Server 2019 or newer     | x64                   | Yes | `windows-x64.zip`     |
+| macOS          | Current supported macOS releases | ARM64 / Apple silicon | Yes | `darwin-arm64.tar.gz` |
+| macOS          | Current supported macOS releases | Intel x64             | Yes | `darwin-x64.tar.gz`   |
 
-Standalone assets are currently **unsigned**. They are not Apple-notarized or Authenticode-signed; installers, Homebrew, and WinGet are not provided. Download only from the scoped `@weldall/cli@X.Y.Z` GitHub Release and verify `SHA256SUMS` before replacing the executable.
+The Windows floor applies to both distributions and follows the stricter baseline needed by the Node.js 22 and embedded Bun 1.3 runtimes. Standalone assets are currently **unsigned**. They are not Apple-notarized or Authenticode-signed; installers, Homebrew, and WinGet are not provided. Download only from the scoped `@weldall/cli@X.Y.Z` GitHub Release and verify `SHA256SUMS` before replacing the executable.
 
 POSIX example (select `linux-x64`, `darwin-arm64`, or `darwin-x64`):
 

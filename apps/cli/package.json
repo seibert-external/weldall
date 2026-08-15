@@ -12,6 +12,11 @@
   "engines": {
     "node": ">=22.15.0"
   },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
   "files": [
     "dist/index.js",
     "README.md",
@@ -52,6 +57,7 @@
     "@napi-rs/keyring": "1.3.0"
   },
   "devDependencies": {
+    "@lydell/node-pty": "1.2.0-beta.15",
     "@types/node": "catalog:",
     "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^19.2.17",

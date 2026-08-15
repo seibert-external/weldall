@@ -47,7 +47,7 @@ const onlyCredential = async (path) => {
   return Object.values(value)[0];
 };
 
-async function authenticatedFlow({ run, mock, paths, workspace, preferencesFile }) {
+async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, preferencesFile }) {
   assertRun(
     await run(["config", "set-issuer", mock.issuer]),
     0,
@@ -140,65 +140,64 @@ async function authenticatedFlow({ run, mock, paths, workspace, preferencesFile 
   );
   assert.deepEqual(downloadDebris, [], "atomic download must leave no temporary debris");
 
-  if (process.platform !== "win32") {
-    const oldDestination = Buffer.from("old destination survives an interrupted transfer");
-    await writeFile(paths.download, oldDestination);
-    const delayedDownload = mock.armDownloadDelay();
-    const interrupted = run([
-      "request",
-      "--scope",
-      "files:read",
-      "--output",
-      paths.download,
-      mock.downloadUrl,
-    ]);
-    let interruptedResult;
-    try {
-      await Promise.race([
-        delayedDownload.entered,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("delayed download did not start")), 10_000),
-        ),
-      ]);
-      const deadline = Date.now() + 10_000;
-      let partialTemporary;
-      while (Date.now() < deadline && !partialTemporary) {
-        for (const entry of await readdir(dirname(paths.download))) {
-          if (
-            entry.startsWith(`.${basename(paths.download)}.`) &&
-            entry.endsWith(".tmp") &&
-            (await stat(join(dirname(paths.download), entry))).size > 0
-          ) {
-            partialTemporary = entry;
-            break;
-          }
-        }
-        if (!partialTemporary) await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      assert.ok(partialTemporary, "interrupted artifact download must reach a partial temp file");
-      assert.equal(interrupted.terminate?.("SIGTERM"), true, "artifact child must accept SIGTERM");
-      interruptedResult = await interrupted;
-    } finally {
-      delayedDownload.release();
-      if (interruptedResult === undefined) {
-        await interrupted.cancel?.();
-        interruptedResult = await interrupted;
-      }
-    }
-    assert.notEqual(interruptedResult.status, 0, output(interruptedResult));
-    assert.ok(
-      interruptedResult.signal === "SIGTERM" || interruptedResult.status > 0,
-      `expected signal/nonzero exit:\n${output(interruptedResult)}`,
-    );
-    assert.deepEqual(await readFile(paths.download), oldDestination);
-    assert.deepEqual(
-      (await readdir(dirname(paths.download))).filter(
-        (entry) => entry.startsWith(`.${basename(paths.download)}.`) && entry.endsWith(".tmp"),
+  const oldDestination = Buffer.from("old destination survives an interrupted transfer");
+  await writeFile(paths.download, oldDestination);
+  const delayedDownload = mock.armDownloadDelay();
+  const interrupted = interruptRun([
+    "request",
+    "--scope",
+    "files:read",
+    "--output",
+    paths.download,
+    mock.downloadUrl,
+  ]);
+  let interruptedResult;
+  try {
+    await Promise.race([
+      delayedDownload.entered,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("delayed download did not start")), 10_000),
       ),
-      [],
-      "interrupted artifact download must remove temporary debris",
+    ]);
+    const deadline = Date.now() + 10_000;
+    let partialTemporary;
+    while (Date.now() < deadline && !partialTemporary) {
+      for (const entry of await readdir(dirname(paths.download))) {
+        if (
+          entry.startsWith(`.${basename(paths.download)}.`) &&
+          entry.endsWith(".tmp") &&
+          (await stat(join(dirname(paths.download), entry))).size > 0
+        ) {
+          partialTemporary = entry;
+          break;
+        }
+      }
+      if (!partialTemporary) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(partialTemporary, "interrupted artifact download must reach a partial temp file");
+    assert.equal(
+      interrupted.interrupt?.(),
+      true,
+      "artifact child must accept native terminal Ctrl-C",
     );
+    interruptedResult = await interrupted;
+  } finally {
+    delayedDownload.release();
+    if (interruptedResult === undefined) {
+      await interrupted.cancel?.();
+      interruptedResult = await interrupted;
+    }
   }
+  assert.notEqual(interruptedResult.status, 0, output(interruptedResult));
+  assert.equal(interruptedResult.exited, true, "interrupted terminal process must not survive");
+  assert.deepEqual(await readFile(paths.download), oldDestination);
+  assert.deepEqual(
+    (await readdir(dirname(paths.download))).filter(
+      (entry) => entry.startsWith(`.${basename(paths.download)}.`) && entry.endsWith(".tmp"),
+    ),
+    [],
+    "interrupted artifact download must remove temporary debris",
+  );
 
   const delayed = mock.armRefreshDelay();
   let released = false;
@@ -292,6 +291,7 @@ async function authenticatedFlow({ run, mock, paths, workspace, preferencesFile 
 export async function runBlackBoxHarness({
   version,
   launch,
+  interruptLaunch,
   expectRuntime,
   expectSystemCa,
   keyringSmoke = false,
@@ -346,6 +346,13 @@ export async function runBlackBoxHarness({
           env: { ...environment, ...(options.env ?? {}) },
         }),
       );
+    const interruptRun = (args, options = {}) => {
+      assert.equal(typeof interruptLaunch, "function", "authenticated smoke requires a PTY");
+      return interruptLaunch(args, {
+        cwd: options.cwd ?? defaultCwd,
+        env: { ...environment, ...(options.env ?? {}) },
+      });
+    };
 
     const versionResult = assertRun(await run(["--version"]), 0, "--version");
     assert.equal(versionResult.stdout.trim(), version, "version output must be exact");
@@ -409,7 +416,15 @@ export async function runBlackBoxHarness({
     if (expectSystemCa) assert.ok(diagnostics.execArgv.includes("--use-system-ca"));
     if (keyringSmoke) assert.equal(diagnostics.keyringRoundTrip, true);
 
-    if (mock) await authenticatedFlow({ run, mock, paths, workspace, preferencesFile });
+    if (mock)
+      await authenticatedFlow({
+        run,
+        interruptRun,
+        mock,
+        paths,
+        workspace,
+        preferencesFile,
+      });
     return { root, diagnostics };
   } catch (error) {
     primaryFailure = error;

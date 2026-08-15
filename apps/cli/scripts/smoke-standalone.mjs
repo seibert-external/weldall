@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { capturedLauncher } from "./process-launcher.mjs";
+import { smokeNativeTerminal, terminalLauncher } from "./native-terminal.mjs";
 import { verifyBinary } from "./binary-format.mjs";
 import { runBlackBoxHarness } from "./black-box-harness.mjs";
 import { getNativeStandaloneTarget, getStandaloneTarget } from "./standalone-targets.mjs";
@@ -60,11 +61,18 @@ const baseEnvironment = Object.fromEntries(
 baseEnvironment.PATH = hostileBin;
 
 const launch = capturedLauncher(executable, [], { baseEnvironment });
+const terminalLaunch = terminalLauncher(executable, [], { baseEnvironment });
 
 try {
+  await smokeNativeTerminal({
+    launch: terminalLaunch,
+    cwd: hostileCwd,
+    label: `Standalone ${target.id}`,
+  });
   const result = await runBlackBoxHarness({
     version: packageJson.version,
     launch,
+    interruptLaunch: terminalLaunch,
     expectRuntime: "bun",
     expectSystemCa: true,
     keyringSmoke: true,

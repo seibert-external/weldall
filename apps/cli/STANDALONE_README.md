@@ -1,6 +1,6 @@
 # Weldall standalone CLI
 
-This archive contains the self-contained `weldall` executable. It does not require Node.js, npm, or Bun.
+This archive contains the self-contained `weldall` executable. It does not require Node.js, npm, or Bun. The Windows x64 build supports Windows 10 version 1809 or newer and Windows Server 2019 or newer.
 
 1. Before extracting or executing anything, verify the downloaded archive against the release's `SHA256SUMS`.
 2. Extract the verified archive.

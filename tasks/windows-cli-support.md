@@ -4,7 +4,7 @@
 
 Implemented in this PR: cross-platform runtime behavior, native source/packed/standalone CI matrices, exact-tag standalone release assets with retry-safe upload, release gating, documentation, and a minor CLI Changeset. The shared packed/standalone harness also runs a controlled authenticated OAuth/DPoP session, binary transfers, process-lock contention, logout/revocation, and machine-authenticated IaC plan/state flows through the real artifact. Native Windows, Linux x64, and macOS Intel execution remains the pull-request CI verification boundary.
 
-The artifact harness captures JSON/plain non-TTY output because child-process pipes are portable across every target. It does not emulate a TTY: complete native source tests remain authoritative for Ink/TTY rendering, while the artifact matrices cover the same commands' non-interactive behavior without claiming a synthetic pseudo-terminal is native terminal proof.
+The artifact harness captures JSON/plain non-TTY output through child-process pipes and separately starts each packed and standalone artifact in a native PTY (ConPTY on Windows) to verify Ink rendering, terminal color, and `NO_COLOR`. Its authenticated transfer flow also sends terminal Ctrl-C during a partial download on every native OS and proves the previous destination survives, temporary debris is removed, and the terminal process exits.
 
 This plan supersedes the narrower Windows-only task that previously lived in this file.
 
