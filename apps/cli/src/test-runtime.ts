@@ -70,7 +70,9 @@ export async function runTestRuntimeHook(
 
   if (keyringId !== undefined) {
     const keyring = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
-    const Entry = keyring.AsyncEntry ?? keyring.Entry;
+    // Exercise the same binding used by the production keychain. In Bun standalone
+    // builds the async macOS binding can return stale reads after a successful write.
+    const Entry = keyring.Entry;
     const entry = new Entry(`dev.seibert.weldall-cli.smoke.${keyringId}`, `account-${keyringId}`);
     const secret = randomBytes(32).toString("base64url");
     let primaryError: unknown;

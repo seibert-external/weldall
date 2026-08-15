@@ -63,6 +63,34 @@ describe("test-only runtime hook", () => {
     expect(String(write.mock.calls[0]?.[0])).not.toMatch(/[A-Za-z0-9_-]{40,}/);
   });
 
+  it("round-trips through the production keyring binding when an async binding is also exported", async () => {
+    let stored: string | null = null;
+    class Entry {
+      setPassword(secret: string) {
+        stored = secret;
+      }
+      getPassword() {
+        return stored;
+      }
+      deletePassword() {
+        stored = null;
+      }
+    }
+    class AsyncEntry {
+      constructor() {
+        throw new Error("alternate async binding must not be used");
+      }
+    }
+
+    await expect(
+      runTestRuntimeHook(
+        { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "production-binding" },
+        { loadKeyring: async () => ({ Entry, AsyncEntry }) },
+      ),
+    ).resolves.toBe(true);
+    expect(stored).toBeNull();
+  });
+
   it("allows a bounded secure-store propagation delay before validating the round trip", async () => {
     let stored: string | null = null;
     let reads = 0;
