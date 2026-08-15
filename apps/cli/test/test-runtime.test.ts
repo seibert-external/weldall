@@ -35,6 +35,7 @@ describe("test-only runtime hook", () => {
   it("round-trips and always deletes an injected secure-store entry without exposing its secret", async () => {
     const calls: string[] = [];
     let stored: string | null = null;
+    let reads = 0;
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     class Entry {
       setPassword(secret: string) {
@@ -43,7 +44,8 @@ describe("test-only runtime hook", () => {
       }
       getPassword() {
         calls.push("get");
-        return stored;
+        reads += 1;
+        return reads === 1 ? null : stored;
       }
       deletePassword() {
         calls.push("delete");
@@ -57,7 +59,7 @@ describe("test-only runtime hook", () => {
         { loadKeyring: async () => ({ AsyncEntry: Entry }) },
       ),
     ).resolves.toBe(true);
-    expect(calls).toEqual(["set", "get", "delete"]);
+    expect(calls).toEqual(["set", "get", "get", "delete"]);
     expect(stored).toBeNull();
     expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({ keyringRoundTrip: true });
     expect(String(write.mock.calls[0]?.[0])).not.toMatch(/[A-Za-z0-9_-]{40,}/);

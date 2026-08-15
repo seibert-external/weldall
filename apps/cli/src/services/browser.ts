@@ -78,11 +78,13 @@ export function createBrowserOpener(
   };
 }
 
-// Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
-const runtimeEnvironmentValue = (name: string) => process.env[name];
-const e2eBrowserUrlFile = runtimeEnvironmentValue("WELDALL_E2E_BROWSER_URL_FILE");
-const nodeEnvironment = runtimeEnvironmentValue("NODE_ENV");
-export const browserOpener = createBrowserOpener({
-  ...(e2eBrowserUrlFile === undefined ? {} : { e2eUrlFile: e2eBrowserUrlFile }),
-  ...(nodeEnvironment === undefined ? {} : { nodeEnv: nodeEnvironment }),
-});
+// Resolve guarded seams when the command runs so bundlers cannot capture the
+// build process environment in the exported default opener.
+export const browserOpener: BrowserOpener = (url) => {
+  const e2eUrlFile = process.env["WELDALL_E2E_BROWSER_URL_FILE"];
+  const nodeEnv = process.env["NODE_ENV"];
+  return createBrowserOpener({
+    ...(e2eUrlFile === undefined ? {} : { e2eUrlFile }),
+    ...(nodeEnv === undefined ? {} : { nodeEnv }),
+  })(url);
+};

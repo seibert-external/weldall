@@ -74,8 +74,14 @@ export async function runTestRuntimeHook(
     let cleanupError: unknown;
     try {
       await entry.setPassword(secret);
-      if ((await entry.getPassword()) !== secret)
-        throw new Error("Secure credential round trip differed");
+      const deadline = Date.now() + 2_000;
+      let stored: string | null | undefined;
+      do {
+        stored = await entry.getPassword();
+        if (stored === secret) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      } while (Date.now() < deadline);
+      if (stored !== secret) throw new Error("Secure credential round trip differed");
       result.keyringRoundTrip = true;
     } catch (error) {
       primaryError = error;

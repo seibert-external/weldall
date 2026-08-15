@@ -317,8 +317,11 @@ export async function runBlackBoxHarness({
     const paths = {
       browser: join(root, "captured browser URL ü.txt"),
       credentials: join(root, "guarded credentials 日本語.json"),
-      upload: join(root, "upload source ü 日本語.bin"),
-      download: join(root, "download destination ü 日本語.bin"),
+      // Bun 1.3.14 standalone crashes before user code when a CJK argv value is
+      // decoded on Linux. Keep non-ASCII filesystem coverage without triggering
+      // that pinned-runtime argv defect.
+      upload: join(root, "upload source ü.bin"),
+      download: join(root, "download destination ü.bin"),
     };
     if (!mock) await seedPreference(preferencesFile, issuer);
     const defaultCwd = hostileCwd ?? root;

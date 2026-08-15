@@ -6,6 +6,7 @@ import type { WeldallConfig } from "../src/config.js";
 import { login } from "../src/services/auth.js";
 import {
   browserOpenTimeoutMs,
+  browserOpener,
   createBrowserOpener,
   runBrowserCommand,
 } from "../src/services/browser.js";
@@ -27,7 +28,10 @@ const config: WeldallConfig = {
   userInfo: "https://weldall.example.com/userinfo",
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe("browser opener", () => {
   it.each([
@@ -74,6 +78,19 @@ describe("browser opener", () => {
       expect(await readFile(path, "utf8")).toBe(authorizationUrl);
       if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
       expect(await access(path).then(() => true)).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves the guarded E2E seam when the exported opener is invoked", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall browser runtime ünicode-"));
+    const path = join(directory, "browser url.txt");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("WELDALL_E2E_BROWSER_URL_FILE", path);
+    try {
+      await browserOpener(authorizationUrl);
+      expect(await readFile(path, "utf8")).toBe(authorizationUrl);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

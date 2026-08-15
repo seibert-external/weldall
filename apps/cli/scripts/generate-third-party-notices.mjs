@@ -161,7 +161,7 @@ export async function writeThirdPartyNotice(output = join(cliRoot, "THIRD_PARTY_
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   if (process.argv.includes("--check")) {
     const generated = await generateThirdPartyNotice();
-    const committed = await readFile(join(cliRoot, "THIRD_PARTY_NOTICES"), "utf8");
+    const committed = await normalizedText(join(cliRoot, "THIRD_PARTY_NOTICES"));
     if (generated !== committed)
       throw new Error("Committed THIRD_PARTY_NOTICES differs from generated production notices");
     console.log("Committed THIRD_PARTY_NOTICES equals generated production notices");

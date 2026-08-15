@@ -113,7 +113,7 @@ try {
     bytecode: false,
     plugins: [inkReactDevtoolsPlugin(), packageInputsPlugin(packageJson.version)],
     compile: {
-      target: target.bunTarget,
+      ...(process.platform === "win32" ? {} : { target: target.bunTarget }),
       outfile: output,
       execArgv: ["--use-system-ca"],
       autoloadDotenv: false,

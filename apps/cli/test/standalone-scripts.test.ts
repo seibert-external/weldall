@@ -198,9 +198,12 @@ describe("deterministic release utilities", () => {
   it("generates the committed exact production notices deterministically", async () => {
     const generated = await generateThirdPartyNotice();
     expect(await generateThirdPartyNotice()).toBe(generated);
-    expect(await readFile(join(import.meta.dirname, "..", "THIRD_PARTY_NOTICES"), "utf8")).toBe(
-      generated,
-    );
+    expect(
+      (await readFile(join(import.meta.dirname, "..", "THIRD_PARTY_NOTICES"), "utf8")).replaceAll(
+        "\r\n",
+        "\n",
+      ),
+    ).toBe(generated);
     expect(generated).toContain("@napi-rs/keyring@1.3.0");
     expect(generated).toContain("Bun 1.3.14");
     expect(generated).toContain("Bun itself is MIT-licensed.");

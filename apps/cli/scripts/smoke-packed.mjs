@@ -18,16 +18,10 @@ function tool(command, args, options) {
   return result;
 }
 
-function quoteCmdArgument(value) {
-  if (value.includes('"')) throw new Error("The packed smoke cmd launcher does not accept quotes");
-  return `"${value}"`;
-}
-
 function windowsCmdLauncher(path) {
   return (args, options) => {
-    const commandLine = `call ${[path, ...args].map(quoteCmdArgument).join(" ")}`;
-    return capturedLauncher(process.env.ComSpec ?? "cmd.exe", ["/d", "/v:off", "/c"])(
-      [commandLine],
+    return capturedLauncher(process.env.ComSpec ?? "cmd.exe", ["/d", "/v:off", "/c", "call"])(
+      [path, ...args],
       options,
     );
   };
