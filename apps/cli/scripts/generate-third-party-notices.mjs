@@ -7,6 +7,10 @@ const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bunLicensePath = join(cliRoot, "licenses", "BUN-1.3.14-LICENSE.md");
 const licenseName = /^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i;
 
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n?/g, "\n");
+}
+
 async function packageJsonPath(name, fromRoot) {
   try {
     return await realpath(join(fromRoot, "node_modules", name, "package.json"));
@@ -109,7 +113,7 @@ async function licenseFiles(dependency, inventory) {
     return Promise.all(
       names.map(async (name) => ({
         name,
-        content: await readFile(join(dependency.root, name), "utf8"),
+        content: normalizeLineEndings(await readFile(join(dependency.root, name), "utf8")),
       })),
     );
 
@@ -118,7 +122,9 @@ async function licenseFiles(dependency, inventory) {
     return [
       {
         name: `vendored/${vendoredName}`,
-        content: await readFile(join(cliRoot, "licenses", "npm", vendoredName), "utf8"),
+        content: normalizeLineEndings(
+          await readFile(join(cliRoot, "licenses", "npm", vendoredName), "utf8"),
+        ),
       },
     ];
   } catch (error) {
@@ -147,7 +153,7 @@ export async function generateThirdPartyNotice() {
     }
   }
   sections.push("Bun 1.3.14", "-".repeat(80), `[${basename(bunLicensePath)}]`);
-  sections.push((await readFile(bunLicensePath, "utf8")).trimEnd(), "");
+  sections.push(normalizeLineEndings(await readFile(bunLicensePath, "utf8")).trimEnd(), "");
   return `${sections.join("\n").trimEnd()}\n`;
 }
 
@@ -160,7 +166,9 @@ export async function writeThirdPartyNotice(output = join(cliRoot, "THIRD_PARTY_
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   if (process.argv.includes("--check")) {
     const generated = await generateThirdPartyNotice();
-    const committed = await readFile(join(cliRoot, "THIRD_PARTY_NOTICES"), "utf8");
+    const committed = normalizeLineEndings(
+      await readFile(join(cliRoot, "THIRD_PARTY_NOTICES"), "utf8"),
+    );
     if (generated !== committed)
       throw new Error("Committed THIRD_PARTY_NOTICES differs from generated production notices");
     console.log("Committed THIRD_PARTY_NOTICES equals generated production notices");

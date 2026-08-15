@@ -14,7 +14,11 @@ interface KeyringEntry {
 interface TestRuntimeDependencies {
   loadKeyring?: () => Promise<{ Entry: new (service: string, account: string) => KeyringEntry }>;
   keychainGet?: (issuer: string) => Promise<unknown>;
+  wait?: (milliseconds: number) => Promise<void>;
 }
+
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 export async function runTestRuntimeHook(
   environment: NodeJS.ProcessEnv = process.env,
@@ -69,7 +73,12 @@ export async function runTestRuntimeHook(
     let cleanupError: unknown;
     try {
       entry.setPassword(secret);
-      if (entry.getPassword() !== secret) throw new Error("Secure credential round trip differed");
+      let stored = entry.getPassword();
+      for (let attempt = 1; stored !== secret && attempt < 5; attempt++) {
+        await (dependencies.wait ?? wait)(50);
+        stored = entry.getPassword();
+      }
+      if (stored !== secret) throw new Error("Secure credential round trip differed");
       result.keyringRoundTrip = true;
     } catch (error) {
       primaryError = error;

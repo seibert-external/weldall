@@ -63,6 +63,36 @@ describe("test-only runtime hook", () => {
     expect(String(write.mock.calls[0]?.[0])).not.toMatch(/[A-Za-z0-9_-]{40,}/);
   });
 
+  it("allows a bounded secure-store propagation delay before validating the round trip", async () => {
+    let stored: string | null = null;
+    let reads = 0;
+    const wait = vi.fn(async () => {});
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    class Entry {
+      setPassword(secret: string) {
+        stored = secret;
+      }
+      getPassword() {
+        reads += 1;
+        return reads < 3 ? null : stored;
+      }
+      deletePassword() {
+        stored = null;
+      }
+    }
+
+    await expect(
+      runTestRuntimeHook(
+        { NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "injected-delayed" },
+        { loadKeyring: async () => ({ Entry }), wait },
+      ),
+    ).resolves.toBe(true);
+    expect(reads).toBe(3);
+    expect(wait).toHaveBeenCalledTimes(2);
+    expect(stored).toBeNull();
+    expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({ keyringRoundTrip: true });
+  });
+
   it("deletes after a primary secure-store failure", async () => {
     const primary = new Error("injected primary failure");
     const deletion = vi.fn();

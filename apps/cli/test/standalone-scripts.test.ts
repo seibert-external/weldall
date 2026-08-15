@@ -200,9 +200,12 @@ describe("deterministic release utilities", () => {
   it("generates the committed exact production notices deterministically", async () => {
     const generated = await generateThirdPartyNotice();
     expect(await generateThirdPartyNotice()).toBe(generated);
-    expect(await readFile(join(import.meta.dirname, "..", "THIRD_PARTY_NOTICES"), "utf8")).toBe(
-      generated,
-    );
+    expect(
+      (await readFile(join(import.meta.dirname, "..", "THIRD_PARTY_NOTICES"), "utf8")).replace(
+        /\r\n?/g,
+        "\n",
+      ),
+    ).toBe(generated);
     expect(generated).toContain("@napi-rs/keyring@1.3.0");
     expect(generated).toContain("Bun 1.3.14");
     expect(generated).toContain("Bun itself is MIT-licensed.");
@@ -277,14 +280,14 @@ describe("deterministic release utilities", () => {
       prefix: [],
     });
     expect(
-      resolveNpmInvocation("win32", "/setup/node.exe", (path) =>
-        path.endsWith("/node_modules/npm/bin/npm-cli.js"),
+      resolveNpmInvocation("win32", "D:\\setup\\node.exe", (path) =>
+        path.endsWith("\\node_modules\\npm\\bin\\npm-cli.js"),
       ),
     ).toEqual({
-      command: "/setup/node.exe",
-      prefix: ["/setup/node_modules/npm/bin/npm-cli.js"],
+      command: "D:\\setup\\node.exe",
+      prefix: ["D:\\setup\\node_modules\\npm\\bin\\npm-cli.js"],
     });
-    expect(() => resolveNpmInvocation("win32", "/setup/node.exe", () => false)).toThrow(
+    expect(() => resolveNpmInvocation("win32", "D:\\setup\\node.exe", () => false)).toThrow(
       /Unable to locate setup-node's npm-cli\.js/,
     );
   });
