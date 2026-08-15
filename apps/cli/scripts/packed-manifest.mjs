@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { basename, dirname } from "node:path";
 
 export const dependencySections = Object.freeze([
   "dependencies",
@@ -33,7 +34,8 @@ export function assertPublishableManifest(manifest) {
 }
 
 export function readPackedManifest(tarball, spawn = spawnSync) {
-  const result = spawn("tar", ["-xOf", tarball, "package/package.json"], {
+  const result = spawn("tar", ["-xOf", basename(tarball), "package/package.json"], {
+    cwd: dirname(tarball),
     encoding: "utf8",
     windowsHide: true,
   });

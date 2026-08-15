@@ -35,6 +35,18 @@ const parseFormPart = (value: string): FormPart => {
 
 const fileBlob = async (path: string, contentType: string) => {
   try {
+    const bun = (
+      globalThis as typeof globalThis & {
+        Bun?: {
+          file(path: string, options: { type: string }): Blob & { exists(): Promise<boolean> };
+        };
+      }
+    ).Bun;
+    if (bun) {
+      const file = bun.file(path, { type: contentType });
+      if (!(await file.exists())) throw new Error("Upload file does not exist");
+      return file;
+    }
     return await openAsBlob(path, { type: contentType });
   } catch (error) {
     throw new CliError(`Cannot open upload file ${JSON.stringify(path)}`, { cause: error });

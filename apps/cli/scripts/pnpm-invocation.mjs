@@ -26,7 +26,7 @@ export function resolvePnpmInvocation(
     (candidate) =>
       typeof candidate === "string" &&
       isAbsolute(candidate) &&
-      /(?:^|[/\\])pnpm(?:\.c?js)?$/i.test(candidate),
+      /(?:^|[/\\])pnpm\.c?js$/i.test(candidate),
   );
   const pnpmScript = candidates.find(pathExists);
   if (!pnpmScript)

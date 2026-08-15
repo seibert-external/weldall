@@ -15,7 +15,7 @@ import {
 import { verifySha256Sums, writeSha256Sums } from "../scripts/checksums.mjs";
 import { generateThirdPartyNotice } from "../scripts/generate-third-party-notices.mjs";
 import { canonicalOutputDirectory } from "../scripts/output-paths.mjs";
-import { assertPublishableManifest } from "../scripts/packed-manifest.mjs";
+import { assertPublishableManifest, readPackedManifest } from "../scripts/packed-manifest.mjs";
 import { resolveNpmInvocation } from "../scripts/npm-invocation.mjs";
 import { resolvePnpmInvocation } from "../scripts/pnpm-invocation.mjs";
 import { terminateProcessTree } from "../scripts/process-launcher.mjs";
@@ -313,6 +313,28 @@ describe("deterministic release utilities", () => {
         () => false,
       ),
     ).toThrow(/JavaScript entrypoint/);
+    expect(() =>
+      resolvePnpmInvocation(
+        { npm_execpath: "/tools/pnpm/bin/pnpm" },
+        "/node/bin/node",
+        (path) => path === "/tools/pnpm/bin/pnpm",
+      ),
+    ).toThrow(/JavaScript entrypoint/);
+  });
+
+  it("extracts a packed manifest from its directory without passing an absolute archive path", () => {
+    const manifest = {
+      name: "@weldall/cli",
+      os: ["darwin", "linux", "win32"],
+    };
+    const spawn = (_command: string, args: string[], options: Record<string, unknown>) => {
+      expect(args).toEqual(["-xOf", "weldall-cli.tgz", "package/package.json"]);
+      expect(options.cwd).toBe(join("", "temporary archive directory"));
+      return { status: 0, stdout: JSON.stringify(manifest), stderr: "" };
+    };
+    expect(
+      readPackedManifest(join("temporary archive directory", "weldall-cli.tgz"), spawn as never),
+    ).toEqual(manifest);
   });
 
   it("rejects repository-local protocols from every packed dependency section", () => {
