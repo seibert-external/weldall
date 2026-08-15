@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -35,6 +35,13 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("CLI release upload", () => {
+  it("keeps tag verification self-contained for immutable release checkouts", async () => {
+    const workflow = await readFile(new URL("../../../.github/workflows/release-cli-assets.yml", import.meta.url), "utf8");
+    expect(workflow).not.toContain("verify-release-tag.mjs");
+    expect(workflow.match(/git rev-parse 'FETCH_HEAD\^\{commit\}'/g)).toHaveLength(2);
+    expect(workflow.match(/ACTUAL_SHA=|EXPECTED_SHA/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
   it("dereferences both lightweight and annotated tags to the expected commit", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-release-tag-"));
     roots.push(root);
