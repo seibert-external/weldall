@@ -45,7 +45,13 @@ BASE="https://github.com/seibert-external/weldall/releases/download/%40weldall%2
 ARCHIVE="weldall-v${VERSION}-${TARGET}.tar.gz"
 curl --fail --location --remote-name "$BASE/$ARCHIVE"
 curl --fail --location --remote-name "$BASE/SHA256SUMS"
-grep "  $ARCHIVE\$" SHA256SUMS | shasum -a 256 --check
+EXPECTED="$(awk -v file="$ARCHIVE" '$2 == file { print $1 }' SHA256SUMS)"
+if command -v shasum >/dev/null 2>&1; then
+  ACTUAL="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+else
+  ACTUAL="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+fi
+test -n "$EXPECTED" && test "$ACTUAL" = "$EXPECTED"
 mkdir -p "$HOME/.local/bin"
 tar -xzf "$ARCHIVE"
 install -m 0755 weldall "$HOME/.local/bin/weldall"
