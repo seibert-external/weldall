@@ -6,9 +6,11 @@ import { CliError } from "../errors.js";
 
 const SERVICE = "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 1;
-const testCredentialsFile = process.env.WELDALL_E2E_CREDENTIALS_FILE;
+// Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
+const runtimeEnvironmentValue = (name: string) => process.env[name];
+const testCredentialsFile = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
 
-if (testCredentialsFile && process.env.NODE_ENV !== "test")
+if (testCredentialsFile && runtimeEnvironmentValue("NODE_ENV") !== "test")
   throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
 
 export interface StoredIdentity {
@@ -83,9 +85,20 @@ const readTestKeychain = (): TestKeychain => {
 const writeTestKeychain = (value: TestKeychain) => {
   if (!testCredentialsFile) return;
   const temporary = join(dirname(testCredentialsFile), `.weldall-${randomUUID()}.tmp`);
-  writeFileSync(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-  renameSync(temporary, testCredentialsFile);
+  try {
+    writeFileSync(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
+    renameSync(temporary, testCredentialsFile);
+  } finally {
+    try {
+      rmSync(temporary, { force: true });
+    } catch {
+      // Best-effort cleanup must not hide the original write or replacement error.
+    }
+  }
 };
+
+const credentialStoreHint =
+  "Install the optional @napi-rs/keyring dependency and ensure your operating system's secure credential service is available.";
 
 const nativeEntry = async (issuer: string) => {
   const { Entry } = await import("@napi-rs/keyring");
@@ -104,7 +117,10 @@ export const keychain = {
     try {
       raw = (await nativeEntry(issuer)).getPassword();
     } catch (error) {
-      throw new CliError("Unable to read the Weldall session from Keychain", { cause: error });
+      throw new CliError("Unable to read the Weldall session from the secure credential store", {
+        cause: error,
+        hint: credentialStoreHint,
+      });
     }
     return raw ? parseCredentials(raw, issuer) : null;
   },
@@ -124,7 +140,10 @@ export const keychain = {
     try {
       (await nativeEntry(issuer)).setPassword(JSON.stringify(stored));
     } catch (error) {
-      throw new CliError("Unable to save the Weldall session in Keychain", { cause: error });
+      throw new CliError("Unable to save the Weldall session in the secure credential store", {
+        cause: error,
+        hint: credentialStoreHint,
+      });
     }
   },
 
@@ -140,7 +159,10 @@ export const keychain = {
     try {
       (await nativeEntry(issuer)).deletePassword();
     } catch (error) {
-      throw new CliError("Unable to remove the Weldall session from Keychain", { cause: error });
+      throw new CliError("Unable to remove the Weldall session from the secure credential store", {
+        cause: error,
+        hint: credentialStoreHint,
+      });
     }
   },
 };

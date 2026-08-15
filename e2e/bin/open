@@ -1,7 +1,0 @@
-#!/bin/sh
-set -eu
-: "${WELDALL_E2E_BROWSER_URL_FILE:?WELDALL_E2E_BROWSER_URL_FILE is required}"
-temporary="${WELDALL_E2E_BROWSER_URL_FILE}.tmp"
-printf '%s' "$1" > "$temporary"
-chmod 600 "$temporary"
-mv "$temporary" "$WELDALL_E2E_BROWSER_URL_FILE"

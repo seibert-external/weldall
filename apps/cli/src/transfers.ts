@@ -110,11 +110,50 @@ export async function writeResponseBody(response: Response, destination: string)
     dirname(destination),
     `.${basename(destination)}.${process.pid}.${randomUUID()}.tmp`,
   );
+  const output = createWriteStream(temporary, { flags: "wx", mode: 0o600 });
+  const abort = new AbortController();
+  let interruptedSignal: NodeJS.Signals | undefined;
+  const interrupt = (signal: NodeJS.Signals) => {
+    if (interruptedSignal) return;
+    interruptedSignal = signal;
+    const error = new Error(`Download interrupted by ${signal}`);
+    abort.abort(error);
+    source.destroy(error);
+    output.destroy(error);
+  };
+  const signalHandlers = (["SIGINT", "SIGTERM"] as const).map(
+    (signal) => [signal, () => interrupt(signal)] as const,
+  );
+  for (const [signal, handler] of signalHandlers) process.on(signal, handler);
+  const removeSignalHandlers = () => {
+    for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
+  };
+  const terminateFromSignal = async () => {
+    if (!interruptedSignal) return;
+    const signal = interruptedSignal;
+    removeSignalHandlers();
+    process.kill(process.pid, signal);
+    await new Promise<never>(() => undefined);
+  };
+
   try {
-    await pipeline(source, createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
+    await pipeline(source, output, { signal: abort.signal });
+    if (interruptedSignal) throw abort.signal.reason;
     await rename(temporary, destination);
+    await terminateFromSignal();
   } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
-    throw new CliError(`Cannot write response to ${JSON.stringify(destination)}`, { cause: error });
+    let cleanupError: unknown;
+    try {
+      await rm(temporary, { force: true });
+    } catch (caught) {
+      cleanupError = caught;
+    }
+    await terminateFromSignal();
+    const cause = cleanupError
+      ? new AggregateError([error, cleanupError], "Download and temporary-file cleanup failed")
+      : error;
+    throw new CliError(`Cannot write response to ${JSON.stringify(destination)}`, { cause });
+  } finally {
+    removeSignalHandlers();
   }
 }
