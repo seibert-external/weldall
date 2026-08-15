@@ -519,7 +519,7 @@ Continue writing per-primitive audit events using explicit IaC sources. Never re
 
 ## Linux and macOS packaging
 
-The existing npm CLI is currently restricted to macOS because interactive user sessions use macOS Keychain and Preferences. IaC itself has no Keychain requirement.
+At the time of this plan, the npm CLI was restricted to macOS because interactive user sessions used macOS Keychain and Preferences. IaC itself had no Keychain requirement.
 
 For v1:
 
