@@ -31,5 +31,3 @@ Windows PowerShell:
 ```powershell
 Unblock-File .\weldall.exe
 ```
-
-Run `./weldall --help` or `weldall.exe --help` for usage. Configure the issuer with `weldall config set-issuer https://weldall.example.com` and sign in with `weldall login`.

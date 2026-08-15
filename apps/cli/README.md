@@ -34,8 +34,6 @@ On Windows PowerShell, after downloading the trusted binary:
 Unblock-File .\weldall.exe
 ```
 
-Run `./weldall --help` (or `weldall.exe --help`) for usage.
-
 ## Configuration and credential storage
 
 The CLI resolves its Weldall issuer in this order:

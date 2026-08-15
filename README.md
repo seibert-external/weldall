@@ -15,7 +15,7 @@ machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> res
 ## Major components
 
 - **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
-- **Weldall CLI** — a cross-platform npm package and self-contained standalone executable for Ubuntu x64, Windows x64, and macOS ARM64/x64. It supports native YAML IaC, interactive OAuth, capability discovery, and authenticated user requests while keeping sessions in the operating system's secure credential store.
+- **Weldall CLI** — a cross-platform npm package with experimental standalone executables for Ubuntu x64, Windows x64, and macOS ARM64/x64. It supports native YAML IaC, interactive OAuth, capability discovery, and authenticated user requests while keeping sessions in the operating system's secure credential store.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
 - **Supporting services** — the Prisma database package, a local Development IdP, an Expenses resource-server example, documentation, framework examples, and the Playwright/Docker E2E system.
 
@@ -27,7 +27,7 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 
 | Workspace                                       | Purpose                                                                                                                                                               |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@weldall/cli`](apps/cli/)                     | Cross-platform npm and standalone CLI for IaC automation and interactive user sessions. See its [package README](apps/cli/README.md).                                 |
+| [`@weldall/cli`](apps/cli/)                     | Cross-platform npm CLI with experimental standalone binaries for IaC automation and interactive user sessions. See its [package README](apps/cli/README.md).          |
 | [`@weldall/dev-idp`](apps/dev-idp/)             | Local-only Hono OpenID Connect provider that offers passwordless selection among test identities from `DEV_IDP_USERS_JSON`.                                           |
 | [`@weldall/docs`](apps/docs/)                   | Astro Starlight documentation site with German pages and English translations. See its [README](apps/docs/README.md).                                                 |
 | [`@weldall/e2e`](apps/e2e/)                     | Playwright black-box tests for the Docker Compose stack, browser authorization flow, real CLI, and protected APIs.                                                    |
@@ -69,7 +69,7 @@ chmod +x ./weldall
 chmod +x ./weldall
 ```
 
-Windows PowerShell: `Unblock-File .\\weldall.exe`. Run `./weldall --help` or `weldall.exe --help` for usage.
+Windows PowerShell: `Unblock-File .\\weldall.exe`.
 
 ### Command overview
 

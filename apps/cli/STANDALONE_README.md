@@ -1,4 +1,10 @@
-# Weldall standalone CLI
+# Weldall experimental standalone CLI
+
+For most users, install the recommended npm package:
+
+```sh
+npm install --global @weldall/cli@latest
+```
 
 ## Experimental standalone binaries
 
@@ -20,5 +26,3 @@ Windows PowerShell:
 ```powershell
 Unblock-File .\weldall.exe
 ```
-
-Run `./weldall --help` or `weldall.exe --help` for usage.
