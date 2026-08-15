@@ -15,7 +15,9 @@ interface TestRuntimeDependencies {
   loadKeyring?: () => Promise<{
     Entry: new (service: string, account: string) => KeyringEntry;
     AsyncEntry?: new (service: string, account: string) => KeyringEntry;
-    findCredentials?: (service: string) => Array<{ account: string; password: string }>;
+    findCredentialsAsync?: (
+      service: string,
+    ) => Promise<Array<{ account: string; password: string }>>;
   }>;
   keychainGet?: (issuer: string) => Promise<unknown>;
   wait?: (milliseconds: number) => Promise<void>;
@@ -72,7 +74,7 @@ export async function runTestRuntimeHook(
   if (keyringId !== undefined) {
     const keyring = await (dependencies.loadKeyring?.() ?? import("@napi-rs/keyring"));
     // Exercise the same binding used by the production keychain.
-    const Entry = keyring.Entry;
+    const Entry = keyring.AsyncEntry ?? keyring.Entry;
     const service = `dev.seibert.weldall-cli.smoke.${keyringId}`;
     const account = `account-${keyringId}`;
     const createEntry = () => new Entry(service, account);
@@ -83,7 +85,9 @@ export async function runTestRuntimeHook(
       // Enumerating the same service still exercises and reads the OS store.
       if (exact !== null && exact !== undefined) return exact;
       if (!bun) return exact;
-      return keyring.findCredentials?.(service).find((item) => item.account === account)?.password;
+      return (await keyring.findCredentialsAsync?.(service))?.find(
+        (item) => item.account === account,
+      )?.password;
     };
     const secret = randomBytes(32).toString("base64url");
     let primaryError: unknown;

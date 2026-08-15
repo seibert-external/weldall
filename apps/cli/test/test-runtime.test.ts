@@ -66,7 +66,7 @@ describe("test-only runtime hook", () => {
     expect(String(write.mock.calls[0]?.[0])).not.toMatch(/[A-Za-z0-9_-]{40,}/);
   });
 
-  it("round-trips through the production keyring binding when an async binding is also exported", async () => {
+  it("round-trips through the async production keyring binding when available", async () => {
     let stored: string | null = null;
     class Entry {
       setPassword(secret: string) {
@@ -80,8 +80,14 @@ describe("test-only runtime hook", () => {
       }
     }
     class AsyncEntry {
-      constructor() {
-        throw new Error("alternate async binding must not be used");
+      setPassword(secret: string) {
+        stored = secret;
+      }
+      getPassword() {
+        return Promise.resolve(stored);
+      }
+      deletePassword() {
+        stored = null;
       }
     }
 
@@ -174,7 +180,7 @@ describe("test-only runtime hook", () => {
         {
           loadKeyring: async () => ({
             Entry,
-            findCredentials: () => [
+            findCredentialsAsync: async () => [
               { account: "unrelated", password: "wrong" },
               { account: "account-service-fallback", password: stored ?? "" },
             ],

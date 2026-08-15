@@ -101,18 +101,19 @@ const credentialStoreHint =
   "Install the optional @napi-rs/keyring dependency and ensure your operating system's secure credential service is available.";
 
 const nativeEntry = async (issuer: string) => {
-  const { Entry } = await import("@napi-rs/keyring");
-  return new Entry(SERVICE, accountFor(issuer));
+  const { AsyncEntry } = await import("@napi-rs/keyring");
+  return new AsyncEntry(SERVICE, accountFor(issuer));
 };
 
 const readNativePassword = async (issuer: string) => {
   const entry = await nativeEntry(issuer);
-  const raw = entry.getPassword();
+  const raw = await entry.getPassword();
   const bun = (globalThis as typeof globalThis & { Bun?: unknown }).Bun;
-  if (raw !== null || !bun) return raw;
-  const { findCredentials } = await import("@napi-rs/keyring");
+  if ((raw !== null && raw !== undefined) || !bun) return raw;
+  const { findCredentialsAsync } = await import("@napi-rs/keyring");
   return (
-    findCredentials(SERVICE).find(({ account }) => account === accountFor(issuer))?.password ?? null
+    (await findCredentialsAsync(SERVICE)).find(({ account }) => account === accountFor(issuer))
+      ?.password ?? null
   );
 };
 
@@ -126,7 +127,7 @@ export const keychain = {
 
     let raw: string | null;
     try {
-      raw = await readNativePassword(issuer);
+      raw = (await readNativePassword(issuer)) ?? null;
     } catch (error) {
       throw new CliError("Unable to read the Weldall session from the secure credential store", {
         cause: error,
@@ -149,7 +150,7 @@ export const keychain = {
       return;
     }
     try {
-      (await nativeEntry(issuer)).setPassword(JSON.stringify(stored));
+      await (await nativeEntry(issuer)).setPassword(JSON.stringify(stored));
     } catch (error) {
       throw new CliError("Unable to save the Weldall session in the secure credential store", {
         cause: error,
@@ -168,7 +169,7 @@ export const keychain = {
       return;
     }
     try {
-      (await nativeEntry(issuer)).deletePassword();
+      await (await nativeEntry(issuer)).deletePassword();
     } catch (error) {
       throw new CliError("Unable to remove the Weldall session from the secure credential store", {
         cause: error,
