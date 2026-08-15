@@ -268,8 +268,11 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
           EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
-          git fetch --force --no-tags origin "refs/tags/$TAG"
-          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$EXPECTED_SHA"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' GIT_CONFIG_VALUE_0="$AUTH_HEADER" \
+            git fetch --force --no-tags origin "refs/tags/$TAG"
+          unset AUTH_HEADER
+          node apps/cli/scripts/verify-release-tag.mjs FETCH_HEAD "$EXPECTED_SHA"
           mapfile -d '' ASSETS < <(find "$RUNNER_TEMP/release-assets" -maxdepth 1 -type f -print0)
           node apps/cli/scripts/release-upload.mjs upload --tag "$TAG" --dry-run "${ASSETS[@]}"
 
@@ -304,8 +307,11 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
           EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
-          git fetch --force --no-tags origin "refs/tags/$TAG"
-          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$EXPECTED_SHA"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' GIT_CONFIG_VALUE_0="$AUTH_HEADER" \
+            git fetch --force --no-tags origin "refs/tags/$TAG"
+          unset AUTH_HEADER
+          node apps/cli/scripts/verify-release-tag.mjs FETCH_HEAD "$EXPECTED_SHA"
           mapfile -d '' ASSETS < <(find "$RUNNER_TEMP/release-assets" -maxdepth 1 -type f -print0)
           node apps/cli/scripts/release-upload.mjs upload --tag "$TAG" "${ASSETS[@]}"
 

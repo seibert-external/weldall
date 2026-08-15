@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ import {
   syncReleaseAssets,
   validateAssetPaths,
 } from "../scripts/release-upload.mjs";
+import { dereferenceTagCommit, verifyReleaseTag } from "../scripts/verify-release-tag.mjs";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true }))));
@@ -33,6 +35,27 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("CLI release upload", () => {
+  it("dereferences both lightweight and annotated tags to the expected commit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-release-tag-"));
+    roots.push(root);
+    const git = (args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+    git(["init", "--quiet"]);
+    git(["config", "user.name", "Test User"]);
+    git(["config", "user.email", "test@example.com"]);
+    await writeFile(join(root, "release.txt"), "release\n");
+    git(["add", "release.txt"]);
+    git(["commit", "--quiet", "-m", "release"]);
+    const expectedSha = git(["rev-parse", "HEAD"]).trim();
+    git(["tag", "lightweight"]);
+    git(["tag", "--annotate", "annotated", "--message", "release"]);
+    const run = (_command: string, args: string[], options: { encoding: string }) =>
+      execFileSync("git", args, { cwd: root, encoding: options.encoding });
+
+    expect(dereferenceTagCommit("lightweight", run)).toBe(expectedSha);
+    expect(verifyReleaseTag("annotated", expectedSha, run)).toBe(expectedSha);
+    expect(() => verifyReleaseTag("lightweight", "0".repeat(40), run)).toThrow(/expected/);
+  });
+
   it("accepts only strict scoped tags and the exact expected files", async () => {
     expect(parseCliReleaseTag("@weldall/cli@1.2.3")).toBe("1.2.3");
     expect(() => parseCliReleaseTag("v1.2.3")).toThrow(/exact @weldall\/cli/);
