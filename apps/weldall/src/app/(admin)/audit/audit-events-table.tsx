@@ -26,7 +26,7 @@ import {
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import { AUDIT_EVENT_TYPES, type AuditEventDto, type AuditEventType } from "@/lib/audit";
 import { useTRPC } from "@/trpc/react";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader } from "../resizable-table";
+import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
 const PAGE_SIZE = 20;
@@ -276,20 +276,17 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
                       if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
                       setSelectedEvent(row.original);
                     }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.target !== event.currentTarget ||
-                        (event.key !== "Enter" && event.key !== " ")
-                      )
-                        return;
-                      event.preventDefault();
-                      setSelectedEvent(row.original);
-                    }}
-                    tabIndex={0}
                   >
-                    {row.getVisibleCells().map((cell) => (
+                    {row.getVisibleCells().map((cell, index) => (
                       <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {index === 0 ? (
+                          <TableRowAction
+                            label={`Show ${row.original.eventType} details`}
+                            onActivate={() => setSelectedEvent(row.original)}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableRowAction>
+                        ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}
                   </TableRow>

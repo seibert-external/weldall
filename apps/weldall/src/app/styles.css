@@ -289,6 +289,23 @@
     mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
   }
 
+  .admin-table-row-action {
+    display: block;
+    width: 100%;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    text-decoration: none;
+  }
+
+  .admin-table-row-action:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+  }
+
   .admin-resizable-table tbody tr[data-clickable="true"] {
     cursor: pointer;
   }

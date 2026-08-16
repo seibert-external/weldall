@@ -16,6 +16,28 @@ export function isInteractiveTableTarget(
   return interactive !== null && interactive !== currentTarget;
 }
 
+type TableRowActionProps =
+  | { children: ReactNode; href: string; label: string; onActivate?: never }
+  | { children: ReactNode; href?: never; label: string; onActivate: () => void };
+
+export function TableRowAction(props: TableRowActionProps) {
+  const className = "admin-table-row-action";
+  return "href" in props ? (
+    <a aria-label={props.label} className={className} href={props.href}>
+      {props.children}
+    </a>
+  ) : (
+    <button
+      aria-label={props.label}
+      className={className}
+      onClick={props.onActivate}
+      type="button"
+    >
+      {props.children}
+    </button>
+  );
+}
+
 export function ResizableTableHeader<T>({ table }: { table: TanStackTable<T> }) {
   return (
     <TableHeader>

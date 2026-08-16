@@ -24,7 +24,7 @@ import type { ScopeDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader } from "../resizable-table";
+import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["key", "updatedAt"]), [
@@ -190,24 +190,17 @@ export function ScopesTable() {
                             }
                           : undefined
                       }
-                      onKeyDown={
-                        isEditable
-                          ? (event) => {
-                              if (
-                                event.target !== event.currentTarget ||
-                                (event.key !== "Enter" && event.key !== " ")
-                              )
-                                return;
-                              event.preventDefault();
-                              setEditingScope(row.original);
-                            }
-                          : undefined
-                      }
-                      tabIndex={isEditable ? 0 : undefined}
                     >
-                      {row.getVisibleCells().map((cell) => (
+                      {row.getVisibleCells().map((cell, index) => (
                         <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {index === 0 && isEditable ? (
+                            <TableRowAction
+                              label={`Edit ${row.original.key}`}
+                              onActivate={() => setEditingScope(row.original)}
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
                       ))}
                     </TableRow>
