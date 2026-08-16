@@ -98,5 +98,7 @@ try {
   );
   console.log(`Copied standalone smoke passed: ${target.id} ${expectedFormat} ${target.arch}`);
 } finally {
-  await rm(root, { recursive: true, force: true });
+  // ConPTY can briefly retain the copied executable after its child exits on
+  // Windows. Let recursive rm retry transient EBUSY/EPERM failures.
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }

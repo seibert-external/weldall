@@ -15,7 +15,7 @@ machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> res
 ## Major components
 
 - **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
-- **Weldall CLI** — a cross-platform npm package and self-contained standalone executable for Ubuntu x64, Windows x64, and macOS ARM64/x64. It supports native YAML IaC, interactive OAuth, capability discovery, and authenticated user requests while keeping sessions in the operating system's secure credential store.
+- **Weldall CLI** — a cross-platform npm package with experimental standalone executables for Ubuntu x64, Windows x64, and macOS ARM64/x64. It supports native YAML IaC, interactive OAuth, capability discovery, and authenticated user requests while keeping sessions in the operating system's secure credential store.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
 - **Supporting services** — the Prisma database package, a local Development IdP, an Expenses resource-server example, documentation, framework examples, and the Playwright/Docker E2E system.
 
@@ -27,7 +27,7 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 
 | Workspace                                       | Purpose                                                                                                                                                               |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@weldall/cli`](apps/cli/)                     | Cross-platform npm and standalone CLI for IaC automation and interactive user sessions. See its [package README](apps/cli/README.md).                                 |
+| [`@weldall/cli`](apps/cli/)                     | Cross-platform npm CLI with experimental standalone binaries for IaC automation and interactive user sessions. See its [package README](apps/cli/README.md).          |
 | [`@weldall/dev-idp`](apps/dev-idp/)             | Local-only Hono OpenID Connect provider that offers passwordless selection among test identities from `DEV_IDP_USERS_JSON`.                                           |
 | [`@weldall/docs`](apps/docs/)                   | Astro Starlight documentation site with German pages and English translations. See its [README](apps/docs/README.md).                                                 |
 | [`@weldall/e2e`](apps/e2e/)                     | Playwright black-box tests for the Docker Compose stack, browser authorization flow, real CLI, and protected APIs.                                                    |
@@ -45,23 +45,31 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 
 ## Install and use the CLI
 
-### Requirements and distributions
+### npm (recommended)
 
-The npm package supports Ubuntu, Windows, and macOS and requires Node.js 22.15.0 or newer. Supported x64 Windows releases are Windows 10 version 1809 or newer and Windows Server 2019 or newer; the same floor applies to the standalone executable. Self-contained standalone GitHub Release executables require no Node.js, npm, Bun, or `node_modules`. Initial standalone targets are Ubuntu Linux x64, Windows x64, macOS Apple silicon, and macOS Intel x64. The standalone assets are **unsigned** and must be checksum-verified; signing, installers, Homebrew, and WinGet are not claimed.
-
-Install or upgrade the npm package and select the Weldall host:
+The npm package supports Ubuntu, Windows 10 version 1809 or newer, Windows Server 2019 or newer, and current macOS releases. It requires Node.js 22.15 or newer.
 
 ```sh
 npm install --global @weldall/cli@latest
 weldall --version
 weldall config set-issuer https://weldall.example.com
-weldall config get-issuer
 weldall login
 ```
 
-PowerShell uses native environment syntax, for example `$env:WELDALL_ISSUER = "https://weldall.example.com"`; POSIX shells use `export WELDALL_ISSUER=https://weldall.example.com` or a one-command prefix. `config set-issuer` validates discovery before saving the HTTPS origin. Saved non-secret issuer preferences live at `~/.weldall/config.json` on Linux, `%USERPROFILE%\.weldall\config.json` on Windows, and the preserved `dev.seibert.weldall-cli/Issuer` macOS Preferences key. Sessions are isolated by issuer and stored in Linux Secret Service/keyutils, Windows Credential Manager, or macOS Keychain—never in the issuer file.
+### Experimental standalone binaries
 
-For standalone archive names, POSIX and PowerShell checksum/install commands, unsigned warnings, upgrades, and actionable headless Linux secure-store requirements, see the [npm-visible CLI README](apps/cli/README.md#choose-an-installation).
+Standalone binaries require no Node.js, npm, or Bun. Initial targets are Linux x64, Windows x64, and macOS ARM64/x64. They are currently unsigned. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases).
+
+```sh
+# macOS, after downloading the trusted binary
+xattr -d com.apple.quarantine ./weldall
+chmod +x ./weldall
+
+# Linux
+chmod +x ./weldall
+```
+
+Windows PowerShell: `Unblock-File .\\weldall.exe`.
 
 ### Command overview
 

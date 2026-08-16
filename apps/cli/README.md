@@ -6,85 +6,33 @@ A cross-platform CLI for Weldall user sessions, authenticated requests, and nati
 
 ## Choose an installation
 
-| Distribution          | Runtime on the user machine | Upgrade method                             |
-| --------------------- | --------------------------- | ------------------------------------------ |
-| npm package           | Node.js 22.15 or newer      | `npm install --global @weldall/cli@latest` |
-| Standalone executable | None                        | Download and replace the executable        |
+### npm (recommended)
 
-Both distributions contain the complete CLI. The npm package is best when Node.js is already managed on the machine. The self-contained GitHub Release executable embeds Bun and does not require Node.js, npm, Bun, or `node_modules`.
-
-| Operating system | Supported release                | Architecture          | npm | Standalone asset suffix |
-| ---------------- | -------------------------------- | --------------------- | --- | ----------------------- |
-| Ubuntu Linux     | Current supported Ubuntu LTS     | x64                   | Yes | `linux-x64.tar.gz`      |
-| Windows client   | Windows 10 version 1809 or newer | x64                   | Yes | `windows-x64.zip`       |
-| Windows Server   | Windows Server 2019 or newer     | x64                   | Yes | `windows-x64.zip`       |
-| macOS            | Current supported macOS releases | Apple silicon (ARM64) | Yes | `darwin-arm64.tar.gz`   |
-| macOS            | Current supported macOS releases | Intel x64             | Yes | `darwin-x64.tar.gz`     |
-
-The Windows floor is the stricter runtime baseline shared by Node.js 22 and the embedded Bun 1.3 runtime: Windows 10 version 1809, with Windows Server 2019 as the corresponding server generation. Linux ARM64/musl and Windows ARM64 are not part of the initial standalone matrix.
-
-### Install or upgrade with npm
+The npm package supports Ubuntu, Windows 10 version 1809 or newer, Windows Server 2019 or newer, and current macOS releases. It requires Node.js 22.15 or newer.
 
 ```sh
 npm install --global @weldall/cli@latest
 weldall --version
 ```
 
-The same command upgrades an existing npm installation. Node runs the published JavaScript package with system certificate authorities enabled.
+### Experimental standalone binaries
 
-### Install or upgrade a standalone executable
-
-Standalone assets are currently **unsigned**: they are not Apple-notarized or Authenticode-signed. Verify `SHA256SUMS`, obtain releases only from this repository, and apply your organization's review policy. macOS Gatekeeper or Windows SmartScreen may warn on first launch.
-
-POSIX example (set the version and choose `linux-x64`, `darwin-arm64`, or `darwin-x64`):
+Standalone binaries require no Node.js, npm, or Bun. Initial targets are Linux x64, Windows x64, and macOS ARM64/x64. They are currently unsigned. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases), then:
 
 ```sh
-VERSION=1.2.3
-TARGET=darwin-arm64
-BASE="https://github.com/seibert-external/weldall/releases/download/%40weldall%2Fcli%40${VERSION}"
-ARCHIVE="weldall-v${VERSION}-${TARGET}.tar.gz"
-curl --fail --location --remote-name "$BASE/$ARCHIVE"
-curl --fail --location --remote-name "$BASE/SHA256SUMS"
-EXPECTED="$(awk -v file="$ARCHIVE" '$2 == file { print $1 }' SHA256SUMS)"
-if command -v shasum >/dev/null 2>&1; then
-  ACTUAL="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
-else
-  ACTUAL="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
-fi
-test -n "$EXPECTED" && test "$ACTUAL" = "$EXPECTED"
-mkdir -p "$HOME/.local/bin"
-tar -xzf "$ARCHIVE"
-install -m 0755 weldall "$HOME/.local/bin/weldall"
-"$HOME/.local/bin/weldall" --version
+# macOS, after downloading the trusted binary
+xattr -d com.apple.quarantine ./weldall
+chmod +x ./weldall
+
+# Linux
+chmod +x ./weldall
 ```
 
-PowerShell example for Windows x64:
+On Windows PowerShell, after downloading the trusted binary:
 
 ```powershell
-$Version = "1.2.3"
-$Archive = "weldall-v$Version-windows-x64.zip"
-$Tag = [uri]::EscapeDataString("@weldall/cli@$Version")
-$Base = "https://github.com/seibert-external/weldall/releases/download/$Tag"
-Invoke-WebRequest "$Base/$Archive" -OutFile $Archive
-Invoke-WebRequest "$Base/SHA256SUMS" -OutFile SHA256SUMS
-$Expected = ((Select-String -Path SHA256SUMS -Pattern "^[0-9a-f]{64}  $([regex]::Escape($Archive))$").Line -split "  ")[0]
-$Actual = (Get-FileHash -Algorithm SHA256 $Archive).Hash.ToLowerInvariant()
-if ($Actual -ne $Expected) { throw "SHA-256 mismatch for $Archive" }
-Expand-Archive -LiteralPath $Archive -DestinationPath .\weldall-release -Force
-New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
-Copy-Item .\weldall-release\weldall.exe "$HOME\bin\weldall.exe" -Force
-$Bin = "$HOME\bin"
-$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if (($UserPath -split ";") -notcontains $Bin) {
-  [Environment]::SetEnvironmentVariable("Path", "$Bin;$UserPath", "User")
-}
-$env:Path = "$Bin;$env:Path"
-weldall --version
+Unblock-File .\weldall.exe
 ```
-
-Setting the user `Path` persists the command for future Windows sessions; changing `$env:Path` only makes it available to the current PowerShell process. Open a new terminal after installation when needed.
-
-To upgrade a standalone installation, repeat the verified download for the new version and replace the old executable. Preserve no files from the old archive.
 
 ## Configuration and credential storage
 

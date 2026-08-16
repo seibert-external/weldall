@@ -1,10 +1,28 @@
-# Weldall standalone CLI
+# Weldall experimental standalone CLI
 
-This archive contains the self-contained `weldall` executable. It does not require Node.js, npm, or Bun. The Windows x64 build supports Windows 10 version 1809 or newer and Windows Server 2019 or newer.
+For most users, install the recommended npm package:
 
-1. Before extracting or executing anything, verify the downloaded archive against the release's `SHA256SUMS`.
-2. Extract the verified archive.
-3. Move `weldall` (`weldall.exe` on Windows) to a directory on `PATH`.
-4. Run `weldall --version` and compare it with the archive version.
+```sh
+npm install --global @weldall/cli@latest
+```
 
-These initial executables are unsigned. Your operating system may require explicit approval before the first run.
+## Experimental standalone binaries
+
+Standalone binaries require no Node.js, npm, or Bun. They are currently unsigned. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases).
+
+After downloading the trusted binary:
+
+```sh
+# macOS
+xattr -d com.apple.quarantine ./weldall
+chmod +x ./weldall
+
+# Linux
+chmod +x ./weldall
+```
+
+Windows PowerShell:
+
+```powershell
+Unblock-File .\weldall.exe
+```
