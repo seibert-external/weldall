@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
+import { generateEs256KeyPair } from "@weldall/sdk";
 import { listSkills, listSkillSourceOptions } from "../src/server/admin/service.js";
 import { logger } from "../src/server/observability/logger.js";
 import { refreshDueCatalogs, refreshResourceCatalog } from "../src/server/skills/catalogs.js";
@@ -61,6 +62,15 @@ const fetchCatalog = vi.fn(async (input: string | URL | Request, init?: RequestI
 });
 
 const adminEmail = `${id}-admin@example.com`;
+const priorSigningEnv = {
+  kid: process.env.WELDALL_SIGNING_KID,
+  privateJwk: process.env.WELDALL_SIGNING_PRIVATE_JWK,
+  publicJwk: process.env.WELDALL_SIGNING_PUBLIC_JWK,
+};
+const signingKey = await generateEs256KeyPair();
+process.env.WELDALL_SIGNING_KID = `catalog-test-${id}`;
+process.env.WELDALL_SIGNING_PRIVATE_JWK = JSON.stringify(signingKey.privateJwk);
+process.env.WELDALL_SIGNING_PUBLIC_JWK = JSON.stringify(signingKey.publicJwk);
 const resource = await db.downstreamResource.create({
   data: {
     key,
@@ -98,6 +108,14 @@ await db.emailScopeAssignment.create({
 afterAll(async () => {
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: adminEmail } });
   await db.downstreamResource.deleteMany({ where: { id: resource.id } });
+  for (const [name, value] of [
+    ["WELDALL_SIGNING_KID", priorSigningEnv.kid],
+    ["WELDALL_SIGNING_PRIVATE_JWK", priorSigningEnv.privateJwk],
+    ["WELDALL_SIGNING_PUBLIC_JWK", priorSigningEnv.publicJwk],
+  ] as const) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 });
 
 describe("persisted skill catalog refresh", () => {
