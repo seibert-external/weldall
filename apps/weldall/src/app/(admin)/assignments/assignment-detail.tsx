@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -21,6 +22,7 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string | null
   const router = useRouter();
   const queryClient = useQueryClient();
   const formId = useId();
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const isNew = assignmentId === null;
   const assignmentQuery = useQuery({
     ...trpc.admin.assignments.get.queryOptions({ id: assignmentId ?? "new" }),
@@ -28,6 +30,17 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string | null
   });
   const scopesQuery = useQuery(trpc.admin.scopes.options.queryOptions());
   const operationToast = useOperationToast();
+  const deleteMutation = useMutation(
+    trpc.admin.assignments.delete.mutationOptions({
+      onSuccess: async () => {
+        operationToast.success("Assignment deleted", "assignment-delete");
+        await queryClient.invalidateQueries();
+        router.push("/assignments");
+      },
+      onError: (error) =>
+        operationToast.error("Could not delete assignment", error, "assignment-delete"),
+    }),
+  );
   const mutation = useMutation(
     trpc.admin.assignments.replace.mutationOptions({
       onSuccess: () =>
@@ -83,12 +96,26 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string | null
   return (
     <>
       <HerocrumbsActions>
+        {assignment ? (
+          <Button
+            isDisabled={mutation.isPending || deleteMutation.isPending}
+            isLoading={deleteMutation.isPending}
+            label="Delete assignment"
+            onClick={() => setIsDeleteOpen(true)}
+            variant="destructive"
+          />
+        ) : null}
         <Button href="/assignments" label="Cancel" variant="secondary" />
         <form.Subscribe selector={(state) => state.canSubmit}>
           {(canSubmit) => (
             <Button
               form={formId}
-              isDisabled={!canSubmit || scopesQuery.isPending || Boolean(scopesQuery.error)}
+              isDisabled={
+                !canSubmit ||
+                scopesQuery.isPending ||
+                Boolean(scopesQuery.error) ||
+                deleteMutation.isPending
+              }
               isLoading={mutation.isPending}
               label={isNew ? "Create assignment" : "Save assignment"}
               type="submit"
@@ -192,6 +219,28 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string | null
           </FormLayout>
         </form>
       </div>
+      <AlertDialog
+        actionLabel="Delete assignment"
+        description={
+          assignment
+            ? `Remove all scopes from ${assignment.email}?${assignment.scopes.includes("weldall:administer") ? " This also removes administrator access and is rejected for the final administrator." : ""}`
+            : "Delete this assignment?"
+        }
+        isActionLoading={deleteMutation.isPending}
+        isOpen={isDeleteOpen}
+        onAction={() => {
+          if (assignment && !mutation.isPending) {
+            deleteMutation.mutate({ id: assignment.id, expectedVersion: assignment.version });
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) {
+            deleteMutation.reset();
+            setIsDeleteOpen(false);
+          }
+        }}
+        title="Delete assignment?"
+      />
     </>
   );
 }

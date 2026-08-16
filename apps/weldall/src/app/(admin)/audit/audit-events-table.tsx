@@ -9,14 +9,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Selector } from "@astryxdesign/core/Selector";
-import {
-  TableBody,
-  TableCell,
-  TableContext,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from "@astryxdesign/core/Table";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
@@ -33,7 +26,8 @@ import {
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import { AUDIT_EVENT_TYPES, type AuditEventDto, type AuditEventType } from "@/lib/audit";
 import { useTRPC } from "@/trpc/react";
-import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
+import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader } from "../resizable-table";
+import { createSortingParser, resolveUpdater } from "../table-state";
 
 const PAGE_SIZE = 20;
 const sortingParser = createSortingParser(new Set(["occurredAt"]), [
@@ -108,6 +102,9 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
       {
         accessorKey: "occurredAt",
         header: "Occurred",
+        size: 300,
+        minSize: 240,
+        maxSize: 420,
         cell: ({ getValue }) => (
           <time className="inline-block min-w-[14rem] whitespace-nowrap">
             {dateFormatter.format(new Date(getValue<string>()))}
@@ -117,6 +114,9 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
       {
         accessorKey: "eventType",
         header: "Type",
+        size: 260,
+        minSize: 180,
+        maxSize: 420,
         enableSorting: false,
         cell: ({ getValue }) => <Badge label={getValue<string>()} variant="info" />,
       },
@@ -124,12 +124,21 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
         id: "actor",
         accessorFn: (event) => event.actorEmail ?? event.actorId,
         header: "User / actor",
+        size: 340,
+        minSize: 200,
+        maxSize: 560,
         enableSorting: false,
-        cell: ({ getValue }) => <span>{getValue<string>()}</span>,
+        cell: ({ getValue }) => {
+          const actor = getValue<string>();
+          return <OverflowFade title={actor}>{actor}</OverflowFade>;
+        },
       },
       {
         accessorKey: "outcome",
         header: "Outcome",
+        size: 220,
+        minSize: 160,
+        maxSize: 320,
         enableSorting: false,
         cell: ({ row, getValue }) => (
           <div className="grid gap-1">
@@ -146,26 +155,18 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
       {
         id: "subject",
         header: "Subject",
+        size: 280,
+        minSize: 180,
+        maxSize: 480,
         enableSorting: false,
         cell: ({ row }) =>
           row.original.subjectId ? (
-            <code className="whitespace-nowrap text-xs">{row.original.subjectId}</code>
+            <OverflowFade title={row.original.subjectId}>
+              <code className="whitespace-nowrap text-xs">{row.original.subjectId}</code>
+            </OverflowFade>
           ) : (
             <Text color="secondary">None</Text>
           ),
-      },
-      {
-        id: "metadata",
-        header: "Details",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <Button
-            label="Show"
-            onClick={() => setSelectedEvent(row.original)}
-            size="sm"
-            variant="secondary"
-          />
-        ),
       },
     ],
     [],
@@ -177,6 +178,7 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
     manualSorting: true,
     manualPagination: true,
     manualFiltering: true,
+    columnResizeMode: "onChange",
     rowCount: auditQuery.data?.total ?? 0,
     onSortingChange: (updater: Updater<SortingState>) => {
       void setTableQuery({ sort: resolveUpdater(updater, sorting), page: 1 });
@@ -251,7 +253,7 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
         <TableContext.Provider
           value={{
             density: "balanced",
-            dividers: "rows",
+            dividers: "grid",
             hasHover: false,
             isStriped: false,
             textOverflow: "wrap",
@@ -259,43 +261,34 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
           }}
         >
           <div className="w-full overflow-x-auto" role="group" aria-label="Audit events table">
-            <table className="w-full min-w-[1200px] border-collapse text-left">
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} isHeaderRow>
-                    {headerGroup.headers.map((header) => {
-                      const sorted = header.column.getIsSorted();
-                      const label = String(header.column.columnDef.header ?? "");
-                      return (
-                        <TableHeaderCell
-                          key={header.id}
-                          scope="col"
-                          aria-sort={
-                            sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
-                          }
-                        >
-                          {header.column.getCanSort() ? (
-                            <button
-                              className="w-full border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
-                              onClick={header.column.getToggleSortingHandler()}
-                              type="button"
-                            >
-                              {sortLabel(label, sorted)}
-                            </button>
-                          ) : (
-                            label
-                          )}
-                        </TableHeaderCell>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
               <TableBody>
                 {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow
+                    key={row.id}
+                    aria-label={`Show ${row.original.eventType} details`}
+                    data-clickable="true"
+                    onClick={(event) => {
+                      if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                      setSelectedEvent(row.original);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.target !== event.currentTarget ||
+                        (event.key !== "Enter" && event.key !== " ")
+                      )
+                        return;
+                      event.preventDefault();
+                      setSelectedEvent(row.original);
+                    }}
+                    tabIndex={0}
+                  >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}

@@ -7,7 +7,7 @@ import { sortScopeKeys } from "./sort-scope-keys";
 export function ScopeBadges({ scopes }: { scopes: readonly string[] }) {
   return createElement(
     "div",
-    { className: "flex max-w-[44rem] flex-wrap gap-1" },
+    { className: "flex w-max flex-nowrap gap-1 whitespace-nowrap" },
     sortScopeKeys(scopes).map((scope) =>
       createElement(Badge, {
         key: scope,

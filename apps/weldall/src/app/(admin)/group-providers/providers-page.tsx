@@ -11,14 +11,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Switch } from "@astryxdesign/core/Switch";
-import {
-  TableBody,
-  TableCell,
-  TableContext,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from "@astryxdesign/core/Table";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
@@ -33,7 +26,7 @@ import type { GroupProviderDto } from "@/server/group-providers/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
-import { sortLabel } from "../table-state";
+import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader } from "../resizable-table";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -48,16 +41,6 @@ export function GroupProvidersPage() {
   const [deletingProvider, setDeletingProvider] = useState<GroupProviderDto | null>(null);
   const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
   const operationToast = useOperationToast();
-  const testMutation = useMutation(
-    trpc.admin.groupProviders.test.mutationOptions({
-      onSuccess: (result) =>
-        operationToast.success(
-          `Connection succeeded (${result.groupCount} groups, ${result.latencyMs} ms)`,
-          "provider-test",
-        ),
-      onError: (error) => operationToast.error("Connection failed", error, "provider-test"),
-    }),
-  );
   const deleteMutation = useMutation(
     trpc.admin.groupProviders.delete.mutationOptions({
       onSuccess: async () => {
@@ -75,26 +58,50 @@ export function GroupProvidersPage() {
       {
         accessorKey: "name",
         header: "Provider",
-        cell: ({ row, getValue }) => (
-          <div className="grid gap-1">
-            <span className="font-medium">{getValue<string>()}</span>
-            <code className="text-xs">{row.original.key}</code>
-          </div>
-        ),
+        size: 280,
+        minSize: 180,
+        maxSize: 480,
+        cell: ({ row, getValue }) => {
+          const name = getValue<string>();
+          return (
+            <OverflowFade title={`${name} (${row.original.key})`}>
+              <div className="flex w-max flex-nowrap items-center gap-2 whitespace-nowrap">
+                <span>{name}</span>
+                <code className="text-xs">{row.original.key}</code>
+              </div>
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "adapterType",
         header: "Adapter",
+        size: 180,
+        minSize: 150,
+        maxSize: 260,
         cell: () => "Management API v1",
       },
       {
         accessorKey: "baseUrl",
         header: "Base URL",
-        cell: ({ getValue }) => <code className="text-sm">{getValue<string>()}</code>,
+        size: 400,
+        minSize: 220,
+        maxSize: 640,
+        cell: ({ getValue }) => {
+          const baseUrl = getValue<string>();
+          return (
+            <OverflowFade title={baseUrl}>
+              <code className="whitespace-nowrap text-sm">{baseUrl}</code>
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "enabled",
         header: "Status",
+        size: 150,
+        minSize: 120,
+        maxSize: 200,
         cell: ({ getValue }) => (
           <Badge
             label={getValue<boolean>() ? "Enabled" : "Disabled"}
@@ -105,6 +112,9 @@ export function GroupProvidersPage() {
       {
         accessorKey: "hasToken",
         header: "Credential",
+        size: 160,
+        minSize: 130,
+        maxSize: 220,
         cell: ({ getValue }) => (
           <Badge
             label={getValue<boolean>() ? "Configured" : "Missing"}
@@ -115,55 +125,24 @@ export function GroupProvidersPage() {
       {
         accessorKey: "updatedAt",
         header: "Updated",
+        size: 230,
+        minSize: 210,
+        maxSize: 360,
         cell: ({ getValue }) => (
           <time className="whitespace-nowrap">
             {dateFormatter.format(new Date(getValue<string>()))}
           </time>
         ),
       },
-      {
-        id: "actions",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              isLoading={
-                testMutation.isPending &&
-                Boolean(
-                  testMutation.variables &&
-                  "id" in testMutation.variables &&
-                  testMutation.variables.id === row.original.id,
-                )
-              }
-              label="Test"
-              onClick={() => testMutation.mutate({ id: row.original.id })}
-              size="sm"
-              variant="secondary"
-            />
-            <Button
-              label="Edit"
-              onClick={() => setEditingProvider(row.original)}
-              size="sm"
-              variant="secondary"
-            />
-            <Button
-              label="Delete"
-              onClick={() => setDeletingProvider(row.original)}
-              size="sm"
-              variant="destructive"
-            />
-          </div>
-        ),
-      },
     ],
-    [testMutation],
+    [],
   );
   const table = useReactTable({
     data: providers,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
+    columnResizeMode: "onChange",
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
@@ -188,7 +167,7 @@ export function GroupProvidersPage() {
       <TableContext.Provider
         value={{
           density: "balanced",
-          dividers: "rows",
+          dividers: "grid",
           hasHover: false,
           isStriped: false,
           textOverflow: "wrap",
@@ -196,43 +175,34 @@ export function GroupProvidersPage() {
         }}
       >
         <div className="w-full overflow-x-auto" role="group" aria-label="Group providers table">
-          <table className="w-full min-w-[1000px] border-collapse text-left">
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} isHeaderRow>
-                  {headerGroup.headers.map((header) => {
-                    const sorted = header.column.getIsSorted();
-                    const label = String(header.column.columnDef.header ?? "");
-                    return (
-                      <TableHeaderCell
-                        key={header.id}
-                        aria-sort={
-                          sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
-                        }
-                        scope="col"
-                      >
-                        {header.column.getCanSort() ? (
-                          <button
-                            className="w-full border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
-                            onClick={header.column.getToggleSortingHandler()}
-                            type="button"
-                          >
-                            {sortLabel(label, sorted)}
-                          </button>
-                        ) : (
-                          label
-                        )}
-                      </TableHeaderCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableHeader>
+          <table
+            className="admin-resizable-table table-fixed border-collapse text-left"
+            style={{ minWidth: "100%", width: table.getTotalSize() }}
+          >
+            <ResizableTableHeader table={table} />
             <TableBody>
               {table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  aria-label={`Edit ${row.original.name}`}
+                  data-clickable="true"
+                  onClick={(event) => {
+                    if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                    setEditingProvider(row.original);
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      event.target !== event.currentTarget ||
+                      (event.key !== "Enter" && event.key !== " ")
+                    )
+                      return;
+                    event.preventDefault();
+                    setEditingProvider(row.original);
+                  }}
+                  tabIndex={0}
+                >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
@@ -288,6 +258,10 @@ export function GroupProvidersPage() {
           key={editingProvider?.id ?? "new"}
           provider={editingProvider}
           onClose={() => setEditingProvider(undefined)}
+          onDelete={(value) => {
+            setEditingProvider(undefined);
+            setDeletingProvider(value);
+          }}
           onSaved={async () => {
             setEditingProvider(undefined);
             await queryClient.invalidateQueries();
@@ -301,10 +275,12 @@ export function GroupProvidersPage() {
 function ProviderDialog({
   provider,
   onClose,
+  onDelete,
   onSaved,
 }: {
   provider: GroupProviderDto | null;
   onClose: () => void;
+  onDelete: (provider: GroupProviderDto) => void;
   onSaved: () => Promise<void>;
 }) {
   const trpc = useTRPC();
@@ -525,6 +501,7 @@ function ProviderDialog({
                   <Button
                     className="mr-auto"
                     isDisabled={Boolean(
+                      mutation.isPending ||
                       validateProviderKey(value.key) ||
                       validateBaseUrl(value.baseUrl) ||
                       validateToken(value.token, Boolean(provider)),
@@ -537,12 +514,21 @@ function ProviderDialog({
                   />
                 )}
               </form.Subscribe>
+              {provider ? (
+                <Button
+                  isDisabled={mutation.isPending || testMutation.isPending}
+                  label="Delete provider"
+                  onClick={() => onDelete(provider)}
+                  type="button"
+                  variant="destructive"
+                />
+              ) : null}
               <Button label="Cancel" onClick={onClose} type="button" variant="secondary" />
               <form.Subscribe selector={(state) => state.canSubmit}>
                 {(canSubmit) => (
                   <Button
                     form={formId}
-                    isDisabled={!canSubmit}
+                    isDisabled={!canSubmit || testMutation.isPending}
                     isLoading={mutation.isPending}
                     label={provider ? "Save provider" : "Add provider"}
                     type="submit"
