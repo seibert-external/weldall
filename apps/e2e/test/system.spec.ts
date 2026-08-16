@@ -230,8 +230,8 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("link", { name: "Skill registry" }).click();
   await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible();
   await page.getByRole("link", { name: "Create skill" }).click();
-  await page.getByLabel("Skill ID").fill("expenses.list");
-  await page.getByLabel("Title").fill("List expenses");
+  await page.getByRole("textbox", { name: /^Skill ID/ }).fill("expenses.list");
+  await page.getByRole("textbox", { name: /^Title/ }).fill("List expenses");
   await page.getByRole("button", { name: "Required scopes" }).click();
   await expect(page.getByRole("option", { name: /weldall:login/ })).toBeVisible();
   await expect(page.getByRole("option", { name: /weldall:administer/ })).toBeVisible();
