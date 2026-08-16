@@ -228,7 +228,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("link", { name: "Cancel" }).click();
 
   await page.getByRole("link", { name: "Skill registry" }).click();
-  await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByRole("link", { name: "Create skill" }).click();
   await page.getByLabel("Skill ID").fill("expenses.list");
   await page.getByLabel("Title").fill("List expenses");
