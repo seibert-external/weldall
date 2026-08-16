@@ -43,17 +43,18 @@ export function withRequestLogging<Args extends unknown[]>(
       method: request.method,
       route,
     };
-    const headers = new Headers(request.headers);
-    headers.set("x-request-id", identifiers.requestId);
-    if (identifiers.correlationId) headers.set("x-correlation-id", identifiers.correlationId);
-    else headers.delete("x-correlation-id");
-    const contextualRequest = new Request(request, { headers });
+    request.headers.set("x-request-id", identifiers.requestId);
+    if (identifiers.correlationId) {
+      request.headers.set("x-correlation-id", identifiers.correlationId);
+    } else {
+      request.headers.delete("x-correlation-id");
+    }
 
     return logger.runInContext(context, async () => {
       const started = performance.now();
       logger.debug({ event: "http.request.started" }, "HTTP request started");
       try {
-        const response = await handler(contextualRequest, ...args);
+        const response = await handler(request, ...args);
         const durationMs = Math.max(0, Math.round(performance.now() - started));
         const fields = {
           event: "http.request.completed",

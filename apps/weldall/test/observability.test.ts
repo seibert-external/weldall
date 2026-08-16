@@ -75,6 +75,21 @@ describe("structured logging", () => {
     expect(response.headers.get("x-request-id")).toBe(body.requestId);
   });
 
+  it("preserves framework request instances while adding request context", async () => {
+    const request = new Request("https://weldall.example/test");
+    const handler = withRequestLogging("/test", (contextualRequest) => {
+      expect(contextualRequest).toBe(request);
+      return Response.json({ requestId: contextualRequest.headers.get("x-request-id") });
+    });
+
+    const response = await handler(request);
+    const body = (await response.json()) as { requestId: string };
+
+    expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(request.headers.get("x-request-id")).toBe(body.requestId);
+    expect(response.headers.get("x-request-id")).toBe(body.requestId);
+  });
+
   it("redacts secret keys and credential-shaped strings", () => {
     const records: CapturedRecord[] = [];
     const testLogger = createAppLogger({
