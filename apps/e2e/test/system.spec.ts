@@ -164,7 +164,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await scopeDialog.getByRole("button", { name: "Create scope" }).click();
   const temporaryScopeRow = page.getByRole("row").filter({ hasText: "e2e:temporary" });
   await expect(temporaryScopeRow).toBeVisible();
-  await temporaryScopeRow.getByRole("button", { name: "Edit" }).click();
+  await temporaryScopeRow.click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete scope" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete scope" }).click();
   await expect(temporaryScopeRow).toHaveCount(0);
@@ -188,7 +188,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const expensesResourceRow = page
     .getByRole("row")
     .filter({ has: page.getByText("expenses", { exact: true }) });
-  await expensesResourceRow.getByRole("link", { name: "Open" }).click();
+  await expensesResourceRow.click();
   await page
     .getByLabel("Request prefixes")
     .fill("https://expenses.seibert.localdev/api\nhttps://redirect.seibert.localdev/");
@@ -199,7 +199,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await expect(page.getByRole("heading", { name: "Email assignments" })).toBeVisible();
   const aliceRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
   await expect(aliceRow).toBeVisible();
-  await aliceRow.getByRole("link", { name: "Edit" }).click();
+  await aliceRow.click();
   await expect(page.getByRole("heading", { name: "Edit assignment" })).toBeVisible();
   await page.getByLabel("Find scopes").fill("expenses:");
   for (const scope of ["expenses:create", "expenses:delete", "expenses:read", "expenses:write"]) {
@@ -376,7 +376,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   await page.goto("https://weldall.seibert.localdev/resources");
   const reportsRow = page.getByRole("row").filter({ hasText: "reports" });
-  await reportsRow.getByRole("link", { name: "Open" }).click();
+  await reportsRow.click();
   await page.getByLabel("Enabled").click();
   await page.getByRole("button", { name: "Save resource" }).click();
   const disabledRequest = await runCli(
@@ -390,7 +390,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   await page.goto("https://weldall.seibert.localdev/resources");
   const disabledReportsRow = page.getByRole("row").filter({ hasText: "reports" });
-  await disabledReportsRow.getByRole("link", { name: "Open" }).click();
+  await disabledReportsRow.click();
   await expect(page.getByRole("link", { name: "View skills (0)" })).toBeVisible();
   await page.getByRole("button", { name: "Delete resource" }).click();
   const deleteResourceDialog = page.getByRole("alertdialog");
@@ -419,7 +419,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   });
   const userRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
   await expect(userRow).toBeVisible();
-  await userRow.getByRole("link", { name: "Open" }).click();
+  await userRow.click();
   await expect(page.getByRole("heading", { name: "Alice E2E" })).toBeVisible({
     timeout: 30_000,
   });
