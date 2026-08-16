@@ -1,30 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Pagination } from "@astryxdesign/core/Pagination";
-import {
-  TableBody,
-  TableCell,
-  TableContext,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from "@astryxdesign/core/Table";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import { ManagementBadge } from "@/components/admin/management-badge";
 import type { AssignmentDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { useOperationToast } from "../../_components/use-operation-toast";
-import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
+import { createSortingParser, resolveUpdater } from "../table-state";
 import { ScopeBadges } from "./scope-badges";
 
 const sortingParser = createSortingParser(new Set(["email", "updatedAt"]), [
@@ -36,9 +34,8 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 export function AssignmentsTable() {
+  const router = useRouter();
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const [deletingAssignment, setDeletingAssignment] = useState<AssignmentDto | null>(null);
   const [{ q, page, sort: sorting }, setTableQuery] = useQueryStates(
     {
       q: parseAsString.withDefault(""),
@@ -62,43 +59,47 @@ export function AssignmentsTable() {
       {
         accessorKey: "email",
         header: "Email",
-        cell: ({ row, getValue }) => (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{getValue<string>()}</span>
-            <ManagementBadge management={row.original.management} />
-          </div>
-        ),
+        size: 480,
+        minSize: 220,
+        maxSize: 720,
+        cell: ({ row, getValue }) => {
+          const email = getValue<string>();
+          return (
+            <OverflowFade title={email}>
+              <div className="flex w-max flex-nowrap items-center gap-2 whitespace-nowrap">
+                <span>{email}</span>
+                <ManagementBadge management={row.original.management} />
+              </div>
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "scopes",
         header: "Scopes",
+        size: 620,
+        minSize: 240,
+        maxSize: 900,
         enableSorting: false,
-        cell: ({ getValue }) => <ScopeBadges scopes={getValue<string[]>()} />,
+        cell: ({ getValue }) => {
+          const scopes = getValue<string[]>();
+          return (
+            <OverflowFade title={scopes.join(", ")}>
+              <ScopeBadges scopes={scopes} />
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "updatedAt",
         header: "Updated",
-        cell: ({ getValue }) => dateFormatter.format(new Date(getValue<string>())),
-      },
-      {
-        id: "actions",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              href={`/assignments/${row.original.id}`}
-              label="Edit"
-              size="sm"
-              variant="secondary"
-            />
-            <Button
-              label="Delete"
-              onClick={() => setDeletingAssignment(row.original)}
-              size="sm"
-              variant="destructive"
-            />
-          </div>
+        size: 300,
+        minSize: 220,
+        maxSize: 420,
+        cell: ({ getValue }) => (
+          <time className="whitespace-nowrap">
+            {dateFormatter.format(new Date(getValue<string>()))}
+          </time>
         ),
       },
     ],
@@ -110,6 +111,7 @@ export function AssignmentsTable() {
     columns,
     state: { sorting },
     manualSorting: true,
+    columnResizeMode: "onChange",
     onSortingChange: (updater: Updater<SortingState>) => {
       const next = resolveUpdater(updater, sorting);
       void setTableQuery({ sort: next, page: 1 });
@@ -149,7 +151,7 @@ export function AssignmentsTable() {
         <TableContext.Provider
           value={{
             density: "balanced",
-            dividers: "rows",
+            dividers: "grid",
             hasHover: false,
             isStriped: false,
             textOverflow: "wrap",
@@ -157,48 +159,38 @@ export function AssignmentsTable() {
           }}
         >
           <div className="w-full overflow-x-auto" role="group" aria-label="Email assignments table">
-            <table className="w-full min-w-[760px] border-collapse text-left">
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} isHeaderRow>
-                    {headerGroup.headers.map((header) => {
-                      const sorted = header.column.getIsSorted();
-                      const label = String(header.column.columnDef.header ?? "");
-                      return (
-                        <TableHeaderCell
-                          key={header.id}
-                          scope="col"
-                          aria-sort={
-                            sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
-                          }
-                        >
-                          {header.column.getCanSort() ? (
-                            <button
-                              className="w-full border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
-                              onClick={header.column.getToggleSortingHandler()}
-                              type="button"
-                            >
-                              {sortLabel(label, sorted)}
-                            </button>
-                          ) : (
-                            label
-                          )}
-                        </TableHeaderCell>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
               <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
+                {table.getRowModel().rows.map((row) => {
+                  const href = `/assignments/${row.original.id}`;
+                  return (
+                    <TableRow
+                      key={row.id}
+                      aria-label={`Edit ${row.original.email}`}
+                      data-clickable="true"
+                      onClick={(event) => {
+                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                        router.push(href);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 ? (
+                            <TableRowAction href={href} label={`Edit ${row.original.email}`}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
                 {!assignmentsQuery.isPending && table.getRowModel().rows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>
@@ -232,64 +224,7 @@ export function AssignmentsTable() {
           />
         </div>
       </div>
-
-      <DeleteAssignmentDialog
-        assignment={deletingAssignment}
-        onClose={() => setDeletingAssignment(null)}
-        onDeleted={async () => {
-          setDeletingAssignment(null);
-          await queryClient.invalidateQueries();
-        }}
-      />
     </>
-  );
-}
-
-function DeleteAssignmentDialog({
-  assignment,
-  onClose,
-  onDeleted,
-}: {
-  assignment: AssignmentDto | null;
-  onClose: () => void;
-  onDeleted: () => Promise<void>;
-}) {
-  const trpc = useTRPC();
-  const operationToast = useOperationToast();
-  const mutation = useMutation(
-    trpc.admin.assignments.delete.mutationOptions({
-      onSuccess: () => {
-        operationToast.success("Assignment deleted", "assignment-delete");
-        void onDeleted();
-      },
-      onError: (error) =>
-        operationToast.error("Could not delete assignment", error, "assignment-delete"),
-    }),
-  );
-  const removesAdmin = assignment?.scopes.includes("weldall:administer") ?? false;
-  return (
-    <AlertDialog
-      actionLabel="Delete assignment"
-      description={
-        assignment
-          ? `Remove all scopes from ${assignment.email}?${removesAdmin ? " This also removes administrator access and is rejected for the final administrator." : ""}`
-          : "Delete this assignment?"
-      }
-      isActionLoading={mutation.isPending}
-      isOpen={Boolean(assignment)}
-      onAction={() => {
-        if (assignment) {
-          mutation.mutate({ id: assignment.id, expectedVersion: assignment.version });
-        }
-      }}
-      onOpenChange={(open) => {
-        if (!open && !mutation.isPending) {
-          mutation.reset();
-          onClose();
-        }
-      }}
-      title="Delete assignment?"
-    />
   );
 }
 

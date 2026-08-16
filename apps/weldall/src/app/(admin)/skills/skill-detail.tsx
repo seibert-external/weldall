@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -34,6 +35,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const formId = useId();
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const isNew = skillId === null;
   const skillQuery = useQuery({
     ...trpc.admin.skills.get.queryOptions({ id: skillId ?? "new" }),
@@ -45,6 +47,16 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
     trpc.admin.skills.create.mutationOptions({
       onSuccess: () => operationToast.success("Skill created", "skill-save"),
       onError: (error) => operationToast.error("Could not create skill", error, "skill-save"),
+    }),
+  );
+  const deleteMutation = useMutation(
+    trpc.admin.skills.delete.mutationOptions({
+      onSuccess: async () => {
+        operationToast.success("Skill deleted", "skill-delete");
+        await queryClient.invalidateQueries();
+        router.push("/skills");
+      },
+      onError: (error) => operationToast.error("Could not delete skill", error, "skill-delete"),
     }),
   );
   const updateMutation = useMutation(
@@ -117,13 +129,22 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
     <>
       <HerocrumbsTitle title={isNew ? "Create skill" : (skillQuery.data?.title ?? "Skill")} />
       <HerocrumbsActions>
+        {!isNew && !isReadOnly ? (
+          <Button
+            isDisabled={mutation.isPending || deleteMutation.isPending}
+            isLoading={deleteMutation.isPending}
+            label="Delete skill"
+            onClick={() => setIsDeleteOpen(true)}
+            variant="destructive"
+          />
+        ) : null}
         <Button href="/skills" label="Cancel" variant="secondary" />
         <form.Subscribe selector={(state) => state.canSubmit}>
           {(canSubmit) =>
             isReadOnly ? null : (
               <Button
                 form={formId}
-                isDisabled={!canSubmit}
+                isDisabled={!canSubmit || deleteMutation.isPending}
                 isLoading={mutation.isPending}
                 label={isNew ? "Create skill" : "Save skill"}
                 type="submit"
@@ -307,6 +328,31 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
           </FormLayout>
         </form>
       </div>
+      <AlertDialog
+        actionLabel="Delete skill"
+        description={
+          skillQuery.data
+            ? `Delete ${skillQuery.data.title}? Agents will no longer be able to discover it.`
+            : "Delete this skill?"
+        }
+        isActionLoading={deleteMutation.isPending}
+        isOpen={isDeleteOpen}
+        onAction={() => {
+          if (skillQuery.data && !skillQuery.data.readOnly && !mutation.isPending) {
+            deleteMutation.mutate({
+              id: skillQuery.data.id,
+              expectedVersion: skillQuery.data.version,
+            });
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) {
+            deleteMutation.reset();
+            setIsDeleteOpen(false);
+          }
+        }}
+        title="Delete skill?"
+      />
     </>
   );
 }

@@ -11,14 +11,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Pagination } from "@astryxdesign/core/Pagination";
-import {
-  TableBody,
-  TableCell,
-  TableContext,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from "@astryxdesign/core/Table";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -31,7 +24,13 @@ import type { ScopeDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
-import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
+import { createSortingParser, resolveUpdater } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["key", "updatedAt"]), [
   { id: "key", desc: false },
@@ -65,22 +64,40 @@ export function ScopesTable() {
       {
         accessorKey: "key",
         header: "Scope key",
-        cell: ({ row, getValue }) => (
-          <div className="flex flex-wrap items-center gap-2">
-            <code className="text-sm">{getValue<string>()}</code>
-            {row.original.isSystem ? <Badge label="System" variant="purple" /> : null}
-            <ManagementBadge management={row.original.management} />
-          </div>
-        ),
+        size: 380,
+        minSize: 180,
+        maxSize: 600,
+        cell: ({ row, getValue }) => {
+          const key = getValue<string>();
+          return (
+            <OverflowFade title={key}>
+              <div className="flex w-max flex-nowrap items-center gap-2 whitespace-nowrap">
+                <code className="text-sm">{key}</code>
+                {row.original.isSystem ? <Badge label="System" variant="purple" /> : null}
+                <ManagementBadge management={row.original.management} />
+              </div>
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "description",
         header: "Description",
+        size: 600,
+        minSize: 220,
+        maxSize: 900,
         enableSorting: false,
+        cell: ({ getValue }) => {
+          const description = getValue<string>();
+          return <OverflowFade title={description}>{description}</OverflowFade>;
+        },
       },
       {
         accessorKey: "assignmentCount",
         header: "Assignments",
+        size: 160,
+        minSize: 130,
+        maxSize: 220,
         enableSorting: false,
         cell: ({ getValue }) => (
           <span className="tabular-nums">{getValue<number>().toLocaleString()}</span>
@@ -89,22 +106,13 @@ export function ScopesTable() {
       {
         accessorKey: "updatedAt",
         header: "Updated",
-        cell: ({ getValue }) => dateFormatter.format(new Date(getValue<string>())),
-      },
-      {
-        id: "actions",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex justify-end">
-            <Button
-              isDisabled={row.original.isSystem}
-              label="Edit"
-              onClick={() => setEditingScope(row.original)}
-              size="sm"
-              variant="secondary"
-            />
-          </div>
+        size: 260,
+        minSize: 200,
+        maxSize: 360,
+        cell: ({ getValue }) => (
+          <time className="whitespace-nowrap">
+            {dateFormatter.format(new Date(getValue<string>()))}
+          </time>
         ),
       },
     ],
@@ -117,6 +125,7 @@ export function ScopesTable() {
     columns,
     state: { sorting },
     manualSorting: true,
+    columnResizeMode: "onChange",
     onSortingChange: (updater: Updater<SortingState>) => {
       const next = resolveUpdater(updater, sorting);
       void setTableQuery({ sort: next, page: 1 });
@@ -156,7 +165,7 @@ export function ScopesTable() {
         <TableContext.Provider
           value={{
             density: "balanced",
-            dividers: "rows",
+            dividers: "grid",
             hasHover: false,
             isStriped: false,
             textOverflow: "wrap",
@@ -164,48 +173,46 @@ export function ScopesTable() {
           }}
         >
           <div className="w-full overflow-x-auto" role="group" aria-label="Scopes table">
-            <table className="w-full min-w-[760px] border-collapse text-left">
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} isHeaderRow>
-                    {headerGroup.headers.map((header) => {
-                      const sorted = header.column.getIsSorted();
-                      const label = String(header.column.columnDef.header ?? "");
-                      return (
-                        <TableHeaderCell
-                          key={header.id}
-                          scope="col"
-                          aria-sort={
-                            sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
-                          }
-                        >
-                          {header.column.getCanSort() ? (
-                            <button
-                              className="w-full border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
-                              onClick={header.column.getToggleSortingHandler()}
-                              type="button"
-                            >
-                              {sortLabel(label, sorted)}
-                            </button>
-                          ) : (
-                            label
-                          )}
-                        </TableHeaderCell>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
               <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
+                {table.getRowModel().rows.map((row) => {
+                  const isEditable = !row.original.isSystem;
+                  return (
+                    <TableRow
+                      key={row.id}
+                      aria-label={isEditable ? `Edit ${row.original.key}` : undefined}
+                      data-clickable={isEditable ? "true" : undefined}
+                      onClick={
+                        isEditable
+                          ? (event) => {
+                              if (isInteractiveTableTarget(event.target, event.currentTarget))
+                                return;
+                              setEditingScope(row.original);
+                            }
+                          : undefined
+                      }
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 && isEditable ? (
+                            <TableRowAction
+                              label={`Edit ${row.original.key}`}
+                              onActivate={() => setEditingScope(row.original)}
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
                 {!scopesQuery.isPending && table.getRowModel().rows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>

@@ -1,30 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Pagination } from "@astryxdesign/core/Pagination";
-import {
-  TableBody,
-  TableCell,
-  TableContext,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from "@astryxdesign/core/Table";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import { ManagementBadge } from "@/components/admin/management-badge";
 import type { GroupAssignmentDto } from "@/server/group-providers/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { useOperationToast } from "../../_components/use-operation-toast";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 
 const PAGE_SIZE = 20;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -33,10 +31,8 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 export function GroupAssignmentsPage() {
+  const router = useRouter();
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const operationToast = useOperationToast();
-  const [deletingAssignment, setDeletingAssignment] = useState<GroupAssignmentDto | null>(null);
   const [{ q, page }, setTableQuery] = useQueryStates(
     {
       q: parseAsString.withDefault(""),
@@ -55,76 +51,72 @@ export function GroupAssignmentsPage() {
     const validPage = Math.min(currentPage, lastPage);
     if (page !== validPage) void setTableQuery({ page: validPage });
   }, [currentPage, page, setTableQuery, total]);
-  const deleteMutation = useMutation(
-    trpc.admin.groupAssignments.delete.mutationOptions({
-      onSuccess: async () => {
-        setDeletingAssignment(null);
-        operationToast.success("Group assignment deleted", "group-assignment-delete");
-        await queryClient.invalidateQueries();
-      },
-      onError: (error) =>
-        operationToast.error("Could not delete group assignment", error, "group-assignment-delete"),
-    }),
-  );
   const assignments = assignmentsQuery.data?.items ?? [];
   const columns = useMemo<ColumnDef<GroupAssignmentDto>[]>(
     () => [
       {
         accessorKey: "providerName",
         header: "Provider",
-        cell: ({ row, getValue }) => (
-          <div className="grid gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{getValue<string>()}</span>
-              <ManagementBadge management={row.original.management} />
-            </div>
-            <code className="text-xs">{row.original.providerKey}</code>
-          </div>
-        ),
+        size: 380,
+        minSize: 200,
+        maxSize: 560,
+        cell: ({ row, getValue }) => {
+          const providerName = getValue<string>();
+          return (
+            <OverflowFade title={`${providerName} (${row.original.providerKey})`}>
+              <div className="flex w-max flex-nowrap items-center gap-2 whitespace-nowrap">
+                <span>{providerName}</span>
+                <code className="text-xs">{row.original.providerKey}</code>
+                <ManagementBadge management={row.original.management} />
+              </div>
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "groupId",
         header: "Group ID",
-        cell: ({ getValue }) => <code className="text-sm font-medium">{getValue<string>()}</code>,
+        size: 320,
+        minSize: 180,
+        maxSize: 520,
+        cell: ({ getValue }) => {
+          const groupId = getValue<string>();
+          return (
+            <OverflowFade title={groupId}>
+              <code className="whitespace-nowrap text-sm">{groupId}</code>
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "scopes",
         header: "Scopes",
-        cell: ({ getValue }) => (
-          <div className="flex max-w-[44rem] flex-wrap gap-1">
-            {getValue<string[]>().map((scope) => (
-              <Badge key={scope} label={scope} />
-            ))}
-          </div>
-        ),
+        size: 430,
+        minSize: 220,
+        maxSize: 760,
+        cell: ({ getValue }) => {
+          const scopes = getValue<string[]>();
+          return (
+            <OverflowFade title={scopes.join(", ")}>
+              <div className="flex w-max flex-nowrap gap-1 whitespace-nowrap">
+                {scopes.map((scope) => (
+                  <Badge key={scope} label={scope} />
+                ))}
+              </div>
+            </OverflowFade>
+          );
+        },
       },
       {
         accessorKey: "updatedAt",
         header: "Updated",
+        size: 270,
+        minSize: 220,
+        maxSize: 400,
         cell: ({ getValue }) => (
           <time className="whitespace-nowrap">
             {dateFormatter.format(new Date(getValue<string>()))}
           </time>
-        ),
-      },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              href={`/group-assignments/${row.original.id}`}
-              label="Edit"
-              size="sm"
-              variant="secondary"
-            />
-            <Button
-              label="Delete"
-              onClick={() => setDeletingAssignment(row.original)}
-              size="sm"
-              variant="destructive"
-            />
-          </div>
         ),
       },
     ],
@@ -133,6 +125,8 @@ export function GroupAssignmentsPage() {
   const table = useReactTable({
     data: assignments,
     columns,
+    enableSorting: false,
+    columnResizeMode: "onChange",
     getCoreRowModel: getCoreRowModel(),
   });
 
@@ -166,7 +160,7 @@ export function GroupAssignmentsPage() {
         <TableContext.Provider
           value={{
             density: "balanced",
-            dividers: "rows",
+            dividers: "grid",
             hasHover: false,
             isStriped: false,
             textOverflow: "wrap",
@@ -174,28 +168,38 @@ export function GroupAssignmentsPage() {
           }}
         >
           <div className="w-full overflow-x-auto" role="group" aria-label="Group assignments table">
-            <table className="w-full min-w-[900px] border-collapse text-left">
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} isHeaderRow>
-                    {headerGroup.headers.map((header) => (
-                      <TableHeaderCell key={header.id} scope="col">
-                        {String(header.column.columnDef.header ?? "")}
-                      </TableHeaderCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
               <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
+                {table.getRowModel().rows.map((row) => {
+                  const href = `/group-assignments/${row.original.id}`;
+                  return (
+                    <TableRow
+                      key={row.id}
+                      aria-label={`Edit ${row.original.groupId}`}
+                      data-clickable="true"
+                      onClick={(event) => {
+                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                        router.push(href);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 ? (
+                            <TableRowAction href={href} label={`Edit ${row.original.groupId}`}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
                 {!assignmentsQuery.isPending &&
                 !assignmentsQuery.error &&
                 table.getRowModel().rows.length === 0 ? (
@@ -231,31 +235,6 @@ export function GroupAssignmentsPage() {
           />
         </div>
       </div>
-      <AlertDialog
-        actionLabel="Delete assignment"
-        description={
-          deletingAssignment
-            ? `Remove all group-derived scopes for ${deletingAssignment.groupId} from ${deletingAssignment.providerName}?`
-            : "Delete this group assignment?"
-        }
-        isActionLoading={deleteMutation.isPending}
-        isOpen={Boolean(deletingAssignment)}
-        onAction={() => {
-          if (deletingAssignment) {
-            deleteMutation.mutate({
-              id: deletingAssignment.id,
-              expectedVersion: deletingAssignment.version,
-            });
-          }
-        }}
-        onOpenChange={(open) => {
-          if (!open && !deleteMutation.isPending) {
-            deleteMutation.reset();
-            setDeletingAssignment(null);
-          }
-        }}
-        title="Delete group assignment?"
-      />
     </>
   );
 }

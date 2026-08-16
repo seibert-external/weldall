@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -22,6 +23,7 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
   const router = useRouter();
   const queryClient = useQueryClient();
   const formId = useId();
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const isNew = assignmentId === null;
   const operationToast = useOperationToast();
   const assignmentQuery = useQuery({
@@ -33,6 +35,17 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
     enabled: isNew,
   });
   const scopesQuery = useQuery(trpc.admin.scopes.options.queryOptions());
+  const deleteMutation = useMutation(
+    trpc.admin.groupAssignments.delete.mutationOptions({
+      onSuccess: async () => {
+        operationToast.success("Group assignment deleted", "group-assignment-delete");
+        await queryClient.invalidateQueries();
+        router.push("/group-assignments");
+      },
+      onError: (error) =>
+        operationToast.error("Could not delete group assignment", error, "group-assignment-delete"),
+    }),
+  );
   const createMutation = useMutation(
     trpc.admin.groupAssignments.createMany.mutationOptions({
       onSuccess: () => operationToast.success("Group assignment created", "group-assignment-save"),
@@ -120,12 +133,23 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
     <>
       <HerocrumbsTitle title={title} />
       <HerocrumbsActions>
+        {assignment ? (
+          <Button
+            isDisabled={mutation.isPending || deleteMutation.isPending}
+            isLoading={deleteMutation.isPending}
+            label="Delete assignment"
+            onClick={() => setIsDeleteOpen(true)}
+            variant="destructive"
+          />
+        ) : null}
         <Button href="/group-assignments" label="Cancel" variant="secondary" />
         <form.Subscribe selector={(state) => state.canSubmit}>
           {(canSubmit) => (
             <Button
               form={formId}
-              isDisabled={!canSubmit || optionsPending || Boolean(loadError)}
+              isDisabled={
+                !canSubmit || optionsPending || Boolean(loadError) || deleteMutation.isPending
+              }
               isLoading={mutation.isPending}
               label={isNew ? "Create assignment" : "Save assignment"}
               type="submit"
@@ -231,6 +255,28 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
           </FormLayout>
         </form>
       </div>
+      <AlertDialog
+        actionLabel="Delete assignment"
+        description={
+          assignment
+            ? `Remove all group-derived scopes for ${assignment.groupId} from ${assignment.providerName}?`
+            : "Delete this group assignment?"
+        }
+        isActionLoading={deleteMutation.isPending}
+        isOpen={isDeleteOpen}
+        onAction={() => {
+          if (assignment && !mutation.isPending) {
+            deleteMutation.mutate({ id: assignment.id, expectedVersion: assignment.version });
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) {
+            deleteMutation.reset();
+            setIsDeleteOpen(false);
+          }
+        }}
+        title="Delete group assignment?"
+      />
     </>
   );
 }

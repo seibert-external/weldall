@@ -1,19 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
 import { Pagination } from "@astryxdesign/core/Pagination";
-import {
-  TableBody,
-  TableCell,
-  TableContext,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from "@astryxdesign/core/Table";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
@@ -22,7 +15,13 @@ import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { UserDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
+import { createSortingParser, resolveUpdater } from "../table-state";
 
 const PAGE_SIZE = 20;
 const sortingParser = createSortingParser(new Set(["name", "email", "createdAt"]), [
@@ -34,6 +33,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 export function UsersTable() {
+  const router = useRouter();
   const trpc = useTRPC();
   const [{ q, page, sort: sorting }, setTableQuery] = useQueryStates(
     {
@@ -57,15 +57,31 @@ export function UsersTable() {
       {
         accessorKey: "name",
         header: "Name",
-        cell: ({ getValue }) => <span className="font-medium">{getValue<string>()}</span>,
+        size: 340,
+        minSize: 180,
+        maxSize: 520,
+        cell: ({ getValue }) => {
+          const name = getValue<string>();
+          return <OverflowFade title={name}>{name}</OverflowFade>;
+        },
       },
       {
         accessorKey: "email",
         header: "Email",
+        size: 500,
+        minSize: 240,
+        maxSize: 760,
+        cell: ({ getValue }) => {
+          const email = getValue<string>();
+          return <OverflowFade title={email}>{email}</OverflowFade>;
+        },
       },
       {
         accessorKey: "emailVerified",
         header: "Identity",
+        size: 200,
+        minSize: 140,
+        maxSize: 260,
         enableSorting: false,
         cell: ({ getValue }) => (
           <Badge
@@ -77,25 +93,13 @@ export function UsersTable() {
       {
         accessorKey: "createdAt",
         header: "First signed in",
+        size: 360,
+        minSize: 220,
+        maxSize: 460,
         cell: ({ getValue }) => (
           <time className="whitespace-nowrap">
             {dateFormatter.format(new Date(getValue<string>()))}
           </time>
-        ),
-      },
-      {
-        id: "actions",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex justify-end">
-            <Button
-              href={`/users/${encodeURIComponent(row.original.id)}`}
-              label="Open"
-              size="sm"
-              variant="secondary"
-            />
-          </div>
         ),
       },
     ],
@@ -106,6 +110,7 @@ export function UsersTable() {
     columns,
     state: { sorting },
     manualSorting: true,
+    columnResizeMode: "onChange",
     onSortingChange: (updater: Updater<SortingState>) => {
       void setTableQuery({ sort: resolveUpdater(updater, sorting), page: 1 });
     },
@@ -139,7 +144,7 @@ export function UsersTable() {
         <TableContext.Provider
           value={{
             density: "balanced",
-            dividers: "rows",
+            dividers: "grid",
             hasHover: false,
             isStriped: false,
             textOverflow: "wrap",
@@ -147,48 +152,38 @@ export function UsersTable() {
           }}
         >
           <div className="w-full overflow-x-auto" role="group" aria-label="Users table">
-            <table className="w-full min-w-[800px] border-collapse text-left">
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} isHeaderRow>
-                    {headerGroup.headers.map((header) => {
-                      const sorted = header.column.getIsSorted();
-                      const label = String(header.column.columnDef.header ?? "");
-                      return (
-                        <TableHeaderCell
-                          key={header.id}
-                          scope="col"
-                          aria-sort={
-                            sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
-                          }
-                        >
-                          {header.column.getCanSort() ? (
-                            <button
-                              className="w-full border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
-                              onClick={header.column.getToggleSortingHandler()}
-                              type="button"
-                            >
-                              {sortLabel(label, sorted)}
-                            </button>
-                          ) : (
-                            label
-                          )}
-                        </TableHeaderCell>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
               <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
+                {table.getRowModel().rows.map((row) => {
+                  const href = `/users/${encodeURIComponent(row.original.id)}`;
+                  return (
+                    <TableRow
+                      key={row.id}
+                      aria-label={`Open ${row.original.name}`}
+                      data-clickable="true"
+                      onClick={(event) => {
+                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                        router.push(href);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 ? (
+                            <TableRowAction href={href} label={`Open ${row.original.name}`}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
                 {!usersQuery.isPending && table.getRowModel().rows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>

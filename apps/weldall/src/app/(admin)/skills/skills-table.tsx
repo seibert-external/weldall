@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -10,26 +10,24 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { HStack } from "@astryxdesign/core/Layout";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Selector } from "@astryxdesign/core/Selector";
-import {
-  TableBody,
-  TableCell,
-  TableContext,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from "@astryxdesign/core/Table";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { SkillDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { ManagementBadge } from "@/components/admin/management-badge";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { useOperationToast } from "../../_components/use-operation-toast";
-import { createSortingParser, resolveUpdater, sortLabel } from "../table-state";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
+import { createSortingParser, resolveUpdater } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["title", "updatedAt"]), [
   { id: "title", desc: false },
@@ -56,9 +54,8 @@ const catalogStatuses: Record<
 };
 
 export function SkillsTable() {
+  const router = useRouter();
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const [deletingSkill, setDeletingSkill] = useState<SkillDto | null>(null);
   const [{ q, source, page, sort: sorting }, setTableQuery] = useQueryStates(
     {
       q: parseAsString.withDefault(""),
@@ -100,17 +97,36 @@ export function SkillsTable() {
       {
         accessorKey: "title",
         header: "Title",
-        cell: ({ getValue }) => <span className="font-medium">{getValue<string>()}</span>,
+        size: 220,
+        minSize: 160,
+        maxSize: 420,
+        cell: ({ getValue }) => {
+          const title = getValue<string>();
+          return <OverflowFade title={title}>{title}</OverflowFade>;
+        },
       },
       {
         accessorKey: "slug",
         header: "Skill ID",
+        size: 180,
+        minSize: 140,
+        maxSize: 360,
         enableSorting: false,
-        cell: ({ getValue }) => <code className="text-sm">{getValue<string>()}</code>,
+        cell: ({ getValue }) => {
+          const slug = getValue<string>();
+          return (
+            <OverflowFade title={slug}>
+              <code className="whitespace-nowrap text-sm">{slug}</code>
+            </OverflowFade>
+          );
+        },
       },
       {
         id: "source",
         header: "Source",
+        size: 200,
+        minSize: 160,
+        maxSize: 380,
         enableSorting: false,
         cell: ({ row }) => (
           <div className="grid justify-items-start gap-1">
@@ -120,12 +136,14 @@ export function SkillsTable() {
                 <ManagementBadge management={row.original.management} />
               </HStack>
             ) : (
-              <Button
-                href={`/resources/${row.original.source.resourceId}`}
-                label={row.original.source.name}
-                size="sm"
-                variant="ghost"
-              />
+              <div onClick={(event) => event.stopPropagation()}>
+                <Button
+                  href={`/resources/${row.original.source.resourceId}`}
+                  label={row.original.source.name}
+                  size="sm"
+                  variant="ghost"
+                />
+              </div>
             )}
             {row.original.overridden ? <Text color="secondary">Overridden</Text> : null}
           </div>
@@ -134,6 +152,9 @@ export function SkillsTable() {
       {
         id: "catalogStatus",
         header: "Catalog status",
+        size: 180,
+        minSize: 150,
+        maxSize: 280,
         enableSorting: false,
         cell: ({ row }) => {
           if (row.original.source.type === "manual") {
@@ -151,36 +172,44 @@ export function SkillsTable() {
       {
         accessorKey: "requiredScopes",
         header: "Required scopes",
+        size: 220,
+        minSize: 170,
+        maxSize: 520,
         enableSorting: false,
         cell: ({ getValue, row }) => {
           const scopes = getValue<string[]>();
           if (!scopes.length) return "None";
           return (
-            <div className="flex flex-wrap gap-x-3 gap-y-1">
-              {scopes.map((scope) => {
-                const warning = row.original.scopeWarnings.find(
-                  (candidate) => candidate === `Unknown scope: ${scope}`,
-                );
-                return (
-                  <HStack key={scope} gap={1} vAlign="center">
-                    <code className="text-sm">{scope}</code>
-                    {warning ? (
-                      <Tooltip content={warning} hasHoverIndication={false}>
-                        <span aria-label={warning} className="inline-flex" tabIndex={0}>
-                          <Icon color="warning" icon="warning" size="sm" />
-                        </span>
-                      </Tooltip>
-                    ) : null}
-                  </HStack>
-                );
-              })}
-            </div>
+            <OverflowFade title={scopes.join(", ")}>
+              <div className="flex w-max flex-nowrap gap-3 whitespace-nowrap">
+                {scopes.map((scope) => {
+                  const warning = row.original.scopeWarnings.find(
+                    (candidate) => candidate === `Unknown scope: ${scope}`,
+                  );
+                  return (
+                    <HStack key={scope} gap={1} vAlign="center">
+                      <code className="text-sm">{scope}</code>
+                      {warning ? (
+                        <Tooltip content={warning} hasHoverIndication={false}>
+                          <span aria-label={warning} className="inline-flex" tabIndex={0}>
+                            <Icon color="warning" icon="warning" size="sm" />
+                          </span>
+                        </Tooltip>
+                      ) : null}
+                    </HStack>
+                  );
+                })}
+              </div>
+            </OverflowFade>
           );
         },
       },
       {
         accessorKey: "visibility",
         header: "Visibility",
+        size: 170,
+        minSize: 140,
+        maxSize: 260,
         enableSorting: false,
         cell: ({ getValue }) => {
           const visibility = getValue<SkillDto["visibility"]>();
@@ -195,29 +224,13 @@ export function SkillsTable() {
       {
         accessorKey: "updatedAt",
         header: "Updated",
-        cell: ({ getValue }) => dateFormatter.format(new Date(getValue<string>())),
-      },
-      {
-        id: "actions",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              href={`/skills/${row.original.id}`}
-              label="Open"
-              size="sm"
-              variant="secondary"
-            />
-            {!row.original.readOnly ? (
-              <Button
-                label="Delete"
-                onClick={() => setDeletingSkill(row.original)}
-                size="sm"
-                variant="destructive"
-              />
-            ) : null}
-          </div>
+        size: 230,
+        minSize: 210,
+        maxSize: 360,
+        cell: ({ getValue }) => (
+          <time className="whitespace-nowrap">
+            {dateFormatter.format(new Date(getValue<string>()))}
+          </time>
         ),
       },
     ],
@@ -228,6 +241,7 @@ export function SkillsTable() {
     columns,
     state: { sorting },
     manualSorting: true,
+    columnResizeMode: "onChange",
     onSortingChange: (updater: Updater<SortingState>) => {
       const next = resolveUpdater(updater, sorting);
       void setTableQuery({ sort: next, page: 1 });
@@ -285,7 +299,7 @@ export function SkillsTable() {
         <TableContext.Provider
           value={{
             density: "balanced",
-            dividers: "rows",
+            dividers: "grid",
             hasHover: false,
             isStriped: false,
             textOverflow: "wrap",
@@ -293,48 +307,38 @@ export function SkillsTable() {
           }}
         >
           <div className="w-full overflow-x-auto" role="group" aria-label="Skills table">
-            <table className="w-full min-w-[1000px] border-collapse text-left">
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} isHeaderRow>
-                    {headerGroup.headers.map((header) => {
-                      const sorted = header.column.getIsSorted();
-                      const label = String(header.column.columnDef.header ?? "");
-                      return (
-                        <TableHeaderCell
-                          key={header.id}
-                          scope="col"
-                          aria-sort={
-                            sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
-                          }
-                        >
-                          {header.column.getCanSort() ? (
-                            <button
-                              className="w-full border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
-                              onClick={header.column.getToggleSortingHandler()}
-                              type="button"
-                            >
-                              {sortLabel(label, sorted)}
-                            </button>
-                          ) : (
-                            label
-                          )}
-                        </TableHeaderCell>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
               <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
+                {table.getRowModel().rows.map((row) => {
+                  const href = `/skills/${row.original.id}`;
+                  return (
+                    <TableRow
+                      key={row.id}
+                      aria-label={`Open ${row.original.title}`}
+                      data-clickable="true"
+                      onClick={(event) => {
+                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                        router.push(href);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 ? (
+                            <TableRowAction href={href} label={`Open ${row.original.title}`}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
                 {!skillsQuery.isPending && table.getRowModel().rows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>
@@ -368,60 +372,7 @@ export function SkillsTable() {
           />
         </div>
       </div>
-
-      <DeleteSkillDialog
-        skill={deletingSkill}
-        onClose={() => setDeletingSkill(null)}
-        onDeleted={async () => {
-          setDeletingSkill(null);
-          await queryClient.invalidateQueries();
-        }}
-      />
     </>
-  );
-}
-
-function DeleteSkillDialog({
-  skill,
-  onClose,
-  onDeleted,
-}: {
-  skill: SkillDto | null;
-  onClose: () => void;
-  onDeleted: () => Promise<void>;
-}) {
-  const trpc = useTRPC();
-  const operationToast = useOperationToast();
-  const mutation = useMutation(
-    trpc.admin.skills.delete.mutationOptions({
-      onSuccess: () => {
-        operationToast.success("Skill deleted", "skill-delete");
-        void onDeleted();
-      },
-      onError: (error) => operationToast.error("Could not delete skill", error, "skill-delete"),
-    }),
-  );
-  return (
-    <AlertDialog
-      actionLabel="Delete skill"
-      description={
-        skill
-          ? `Delete ${skill.title}? Agents will no longer be able to discover it.`
-          : "Delete this skill?"
-      }
-      isActionLoading={mutation.isPending}
-      isOpen={Boolean(skill)}
-      onAction={() => {
-        if (skill) mutation.mutate({ id: skill.id, expectedVersion: skill.version });
-      }}
-      onOpenChange={(open) => {
-        if (!open && !mutation.isPending) {
-          mutation.reset();
-          onClose();
-        }
-      }}
-      title="Delete skill?"
-    />
   );
 }
 
