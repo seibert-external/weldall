@@ -119,7 +119,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 }) => {
   // This flow visits every administration table. Cold Next.js compilation in
   // CI can push it past the shorter timeout as those pages are loaded.
-  test.setTimeout(480_000);
+  test.setTimeout(600_000);
 
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
