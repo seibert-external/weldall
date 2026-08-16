@@ -117,7 +117,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   page,
   request: apiRequest,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(180_000);
 
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
@@ -228,11 +228,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("link", { name: "Cancel" }).click();
 
   await page.getByRole("link", { name: "Skill registry" }).click();
-  await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible();
   await page.getByRole("link", { name: "Create skill" }).click();
-  await page.getByRole("textbox", { name: "Skill ID", exact: true }).fill("expenses.list");
+  await page.getByLabel("Skill ID").fill("expenses.list");
   await page.getByLabel("Title").fill("List expenses");
   await page.getByRole("button", { name: "Required scopes" }).click();
   await expect(page.getByRole("option", { name: /weldall:login/ })).toBeVisible();
