@@ -13,6 +13,7 @@ import {
 import { decodeProtectedHeader, importJWK, jwtVerify, type JWK, type JWTPayload } from "jose";
 import type { AuditReasonCode } from "../../lib/audit";
 import { auditRequestIdentifiers, type AuditWriter } from "../audit/service";
+import { errorForLog, logger } from "../observability/logger";
 import { WELDALL_ISSUER, WELDALL_RESOURCE, WELDALL_TOKEN_ENDPOINT } from "./constants";
 import { signWeldallJwt } from "./jwt";
 
@@ -339,8 +340,11 @@ export async function auditMachineFailure(
         requestedScopes: context.requestedScopes,
       },
     });
-  } catch {
-    console.error("Machine token audit write failed");
+  } catch (auditError) {
+    logger.error(
+      { event: "audit.machine_token.write_failed", error: errorForLog(auditError) },
+      "Machine token audit write failed",
+    );
   }
 }
 

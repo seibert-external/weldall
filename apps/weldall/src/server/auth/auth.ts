@@ -6,6 +6,7 @@ import { db } from "@weldall/db";
 import { WELDALL_CLIENT_ID, WELDALL_ISSUER, WELDALL_RESOURCE } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
 import { requireLoginScopeForOAuthGrant } from "./login-policy";
+import { errorForLog, logger } from "../observability/logger";
 import { resolveDeploymentMode, resolveLoginProviders } from "./providers";
 const required = (n: string) => {
   const v = process.env[n];
@@ -17,6 +18,7 @@ const deploymentMode = resolveDeploymentMode();
 const loginProviders = resolveLoginProviders();
 const cliScopes = ["openid", "profile", "email", "offline_access", "weldall:scopes"];
 const localCallbackOrigin = "http://localhost:3000";
+const authLogger = logger.child({ name: "better-auth" });
 
 export const auth = betterAuth({
   baseURL: WELDALL_ISSUER,
@@ -27,6 +29,20 @@ export const auth = betterAuth({
     WELDALL_ISSUER,
     ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:3000"]),
   ],
+  logger: {
+    level: "debug",
+    log(level, message, ...args) {
+      const error = args.find((value): value is Error => value instanceof Error);
+      const fields = {
+        event: "better-auth.log",
+        ...(error ? { error: errorForLog(error) } : {}),
+      };
+      if (level === "error") authLogger.error(fields, message);
+      else if (level === "warn") authLogger.warn(fields, message);
+      else if (level === "info") authLogger.info(fields, message);
+      else authLogger.debug(fields, message);
+    },
+  },
   rateLimit: {
     customRules: { "/oauth2/token": false },
   },

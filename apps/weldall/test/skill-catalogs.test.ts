@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
+import { generateEs256KeyPair } from "@weldall/sdk";
 import { listSkills, listSkillSourceOptions } from "../src/server/admin/service.js";
+import { logger } from "../src/server/observability/logger.js";
 import { refreshDueCatalogs, refreshResourceCatalog } from "../src/server/skills/catalogs.js";
 import {
   getVisibleSkill,
@@ -60,6 +62,15 @@ const fetchCatalog = vi.fn(async (input: string | URL | Request, init?: RequestI
 });
 
 const adminEmail = `${id}-admin@example.com`;
+const priorSigningEnv = {
+  kid: process.env.WELDALL_SIGNING_KID,
+  privateJwk: process.env.WELDALL_SIGNING_PRIVATE_JWK,
+  publicJwk: process.env.WELDALL_SIGNING_PUBLIC_JWK,
+};
+const signingKey = await generateEs256KeyPair();
+process.env.WELDALL_SIGNING_KID = `catalog-test-${id}`;
+process.env.WELDALL_SIGNING_PRIVATE_JWK = JSON.stringify(signingKey.privateJwk);
+process.env.WELDALL_SIGNING_PUBLIC_JWK = JSON.stringify(signingKey.publicJwk);
 const resource = await db.downstreamResource.create({
   data: {
     key,
@@ -97,6 +108,14 @@ await db.emailScopeAssignment.create({
 afterAll(async () => {
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: adminEmail } });
   await db.downstreamResource.deleteMany({ where: { id: resource.id } });
+  for (const [name, value] of [
+    ["WELDALL_SIGNING_KID", priorSigningEnv.kid],
+    ["WELDALL_SIGNING_PRIVATE_JWK", priorSigningEnv.privateJwk],
+    ["WELDALL_SIGNING_PUBLIC_JWK", priorSigningEnv.publicJwk],
+  ] as const) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 });
 
 describe("persisted skill catalog refresh", () => {
@@ -201,32 +220,41 @@ describe("persisted skill catalog refresh", () => {
   });
 
   it("returns a failed manual refresh without replacing the last valid rows", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    await expect(
-      refreshResourceCatalog(resource.id, {
-        fetcher: vi.fn(async () => new Response(null, { status: 503 })) as typeof fetch,
-      }),
-    ).resolves.toBe("failed");
-    const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
-      where: { resourceId: resource.id },
-      include: { skills: true },
+    const warnings: Record<string, any>[] = [];
+    const detach = logger.attachTransport((record) => {
+      if (record._logMeta.logLevelName === "WARN") warnings.push(record);
     });
-    expect(catalog.lastFailureCategory).toBe("metadata_unavailable");
-    expect(catalog.skills).toHaveLength(3);
-    const nonAdminView = await listVisibleSkills(`${id}-non-admin@example.com`);
-    expect(nonAdminView.warnings).toEqual([]);
-    const adminView = await listVisibleSkills(adminEmail);
-    expect(adminView.warnings).toContainEqual({
-      source: key,
-      code: "catalog_temporarily_unavailable",
-    });
-    expect(warning).toHaveBeenCalledWith(
-      "Skill catalog refresh failed",
-      expect.objectContaining({
-        publisherId: resource.id,
-        failureCategory: "metadata_unavailable",
-      }),
-    );
+    try {
+      await expect(
+        refreshResourceCatalog(resource.id, {
+          fetcher: vi.fn(async () => new Response(null, { status: 503 })) as typeof fetch,
+        }),
+      ).resolves.toBe("failed");
+      const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
+        where: { resourceId: resource.id },
+        include: { skills: true },
+      });
+      expect(catalog.lastFailureCategory).toBe("metadata_unavailable");
+      expect(catalog.skills).toHaveLength(3);
+      const nonAdminView = await listVisibleSkills(`${id}-non-admin@example.com`);
+      expect(nonAdminView.warnings).toEqual([]);
+      const adminView = await listVisibleSkills(adminEmail);
+      expect(adminView.warnings).toContainEqual({
+        source: key,
+        code: "catalog_temporarily_unavailable",
+      });
+      expect(warnings).toContainEqual(
+        expect.objectContaining({
+          0: expect.objectContaining({
+            event: "skill_catalog.refresh.failed",
+            publisherId: resource.id,
+            failureCategory: "metadata_unavailable",
+          }),
+        }),
+      );
+    } finally {
+      detach();
+    }
   });
 
   it("does not expose expired catalog failures to non-administrators", async () => {

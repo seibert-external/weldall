@@ -47,6 +47,7 @@ None of these variables needs to be available during the Docker build.
 | `POSTGRES_URL`                              | Internal URL of the Coolify PostgreSQL database          |
 | `WELDALL_ISSUER`                            | Stable public origin, e.g. `https://weldall.example.com` |
 | `WELDALL_DEPLOYMENT_MODE`                   | `production`                                             |
+| `LOG_LEVEL`                                 | `INFO` (`DEBUG` for temporary diagnostics)               |
 | `ENABLE_DEV_LOGIN`                          | `false`                                                  |
 | `BETTER_AUTH_SECRET`                        | Generated secret                                         |
 | `GOOGLE_CLIENT_ID`                          | Production Google OAuth client ID                        |
@@ -67,6 +68,8 @@ https://<WELDALL-HOST>/api/auth/callback/google
 ```
 
 The container validates its environment, applies Prisma migrations, bootstraps the configured initial administrator with `weldall:login` and `weldall:administer`, and then starts Weldall. Bootstrap reruns are idempotent only while that first assignment still has both protected scopes; they do not restore revoked CLI login. Once another administrator should take over, delegate both required scopes in the Admin UI before changing or removing `WELDALL_BOOTSTRAP_ADMIN_EMAIL`.
+
+Production logs are structured JSON on stdout and appear in Coolify's application logs. `INFO` records successful API and tRPC operations; `WARN` records rejected requests and degraded dependencies; `ERROR` includes unexpected failures. Every API response carries an `x-request-id`, and the same ID is attached to logs and request-bound audit records. Set `LOG_LEVEL=DEBUG` temporarily for request-start and health-check records. Request bodies, credentials, and authentication headers are not logged.
 
 ## 4. Configure GitHub
 

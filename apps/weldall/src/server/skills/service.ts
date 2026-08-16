@@ -1,4 +1,5 @@
 import { ADMIN_SCOPE_KEY, db } from "@weldall/db";
+import { logger } from "../observability/logger";
 import { effectiveScopesFor } from "../policy/resources";
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
@@ -88,11 +89,15 @@ export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnv
     for (const skill of catalog.skills) {
       const invalidScopes = ineligibleScopes(skill.requiredScopes, scopes);
       if (invalidScopes.length) {
-        console.warn("Discovered skill filtered by scope registry", {
-          publisherId: resource.id,
-          publisherKey: resource.key,
-          scopeKeys: invalidScopes,
-        });
+        logger.warn(
+          {
+            event: "skill_catalog.skill.filtered",
+            publisherId: resource.id,
+            publisherKey: resource.key,
+            scopeKeys: invalidScopes,
+          },
+          "Discovered skill filtered by scope registry",
+        );
         continue;
       }
       const visible = skillVisibility(
@@ -180,11 +185,15 @@ export async function getVisibleSkill(
   const scopes = new Set(scopeRows.map((scope) => scope.key));
   const invalidScopes = ineligibleScopes(skill.requiredScopes, scopes);
   if (invalidScopes.length) {
-    console.warn("Discovered skill filtered by scope registry", {
-      publisherId: resource.id,
-      publisherKey: resource.key,
-      scopeKeys: invalidScopes,
-    });
+    logger.warn(
+      {
+        event: "skill_catalog.skill.filtered",
+        publisherId: resource.id,
+        publisherKey: resource.key,
+        scopeKeys: invalidScopes,
+      },
+      "Discovered skill filtered by scope registry",
+    );
     return null;
   }
   const metadata = skillVisibility(

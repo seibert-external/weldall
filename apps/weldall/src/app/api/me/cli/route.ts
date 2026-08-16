@@ -1,11 +1,12 @@
 import { db } from "@weldall/db";
-import { oauthErrorResponse } from "@weldall/sdk";
 import { WELDALL_ISSUER } from "@/server/oauth/constants";
 import { authenticateCliApiRequest } from "@/server/oauth/cli-api";
+import { loggedOauthErrorResponse } from "@/server/oauth/error-response";
+import { withRequestLogging } from "@/server/observability/http";
 
 const endpoint = `${WELDALL_ISSUER}/api/me/cli`;
 
-export async function GET(request: Request) {
+async function get(request: Request) {
   try {
     await authenticateCliApiRequest(request, {
       expectedUrl: endpoint,
@@ -23,6 +24,8 @@ export async function GET(request: Request) {
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
-    return oauthErrorResponse(error);
+    return loggedOauthErrorResponse(error);
   }
 }
+
+export const GET = withRequestLogging("/api/me/cli", get);

@@ -3,6 +3,7 @@ import { db } from "@weldall/db";
 import { parseSkillCatalog, SKILL_ASSERTION_TYPE, type SkillCatalog } from "@weldall/sdk";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
+import { errorForLog, logger } from "../observability/logger";
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1_000;
 const MAX_STALE_MS = 24 * 60 * 60 * 1_000;
@@ -281,26 +282,35 @@ export async function refreshCatalog(
       return true;
     });
     if (persisted) {
-      console.info("Skill catalog refresh succeeded", {
-        publisherId: source.id,
-        publisherKey: source.key,
-        resourceVersion: source.version,
-        durationMs: Math.max(0, Math.round(performance.now() - started)),
-        skillCount: catalog.skills.length,
-      });
+      logger.info(
+        {
+          event: "skill_catalog.refresh.succeeded",
+          publisherId: source.id,
+          publisherKey: source.key,
+          resourceVersion: source.version,
+          durationMs: Math.max(0, Math.round(performance.now() - started)),
+          skillCount: catalog.skills.length,
+        },
+        "Skill catalog refresh succeeded",
+      );
     }
     return persisted;
   } catch (error) {
     const category =
       error instanceof CatalogRefreshError ? error.category : "refresh_internal_error";
     await persistFailure(catalogId, leaseId, category, attemptedAt);
-    console.warn("Skill catalog refresh failed", {
-      publisherId: source.id,
-      publisherKey: source.key,
-      resourceVersion: source.version,
-      failureCategory: category,
-      durationMs: Math.max(0, Math.round(performance.now() - started)),
-    });
+    logger.warn(
+      {
+        event: "skill_catalog.refresh.failed",
+        publisherId: source.id,
+        publisherKey: source.key,
+        resourceVersion: source.version,
+        failureCategory: category,
+        durationMs: Math.max(0, Math.round(performance.now() - started)),
+        error: errorForLog(error),
+      },
+      "Skill catalog refresh failed",
+    );
     return false;
   }
 }

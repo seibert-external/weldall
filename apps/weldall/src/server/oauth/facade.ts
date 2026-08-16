@@ -7,7 +7,6 @@ import {
   REFRESH_TOKEN_TYPE,
   TOKEN_EXCHANGE_GRANT,
   issueIdJag,
-  oauthErrorResponse,
   safeEqual,
   verifyEs256,
   verifyStrictDpop,
@@ -22,9 +21,11 @@ import {
 import type { AuditEventType, AuditReasonCode } from "../../lib/audit";
 import { auditRequestIdentifiers, prismaAuditWriter, type AuditWriter } from "../audit/service";
 import { auth } from "../auth/auth";
+import { errorForLog, logger } from "../observability/logger";
 import { hasLoginScopeForUserId } from "../auth/login-policy";
 import { exchangePolicyRequiringSystemScopeFor } from "../policy/resources";
 import { getWeldallSigningKey } from "./jwt";
+import { loggedOauthErrorResponse } from "./error-response";
 import { auditMachineFailure, issueMachineToken, machineAuditContext } from "./machine";
 import { postgresReplayStore } from "./replay";
 
@@ -333,9 +334,11 @@ async function auditExchangeFailure(
         requestedScopes: audit.requestedScopes,
       },
     });
-  } catch {
-    // Keep the OAuth failure fail-closed and emit only a non-sensitive operational signal.
-    console.error("ID-JAG audit write failed");
+  } catch (auditError) {
+    logger.error(
+      { event: "audit.id_jag.write_failed", error: errorForLog(auditError) },
+      "ID-JAG audit write failed",
+    );
   }
 }
 
@@ -516,7 +519,7 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
   } catch (error) {
     if (exchangeAudit) await auditExchangeFailure(exchangeAudit, error, auditWriter);
     if (machineAudit) await auditMachineFailure(machineAudit, error, auditWriter);
-    return oauthErrorResponse(error);
+    return loggedOauthErrorResponse(error);
   }
 }
 
@@ -539,6 +542,6 @@ export async function revocationFacade(request: Request) {
       });
     return response;
   } catch (error) {
-    return oauthErrorResponse(error);
+    return loggedOauthErrorResponse(error);
   }
 }
