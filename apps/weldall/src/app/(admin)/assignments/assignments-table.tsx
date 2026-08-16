@@ -16,7 +16,12 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import type { AssignmentDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 import { ScopeBadges } from "./scope-badges";
 
@@ -178,7 +183,9 @@ export function AssignmentsTable() {
                             <TableRowAction href={href} label={`Edit ${row.original.email}`}>
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableRowAction>
-                          ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>

@@ -26,7 +26,12 @@ import {
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import { AUDIT_EVENT_TYPES, type AuditEventDto, type AuditEventType } from "@/lib/audit";
 import { useTRPC } from "@/trpc/react";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
 const PAGE_SIZE = 20;
@@ -286,7 +291,9 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </TableRowAction>
-                        ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        ) : (
+                          flexRender(cell.column.columnDef.cell, cell.getContext())
+                        )}
                       </TableCell>
                     ))}
                   </TableRow>

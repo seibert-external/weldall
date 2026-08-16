@@ -26,7 +26,12 @@ import type { GroupProviderDto } from "@/server/group-providers/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -200,7 +205,9 @@ export function GroupProvidersPage() {
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableRowAction>
-                      ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      ) : (
+                        flexRender(cell.column.columnDef.cell, cell.getContext())
+                      )}
                     </TableCell>
                   ))}
                 </TableRow>

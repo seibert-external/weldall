@@ -19,7 +19,12 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import type { ResourceDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["name"]), [{ id: "name", desc: false }]);

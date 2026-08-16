@@ -27,12 +27,7 @@ export function TableRowAction(props: TableRowActionProps) {
       {props.children}
     </a>
   ) : (
-    <button
-      aria-label={props.label}
-      className={className}
-      onClick={props.onActivate}
-      type="button"
-    >
+    <button aria-label={props.label} className={className} onClick={props.onActivate} type="button">
       {props.children}
     </button>
   );

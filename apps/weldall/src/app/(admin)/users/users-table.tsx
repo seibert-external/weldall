@@ -15,7 +15,12 @@ import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { UserDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
 const PAGE_SIZE = 20;
@@ -171,7 +176,9 @@ export function UsersTable() {
                             <TableRowAction href={href} label={`Open ${row.original.name}`}>
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableRowAction>
-                          ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>

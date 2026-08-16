@@ -21,7 +21,12 @@ import type { SkillDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { ManagementBadge } from "@/components/admin/management-badge";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
 const sortingParser = createSortingParser(new Set(["title", "updatedAt"]), [
@@ -326,7 +331,9 @@ export function SkillsTable() {
                             <TableRowAction href={href} label={`Open ${row.original.title}`}>
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableRowAction>
-                          ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>

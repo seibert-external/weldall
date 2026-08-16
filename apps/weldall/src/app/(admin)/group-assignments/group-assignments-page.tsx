@@ -17,7 +17,12 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import type { GroupAssignmentDto } from "@/server/group-providers/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 
 const PAGE_SIZE = 20;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -187,7 +192,9 @@ export function GroupAssignmentsPage() {
                             <TableRowAction href={href} label={`Edit ${row.original.groupId}`}>
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableRowAction>
-                          ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>

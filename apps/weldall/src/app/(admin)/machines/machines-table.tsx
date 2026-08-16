@@ -15,7 +15,12 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import type { MachineClientDto } from "@/server/machines/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { isInteractiveTableTarget, OverflowFade, ResizableTableHeader, TableRowAction } from "../resizable-table";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 
 export function MachinesTable() {
   const router = useRouter();
@@ -189,7 +194,9 @@ export function MachinesTable() {
                           <TableRowAction href={href} label={`Open ${row.original.name}`}>
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </TableRowAction>
-                        ) : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        ) : (
+                          flexRender(cell.column.columnDef.cell, cell.getContext())
+                        )}
                       </TableCell>
                     ))}
                   </TableRow>
