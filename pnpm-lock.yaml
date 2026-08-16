@@ -308,6 +308,9 @@ importers:
       react-dom:
         specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
+      tslog:
+        specifier: ^5.1.0
+        version: 5.1.0
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -4519,6 +4522,11 @@ packages:
 
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
+
+  tslog@5.1.0:
+    resolution: {integrity: sha512-g77ALovust2HNBX/63ePEJwetIeX0Vi/dlzqBO+ZAg+aERB54KMmaz/khNPxhFpaxKQ6RQj65sK6vIhj1SJgjQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   tsx@4.23.1:
     resolution: {integrity: sha512-GQHnkIfxyx1wYCOS/wonik5MVRZU9hi1TEZmzGZSCJB1y9YgoZ8H6itNE/u4suE+yLmOzuE4E5S4TZ/ZX2wcWQ==}
@@ -9591,6 +9599,8 @@ snapshots:
       typescript: 5.9.3
 
   tslib@2.8.1: {}
+
+  tslog@5.1.0: {}
 
   tsx@4.23.1:
     dependencies:

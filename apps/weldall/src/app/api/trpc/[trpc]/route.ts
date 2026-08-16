@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { createContext } from "@/server/trpc/context";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { appRouter } from "@/server/trpc/router";
+import { withRequestLogging } from "@/server/observability/http";
 
 const handler = (request: Request) => {
   after(() => refreshDueCatalogs());
@@ -14,4 +15,9 @@ const handler = (request: Request) => {
   });
 };
 
-export { handler as GET, handler as POST };
+export const GET = withRequestLogging("/api/trpc/[trpc]", handler, {
+  successLevel: "debug",
+});
+export const POST = withRequestLogging("/api/trpc/[trpc]", handler, {
+  successLevel: "debug",
+});

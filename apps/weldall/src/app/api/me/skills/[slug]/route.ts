@@ -1,11 +1,12 @@
-import { oauthErrorResponse } from "@weldall/sdk";
 import { after } from "next/server";
 import { WELDALL_ISSUER } from "@/server/oauth/constants";
 import { authenticateCliApiRequest } from "@/server/oauth/cli-api";
+import { loggedOauthErrorResponse } from "@/server/oauth/error-response";
+import { withRequestLogging } from "@/server/observability/http";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { getVisibleSkill, SkillTemporarilyUnavailableError } from "@/server/skills/service";
 
-export async function GET(request: Request, context: { params: Promise<{ slug: string }> }) {
+async function get(request: Request, context: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await context.params;
     const endpoint = `${WELDALL_ISSUER}/api/me/skills/${encodeURIComponent(slug)}`;
@@ -28,6 +29,8 @@ export async function GET(request: Request, context: { params: Promise<{ slug: s
         { status: 503, headers: { "cache-control": "no-store" } },
       );
     }
-    return oauthErrorResponse(error);
+    return loggedOauthErrorResponse(error);
   }
 }
+
+export const GET = withRequestLogging("/api/me/skills/[slug]", get);

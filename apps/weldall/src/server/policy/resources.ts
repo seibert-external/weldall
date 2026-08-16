@@ -3,6 +3,7 @@ import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { z } from "zod";
 import { decryptProviderToken } from "../group-providers/credentials";
 import { createGroupProviderAdapter } from "../group-providers/registry";
+import { errorForLog, logger } from "../observability/logger";
 import { scopeKeySchema, type ScopeKey } from "./scope-key";
 import { isProtectedSystemScope } from "./system-scopes";
 
@@ -248,12 +249,17 @@ async function resolveProviderMemberships(
         groupIds: sortedUnique(detail.groupIds),
       });
     } catch (error) {
-      console.warn("Group provider authorization lookup failed", {
-        providerId: provider.id,
-        providerKey: provider.key,
-        category: providerFailureCategory(error),
-        durationMs: Math.max(0, Math.round(performance.now() - started)),
-      });
+      logger.warn(
+        {
+          event: "group_provider.authorization_lookup.failed",
+          providerId: provider.id,
+          providerKey: provider.key,
+          category: providerFailureCategory(error),
+          durationMs: Math.max(0, Math.round(performance.now() - started)),
+          error: errorForLog(error),
+        },
+        "Group provider authorization lookup failed",
+      );
     }
   }
 

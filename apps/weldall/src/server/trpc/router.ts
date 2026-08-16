@@ -49,6 +49,7 @@ import {
   updateGroupProvider,
 } from "../group-providers/service";
 import { refreshResourceCatalog } from "../skills/catalogs";
+import { errorForLog, logger } from "../observability/logger";
 import {
   createMachineClient,
   getMachineClient,
@@ -62,13 +63,30 @@ import {
 import type { TrpcContext } from "./context";
 
 const trpc = initTRPC.context<TrpcContext>().create();
+const loggedProcedure = trpc.procedure.use(async ({ path, type, next }) => {
+  const started = performance.now();
+  const result = await next();
+  const fields = {
+    event: "trpc.procedure.completed",
+    procedure: path,
+    procedureType: type,
+    durationMs: Math.max(0, Math.round(performance.now() - started)),
+    outcome: result.ok ? "success" : "failure",
+    ...(!result.ok ? { error: errorForLog(result.error), errorCode: result.error.code } : {}),
+  };
+  if (result.ok) logger.info(fields, "tRPC procedure completed");
+  else if (result.error.code === "INTERNAL_SERVER_ERROR")
+    logger.error(fields, "tRPC procedure failed");
+  else logger.warn(fields, "tRPC procedure failed");
+  return result;
+});
 const pageInput = {
   page: z.number().int().positive().default(1),
   pageSize: z.number().int().min(1).max(100).default(20),
   q: z.string().max(200).optional(),
 };
 
-const adminProcedure = trpc.procedure.use(async ({ ctx, next }) => {
+const adminProcedure = loggedProcedure.use(async ({ ctx, next }) => {
   const userId = ctx.session?.user.id;
   if (!userId) {
     throw new TRPCError({
@@ -88,7 +106,7 @@ const adminProcedure = trpc.procedure.use(async ({ ctx, next }) => {
 });
 
 export const appRouter = trpc.router({
-  status: trpc.procedure.query(({ ctx }) => ({
+  status: loggedProcedure.query(({ ctx }) => ({
     authenticated: Boolean(ctx.session),
     email: ctx.session?.user.email ?? null,
   })),

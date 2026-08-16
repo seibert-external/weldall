@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import { listSkills, listSkillSourceOptions } from "../src/server/admin/service.js";
+import { logger } from "../src/server/observability/logger.js";
 import { refreshDueCatalogs, refreshResourceCatalog } from "../src/server/skills/catalogs.js";
 import {
   getVisibleSkill,
@@ -201,32 +202,41 @@ describe("persisted skill catalog refresh", () => {
   });
 
   it("returns a failed manual refresh without replacing the last valid rows", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    await expect(
-      refreshResourceCatalog(resource.id, {
-        fetcher: vi.fn(async () => new Response(null, { status: 503 })) as typeof fetch,
-      }),
-    ).resolves.toBe("failed");
-    const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
-      where: { resourceId: resource.id },
-      include: { skills: true },
+    const warnings: Record<string, any>[] = [];
+    const detach = logger.attachTransport((record) => {
+      if (record._logMeta.logLevelName === "WARN") warnings.push(record);
     });
-    expect(catalog.lastFailureCategory).toBe("metadata_unavailable");
-    expect(catalog.skills).toHaveLength(3);
-    const nonAdminView = await listVisibleSkills(`${id}-non-admin@example.com`);
-    expect(nonAdminView.warnings).toEqual([]);
-    const adminView = await listVisibleSkills(adminEmail);
-    expect(adminView.warnings).toContainEqual({
-      source: key,
-      code: "catalog_temporarily_unavailable",
-    });
-    expect(warning).toHaveBeenCalledWith(
-      "Skill catalog refresh failed",
-      expect.objectContaining({
-        publisherId: resource.id,
-        failureCategory: "metadata_unavailable",
-      }),
-    );
+    try {
+      await expect(
+        refreshResourceCatalog(resource.id, {
+          fetcher: vi.fn(async () => new Response(null, { status: 503 })) as typeof fetch,
+        }),
+      ).resolves.toBe("failed");
+      const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
+        where: { resourceId: resource.id },
+        include: { skills: true },
+      });
+      expect(catalog.lastFailureCategory).toBe("metadata_unavailable");
+      expect(catalog.skills).toHaveLength(3);
+      const nonAdminView = await listVisibleSkills(`${id}-non-admin@example.com`);
+      expect(nonAdminView.warnings).toEqual([]);
+      const adminView = await listVisibleSkills(adminEmail);
+      expect(adminView.warnings).toContainEqual({
+        source: key,
+        code: "catalog_temporarily_unavailable",
+      });
+      expect(warnings).toContainEqual(
+        expect.objectContaining({
+          0: expect.objectContaining({
+            event: "skill_catalog.refresh.failed",
+            publisherId: resource.id,
+            failureCategory: "metadata_unavailable",
+          }),
+        }),
+      );
+    } finally {
+      detach();
+    }
   });
 
   it("does not expose expired catalog failures to non-administrators", async () => {

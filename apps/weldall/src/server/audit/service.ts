@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { db, Prisma } from "@weldall/db";
 import { z } from "zod";
 import {
@@ -9,6 +8,7 @@ import {
   type AuditOutcome,
   type AuditReasonCode,
 } from "../../lib/audit";
+import { requestIdentifiers } from "../observability/http";
 
 export { AUDIT_EVENT_TYPES } from "../../lib/audit";
 export type { AuditEventDto, AuditEventType } from "../../lib/audit";
@@ -438,22 +438,7 @@ export async function getAuditEvent(id: string): Promise<AuditEventDto | null> {
   return event ? serializeAuditEvent(event) : null;
 }
 
-export function auditRequestIdentifiers(request: Request): {
-  requestId: string;
-  correlationId?: string;
-} {
-  const suppliedRequestId = request.headers.get("x-request-id")?.trim();
-  const suppliedCorrelationId = request.headers.get("x-correlation-id")?.trim();
-  return {
-    requestId:
-      suppliedRequestId && identifierPattern.test(suppliedRequestId)
-        ? suppliedRequestId
-        : randomUUID(),
-    ...(suppliedCorrelationId && identifierPattern.test(suppliedCorrelationId)
-      ? { correlationId: suppliedCorrelationId }
-      : {}),
-  };
-}
+export const auditRequestIdentifiers = requestIdentifiers;
 
 function serializeAuditEvent(event: {
   id: string;

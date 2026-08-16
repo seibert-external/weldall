@@ -2,8 +2,20 @@ import { requireIacMachine } from "./auth";
 import { IAC_LIMITS } from "./contracts";
 import { IacError } from "./service";
 import { auditRequestIdentifiers } from "../audit/service";
+import { withRequestLogging } from "../observability/http";
+import { errorForLog, logger } from "../observability/logger";
+import { ZodError } from "zod";
 
 export async function iacRoute(
+  request: Request,
+  handler: (body: any, actor: Awaited<ReturnType<typeof requireIacMachine>>) => Promise<unknown>,
+): Promise<Response> {
+  return await withRequestLogging(new URL(request.url).pathname, (contextualRequest) =>
+    executeIacRoute(contextualRequest, handler),
+  )(request);
+}
+
+async function executeIacRoute(
   request: Request,
   handler: (body: any, actor: Awaited<ReturnType<typeof requireIacMachine>>) => Promise<unknown>,
 ): Promise<Response> {
@@ -34,17 +46,28 @@ export async function iacRoute(
       });
     }
     const known = error instanceof IacError;
+    const invalid = error instanceof ZodError || error instanceof SyntaxError;
+    if (!known && !invalid) {
+      logger.error(
+        { event: "iac.request.failed", error: errorForLog(error) },
+        "IaC request failed unexpectedly",
+      );
+    }
     return Response.json(
       {
         error: {
-          code: known ? error.code : "INVALID_REQUEST",
-          message: known ? error.message : "The IaC request could not be processed",
+          code: known ? error.code : invalid ? "INVALID_REQUEST" : "INTERNAL_ERROR",
+          message: known
+            ? error.message
+            : invalid
+              ? "The IaC request could not be processed"
+              : "An internal error prevented the IaC request from completing",
           ...(known ? error.details : {}),
           requestId,
         },
       },
       {
-        status: known ? error.status : 400,
+        status: known ? error.status : invalid ? 400 : 500,
         headers: { "cache-control": "no-store", "x-request-id": requestId },
       },
     );
