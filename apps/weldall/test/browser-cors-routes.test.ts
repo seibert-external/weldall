@@ -26,21 +26,52 @@ vi.mock("../src/server/oauth/browser-connections", async (importOriginal) => ({
   consumeBrowserEntranceRateLimit: vi.fn(async () => undefined),
 }));
 
-type RouteModule = Record<"GET" | "POST" | "OPTIONS", ((request: Request) => Promise<Response>) | undefined>;
+type RouteModule = Record<
+  "GET" | "POST" | "OPTIONS",
+  ((request: Request) => Promise<Response>) | undefined
+>;
 
 const browserRoutes = [
-  ["/.well-known/oauth-authorization-server", "GET", () => import("../src/app/.well-known/oauth-authorization-server/route")],
-  ["/.well-known/oauth-protected-resource/api", "GET", () => import("../src/app/.well-known/oauth-protected-resource/api/route")],
-  ["/.well-known/openid-configuration", "GET", () => import("../src/app/.well-known/openid-configuration/route")],
-  ["/api/auth/oauth2/device_authorization", "POST", () => import("../src/app/api/auth/oauth2/device_authorization/route")],
+  [
+    "/.well-known/oauth-authorization-server",
+    "GET",
+    () => import("../src/app/.well-known/oauth-authorization-server/route"),
+  ],
+  [
+    "/.well-known/oauth-protected-resource/api",
+    "GET",
+    () => import("../src/app/.well-known/oauth-protected-resource/api/route"),
+  ],
+  [
+    "/.well-known/openid-configuration",
+    "GET",
+    () => import("../src/app/.well-known/openid-configuration/route"),
+  ],
+  [
+    "/api/auth/oauth2/device_authorization",
+    "POST",
+    () => import("../src/app/api/auth/oauth2/device_authorization/route"),
+  ],
   ["/api/auth/oauth2/revoke", "POST", () => import("../src/app/api/auth/oauth2/revoke/route")],
   ["/api/auth/oauth2/token", "POST", () => import("../src/app/api/auth/oauth2/token/route")],
   ["/api/auth/oauth2/userinfo", "GET", () => import("../src/app/api/auth/oauth2/userinfo/route")],
-  ["/api/browser/resources/current", "GET", () => import("../src/app/api/browser/resources/current/route")],
+  [
+    "/api/browser/resources/current",
+    "GET",
+    () => import("../src/app/api/browser/resources/current/route"),
+  ],
   ["/api/me/grants", "GET", () => import("../src/app/api/me/grants/route")],
   ["/api/me/scopes", "GET", () => import("../src/app/api/me/scopes/route")],
-  ["/api/me/browser-connections/current", "GET", () => import("../src/app/api/me/browser-connections/current/route")],
-  ["/api/me/browser-connections/current/revoke", "POST", () => import("../src/app/api/me/browser-connections/current/revoke/route")],
+  [
+    "/api/me/browser-connections/current",
+    "GET",
+    () => import("../src/app/api/me/browser-connections/current/route"),
+  ],
+  [
+    "/api/me/browser-connections/current/revoke",
+    "POST",
+    () => import("../src/app/api/me/browser-connections/current/revoke/route"),
+  ],
 ] as const;
 
 describe("browser-facing Weldall route CORS wiring", () => {
