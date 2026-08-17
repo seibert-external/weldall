@@ -64,7 +64,7 @@ describe("WeldAll Pi extension", () => {
       .mockResolvedValueOnce({ items: [{ slug: "one" }, { id: "two" }, { slug: 3 }] })
       .mockResolvedValueOnce({ title: "One", document: "body" })
       .mockResolvedValueOnce({ document: 4 });
-    await expect(fetchSkills(run)).resolves.toEqual([{ slug: "one", title: "One", document: "body" }]);
+    await expect(fetchSkills(run)).rejects.toThrow("unexpected skill data for two");
   });
 
   it("parses CLI output and converts failures to actionable errors", async () => {

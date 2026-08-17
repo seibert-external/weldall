@@ -71,7 +71,9 @@ export async function fetchSkills(run = runCli): Promise<Skill[]> {
     const slug = typeof item.slug === "string" ? item.slug : typeof item.id === "string" ? item.id : "";
     if (!slug) continue;
     const value = await run(["skills", "show", slug, "--json"]) as { document?: unknown; title?: unknown };
-    if (typeof value.document !== "string") continue;
+    if (typeof value.document !== "string") {
+      throw new Error(`WeldAll CLI returned unexpected skill data for ${slug}; update @weldall/cli and try again.`);
+    }
     result.push({ slug, title: typeof value.title === "string" ? value.title : slug, document: value.document });
   }
   return result;
