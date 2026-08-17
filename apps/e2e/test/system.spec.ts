@@ -953,6 +953,7 @@ test("connects a real Expenses SPA through the CLI and enforces live browser pol
   await page.getByRole("row").filter({ hasText: "alice@example.com" }).click();
   await page.getByRole("checkbox", { name: /^expenses:read/ }).uncheck();
   await page.getByRole("button", { name: "Save assignment" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/assignments");
   await expect(directExchange()).resolves.toEqual({
     blocked: true,
     status: 400,
@@ -964,6 +965,7 @@ test("connects a real Expenses SPA through the CLI and enforces live browser pol
   await page.getByRole("row").filter({ hasText: "alice@example.com" }).click();
   await page.getByRole("checkbox", { name: /^expenses:read/ }).check();
   await page.getByRole("button", { name: "Save assignment" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/assignments");
 
   await spa.getByRole("button", { name: "Disconnect remotely" }).click();
   await expect(spa.locator("#output")).toContainText('"state": "disconnected"');
