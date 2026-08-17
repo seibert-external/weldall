@@ -15,6 +15,7 @@ import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { UserDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { PlanetLoader } from "../../_components/planet-loader";
 import {
   isInteractiveTableTarget,
   OverflowFade,
@@ -117,6 +118,8 @@ export function UsersTable() {
     getCoreRowModel: getCoreRowModel(),
   });
 
+  if (usersQuery.isPending) return <PlanetLoader />;
+
   return (
     <>
       <HerocrumbsActions>
@@ -132,13 +135,6 @@ export function UsersTable() {
           width={280}
         />
       </HerocrumbsActions>
-      <div className="mb-4 max-w-3xl">
-        <Text color="secondary">
-          Every person known through a sign-in to this Weldall server is listed here, including
-          people without current access assignments. Open a person to inspect their effective access
-          and how it was granted.
-        </Text>
-      </div>
       {usersQuery.error ? (
         <Banner
           container="card"
@@ -199,13 +195,6 @@ export function UsersTable() {
                           ? "No people match this search."
                           : "No people are known to this server yet."}
                       </Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-                {usersQuery.isPending ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">Loading users…</Text>
                     </TableCell>
                   </TableRow>
                 ) : null}
