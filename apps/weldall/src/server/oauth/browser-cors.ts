@@ -62,7 +62,12 @@ function corsHeaders(origin: string, methods: readonly string[]): Headers {
 }
 
 function rejectedOrigin(): Response {
-  const headers = new Headers({ "cache-control": "no-store" });
+  // Permit only an opaque no-cors reachability signal. The response body stays
+  // unreadable and Access-Control-Allow-Origin remains absent.
+  const headers = new Headers({
+    "cache-control": "no-store",
+    "cross-origin-resource-policy": "cross-origin",
+  });
   appendVary(headers);
   return Response.json(
     { error: "invalid_request", error_description: "browser origin is not allowed" },

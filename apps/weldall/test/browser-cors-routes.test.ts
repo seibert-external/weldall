@@ -103,5 +103,6 @@ describe("browser-facing Weldall route CORS wiring", () => {
     );
     expect(rejected.status).toBe(403);
     expect(rejected.headers.has("access-control-allow-origin")).toBe(false);
+    expect(rejected.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
   });
 });
