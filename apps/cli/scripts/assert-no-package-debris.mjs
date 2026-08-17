@@ -15,7 +15,7 @@ const fileDebrisPatterns = [
 ];
 
 function allowedDirectory(path) {
-  if (path === ".git" || path === "node_modules" || path === ".turbo") return true;
+  if (path === ".git" || path === ".turbo" || /(^|\/)node_modules$/.test(path)) return true;
   return /^(?:apps|packages|tooling|examples)\/[^/]+(?:\/[^/]+)*\/(?:\.turbo|\.cache)$/.test(path);
 }
 

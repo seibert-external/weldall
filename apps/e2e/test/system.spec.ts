@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const workspace = process.env.WELDALL_E2E_WORKSPACE ?? "/workspace";
 const credentialsFile = "/tmp/weldall-e2e-credentials.json";
@@ -41,6 +41,15 @@ const normalizePanelOutput = (output: string) =>
     .replace(/[\u2500-\u257f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const openDevelopmentLogin = async (page: Page) => {
+  await expect(async () => {
+    await page.getByRole("button", { name: "Development login" }).click();
+    await expect(page).toHaveURL(/^https:\/\/dev-idp\.seibert\.localdev\/login(?:\?|$)/, {
+      timeout: 5_000,
+    });
+  }).toPass({ timeout: 30_000 });
+};
 
 const startCli = (args: string[], timeoutMs = 45_000) => {
   const child = spawn(process.execPath, ["--use-system-ca", cli, ...args], {
@@ -121,7 +130,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
-  await page.getByRole("button", { name: "Development login" }).click();
+  await openDevelopmentLogin(page);
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
     timeout: 30_000,
   });
@@ -441,7 +450,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
 
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));
-  await page.getByRole("button", { name: "Development login" }).click();
+  await openDevelopmentLogin(page);
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
     timeout: 30_000,
   });
