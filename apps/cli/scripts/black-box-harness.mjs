@@ -107,6 +107,7 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
 
   const approve = interruptRun(["connect", mock.connectionCode.toLowerCase()]);
   assert.equal(typeof approve.write, "function", "interactive launcher must accept terminal input");
+  await approve.waitForOutput(/Approve this browser connection\?/);
   approve.write("yes\r");
   const approved = assertRun(await approve, 0, "interactive browser connection approval");
   assert.match(approved.stdout, /Browser connection request/);
@@ -127,6 +128,7 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
   assert.equal(connectContender.status, 1, output(connectContender));
   assert.match(connectContender.stderr, /another weldall command is running/);
   connectRefreshDelay.release();
+  await deny.waitForOutput(/Approve this browser connection\?/);
   deny.write("no\r");
   const denied = assertRun(await deny, 0, "interactive browser connection denial");
   assert.match(denied.stdout, /Denied the browser connection/);

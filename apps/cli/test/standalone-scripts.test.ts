@@ -118,6 +118,38 @@ describe("native process launchers", () => {
     expect(disposeExit).toHaveBeenCalledOnce();
   });
 
+  it("waits for terminal output before accepting interactive input", async () => {
+    let emitData!: (value: string) => void;
+    let emitExit!: (event: { exitCode: number; signal: number }) => void;
+    const terminal = {
+      onData: (callback: (value: string) => void) => {
+        emitData = callback;
+        return { dispose: vi.fn() };
+      },
+      onExit: (callback: (event: { exitCode: number; signal: number }) => void) => {
+        emitExit = callback;
+        return { dispose: vi.fn() };
+      },
+      kill: vi.fn(),
+      write: vi.fn(),
+    };
+    const result = terminalLauncher("weldall", [], { spawn: () => terminal })([], {
+      cwd: ".",
+      env: {},
+    });
+    let ready = false;
+    const waiting = result.waitForOutput(/Approve this browser connection\?/).then(() => {
+      ready = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(ready).toBe(false);
+    emitData("Approve this browser connection? Type yes or no: ");
+    await waiting;
+    expect(ready).toBe(true);
+    emitExit({ exitCode: 0, signal: 0 });
+    await result;
+  });
+
   it("closes the native ConPTY resource after the Windows child exits", async () => {
     const terminal = {
       onData: () => ({ dispose: vi.fn() }),

@@ -21,6 +21,9 @@ import { WELDALL_RESOURCE } from "./constants";
 
 const hash = (value: string) => createHash("sha256").update(value, "ascii").digest("base64url");
 const BROWSER_REFRESH_LIFETIME_MS = 30 * 86_400_000;
+// Lifecycle mutations serialize on a PostgreSQL advisory lock. Allow a busy
+// process enough time to acquire it instead of surfacing a transient 500.
+const LIFECYCLE_TRANSACTION_OPTIONS = { maxWait: 15_000, timeout: 15_000 } as const;
 
 export type BrowserIssuanceKillPoint =
   | "after-claim"
@@ -201,7 +204,7 @@ export async function issueBrowserDeviceTokens(
       data: { connectionId: created.id },
     });
     return created;
-  });
+  }, LIFECYCLE_TRANSACTION_OPTIONS);
 
   let committed = false;
   try {
@@ -265,7 +268,7 @@ export async function issueBrowserDeviceTokens(
       ]);
       if (!currentConnection || currentConnection.state !== "ACTIVE" || changed.count !== 1)
         throw new WeldallAuthError("invalid_grant", "browser issuance was revoked");
-    });
+    }, LIFECYCLE_TRANSACTION_OPTIONS);
     await dependencies.killPoint?.("after-provider-issuance");
 
     const expiresAt = new Date(Date.now() + BROWSER_REFRESH_LIFETIME_MS);
@@ -299,7 +302,7 @@ export async function issueBrowserDeviceTokens(
         where: { id: attempt.id },
         data: { status: "BINDING_CREATED", bindingCreatedAt: new Date() },
       });
-    });
+    }, LIFECYCLE_TRANSACTION_OPTIONS);
     await dependencies.killPoint?.("after-binding");
 
     const identifiers = auditRequestIdentifiers(input.request);
@@ -348,7 +351,7 @@ export async function issueBrowserDeviceTokens(
         },
         tx,
       );
-    });
+    }, LIFECYCLE_TRANSACTION_OPTIONS);
     committed = true;
     await dependencies.killPoint?.("after-commit");
     await dependencies.killPoint?.("response-loss");
@@ -495,7 +498,7 @@ export async function reconcileBrowserIssuanceAttempt(
           tx,
         );
     }
-  });
+  }, LIFECYCLE_TRANSACTION_OPTIONS);
   return "reconciled";
 }
 

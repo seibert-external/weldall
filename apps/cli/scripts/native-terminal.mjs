@@ -62,6 +62,18 @@ export function terminalLauncher(
       terminal.write(value);
       return true;
     };
+    result.waitForOutput = (pattern, waitMs = 10_000) =>
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + waitMs;
+        const poll = () => {
+          if (pattern.test(output)) return resolve();
+          if (exited) return reject(new Error(`Terminal exited before emitting ${pattern}`));
+          if (Date.now() >= deadline)
+            return reject(new Error(`Timed out waiting for terminal output ${pattern}`));
+          setTimeout(poll, 20);
+        };
+        poll();
+      });
     result.interrupt = () => result.write("\x03");
     result.cancel = async () => {
       if (!exited) terminal.kill();
