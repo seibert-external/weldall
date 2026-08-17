@@ -1,6 +1,7 @@
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 const root = resolve(import.meta.dirname, "..");
 const fixture = join(root, ".playwright-packed-fixture");
@@ -14,9 +15,20 @@ const packed = spawnSync("pnpm", ["pack", "--pack-destination", artifacts], {
 if (packed.status !== 0) throw new Error(packed.stderr || packed.stdout);
 const tarball = (await readdir(artifacts)).find((name) => name.endsWith(".tgz"));
 if (!tarball) throw new Error("pnpm pack did not create @weldall/browser tarball");
-const viteVersion = JSON.parse(
-  await readFile(join(root, "node_modules/vite/package.json"), "utf8"),
-).version;
+const vitePackagePath = join(root, "node_modules/vite/package.json");
+const viteVersion = JSON.parse(await readFile(vitePackagePath, "utf8")).version;
+const require = createRequire(await realpath(vitePackagePath));
+const rollupPackage = JSON.parse(await readFile(require.resolve("rollup/package.json"), "utf8"));
+const rollupNativePackage = Object.keys(rollupPackage.optionalDependencies).find((name) => {
+  if (!name.startsWith("@rollup/rollup-")) return false;
+  try {
+    require.resolve(name);
+    return true;
+  } catch {
+    return false;
+  }
+});
+if (!rollupNativePackage) throw new Error("could not resolve the installed Rollup native package");
 await writeFile(
   join(fixture, "package.json"),
   JSON.stringify({ private: true, type: "module", scripts: { build: "vite build" } }, null, 2),
@@ -26,7 +38,14 @@ await writeFile(
 await writeFile(join(fixture, "pnpm-workspace.yaml"), "packages: []\n");
 const install = spawnSync(
   "pnpm",
-  ["add", "--offline", "--ignore-scripts", join(artifacts, tarball), `vite@${viteVersion}`],
+  [
+    "add",
+    "--offline",
+    "--ignore-scripts",
+    join(artifacts, tarball),
+    `vite@${viteVersion}`,
+    `${rollupNativePackage}@${rollupPackage.optionalDependencies[rollupNativePackage]}`,
+  ],
   { cwd: fixture, encoding: "utf8" },
 );
 if (install.status !== 0) throw new Error(install.stderr || install.stdout);
