@@ -145,16 +145,11 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
         minSize: 160,
         maxSize: 320,
         enableSorting: false,
-        cell: ({ row, getValue }) => (
-          <div className="grid gap-1">
-            <Badge
-              label={getValue<string>()}
-              variant={outcomeVariant(getValue<AuditEventDto["outcome"]>())}
-            />
-            {row.original.reasonCode ? (
-              <code className="text-xs">{row.original.reasonCode}</code>
-            ) : null}
-          </div>
+        cell: ({ getValue }) => (
+          <Badge
+            label={getValue<string>()}
+            variant={outcomeVariant(getValue<AuditEventDto["outcome"]>())}
+          />
         ),
       },
       {

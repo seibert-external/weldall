@@ -1,13 +1,24 @@
 "use client";
 
+import { useId, useState, type ReactNode } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import {
+  TableBody,
+  TableCell,
+  TableContext,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { useQuery } from "@tanstack/react-query";
 import type { UserAccessDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { PlanetLoader } from "../../_components/planet-loader";
 import { AuditEventsTable } from "../audit/audit-events-table";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -19,7 +30,7 @@ export function UserDetail({ userId }: { userId: string }) {
   const trpc = useTRPC();
   const userQuery = useQuery(trpc.admin.users.get.queryOptions({ id: userId }));
 
-  if (userQuery.isPending) return <Text color="secondary">Loading user…</Text>;
+  if (userQuery.isPending) return <PlanetLoader />;
   if (userQuery.error) {
     return (
       <Banner
@@ -56,7 +67,9 @@ export function UserDetail({ userId }: { userId: string }) {
           </div>
           <div className="grid gap-1">
             <dt className="text-xs text-[var(--color-text-secondary)]">First signed in</dt>
-            <dd className="m-0">{dateFormatter.format(new Date(user.createdAt))}</dd>
+            <dd className="m-0 text-sm font-normal">
+              {dateFormatter.format(new Date(user.createdAt))}
+            </dd>
           </div>
           <div className="grid gap-1 sm:col-span-2">
             <dt className="text-xs text-[var(--color-text-secondary)]">User ID</dt>
@@ -87,13 +100,8 @@ export function UserDetail({ userId }: { userId: string }) {
               )} is omitted because the live membership lookup failed. Direct access and successfully resolved group access are still shown.`}
           />
         ) : null}
-        <AccessScopes scopes={user.access.effectiveScopes} />
-        <div className="grid gap-5 lg:grid-cols-2">
-          <AccessResources resources={user.access.resources} />
-          <AccessSkills skills={user.access.skills} />
-        </div>
+        <AccessTabs access={user.access} />
       </section>
-      <hr className="border-border m-0 border-0 border-t" />
       <section className="grid gap-4" aria-labelledby="user-audit-title">
         <div className="grid gap-1">
           <h2 className="m-0 text-xl font-semibold" id="user-audit-title">
@@ -109,129 +117,184 @@ export function UserDetail({ userId }: { userId: string }) {
   );
 }
 
-function AccessScopes({ scopes }: { scopes: UserAccessDto["effectiveScopes"] }) {
-  return (
-    <div className="grid gap-3" aria-labelledby="effective-scopes-title">
-      <h3 className="m-0 text-base font-semibold" id="effective-scopes-title">
-        Effective scopes
-      </h3>
-      {scopes.length === 0 ? (
-        <Text color="secondary">No scopes are currently effective for this person.</Text>
-      ) : (
-        <ul className="m-0 grid list-none gap-3 p-0">
-          {scopes.map((scope) => (
-            <li className="border-border grid gap-2 rounded-md border p-3" key={scope.key}>
-              <div>
-                <Badge
-                  label={scope.key}
-                  variant={scope.key === "weldall:administer" ? "purple" : "neutral"}
-                />
-              </div>
-              <div className="grid gap-1 text-sm">
-                <Text color="secondary">Granted by</Text>
-                <ul className="m-0 grid gap-1 pl-5">
-                  {scope.assignments.map((assignment) => (
-                    <li key={`${assignment.type}:${assignment.id}`}>
-                      {assignment.type === "email" ? (
-                        <>
-                          <a className="underline" href={`/assignments/${assignment.id}`}>
-                            Direct email assignment
-                          </a>{" "}
-                          for <code>{assignment.email}</code>
-                        </>
-                      ) : (
-                        <>
-                          <a className="underline" href={`/group-assignments/${assignment.id}`}>
-                            Group assignment
-                          </a>{" "}
-                          <code>
-                            {assignment.providerKey}/{assignment.groupId}
-                          </code>{" "}
-                          from {assignment.providerName}
-                        </>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+type AccessTab = "scopes" | "resources" | "skills";
 
-function AccessResources({ resources }: { resources: UserAccessDto["resources"] }) {
+type AccessTableRow = {
+  key: string;
+  name: ReactNode;
+  reason: ReactNode;
+};
+
+function AccessTabs({ access }: { access: UserAccessDto }) {
+  const [activeTab, setActiveTab] = useState<AccessTab>("scopes");
+  const id = useId();
+  const tabId = (tab: AccessTab) => `${id}-${tab}-tab`;
+  const panelId = (tab: AccessTab) => `${id}-${tab}-panel`;
+
   return (
-    <div className="grid content-start gap-3" aria-labelledby="accessible-resources-title">
-      <h3 className="m-0 text-base font-semibold" id="accessible-resources-title">
-        Accessible resources
-      </h3>
-      {resources.length === 0 ? (
-        <Text color="secondary">No registered resources are currently accessible.</Text>
-      ) : (
-        <ul className="m-0 grid list-none gap-3 p-0">
-          {resources.map((resource) => (
-            <li className="border-border grid gap-2 rounded-md border p-3" key={resource.id}>
-              <div>
+    <div className="grid gap-4">
+      <TabList
+        aria-label="Effective access categories"
+        hasDivider
+        onChange={(value) => setActiveTab(value as AccessTab)}
+        role="tablist"
+        value={activeTab}
+      >
+        <Tab
+          aria-controls={panelId("scopes")}
+          aria-selected={activeTab === "scopes"}
+          id={tabId("scopes")}
+          label={`Scopes (${access.effectiveScopes.length})`}
+          role="tab"
+          value="scopes"
+        />
+        <Tab
+          aria-controls={panelId("resources")}
+          aria-selected={activeTab === "resources"}
+          id={tabId("resources")}
+          label={`Resources (${access.resources.length})`}
+          role="tab"
+          value="resources"
+        />
+        <Tab
+          aria-controls={panelId("skills")}
+          aria-selected={activeTab === "skills"}
+          id={tabId("skills")}
+          label={`Skills (${access.skills.length})`}
+          role="tab"
+          value="skills"
+        />
+      </TabList>
+
+      <div
+        aria-labelledby={tabId("scopes")}
+        hidden={activeTab !== "scopes"}
+        id={panelId("scopes")}
+        role="tabpanel"
+        tabIndex={0}
+      >
+        <AccessTable
+          emptyMessage="No scopes are currently effective for this person."
+          label="Effective scopes"
+          rows={access.effectiveScopes.map((scope) => ({
+            key: scope.key,
+            name: <code className="text-sm">{scope.key}</code>,
+            reason: scope.assignments.map(scopeAssignmentReason).join("; "),
+          }))}
+        />
+      </div>
+
+      <div
+        aria-labelledby={tabId("resources")}
+        hidden={activeTab !== "resources"}
+        id={panelId("resources")}
+        role="tabpanel"
+        tabIndex={0}
+      >
+        <AccessTable
+          emptyMessage="No registered resources are currently accessible."
+          label="Accessible resources"
+          rows={access.resources.map((resource) => ({
+            key: resource.id,
+            name: (
+              <div className="grid justify-items-start gap-1">
                 <a className="font-medium underline" href={`/resources/${resource.id}`}>
                   {resource.name}
-                </a>{" "}
+                </a>
                 <code className="text-sm">{resource.key}</code>
               </div>
-              <BadgeList label="Granted scopes" values={resource.grantedScopes} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+            ),
+            reason: `Accessible through ${resource.grantedScopes.length === 1 ? "scope" : "scopes"}: ${resource.grantedScopes.join(", ")}.`,
+          }))}
+        />
+      </div>
 
-function AccessSkills({ skills }: { skills: UserAccessDto["skills"] }) {
-  return (
-    <div className="grid content-start gap-3" aria-labelledby="accessible-skills-title">
-      <h3 className="m-0 text-base font-semibold" id="accessible-skills-title">
-        Accessible skills
-      </h3>
-      {skills.length === 0 ? (
-        <Text color="secondary">No published skills are currently accessible.</Text>
-      ) : (
-        <ul className="m-0 grid list-none gap-3 p-0">
-          {skills.map((skill) => (
-            <li className="border-border grid gap-2 rounded-md border p-3" key={skill.slug}>
-              <div>
-                <span className="font-medium">{skill.title}</span>{" "}
+      <div
+        aria-labelledby={tabId("skills")}
+        hidden={activeTab !== "skills"}
+        id={panelId("skills")}
+        role="tabpanel"
+        tabIndex={0}
+      >
+        <AccessTable
+          emptyMessage="No published skills are currently accessible."
+          label="Accessible skills"
+          rows={access.skills.map((skill) => ({
+            key: skill.slug,
+            name: (
+              <div className="grid justify-items-start gap-1">
+                <span className="font-medium">{skill.title}</span>
                 <code className="text-sm">{skill.slug}</code>
               </div>
-              <Text color="secondary">
-                {skill.source.type === "admin"
-                  ? "Administrator-managed skill"
-                  : `Published by ${skill.source.name} (${skill.source.key})`}
-              </Text>
-              {skill.requiredScopes.length > 0 ? (
-                <BadgeList label="Required scopes" values={skill.requiredScopes} />
-              ) : (
-                <Text color="secondary">No scopes required</Text>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function BadgeList({ label, values }: { label: string; values: string[] }) {
-  return (
-    <div className="grid gap-1">
-      <Text color="secondary">{label}</Text>
-      <div className="flex flex-wrap gap-1">
-        {values.map((value) => (
-          <Badge key={value} label={value} />
-        ))}
+            ),
+            reason:
+              skill.requiredScopes.length === 0
+                ? "Accessible because this skill requires no scopes."
+                : `Accessible because all required ${skill.requiredScopes.length === 1 ? "scope is" : "scopes are"} effective: ${skill.requiredScopes.join(", ")}.`,
+          }))}
+        />
       </div>
     </div>
   );
+}
+
+function AccessTable({
+  emptyMessage,
+  label,
+  rows,
+}: {
+  emptyMessage: string;
+  label: string;
+  rows: AccessTableRow[];
+}) {
+  return (
+    <TableContext.Provider
+      value={{
+        density: "balanced",
+        dividers: "grid",
+        hasHover: false,
+        isStriped: false,
+        textOverflow: "wrap",
+        verticalAlign: "middle",
+      }}
+    >
+      <div className="w-full overflow-x-auto" role="group" aria-label={label}>
+        <table className="w-full min-w-[640px] table-fixed border-collapse text-left">
+          <colgroup>
+            <col className="w-2/5" />
+            <col className="w-3/5" />
+          </colgroup>
+          <TableHeader>
+            <TableRow isHeaderRow>
+              <TableHeaderCell scope="col">Name</TableHeaderCell>
+              <TableHeaderCell scope="col">Reason</TableHeaderCell>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.key}>
+                <TableCell>{row.name}</TableCell>
+                <TableCell>{row.reason}</TableCell>
+              </TableRow>
+            ))}
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={2}>
+                  <Text color="secondary">{emptyMessage}</Text>
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </table>
+      </div>
+    </TableContext.Provider>
+  );
+}
+
+function scopeAssignmentReason(
+  assignment: UserAccessDto["effectiveScopes"][number]["assignments"][number],
+): string {
+  return assignment.type === "email"
+    ? `Directly assigned to ${assignment.email}`
+    : `Assigned through membership in ${assignment.providerKey}/${assignment.groupId} from ${assignment.providerName}`;
 }

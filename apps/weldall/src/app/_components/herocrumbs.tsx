@@ -254,7 +254,7 @@ function Herocrumbs({
         </Heading>
         <div
           ref={setActionsTarget}
-          className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-2 empty:hidden"
+          className="herocrumbs-actions ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-2 empty:hidden"
         />
       </div>
     </section>
