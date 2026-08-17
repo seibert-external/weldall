@@ -3,12 +3,12 @@ import { prismaAuditWriter } from "../audit/service";
 
 export const BROWSER_CLIENT_PREFIX = "weldall-browser:";
 const BROWSER_RESOURCE_LIFECYCLE_LOCK = 1_462_763_316;
-// Browser issuance serializes on the advisory lock. Polling may wait behind
-// another lifecycle mutation, so its claim and issuance transactions need more
-// than Prisma's five-second default timeout.
+// Browser issuance serializes on the advisory lock. Polling may wait behind a
+// complete lifecycle mutation, so leave enough acquisition and execution time
+// for contended CI and production database hosts.
 export const BROWSER_LIFECYCLE_TRANSACTION_OPTIONS = {
-  maxWait: 15_000,
-  timeout: 15_000,
+  maxWait: 30_000,
+  timeout: 30_000,
 } as const;
 export const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 export const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
