@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./errors.js";
 export * from "./constants.js";
+export * from "./cors.js";
 export * from "./crypto.js";
 export * from "./scope.js";
 export * from "./replay.js";

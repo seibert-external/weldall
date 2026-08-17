@@ -28,6 +28,10 @@ import {
   type EffectiveScopeGrant,
 } from "../policy/resources";
 import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
+import {
+  listBrowserConnections as listBrowserConnectionRows,
+  revokeBrowserConnections as revokeBrowserConnectionRows,
+} from "../oauth/browser-sessions";
 import { listVisibleSkillsForScopes, type SkillSource } from "../skills/service";
 
 export { ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY } from "@weldall/db";
@@ -364,6 +368,27 @@ async function userAccess(email: string): Promise<UserAccessDto> {
     skills,
     unavailableGroupProviders: scopeAccess.unavailableGroupProviders,
   };
+}
+
+export async function listBrowserConnections(input: {
+  userId?: string | undefined;
+  resourceId?: string | undefined;
+  origin?: string | undefined;
+  includeRevoked?: boolean | undefined;
+}) {
+  return listBrowserConnectionRows(input);
+}
+
+export async function revokeBrowserConnections(
+  input: {
+    connectionId?: string | undefined;
+    userId?: string | undefined;
+    resourceId?: string | undefined;
+    origin?: string | undefined;
+  },
+  actor: AdminActor,
+) {
+  return revokeBrowserConnectionRows(input, actor);
 }
 
 export async function listUserAuditEvents(

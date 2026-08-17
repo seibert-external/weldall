@@ -2,6 +2,12 @@ export const AUDIT_EVENT_TYPES = [
   "id_jag.issued",
   "id_jag.denied",
   "id_jag.failed",
+  "browser_connection.requested",
+  "browser_connection.approved",
+  "browser_connection.denied",
+  "browser_connection.issued",
+  "browser_connection.revoked",
+  "browser_connection.failed",
   "machine_client.created",
   "machine_client.updated",
   "machine_client.deactivated",
@@ -50,7 +56,12 @@ export type AuditReasonCode =
   | "invalid_grant"
   | "invalid_request"
   | "internal_error"
-  | "audit_store_unavailable";
+  | "audit_store_unavailable"
+  | "rate_limited"
+  | "code_unavailable"
+  | "origin_not_allowed"
+  | "resource_disabled"
+  | "connection_revoked";
 
 export interface AuditEventDto {
   id: string;

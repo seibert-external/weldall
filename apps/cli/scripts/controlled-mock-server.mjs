@@ -68,6 +68,8 @@ export async function startControlledMockServer() {
   let uploadedBytes;
   let refreshDelay;
   let downloadDelay;
+  const connectionCode = "ABCD-EFGH";
+  const connectionDecisions = [];
 
   const originalUrl = (request) => {
     const origin = request.headers[ORIGINAL_ORIGIN_HEADER];
@@ -130,10 +132,22 @@ export async function startControlledMockServer() {
     revocation_endpoint: `${issuer}/api/auth/oauth2/revoke`,
     jwks_uri: `${issuer}/api/oauth/jwks`,
     scopes_supported: ["openid", "profile", "email", "offline_access", "weldall:scopes"],
-    grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
+    grant_types_supported: [
+      "authorization_code",
+      "refresh_token",
+      "client_credentials",
+      "urn:ietf:params:oauth:grant-type:device_code",
+    ],
+    device_authorization_endpoint: `${issuer}/api/auth/oauth2/device_authorization`,
     code_challenge_methods_supported: ["S256"],
     dpop_signing_alg_values_supported: ["ES256"],
     authorization_response_iss_parameter_supported: true,
+    weldall_browser_connections: {
+      approval_profile: "cli-code",
+      pending_lookup_endpoint: `${issuer}/api/me/browser-connections/pending/lookup`,
+      pending_decision_endpoint: `${issuer}/api/me/browser-connections/pending/decision`,
+      profile_extensions: ["cli-approval", "initiation-time-dpop-binding"],
+    },
     weldall_iac: {
       endpoint: `${issuer}/api/iac/v1`,
       installationId: INSTALLATION_ID,
@@ -284,6 +298,39 @@ export async function startControlledMockServer() {
           });
         }
         throw new Error(`unsupported grant type ${grantType}`);
+      }
+      if (
+        request.method === "POST" &&
+        url.origin === issuer &&
+        (url.pathname === "/api/me/browser-connections/pending/lookup" ||
+          url.pathname === "/api/me/browser-connections/pending/decision")
+      ) {
+        await authenticate(request, url);
+        assert.match(request.headers["content-type"] ?? "", /^application\/json/);
+        const body = JSON.parse((await readBody(request)).toString("utf8"));
+        assert.deepEqual(
+          Object.keys(body).sort(),
+          url.pathname.endsWith("/lookup") ? ["userCode"] : ["approve", "userCode"],
+        );
+        assert.equal(body.userCode, connectionCode);
+        const context = {
+          requestId: `artifact-browser-request-${connectionDecisions.length}`,
+          userCode: connectionCode,
+          origin: resourceAuthorizationServer,
+          resource: {
+            id: "artifact-resource",
+            key: "files",
+            name: "Artifact Files",
+            identifier: resource,
+          },
+          browserClientId: "weldall-browser:files",
+          expiresAt: new Date(Date.now() + 300_000).toISOString(),
+          account: { id: SUBJECT, email: EMAIL },
+        };
+        if (url.pathname.endsWith("/lookup")) return json(response, context);
+        assert.equal(typeof body.approve, "boolean");
+        connectionDecisions.push(body.approve);
+        return json(response, { approved: body.approve, context });
       }
       if (
         request.method === "POST" &&
@@ -514,6 +561,10 @@ export async function startControlledMockServer() {
     get revokedCount() {
       return revoked;
     },
+    get connectionDecisions() {
+      return [...connectionDecisions];
+    },
+    connectionCode,
     requests,
     assertHealthy() {
       assert.deepEqual(errors, [], `controlled mock failures: ${errors.join("; ")}`);

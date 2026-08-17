@@ -7,10 +7,19 @@ export {
   ensureSystemScopes,
 } from "./system-scopes.js";
 export {
+  BrowserConnectionIssuanceStatus,
+  BrowserConnectionRequestStatus,
+  BrowserConnectionState,
   IacOperationStatus,
   IacOperationType,
   IacPrimitiveKind,
   Prisma,
   SkillVisibility,
 } from "@prisma/client";
-export type { OAuthDeviceRefreshBinding } from "@prisma/client";
+export type {
+  BrowserConnection,
+  BrowserConnectionIssuanceAttempt,
+  BrowserConnectionRequest,
+  BrowserConnectionRateLimitBucket,
+  OAuthDeviceRefreshBinding,
+} from "@prisma/client";

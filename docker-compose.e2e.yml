@@ -84,6 +84,9 @@ services:
         condition: service_healthy
     environment:
       NODE_EXTRA_CA_CERTS: /trust/root.crt
+      NODE_ENV: production
+      WELDALL_BROWSER_FIXTURE_ENABLED: "true"
+      WELDALL_BROWSER_DIST_DIR: /workspace/.e2e-browser-package/dist
     command:
       - /bin/bash
       - -euc
@@ -197,6 +200,8 @@ services:
 
   caddy:
     image: caddy:2.10-alpine
+    environment:
+      WELDALL_TRUSTED_PROXY_SECRET: weldall-e2e-proxy-attestation-secret-v1
     volumes:
       - ./e2e/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

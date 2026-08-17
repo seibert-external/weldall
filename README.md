@@ -38,6 +38,7 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 | [`@weldall/example-basic`](examples/basic/)     | Framework-neutral Fetch example exporting `verify` and `verifyNoThrow`.                                                                                               |
 | [`@weldall/example-hono`](examples/hono/)       | Standalone Hono example that registers SDK infrastructure routes and protects an Expenses endpoint.                                                                   |
 | [`@weldall/example-next`](examples/next/)       | Next.js 16 App Router example using Node.js route handlers and the SDK's Next.js adapter.                                                                             |
+| [`@weldall/browser`](packages/browser/)         | Published browser-only ESM client for WebCrypto/IndexedDB SPA connections. See its [package README](packages/browser/README.md).                                      |
 | [`@weldall/db`](packages/db/)                   | Private Prisma package containing the PostgreSQL schema, generated client export, migrations, production initialization, and development seed data.                   |
 | [`@weldall/pi`](packages/pi/)                   | Published Pi extension for loading and activating administrator-managed Weldall skills. See its [package README](packages/pi/README.md).                              |
 | [`@weldall/sdk`](packages/sdk/)                 | Published resource-server SDK and Fetch, Hono, Next.js, and Astro adapters. See its [package README](packages/sdk/README.md).                                         |
@@ -84,6 +85,7 @@ Run `weldall --help` or any command with `--help` for the authoritative installe
 | `weldall config get-issuer [--json]`       | Prints the effective issuer and whether it came from the environment or preferences. |
 | `weldall config reset-issuer`              | Removes the saved preference; it does not unset `WELDALL_ISSUER`.                    |
 | `weldall login`                            | Opens a browser for native OAuth login and explicit consent.                         |
+| `weldall connect <code>`                   | Interactively approves a browser SPA connection after showing its exact origin.      |
 | `weldall logout`                           | Attempts remote revocation, then removes the current issuer's saved session.         |
 | `weldall status [--json]`                  | Shows the signed-in identity, assigned scopes, and available APIs.                   |
 | `weldall whoami [--json]`                  | Shows the signed-in name, verified email, issuer, and account ID.                    |
@@ -92,6 +94,16 @@ Run `weldall --help` or any command with `--help` for the authoritative installe
 | `weldall skills list [--json]`             | Explicit form of `weldall skills`.                                                   |
 | `weldall skills show <skill-id> [--json]`  | Prints one complete organization- or resource-published skill document.              |
 | `weldall request [options] <url>`          | Sends an authenticated request to a registered HTTPS target.                         |
+
+When a registered browser application displays a connection code, compare its exact origin and
+resource before approving it interactively:
+
+```sh
+weldall connect ABCD-EFGH
+```
+
+The CLI records only the approval; the browser receives a separate DPoP-bound credential family.
+Non-interactive approval is intentionally unsupported.
 
 A typical inspection flow is:
 
@@ -199,6 +211,7 @@ Open `https://weldall.seibert.localdev`, choose the Development Login identity `
 
 - Weldall: `https://weldall.seibert.localdev`
 - Expenses: `https://expenses.seibert.localdev`
+- Expenses browser connection fixture: `https://expenses.seibert.localdev/weldall-browser`
 - Development IdP: `https://dev-idp.seibert.localdev`
 
 Exercise the seeded machine's complete client-credentials and DPoP flow against Expenses:
@@ -219,6 +232,14 @@ pnpm --filter @weldall/cli build
 ```
 
 The built executable's shebang enables Node's system CA store. If you instead run `node apps/cli/dist/index.js` or `tsx src/index.ts`, set `NODE_USE_SYSTEM_CA=1`. On macOS, `pnpm cli:link` builds and links the same executable as `weldall`; run it before the shorter `weldall ...` examples below, or keep using `./apps/cli/dist/index.js`.
+
+To exercise the browser package without publishing it, open the Expenses browser fixture, select **Start connection**, and run the exact command shown:
+
+```sh
+./apps/cli/dist/index.js connect ABCD-EFGH
+```
+
+The page then supports local/remote status, identity, read/create requests through the same protected `/api/expenses` routes, remote disconnect, and local-only recovery. Root `pnpm dev` watches `@weldall/browser`; `build:dev` emits it before Expenses through the workspace dependency. The fixture is disabled when `NODE_ENV=production`; only the isolated Docker E2E stack opts the compiled production server in with `WELDALL_BROWSER_FIXTURE_ENABLED=true`. Never set that variable in an ordinary deployment. A capability or CORS error should be fixed at the origin/resource configuration boundary—do not weaken HTTPS, the strict CSP, DPoP, or dependency hygiene.
 
 ### Reset the local database
 
@@ -335,6 +356,7 @@ pnpm --filter @weldall/pi test
 pnpm --filter @weldall/pi pack:check
 pnpm --filter @weldall/sdk test
 pnpm --filter @weldall/sdk pack:check
+pnpm --filter @weldall/browser pack:check
 pnpm --filter @weldall/docs build
 ```
 
@@ -360,6 +382,6 @@ pnpm changeset
 pnpm changeset:status
 ```
 
-Select the affected package (`@weldall/cli`, `@weldall/pi`, or `@weldall/sdk`), choose the SemVer bump, and commit the generated `.changeset/*.md`. Documentation, tests, and internal-only changes that do not alter a published package do not need an empty Changeset.
+Select `@weldall/cli`, `@weldall/pi`, `@weldall/sdk`, and/or `@weldall/browser`, choose the SemVer bump, and commit the generated `.changeset/*.md`. The browser package is published through normal Changesets/npm; it is not part of the standalone CLI asset workflow. Documentation, tests, and internal-only changes that do not alter a published package do not need an empty Changeset.
 
 The published CLI, Pi extension, and SDK packages declare Apache-2.0 licensing in their package manifests; the CLI and SDK also carry package-local license copies at [`apps/cli/LICENSE`](apps/cli/LICENSE) and [`packages/sdk/LICENSE`](packages/sdk/LICENSE).

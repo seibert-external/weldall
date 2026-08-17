@@ -20,6 +20,7 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { PlanetLoader } from "../../_components/planet-loader";
 import { AuditEventsTable } from "../audit/audit-events-table";
+import { BrowserConnections } from "../browser-connections";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "long",
@@ -102,6 +103,9 @@ export function UserDetail({ userId }: { userId: string }) {
         ) : null}
         <AccessTabs access={user.access} />
       </section>
+      <hr className="border-border m-0 border-0 border-t" />
+      <BrowserConnections userId={user.id} ownerLabel={user.email} />
+      <hr className="border-border m-0 border-0 border-t" />
       <section className="grid gap-4" aria-labelledby="user-audit-title">
         <div className="grid gap-1">
           <h2 className="m-0 text-xl font-semibold" id="user-audit-title">

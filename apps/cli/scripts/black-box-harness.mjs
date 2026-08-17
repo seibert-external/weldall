@@ -104,6 +104,49 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
     name: "Artifact User",
     email: "artifact.user@example.com",
   });
+
+  const approve = interruptRun(["connect", mock.connectionCode.toLowerCase()]);
+  assert.equal(typeof approve.write, "function", "interactive launcher must accept terminal input");
+  approve.write("yes\r");
+  const approved = assertRun(await approve, 0, "interactive browser connection approval");
+  assert.match(approved.stdout, /Browser connection request/);
+  assert.match(approved.stdout, /ABCD-EFGH/);
+  assert.match(approved.stdout, /Artifact Files/);
+  assert.match(approved.stdout, /Approve only if you started this connection/);
+  assert.match(approved.stdout, /Approved the browser connection/);
+
+  const connectRefreshDelay = mock.armRefreshDelay();
+  const deny = interruptRun(["connect", "ABCD EFGH"]);
+  await Promise.race([
+    connectRefreshDelay.entered,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("connect refresh did not enter the session lock")), 10_000),
+    ),
+  ]);
+  const connectContender = await run(["whoami", "--json"]);
+  assert.equal(connectContender.status, 1, output(connectContender));
+  assert.match(connectContender.stderr, /another weldall command is running/);
+  connectRefreshDelay.release();
+  deny.write("no\r");
+  const denied = assertRun(await deny, 0, "interactive browser connection denial");
+  assert.match(denied.stdout, /Denied the browser connection/);
+  assert.deepEqual(mock.connectionDecisions, [true, false]);
+
+  const nonInteractive = await run(["connect", mock.connectionCode]);
+  assert.equal(nonInteractive.status, 1, output(nonInteractive));
+  assert.match(nonInteractive.stderr, /require interactive approval/);
+  assert.deepEqual(mock.connectionDecisions, [true, false], "non-TTY connect must never decide");
+
+  const malformedRequestCount = mock.requests.length;
+  const malformed = await run(["connect", "not-a-code"]);
+  assert.equal(malformed.status, 1, output(malformed));
+  assert.match(malformed.stderr, /eight supported letters or numbers/);
+  assert.equal(
+    mock.requests.length,
+    malformedRequestCount,
+    "malformed codes must fail before discovery or authenticated network access",
+  );
+
   const scopes = assertRun(await run(["scopes", "--json"]), 0, "scopes JSON");
   assert.deepEqual(JSON.parse(scopes.stdout).assignedScopes, ["files:read", "files:write"]);
   const skills = assertRun(await run(["skills", "list", "--json"]), 0, "skills JSON");
@@ -366,6 +409,10 @@ export async function runBlackBoxHarness({
     assert.match(rootHelp.stdout, /weldall/);
     const initHelp = assertRun(await run(["init", "--help"]), 0, "init help");
     assert.match(initHelp.stdout, /Create a native Weldall YAML workspace/);
+    assert.match(rootHelp.stdout, /connect/);
+    const connectHelp = assertRun(await run(["connect", "--help"]), 0, "connect help");
+    assert.match(connectHelp.stdout, /Approve a browser application connection/);
+    assert.match(connectHelp.stdout, /weldall connect ABCD-EFGH/);
     assertRun(await run(["definitely-not-a-command"]), 2, "unknown command");
 
     if (!mock) {

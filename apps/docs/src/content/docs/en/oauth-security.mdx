@@ -25,3 +25,13 @@ import securityFlowDark from "../../../assets/security-flow-dark.svg";
     data-zoom
   />
 </div>
+
+## CLI-approved browser profile
+
+Browser SPA pairing uses RFC 8628 device authorization, RFC 9449 DPoP, the RFC 9700 public-client baseline, RFC 8693 token exchange, and Weldall's pinned ID-JAG profile. The CLI approval endpoint and initiation-time DPoP pre-binding are Weldall extensions; polling errors, expiry, interval backoff, and the token grant identifier remain RFC 8628. PKCE is reserved for the later top-level browser authorization-code method.
+
+CLI and browser keys and refresh families are always separate. Origin is exact browser/CORS metadata, not cryptographic identity: authorization combines the enabled derived client/resource, browser-held device secret, JKT proof, explicit CLI context, and live checks. Browser connection endpoints use PostgreSQL replay/rate/quota state, hash device and user codes in separate domains, and never log codes, tokens, authorization headers, or complete proofs.
+
+A browser connection authorizes only its own resource. Current `weldall:login`, origin membership, resource/client/connection state, supported scopes, and direct/group-derived assignments are checked during refresh and every just-in-time ID-JAG request. Resource origin changes and disable/delete mutations revoke affected refresh families transactionally.
+
+See [Browser SPA connections](/en/browser-connections/) and the accepted ADR for storage, CORS, crash recovery, revocation, administration, and the same-origin-script threat boundary.

@@ -14,8 +14,13 @@ RUN POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/postgres pnpm db:g
   && pnpm --filter @weldall/sdk build \
   && pnpm --filter @weldall/db build \
   && pnpm --filter @weldall/cli build \
+  && pnpm --filter @weldall/browser build \
   && pnpm --filter @weldall/expenses build \
   && pnpm --filter @weldall/dev-idp build
+RUN mkdir -p /tmp/browser-pack /workspace/.e2e-browser-package \
+  && pnpm --filter @weldall/browser pack --pack-destination /tmp/browser-pack \
+  && tar -xzf /tmp/browser-pack/weldall-browser-*.tgz -C /workspace/.e2e-browser-package --strip-components=1 \
+  && test -f /workspace/.e2e-browser-package/dist/index.js
 
 FROM app AS e2e
 RUN pnpm --filter @weldall/e2e exec playwright install --with-deps chromium \

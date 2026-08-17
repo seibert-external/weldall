@@ -29,6 +29,7 @@ export default defineConfig({
             { slug: "agent-run" },
             { label: "Features", link: "/features/" },
             { slug: "oauth-security" },
+            { slug: "browser-connections" },
             { label: "SDKs", link: "/sdks/" },
             {
               label: "How to: Weldall aufsetzen",

@@ -49,6 +49,56 @@ const idJagIssuedMetadata = z
 const idJagDeniedMetadata = z.object(idJagRequestedMetadata).strict();
 const idJagFailedMetadata = z.object(idJagRequestedMetadata).strict();
 
+const browserRequestMetadata = z
+  .object({
+    requestId: z.string().min(1).max(191),
+    browserClientId: z.string().min(1).max(200),
+    origin: z.string().url().max(2_000),
+    resourceId: z.string().min(1).max(191),
+    resourceIdentifier: z.string().url().max(2_000),
+    dpopJkt: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    expiresAt: z.string().datetime(),
+  })
+  .strict();
+const browserDecisionMetadata = browserRequestMetadata
+  .extend({
+    cliSourceClient: z.literal("weldall-cli"),
+    approvedVia: z.literal("cli-code"),
+  })
+  .strict();
+const browserIssuedMetadata = browserDecisionMetadata
+  .extend({
+    connectionId: z.string().min(1).max(191),
+    refreshFamilyId: z.string().min(1).max(191),
+  })
+  .strict();
+const browserRevokedMetadata = z
+  .object({
+    connectionId: z.string().min(1).max(191),
+    browserClientId: z.string().min(1).max(200),
+    origin: z.string().url().max(2_000),
+    resourceId: z.string().min(1).max(191).nullable(),
+    resourceIdentifier: z.string().url().max(2_000),
+    dpopJkt: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    approvedVia: z.enum(["cli-code", "browser-oauth"]),
+    revocationReason: safeText,
+  })
+  .strict();
+const browserFailedMetadata = z
+  .object({
+    stage: z.enum(["start", "lookup", "decision", "poll", "issuance", "revocation"]),
+    requestId: z.string().min(1).max(191).nullable(),
+    connectionId: z.string().min(1).max(191).nullable(),
+    browserClientId: z.string().min(1).max(200).nullable(),
+    origin: z.string().url().max(2_000).nullable(),
+    resourceIdentifier: z.string().url().max(2_000).nullable(),
+    dpopJkt: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{43}$/)
+      .nullable(),
+  })
+  .strict();
+
 const machineClientMetadata = z
   .object({
     clientId: z.string().min(1).max(128),
@@ -241,6 +291,12 @@ const metadataSchemas = {
   "id_jag.issued": idJagIssuedMetadata,
   "id_jag.denied": idJagDeniedMetadata,
   "id_jag.failed": idJagFailedMetadata,
+  "browser_connection.requested": browserRequestMetadata,
+  "browser_connection.approved": browserDecisionMetadata,
+  "browser_connection.denied": browserDecisionMetadata,
+  "browser_connection.issued": browserIssuedMetadata,
+  "browser_connection.revoked": browserRevokedMetadata,
+  "browser_connection.failed": browserFailedMetadata,
   "machine_client.created": machineClientMetadata,
   "machine_client.updated": machineClientMetadata,
   "machine_client.deactivated": machineClientMetadata,
@@ -299,6 +355,11 @@ const auditInputSchema = z
         "invalid_request",
         "internal_error",
         "audit_store_unavailable",
+        "rate_limited",
+        "code_unavailable",
+        "origin_not_allowed",
+        "resource_disabled",
+        "connection_revoked",
       ])
       .optional(),
     subjectType: z.string().min(1).max(100).optional(),

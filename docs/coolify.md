@@ -30,6 +30,7 @@ import { exportJWK, generateKeyPair } from "jose";
 
 const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
 console.log(`BETTER_AUTH_SECRET=${randomBytes(32).toString("base64url")}`);
+console.log(`WELDALL_TRUSTED_PROXY_SECRET=${randomBytes(32).toString("base64url")}`);
 console.log(`WELDALL_SIGNING_PRIVATE_JWK=${JSON.stringify(await exportJWK(privateKey))}`);
 console.log(`WELDALL_SIGNING_PUBLIC_JWK=${JSON.stringify(await exportJWK(publicKey))}`);
 console.log(`WELDALL_SIGNING_KID=${randomUUID()}`);
@@ -50,6 +51,7 @@ None of these variables needs to be available during the Docker build.
 | `LOG_LEVEL`                                 | `INFO` (`DEBUG` for temporary diagnostics)               |
 | `ENABLE_DEV_LOGIN`                          | `false`                                                  |
 | `BETTER_AUTH_SECRET`                        | Generated secret                                         |
+| `WELDALL_TRUSTED_PROXY_SECRET`              | Generated edge-attestation secret                        |
 | `GOOGLE_CLIENT_ID`                          | Production Google OAuth client ID                        |
 | `GOOGLE_CLIENT_SECRET`                      | Production Google OAuth client secret                    |
 | `WELDALL_SIGNING_PRIVATE_JWK`               | Generated private JWK JSON                               |
@@ -59,7 +61,30 @@ None of these variables needs to be available during the Docker build.
 | `WELDALL_CREDENTIAL_ENCRYPTION_KEY`         | Base64-encoded 32-byte key for provider tokens           |
 | `WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION` | Positive key version, initially `1`                      |
 
-Lock `POSTGRES_URL`, `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_SECRET`, `WELDALL_SIGNING_PRIVATE_JWK`, and `WELDALL_CREDENTIAL_ENCRYPTION_KEY` in Coolify. `OAUTH_PROXY_SECRET` and the Development IdP variables are local-development settings and must not be configured in production.
+Lock `POSTGRES_URL`, `BETTER_AUTH_SECRET`, `WELDALL_TRUSTED_PROXY_SECRET`, `GOOGLE_CLIENT_SECRET`, `WELDALL_SIGNING_PRIVATE_JWK`, and `WELDALL_CREDENTIAL_ENCRYPTION_KEY` in Coolify. `OAUTH_PROXY_SECRET` and the Development IdP variables are local-development settings and must not be configured in production.
+
+### Authenticate the Coolify proxy boundary
+
+Browser-connection entrance limits accept a network source only when the request carries both the proxy-managed `X-Forwarded-For` chain and an `X-Weldall-Proxy-Attestation` value equal to `WELDALL_TRUSTED_PROXY_SECRET`. Weldall uses the final `X-Forwarded-For` hop added by the edge. Without a valid attestation it deliberately puts every request in one `untrusted-proxy-source` bucket; it never trusts a client-supplied forwarding header by itself.
+
+Configure this at the Coolify Traefik edge, not in browser code:
+
+1. In **Servers → Proxy → Dynamic Configurations**, add a file-provider middleware:
+
+   ```yaml
+   http:
+     middlewares:
+       weldall-source-attestation:
+         headers:
+           customRequestHeaders:
+             X-Weldall-Proxy-Attestation: "<WELDALL_TRUSTED_PROXY_SECRET>"
+   ```
+
+2. Attach `weldall-source-attestation@file` to the generated HTTPS router for the Weldall application. In Coolify's generated labels this is the router's `traefik.http.routers.<router-name>.middlewares` value; preserve any existing middleware names and append `weldall-source-attestation@file`.
+3. Keep port `3000` private to the Coolify network so requests cannot bypass Traefik. Confirm Traefik remains the component that appends the connected client to `X-Forwarded-For`.
+4. Rotate the middleware value and locked application variable together. Never put this secret in SPA configuration, response headers, logs, or audit metadata.
+
+The repository `Caddyfile` and Docker E2E Caddy configuration implement the same contract by overwriting `X-Forwarded-For` with `{remote_host}` and injecting the local/test-only attestation secret.
 
 Register this exact Google OAuth redirect URI:
 
@@ -98,4 +123,17 @@ They are normally inherited from the `seibert-external` organization. Only add t
 
 Before non-bootstrap users run `weldall login`, assign `weldall:login` to their email address or to a matching provider group in the Admin UI. Weldall does not derive CLI access from Google alone. Group-derived access is resolved live and fails closed when the provider is disabled, unavailable, changed during resolution, or no longer reports the membership; direct grants remain independent.
 
-Weldall's interactive OAuth, ID-JAG, and machine client-credentials endpoints use process-local replay protection, so horizontal scaling beyond one replica is not safe yet. Proof and assertion markers clear on restart and are not shared between replicas.
+Browser connection start, CLI approval, polling, refresh/exchange facade checks, rate limits, quotas, and browser DPoP replay markers use PostgreSQL. The pinned provider's native interactive OAuth DPoP replay store and downstream services configured with `inMemory()` remain process-local, so the supported Weldall deployment stays at one replica until those provider-native markers are shared. Production downstream resources that scale horizontally must configure an atomic Redis or PostgreSQL `ReplayStore`.
+
+## Browser-connection migration and operations
+
+The container applies the dedicated browser-connection migrations before startup. Production initialization then reconciles a derived `weldall-browser:<resource-key>` public client for every existing resource and reconciles incomplete provider issuance attempts before serving traffic. Do not create or edit these OAuth clients manually.
+
+Before deployment, back up PostgreSQL and verify that resource authorization-server and request-prefix URLs contain the intended SPA origins. After deployment:
+
+1. run the normal metadata and CLI checks above;
+2. inspect an existing resource and confirm its derived browser client is enabled only when the resource is enabled;
+3. open the user or resource detail administration page to inspect/revoke connections;
+4. verify `browser_connection.requested`, `.approved`, `.issued`, and `.revoked` audit events contain IDs/origin/resource/JKT but no code, token, proof, or authorization value.
+
+Changing an origin, disabling a resource, or deleting it transactionally revokes affected browser connections and refresh families for both admin and IaC mutations. A connection stores no business-scope snapshot: the next refresh and ID-JAG request applies current login, group, resource, origin, connection, and supported-scope policy. Already-issued offline-verifiable downstream tokens retain only their signed short lifetime.

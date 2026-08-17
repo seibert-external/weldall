@@ -33,6 +33,7 @@ import {
   TableRowAction,
 } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
+import { auditEventLabel, auditMetadataEntries } from "./presentation";
 
 const PAGE_SIZE = 20;
 const sortingParser = createSortingParser(new Set(["occurredAt"]), [
@@ -42,7 +43,10 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "medium",
 });
-const eventTypeOptions = AUDIT_EVENT_TYPES.map((value) => ({ value, label: value }));
+const eventTypeOptions = AUDIT_EVENT_TYPES.map((value) => ({
+  value,
+  label: auditEventLabel(value),
+}));
 const outcomes = ["success", "denied", "failed"] as const;
 const outcomeOptions = outcomes.map((value) => ({ value, label: value }));
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -123,7 +127,9 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
         minSize: 180,
         maxSize: 420,
         enableSorting: false,
-        cell: ({ getValue }) => <Badge label={getValue<string>()} variant="info" />,
+        cell: ({ getValue }) => (
+          <Badge label={auditEventLabel(getValue<AuditEventType>())} variant="info" />
+        ),
       },
       {
         id: "actor",
@@ -348,9 +354,23 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
             }
             content={
               <LayoutContent>
-                <pre className="overflow-auto whitespace-pre-wrap text-xs">
-                  {JSON.stringify(selectedEvent, null, 2)}
-                </pre>
+                <dl className="grid gap-3 text-sm">
+                  <AuditDetail label="Event" value={auditEventLabel(selectedEvent.eventType)} />
+                  <AuditDetail label="Outcome" value={selectedEvent.outcome} />
+                  <AuditDetail
+                    label="Actor"
+                    value={selectedEvent.actorEmail ?? selectedEvent.actorId}
+                  />
+                  <AuditDetail label="Client" value={selectedEvent.clientId ?? "None"} />
+                  <AuditDetail label="Subject" value={selectedEvent.subjectId ?? "None"} />
+                  <AuditDetail label="Request ID" value={selectedEvent.requestId} />
+                  {selectedEvent.reasonCode ? (
+                    <AuditDetail label="Reason" value={selectedEvent.reasonCode} />
+                  ) : null}
+                  {auditMetadataEntries(selectedEvent.metadata).map(([label, value]) => (
+                    <AuditDetail key={label} label={label} value={value} />
+                  ))}
+                </dl>
               </LayoutContent>
             }
             footer={
@@ -383,4 +403,13 @@ function sortingToAuditSort(sorting: SortingState) {
 
 function outcomeVariant(outcome: AuditEventDto["outcome"]): BadgeVariant {
   return outcome === "success" ? "success" : outcome === "denied" ? "warning" : "error";
+}
+
+function AuditDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1">
+      <dt className="text-xs text-[var(--color-text-secondary)]">{label}</dt>
+      <dd className="m-0 break-all font-mono text-xs">{value}</dd>
+    </div>
+  );
 }

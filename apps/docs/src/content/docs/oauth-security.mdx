@@ -25,3 +25,13 @@ import securityFlowDark from "../../assets/security-flow-dark.svg";
     data-zoom
   />
 </div>
+
+## CLI-freigegebenes Browser-Profil
+
+Die Browser-Kopplung verwendet RFC 8628 Device Authorization, RFC 9449 DPoP, RFC 9700 für Public Clients, RFC 8693 Token Exchange und das festgelegte ID-JAG-Profil. CLI-Freigabe und die DPoP-Vorbindung beim Start sind Weldall-Erweiterungen; Polling-Fehler, Ablauf, Backoff und Grant-Identifier bleiben RFC 8628. PKCE ist für die spätere Browser-Authorization-Code-Methode vorgesehen.
+
+CLI und Browser besitzen immer getrennte Schlüssel und Refresh-Familien. Der Ursprung ist exakte CORS-Metadaten, keine kryptografische Identität. Autorisierung kombiniert aktiviertes Resource und abgeleiteten Client, Device Secret, JKT-Proof, expliziten CLI-Kontext und Live-Prüfungen. Browser-Replay, Limits und Quotas liegen in PostgreSQL; Codes, Token, Authorization-Header und vollständige Proofs werden nicht geloggt.
+
+Eine Browser-Verbindung gilt nur für ihr eigenes Resource. `weldall:login`, aktuelle Ursprungsliste, Resource-/Client-/Connection-Zustand, unterstützte Scopes und direkte beziehungsweise gruppenbasierte Zuweisungen werden bei Refresh und jedem ID-JAG erneut geprüft. Ursprung-Änderung, Deaktivierung und Löschung widerrufen betroffene Familien transaktional.
+
+Weitere Details stehen unter [Browser-SPA-Verbindungen](/browser-connections/) und im akzeptierten ADR.

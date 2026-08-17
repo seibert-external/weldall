@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { db, ensureSystemScopes, LOGIN_SCOPE_KEY } from "@weldall/db";
+import { generateEs256KeyPair } from "@weldall/sdk";
 import { denyCliConsentWithoutLoginScope } from "../src/server/auth/consent.js";
 import {
   hasLoginScopeForEmail,
@@ -26,7 +27,15 @@ let groupMembership = true;
 let providerUnavailable = false;
 
 beforeAll(async () => {
-  process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  const signingKey = await generateEs256KeyPair();
+  Object.assign(process.env, {
+    BETTER_AUTH_SECRET: "login-policy-test-secret-at-least-32-characters",
+    OAUTH_PROXY_SECRET: "login-policy-proxy-secret-at-least-32-characters",
+    WELDALL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+    WELDALL_SIGNING_KID: `login-policy-${runId}`,
+    WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(signingKey.privateJwk),
+    WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(signingKey.publicJwk),
+  });
   vi.stubGlobal("fetch", async (input: string | URL | Request) => {
     const url = String(input);
     if (providerUnavailable) return new Response(null, { status: 503 });
@@ -162,8 +171,12 @@ describe("weldall:login policy", () => {
     await db.session.deleteMany({ where: { userId: deniedUserId } });
   });
 
-  it("gates both CLI authorization-code login and refresh grants", async () => {
-    for (const grantType of ["authorization_code", "refresh_token"]) {
+  it("gates CLI authorization-code, refresh, and browser device grants", async () => {
+    for (const grantType of [
+      "authorization_code",
+      "refresh_token",
+      "urn:ietf:params:oauth:grant-type:device_code",
+    ]) {
       await expect(
         requireLoginScopeForOAuthGrant({ grantType, user: { id: allowedUserId } }),
       ).resolves.toEqual({});
@@ -178,9 +191,13 @@ describe("weldall:login policy", () => {
     }
   });
 
-  it("accepts group-derived weldall:login for CLI consent, authorization code, and refresh", async () => {
+  it("accepts group-derived weldall:login for CLI consent and interactive grants", async () => {
     await expect(hasLoginScopeForEmail(groupEmail)).resolves.toBe(true);
-    for (const grantType of ["authorization_code", "refresh_token"]) {
+    for (const grantType of [
+      "authorization_code",
+      "refresh_token",
+      "urn:ietf:params:oauth:grant-type:device_code",
+    ]) {
       await expect(
         requireLoginScopeForOAuthGrant({ grantType, user: { id: groupUserId } }),
       ).resolves.toEqual({});
@@ -215,7 +232,11 @@ describe("weldall:login policy", () => {
     });
     groupMembership = false;
     try {
-      for (const grantType of ["authorization_code", "refresh_token"]) {
+      for (const grantType of [
+        "authorization_code",
+        "refresh_token",
+        "urn:ietf:params:oauth:grant-type:device_code",
+      ]) {
         await expect(
           requireLoginScopeForOAuthGrant({ grantType, user: { id: groupUserId } }),
         ).rejects.toMatchObject({ body: { error: "invalid_grant" } });

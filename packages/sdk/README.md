@@ -37,6 +37,9 @@ const weldall = initWeldall("https://weldall.example.com", {
   supportedScopes: ["contracts:read"],
   signingKey: { kid: "development-only", ...key },
   replayStore: inMemory(),
+  // Exact browser origins only. Omit to allow only publicOrigin.
+  allowedOrigins: ["https://contracts.example.com"],
+  allowedMethods: ["GET", "POST"],
   skills: {
     items: [
       {
@@ -88,6 +91,21 @@ const result = await weldall.verifyNoThrow(request);
 ```
 
 `verify` throws a `WeldallAuthError` when authentication fails. `verifyNoThrow` returns `{ ok: true, auth }` on success or `{ ok: false, error, response }` on failure.
+
+For a framework-neutral browser-visible route, wrap the complete operation so preflight runs before authentication or replay consumption and both success and OAuth errors receive CORS headers:
+
+```ts
+const response = await weldall.withBrowserCors(request, ["GET"], async () => {
+  const result = await weldall.verifyNoThrow(request, { scopes: ["contracts:read"] });
+  return result.ok ? Response.json({ subject: result.auth.subject }) : result.response;
+});
+```
+
+### Browser CORS
+
+`allowedOrigins` is an exact allowlist; it rejects wildcards, paths, and malformed origins. When omitted, only `publicOrigin` is allowed. `allowedMethods` controls protected-route preflight and should contain only methods the resource exposes. Preflight accepts only `Authorization`, `DPoP`, `Content-Type`, `X-Request-Id`, and `X-Correlation-Id`, exposes `WWW-Authenticate` and the reserved `DPoP-Nonce`, sends no credentialed-cookie permission, and always varies on origin, requested method, and requested headers. Requests without `Origin` are unchanged, preserving CLI and machine callers.
+
+Hono's `registerRoutes()` installs exact GET/POST preflight routes only for the SDK protocol endpoints. Bind an application route explicitly with `app.options("/api/contracts", weldall.preflight(["GET"]))`; no catch-all preflight is installed. Next.js and Astro export `weldall.preflight(methods, exactPathname)` beside each protected browser-visible route. SDK protocol handlers already enforce their own exact method and may be reused as `OPTIONS`. Never put authentication, DPoP, rate limits, or replay work before the adapter's preflight boundary.
 
 ## Machine-to-machine calls
 
@@ -179,6 +197,7 @@ export const GET = weldall.withWeldall({ scopes: ["contracts:read"] }, async (_r
     requestedBy: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
   }),
 );
+export const OPTIONS = weldall.preflight(["GET"], "/api/contracts"); // exact route/method, before auth/DPoP/replay
 ```
 
 Each protocol endpoint is a small handler export. For example:
@@ -189,6 +208,7 @@ import { weldall } from "@/lib/weldall";
 
 export const runtime = "nodejs";
 export const POST = weldall.handlers.token;
+export const OPTIONS = weldall.handlers.token;
 ```
 
 Add equivalent `GET` route files for the metadata, JWKS, and optional skill handlers listed in [Protocol routes](#protocol-routes).
@@ -204,7 +224,7 @@ import { initWeldall } from "@weldall/sdk/astro";
 export const weldall = initWeldall("https://weldall.example.com", options);
 ```
 
-Call `weldall.protect()` from middleware and read the result with `weldall.getAuth(context)`. Add `weldallAuth` to `App.Locals`.
+Call `weldall.protect(policy, methods)` from middleware and read the result with `weldall.getAuth(context)`. Pass the exact methods for the protected path so an `OPTIONS` request is answered before authentication and replay. Add `weldallAuth` to `App.Locals`. Endpoint-only integrations can export `weldall.preflight(methods, pathname)` as their `OPTIONS` handler.
 
 Astro endpoint files can export the handlers directly:
 
@@ -214,9 +234,10 @@ import { weldall } from "../../weldall";
 
 export const prerender = false;
 export const POST = weldall.handlers.token;
+export const OPTIONS = weldall.handlers.token;
 ```
 
-Create `GET` endpoints for metadata, JWKS, and the optional skill catalog. Set `prerender = false` in every endpoint file.
+Create `GET` endpoints for metadata, JWKS, and the optional skill catalog. Their built-in handlers enforce GET-only preflight, so they may be exported as `OPTIONS`. Protected application endpoints instead export `weldall.preflight(["GET"], "/exact/path")`. Set `prerender = false` in every endpoint file.
 
 ## Protocol routes
 
@@ -236,7 +257,7 @@ The handler is available as `weldall.handlers.<name>`. The resource-specific pro
 ## Production checklist
 
 - Load a stable ES256 signing key. Generating one at startup invalidates tokens after every restart. KMS and Vault integrations can provide a signing-key provider with `current()` and `jwks()` methods.
-- Keep `resource`, `publicOrigin`, deployed protocol routes, and the resource registered in Weldall exactly aligned.
+- Keep `resource`, `publicOrigin`, `allowedOrigins`, deployed protocol routes, and the resource registered in Weldall exactly aligned. Use no wildcard or credentialed-cookie CORS mode. Bind `OPTIONS` only on real routes with the exact allowed methods. Preflight accepts `Authorization`, `DPoP`, `Content-Type`, `X-Request-Id`, and `X-Correlation-Id`; it exposes `WWW-Authenticate` and reserved `DPoP-Nonce`.
 - Use HTTPS. Set `allowInsecureLoopback: true` only for local loopback development.
 - Choose replay storage deliberately. `inMemory()` holds up to 10,000 live entries by default, belongs to one process, and clears on restart. A shared `ReplayStore` must return `true` only for the first `consume(key, expiresAt)` call and fail closed on storage errors.
 - Plan key rotation, restarts, draft upgrades, and independent conformance testing before rollout. The current protocol boundary has no DPoP nonce negotiation.

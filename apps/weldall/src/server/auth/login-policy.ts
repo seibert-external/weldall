@@ -22,7 +22,11 @@ export async function requireLoginScopeForOAuthGrant(input: {
   grantType: string;
   user?: { id?: unknown } | null;
 }): Promise<Record<string, never>> {
-  if (input.grantType !== "authorization_code" && input.grantType !== "refresh_token") {
+  if (
+    input.grantType !== "authorization_code" &&
+    input.grantType !== "refresh_token" &&
+    input.grantType !== "urn:ietf:params:oauth:grant-type:device_code"
+  ) {
     return {};
   }
   const userId = input.user?.id;

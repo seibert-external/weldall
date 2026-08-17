@@ -52,6 +52,110 @@ beforeAll(async () => {
   });
 });
 describe("Expenses", () => {
+  it("serves the development browser fixture with strict CSP and workspace browser modules", async () => {
+    const { createApp } = await import("../src/app.js");
+    const app = await createApp();
+    const page = await app.request("/weldall-browser");
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
+    const html = await page.text();
+    for (const label of [
+      "Start connection",
+      "Local status",
+      "Verify remotely",
+      "Read expenses",
+      "Create expense",
+      "Disconnect remotely",
+      "Clear local credentials",
+    ])
+      expect(html).toContain(label);
+    const script = await app.request("/weldall-browser/app.js");
+    expect(await script.text()).toContain('from "/weldall-browser/sdk/index.js"');
+    const sdk = await app.request("/weldall-browser/sdk/index.js");
+    expect(sdk.status).toBe(200);
+    expect(await sdk.text()).toContain("createWeldallBrowserClient");
+    expect((await app.request("/weldall-browser/sdk/../package.json")).status).toBe(404);
+  });
+
+  it("fails closed for the development browser fixture in production", async () => {
+    const prior = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const { createApp } = await import("../src/app.js");
+      const app = await createApp();
+      expect((await app.request("/weldall-browser")).status).toBe(404);
+      expect((await app.request("/weldall-browser/app.js")).status).toBe(404);
+    } finally {
+      if (prior === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prior;
+    }
+  });
+
+  it("allows only the explicit system-test fixture opt-in in a production process", async () => {
+    const priorNodeEnv = process.env.NODE_ENV;
+    const priorEnabled = process.env.WELDALL_BROWSER_FIXTURE_ENABLED;
+    process.env.NODE_ENV = "production";
+    process.env.WELDALL_BROWSER_FIXTURE_ENABLED = "true";
+    try {
+      const { createApp } = await import("../src/app.js");
+      const app = await createApp();
+      expect((await app.request("/weldall-browser")).status).toBe(200);
+      expect((await app.request("/weldall-browser/sdk/index.js")).status).toBe(200);
+    } finally {
+      if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = priorNodeEnv;
+      if (priorEnabled === undefined) delete process.env.WELDALL_BROWSER_FIXTURE_ENABLED;
+      else process.env.WELDALL_BROWSER_FIXTURE_ENABLED = priorEnabled;
+    }
+  });
+
+  it("handles exact-origin API preflight before authentication and decorates errors", async () => {
+    const { createApp } = await import("../src/app.js");
+    const app = await createApp();
+    const preflight = await app.request("/api/expenses", {
+      method: "OPTIONS",
+      headers: {
+        origin: EXPENSES_ISSUER,
+        "access-control-request-method": "GET",
+        "access-control-request-headers":
+          "Authorization, DPoP, Content-Type, X-Request-Id, X-Correlation-Id",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(EXPENSES_ISSUER);
+    expect(preflight.headers.get("access-control-allow-credentials")).toBeNull();
+    expect(preflight.headers.get("access-control-allow-headers")).toContain("X-Request-Id");
+    const wrongMethod = await app.request("/api/expenses", {
+      method: "OPTIONS",
+      headers: {
+        origin: EXPENSES_ISSUER,
+        "access-control-request-method": "DELETE",
+      },
+    });
+    expect(wrongMethod.status).toBe(403);
+    const missingRoute = await app.request("/api/not-registered", {
+      method: "OPTIONS",
+      headers: {
+        origin: EXPENSES_ISSUER,
+        "access-control-request-method": "GET",
+      },
+    });
+    expect(missingRoute.status).toBe(404);
+    const error = await app.request("/api/expenses", { headers: { origin: EXPENSES_ISSUER } });
+    expect(error.status).toBe(401);
+    expect(error.headers.get("access-control-allow-origin")).toBe(EXPENSES_ISSUER);
+    expect(error.headers.get("access-control-expose-headers")).toContain("WWW-Authenticate");
+    const rejected = await app.request("/api/expenses", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://attacker.example",
+        "access-control-request-method": "GET",
+      },
+    });
+    expect(rejected.status).toBe(403);
+    expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   it("publishes a DB-free AS", async () => {
     const { createApp } = await import("../src/app.js");
     const app = await createApp();
@@ -267,10 +371,12 @@ describe("Expenses", () => {
       headers: {
         "content-type": "application/x-www-form-urlencoded",
         dpop: exchangeProof,
+        origin: EXPENSES_ISSUER,
       },
       body: new URLSearchParams({ grant_type: JWT_DPOP_GRANT, assertion }),
     });
     expect(exchange.status).toBe(200);
+    expect(exchange.headers.get("access-control-allow-origin")).toBe(EXPENSES_ISSUER);
     const token = ((await exchange.json()) as { access_token: string }).access_token;
     const decoded = decodeJwt(token);
     expect(decoded).toMatchObject({
@@ -293,9 +399,14 @@ describe("Expenses", () => {
       url: apiUrl,
       accessToken: token,
     });
-    const apiHeaders = { authorization: `DPoP ${token}`, dpop: apiProof };
+    const apiHeaders = {
+      authorization: `DPoP ${token}`,
+      dpop: apiProof,
+      origin: EXPENSES_ISSUER,
+    };
     const success = await app.request("/api/expenses", { headers: apiHeaders });
     expect(success.status, await success.clone().text()).toBe(200);
+    expect(success.headers.get("access-control-allow-origin")).toBe(EXPENSES_ISSUER);
     await expect(success.json()).resolves.toMatchObject({
       subject: "weldall-user",
       email: "user@example.com",

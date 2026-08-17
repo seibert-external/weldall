@@ -79,6 +79,45 @@ describe("issuer configuration", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("strictly discovers the optional browser-connection approval profile", async () => {
+    const browserMetadata = {
+      ...metadata,
+      grant_types_supported: [
+        ...metadata.grant_types_supported,
+        "urn:ietf:params:oauth:grant-type:device_code",
+      ],
+      device_authorization_endpoint: `${issuer}/api/auth/oauth2/device_authorization`,
+      weldall_browser_connections: {
+        approval_profile: "cli-code",
+        pending_lookup_endpoint: `${issuer}/api/me/browser-connections/pending/lookup`,
+        pending_decision_endpoint: `${issuer}/api/me/browser-connections/pending/decision`,
+        profile_extensions: ["cli-approval", "initiation-time-dpop-binding"],
+      },
+    };
+    await expect(
+      discoverIssuer(issuer, { fetcher: discoveryFetch(browserMetadata) }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        browserConnections: {
+          deviceAuthorization: `${issuer}/api/auth/oauth2/device_authorization`,
+          pendingLookup: `${issuer}/api/me/browser-connections/pending/lookup`,
+          pendingDecision: `${issuer}/api/me/browser-connections/pending/decision`,
+        },
+      }),
+    );
+    await expect(
+      discoverIssuer(issuer, {
+        fetcher: discoveryFetch({
+          ...browserMetadata,
+          weldall_browser_connections: {
+            ...browserMetadata.weldall_browser_connections,
+            pending_lookup_endpoint: "https://attacker.example/lookup",
+          },
+        }),
+      }),
+    ).rejects.toThrow("unexpected pending_lookup_endpoint");
+  });
+
   it("rejects discovery documents for a different issuer", async () => {
     await expect(
       discoverIssuer(issuer, {

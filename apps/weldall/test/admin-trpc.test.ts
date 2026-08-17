@@ -125,6 +125,7 @@ describe("admin tRPC middleware", () => {
 
   afterAll(async () => {
     vi.unstubAllGlobals();
+    await db.browserConnection.deleteMany({ where: { userId: adminUserId } });
     await db.emailScopeAssignment.deleteMany({
       where: { normalizedEmail: { in: [adminEmail, normalEmail] } },
     });
@@ -176,6 +177,56 @@ describe("admin tRPC middleware", () => {
         code: "NOT_FOUND",
       },
     );
+  });
+
+  it("wires browser connection listing and revocation through the admin router", async () => {
+    const connection = await db.browserConnection.create({
+      data: {
+        providerReferenceId: `trpc-browser-reference-${runId}`,
+        browserClientId: `weldall-browser:trpc-${runId}`,
+        resourceKey: `trpc-${runId}`,
+        resourceIdentifier: "https://trpc-browser.example/api",
+        origin: "https://trpc-browser.example",
+        userId: adminUserId,
+        userReferenceId: adminUserId,
+        dpopJkt: "A".repeat(43),
+        refreshFamilyId: `trpc-browser-family-${runId}`,
+        approvedVia: "cli-code",
+      },
+    });
+    await expect(
+      caller(adminUserId).admin.browserConnections.list({
+        userId: adminUserId,
+        includeRevoked: false,
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: connection.id, state: "active" })]),
+    );
+    await expect(
+      caller(adminUserId).admin.browserConnections.revoke({ connectionId: connection.id }),
+    ).resolves.toEqual({ revoked: 1 });
+    await expect(
+      db.browserConnection.findUniqueOrThrow({ where: { id: connection.id } }),
+    ).resolves.toMatchObject({ state: "REVOKED" });
+    await expect(
+      db.auditEvent.findFirstOrThrow({
+        where: { eventType: "browser_connection.revoked", subjectId: connection.id },
+      }),
+    ).resolves.toMatchObject({
+      actorId: adminUserId,
+      outcome: "success",
+      metadata: expect.objectContaining({
+        connectionId: connection.id,
+        origin: "https://trpc-browser.example",
+        revocationReason: "administrative_revocation",
+      }),
+    });
+    await expect(caller(adminUserId).admin.browserConnections.revoke({})).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(
+      caller(normalUserId).admin.browserConnections.list({ includeRevoked: true }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("resolves assignment details for administrators", async () => {

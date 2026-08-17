@@ -95,6 +95,8 @@ export type VerifyResult =
       response: Response;
     };
 
+export type BrowserCorsMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+
 export type WeldallOptions = {
   resource: string;
   publicOrigin: string;
@@ -104,5 +106,9 @@ export type WeldallOptions = {
   replayStore: ReplayStore | "disabled";
   discoveryTimeoutMs?: number;
   allowInsecureLoopback?: boolean;
+  /** Exact browser origins. Defaults to the resource's publicOrigin only. */
+  allowedOrigins?: readonly string[];
+  /** Browser-visible protected API methods. Defaults to common Fetch methods. */
+  allowedMethods?: readonly BrowserCorsMethod[];
   skills?: SkillProvider;
 };

@@ -1,0 +1,62 @@
+---
+title: Browser-SPA-Verbindungen
+---
+
+Eine Single-Page-Anwendung eines aktivierten Weldall-Resources kann ohne erneute Anmeldung beim Identitätsanbieter eine langlebige Weldall-Verbindung erstellen. Der Browser erzeugt dafür einen eigenen, nicht exportierbaren P-256-WebCrypto-Schlüssel. Die Anwendung zeigt einen kurzlebigen Code an; der Benutzer bestätigt den exakten Ursprung und das Resource ausdrücklich mit der bereits angemeldeten CLI:
+
+```sh
+weldall connect ABCD-EFGH
+```
+
+Die CLI speichert ausschließlich die Entscheidung. Browser-Token und privater Schlüssel bleiben getrennt. Weldall stellt eine eigene `weldall-browser:<resource-key>`-Sitzung und Refresh-Familie aus, die an den Browser-JKT gebunden ist.
+
+## Protokollprofil
+
+Die Kopplung verwendet RFC 8628 mit dem Standard-Grant `urn:ietf:params:oauth:grant-type:device_code`. RFC 9449 DPoP bindet Start, Polling, Refresh, Token Exchange und API-Aufrufe an denselben Schlüssel. RFC 8693 erzeugt ein kurzlebiges ID-JAG für genau ein Resource; RFC 9700 liefert die Sicherheitsbasis für Public Clients und Refresh Tokens.
+
+Zwei ausdrücklich in Discovery gekennzeichnete Weldall-Erweiterungen sind:
+
+- Die CLI protokolliert die explizite Freigabe statt einer Verification-Webseite.
+- Der ausstehende Grant wird bereits beim Start an den Browser-JKT gebunden.
+
+PKCE gehört nicht zum Device Flow. Eine spätere Browser-Authorization-Code-Strategie verwendet exakte Redirect URI, State, Nonce, PKCE, Resource und `dpop_jkt` und speist dieselbe `BrowserConnection`-Ausstellung.
+
+## Integration
+
+Die SPA importiert ausschließlich das browserfähige ESM-Paket, nicht das Node-Resource-SDK:
+
+```ts
+import { createWeldallBrowserClient, inspectWeldallBrowserSupport } from "@weldall/browser";
+
+const support = await inspectWeldallBrowserSupport();
+if (!support.supported) renderUnsupported(support.missingFeatures);
+
+const weldall = await createWeldallBrowserClient({
+  issuer: "https://weldall.example.com",
+  resource: "https://expenses.example.com/api",
+});
+```
+
+`getConnectionStatus({ verify: "local" })` liest ausschließlich IndexedDB und rotiert kein Token. Remote-Verifikation führt den Refresh unter `navigator.locks` aus. `disconnect()` widerruft zuerst serverseitig; bei vorübergehenden Netzwerkfehlern bleiben die lokalen Daten für einen erneuten Versuch erhalten. `clearLocalConnection()` ist die getrennte, rein lokale Wiederherstellung.
+
+UI-Lese- und Schreiboperationen müssen dieselben durch Weldall geschützten API-Routen verwenden wie `weldall request`. Eine Cookie-only-Umgehungsroute ist nicht zulässig. Das Resource vertraut nach erfolgreicher Tokenprüfung der Weldall-Identität unabhängig von einer anderen Cookie-Identität.
+
+## Live-Policy und Resource-Lebenszyklus
+
+Die Verbindung speichert Identität, Resource, Ursprung, Browser-Client, Refresh-Familie und JKT, aber keine Business-Scopes. Refresh und jede ID-JAG-Ausstellung prüfen `weldall:login`, Client, aktiviertes Resource, aktuelle Ursprungsliste, Connection/Familie/JKT und die aktuellen direkten und gruppenbasierten Zuweisungen erneut. Das Ziel muss immer das Resource der Verbindung sein.
+
+Admin- und IaC-Änderungen laufen durch dieselbe Resource-Mutation: Erstellung repariert den abgeleiteten Browser-Client, entfernte Ursprünge widerrufen betroffene Familien, Deaktivierung widerruft alle Verbindungen und Löschung widerruft vor der Mutation. Nach der Migration müssen `prisma migrate deploy` und die normale Produktionsinitialisierung ausgeführt werden; sie repariert Browser-Clients bestehender Resources und unvollständige Ausstellungen.
+
+## Administration und Audit
+
+Benutzer- und Resource-Details zeigen Konto, exakten Ursprung und Resource, Erstellungs-/Nutzungszeit, Freigabemethode und Zustand. Administratoren können eine Verbindung oder alle Verbindungen eines Benutzers, Resources oder Ursprungs widerrufen. Die authentifizierte Benutzer-API ist auf die eigenen Verbindungen begrenzt; die SPA kann ihre aktuelle Verbindung widerrufen.
+
+Audit-Ereignisse erklären Anfrage, Freigabe, Ablehnung, Ausstellung, Fehler und Widerruf. Codes, Token, Authorization-Header und vollständige DPoP-Proofs werden weder geloggt noch in Audit-Metadaten gespeichert.
+
+## Sicherheitsgrenze
+
+Ein nicht exportierbarer `CryptoKey` verhindert den Roh-Export über WebCrypto. Bösartiges Same-Origin-JavaScript kann den Schlüssel dennoch zum Signieren verwenden. HTTPS, strikte CSP, kontrollierte Drittanbieter-Skripte, geprüfte Abhängigkeiten, Lockfile-Integrität und zeitnahe Sicherheitsupdates bleiben zwingend. Access Tokens, ID-JAGs und Downstream Tokens bleiben im Speicher; Schlüssel und rotierendes Refresh Token liegen schema-versioniert in IndexedDB.
+
+Weldall und Resource-SDK verwenden exakte CORS-Ursprünge, keine Wildcards und keine Cookie-Credentials. Horizontal skalierte Resource-Server benötigen einen atomaren gemeinsamen Replay Store. Der Produktions-Proxy muss Forwarding-Header überschreiben und die im Deployment-Guide beschriebene geheime Attestation setzen. Browser-Replay, Pending State, Quotas und Limits liegen in PostgreSQL; für den nativen Provider-Grant gilt bis zu einem gemeinsamen Provider-Replay-Store weiterhin die dokumentierte Einzelreplik.
+
+Browser-Versionen, Capability-Codes, Einschränkungen privater Modi und die lokale Expenses-Testseite sind im README von `@weldall/browser` beschrieben.

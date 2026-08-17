@@ -11,6 +11,13 @@ import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
 import { prismaAuditWriter, type AuditEventType } from "../audit/service";
 import { scopeKeySchema } from "../policy/scope-key";
+import {
+  browserOriginsForResource,
+  lockBrowserResourceLifecycle,
+  reconcileResourceBrowserClient,
+  removeResourceBrowserClient,
+  revokeResourceBrowserState,
+} from "../oauth/browser-resources";
 
 export type MutationSource =
   "admin_api" | "weldall_up" | "static_manifest_import" | "scope_delete_cascade";
@@ -318,6 +325,7 @@ export async function mutateResource(
     | { action: "delete"; id: string; expectedVersion: number },
   actor: MutationActor,
 ): Promise<any> {
+  await lockBrowserResourceLifecycle(tx);
   if (input.action === "delete") {
     const current = await tx.downstreamResource.findUnique({
       where: { id: input.id },
@@ -334,10 +342,19 @@ export async function mutateResource(
         "CONFLICT",
         `Resource ${current.key} is selected by machine ${access.client.clientId}. Remove it from machine access first.`,
       );
+    await revokeResourceBrowserState(tx, current, {
+      actorId: actor.id,
+      actorType: actor.type,
+      ...(actor.email ? { actorEmail: actor.email } : {}),
+      requestId: actor.requestId,
+      ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+      reason: "resource_deleted",
+    });
     const deleted = await tx.downstreamResource.deleteMany({
       where: { id: current.id, version: input.expectedVersion },
     });
     if (deleted.count !== 1) conflict("resource");
+    await removeResourceBrowserClient(tx, current);
     await resourceAudit(tx, actor, "resource_scopes.deleted", current, null);
     return { id: current.id };
   }
@@ -382,6 +399,7 @@ export async function mutateResource(
       },
       include: resourceInclude,
     });
+    await reconcileResourceBrowserClient(tx, created);
     await resourceAudit(tx, actor, "resource_scopes.created", null, created);
     return created;
   }
@@ -393,7 +411,19 @@ export async function mutateResource(
     current.skillDiscoveryEnabled === parsed.skillDiscoveryEnabled &&
     same(current.scopes.map(({ scope }) => scope.key).sort(), parsed.scopeKeys) &&
     same(current.requestPrefixes.map(({ urlPrefix }) => urlPrefix).sort(), parsed.requestPrefixes);
-  if (unchanged) return current;
+  if (unchanged) {
+    await reconcileResourceBrowserClient(tx, current);
+    if (!current.enabled)
+      await revokeResourceBrowserState(tx, current, {
+        actorId: actor.id,
+        actorType: actor.type,
+        ...(actor.email ? { actorEmail: actor.email } : {}),
+        requestId: actor.requestId,
+        ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+        reason: "resource_disabled",
+      });
+    return current;
+  }
   await tx.resourceScope.deleteMany({ where: { resourceId: current.id } });
   if (scopes.length)
     await tx.resourceScope.createMany({
@@ -430,6 +460,20 @@ export async function mutateResource(
     where: { id: current.id },
     include: resourceInclude,
   });
+  await reconcileResourceBrowserClient(tx, updated);
+  const removedOrigins = browserOriginsForResource(current).filter(
+    (origin) => !browserOriginsForResource(updated).includes(origin),
+  );
+  if (!updated.enabled || removedOrigins.length)
+    await revokeResourceBrowserState(tx, updated, {
+      ...(updated.enabled ? { removedOrigins } : {}),
+      actorId: actor.id,
+      actorType: actor.type,
+      ...(actor.email ? { actorEmail: actor.email } : {}),
+      requestId: actor.requestId,
+      ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+      reason: updated.enabled ? "origin_removed" : "resource_disabled",
+    });
   await resourceAudit(tx, actor, "resource_scopes.replaced", current, updated);
   return updated;
 }

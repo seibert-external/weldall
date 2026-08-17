@@ -1,13 +1,12 @@
 import { db } from "@weldall/db";
-import { WeldallAuthError, inMemory, verifyEs256, verifyStrictDpop } from "@weldall/sdk";
-import { WELDALL_ISSUER, WELDALL_RESOURCE } from "./constants";
+import { WeldallAuthError, verifyEs256, verifyStrictDpop } from "@weldall/sdk";
+import { WELDALL_CLIENT_ID, WELDALL_ISSUER, WELDALL_RESOURCE } from "./constants";
 import { getWeldallSigningKey } from "./jwt";
-
-const replay = inMemory({ suppressWarning: true });
+import { postgresReplayStore } from "./replay";
 
 export async function authenticateCliApiRequest(
   request: Request,
-  input: { expectedUrl: string; requiredScope: string },
+  input: { expectedUrl: string; requiredScope: string; expectedClientId?: string },
 ): Promise<{ id: string; email: string }> {
   const authorization = request.headers.get("authorization");
   const proof = request.headers.get("dpop");
@@ -27,9 +26,12 @@ export async function authenticateCliApiRequest(
   });
   const jkt = (payload.cnf as { jkt?: unknown } | undefined)?.jkt;
   const granted = typeof payload.scope === "string" ? payload.scope.split(" ") : [];
+  const expectedClientId = input.expectedClientId ?? WELDALL_CLIENT_ID;
   if (
     typeof payload.sub !== "string" ||
     typeof jkt !== "string" ||
+    payload.client_id !== expectedClientId ||
+    (payload.azp !== undefined && payload.azp !== expectedClientId) ||
     !granted.includes(input.requiredScope)
   ) {
     throw new WeldallAuthError("insufficient_scope", `${input.requiredScope} is required`, 403);
@@ -38,7 +40,7 @@ export async function authenticateCliApiRequest(
     await verifyStrictDpop(proof, {
       method: request.method,
       url: input.expectedUrl,
-      replay,
+      replay: postgresReplayStore,
       accessToken: token,
       expectedJkt: jkt,
     });

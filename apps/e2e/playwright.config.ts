@@ -11,8 +11,9 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   outputDir: join(artifacts, "playwright"),
   use: {
-    trace: "off",
-    screenshot: "off",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   reporter: [["line"], ["junit", { outputFile: join(artifacts, "junit.xml") }]],
 });

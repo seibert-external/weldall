@@ -8,6 +8,7 @@ import { signWeldallJwt } from "../oauth/jwt";
 import { requireLoginScopeForOAuthGrant } from "./login-policy";
 import { errorForLog, logger } from "../observability/logger";
 import { resolveDeploymentMode, resolveLoginProviders } from "./providers";
+import { browserConnectionOAuthPlugin } from "../oauth/browser-issuance";
 const required = (n: string) => {
   const v = process.env[n];
   if (!v) throw new Error(`${n} is required`);
@@ -124,5 +125,6 @@ export const auth = betterAuth({
               },
             ],
     }) as any,
+    browserConnectionOAuthPlugin(),
   ],
 });

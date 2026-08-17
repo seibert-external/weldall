@@ -28,6 +28,13 @@ import { getWeldallSigningKey } from "./jwt";
 import { loggedOauthErrorResponse } from "./error-response";
 import { auditMachineFailure, issueMachineToken, machineAuditContext } from "./machine";
 import { postgresReplayStore } from "./replay";
+import {
+  BROWSER_CLIENT_PREFIX,
+  DEVICE_GRANT_TYPE,
+  browserOriginsForResource,
+  lockBrowserResourceLifecycle,
+} from "./browser-resources";
+import { BROWSER_REFRESH_LIFETIME_MS, revokeBrowserConnectionFamily } from "./browser-issuance";
 
 const hash = (value: string) => createHash("sha256").update(value, "ascii").digest("base64url");
 const confirmationJkt = (value: unknown): string | undefined => {
@@ -74,6 +81,7 @@ const securityParameters = [
   "subject_token_type",
   "client_assertion_type",
   "client_assertion",
+  "device_code",
 ] as const;
 
 function rejectDuplicateParameters(form: FormData): void {
@@ -113,7 +121,62 @@ async function oauthForm(request: Request): Promise<FormData> {
 }
 
 const findBinding = (token: string) =>
-  db.oAuthDeviceRefreshBinding.findUnique({ where: { tokenHash: hash(token) } });
+  db.oAuthDeviceRefreshBinding.findUnique({
+    where: { tokenHash: hash(token) },
+    include: {
+      browserConnection: {
+        include: {
+          resource: { include: { requestPrefixes: { select: { urlPrefix: true } } } },
+          oauthClient: true,
+        },
+      },
+    },
+  });
+
+type RefreshBinding = NonNullable<Awaited<ReturnType<typeof findBinding>>>;
+
+function exactBrowserOrigin(request: Request): string {
+  const raw = request.headers.get("origin");
+  if (!raw || raw === "null") throw new WeldallAuthError("invalid_grant");
+  try {
+    const url = new URL(raw);
+    if (url.origin !== raw || url.protocol !== "https:") throw new Error("origin");
+    return url.origin;
+  } catch {
+    throw new WeldallAuthError("invalid_grant");
+  }
+}
+
+async function requireLiveBrowserBinding(
+  request: Request,
+  binding: RefreshBinding,
+  clientId: string,
+): Promise<NonNullable<RefreshBinding["browserConnection"]>> {
+  const connection = binding.browserConnection;
+  const origin = exactBrowserOrigin(request);
+  if (
+    !clientId.startsWith(BROWSER_CLIENT_PREFIX) ||
+    binding.clientId !== clientId ||
+    !connection ||
+    connection.state !== "ACTIVE" ||
+    connection.browserClientId !== clientId ||
+    connection.refreshFamilyId !== binding.familyId ||
+    connection.userId !== binding.userId ||
+    !safeEqual(connection.dpopJkt, binding.dpopJkt) ||
+    connection.origin !== origin ||
+    !connection.resource ||
+    !connection.resource.enabled ||
+    !connection.oauthClient ||
+    connection.oauthClient.disabled ||
+    connection.oauthClient.clientId !== clientId ||
+    connection.oauthClient.referenceId !== connection.resource.id ||
+    connection.resourceIdentifier !== connection.resource.resourceIdentifier ||
+    !browserOriginsForResource(connection.resource).includes(origin)
+  )
+    throw new WeldallAuthError("invalid_grant");
+  if (!(await hasLoginScopeForUserId(binding.userId))) throw new WeldallAuthError("invalid_grant");
+  return connection;
+}
 
 async function validateBoundProof(
   request: Request,
@@ -136,12 +199,13 @@ async function exchange(
   audit: ExchangeAuditContext,
   auditWriter: AuditWriter,
 ) {
-  if (requiredString(form, "client_id") !== WELDALL_CLIENT_ID) {
+  const clientId = requiredString(form, "client_id");
+  const browserClient = clientId.startsWith(BROWSER_CLIENT_PREFIX);
+  if (clientId !== WELDALL_CLIENT_ID && !browserClient)
     throw new WeldallAuthError("invalid_client");
-  }
-  audit.actorId = WELDALL_CLIENT_ID;
+  audit.actorId = clientId;
   audit.actorType = "oauth_client";
-  audit.clientId = WELDALL_CLIENT_ID;
+  audit.clientId = clientId;
   if (
     requiredString(form, "requested_token_type") !== ID_JAG_TOKEN_TYPE ||
     requiredString(form, "subject_token_type") !== REFRESH_TOKEN_TYPE
@@ -169,7 +233,7 @@ async function exchange(
     safeEqual(providerJkt, binding.dpopJkt);
   if (
     binding &&
-    binding.clientId === WELDALL_CLIENT_ID &&
+    binding.clientId === clientId &&
     !binding.revokedAt &&
     binding.expiresAt > now &&
     (binding.rotatedAt || providerReuseSignal)
@@ -177,10 +241,20 @@ async function exchange(
     audit.actorId = binding.userId;
     audit.actorType = "user";
     await validateBoundProof(request, binding);
-    await db.oAuthDeviceRefreshBinding.updateMany({
-      where: { familyId: binding.familyId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    if (binding.browserConnectionId) {
+      const connection = await requireLiveBrowserBinding(request, binding, clientId);
+      await db.$transaction((tx) =>
+        revokeBrowserConnectionFamily(tx, connection.id, {
+          actorId: binding.userId,
+          reason: "refresh_reuse",
+        }),
+      );
+    } else {
+      await db.oAuthDeviceRefreshBinding.updateMany({
+        where: { familyId: binding.familyId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
     throw new WeldallAuthError(
       "invalid_grant",
       "refresh token reuse detected",
@@ -191,7 +265,7 @@ async function exchange(
   }
   if (
     !binding ||
-    binding.clientId !== WELDALL_CLIENT_ID ||
+    binding.clientId !== clientId ||
     binding.revokedAt ||
     binding.expiresAt <= now ||
     !providerToken ||
@@ -208,10 +282,21 @@ async function exchange(
   audit.actorId = binding.userId;
   audit.actorType = "user";
   await validateBoundProof(request, binding);
+  const browserConnection = browserClient
+    ? await requireLiveBrowserBinding(request, binding, clientId)
+    : null;
+  if (browserConnection && providerToken.referenceId !== browserConnection.providerReferenceId)
+    throw new WeldallAuthError("invalid_grant");
   const user = await db.user.findUnique({ where: { id: binding.userId } });
   if (!user?.emailVerified) throw new WeldallAuthError("invalid_grant");
   const email = user.email.trim().toLowerCase();
   audit.actorEmail = email;
+  if (
+    browserConnection &&
+    (browserConnection.resourceIdentifier !== resourceIdentifier ||
+      browserConnection.resource?.authorizationServer !== audience)
+  )
+    throw new WeldallAuthError("invalid_target");
   const decision = await exchangePolicyRequiringSystemScopeFor({
     email: user.email,
     resourceIdentifier,
@@ -257,7 +342,7 @@ async function exchange(
       actorType: "user",
       actorId: user.id,
       actorEmail: audit.actorEmail,
-      clientId: WELDALL_CLIENT_ID,
+      clientId,
       requestId: audit.requestId,
       ...(audit.correlationId ? { correlationId: audit.correlationId } : {}),
       deduplicationKey: auditDeduplicationKey(audit, "id_jag.issued"),
@@ -388,6 +473,13 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
     }
     rejectDuplicateParameters(form);
     const grantType = requiredString(form, "grant_type");
+    if (grantType === DEVICE_GRANT_TYPE) {
+      const allowed = new Set(["grant_type", "client_id", "device_code"]);
+      for (const key of form.keys())
+        if (!allowed.has(key)) throw new WeldallAuthError("invalid_request");
+      requiredString(form, "client_id");
+      requiredString(form, "device_code");
+    }
     if (grantType === TOKEN_EXCHANGE_GRANT) {
       return await exchange(request, form, exchangeAudit!, auditWriter);
     }
@@ -395,17 +487,55 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
       return await issueMachineToken(request, form, machineAudit!, auditWriter, replay);
     }
 
-    let previous: OAuthDeviceRefreshBinding | null = null;
+    let previous: RefreshBinding | null = null;
     let verifiedJkt: string | undefined;
+    let liveBrowserConnection: Awaited<ReturnType<typeof requireLiveBrowserBinding>> | null = null;
+    let interactiveClientId = WELDALL_CLIENT_ID;
     if (grantType === "refresh_token") {
-      previous = await findBinding(requiredString(form, "refresh_token"));
-      if (!previous || previous.revokedAt || previous.expiresAt <= new Date())
+      interactiveClientId = requiredString(form, "client_id");
+      const refreshTokenValue = requiredString(form, "refresh_token");
+      previous = await findBinding(refreshTokenValue);
+      if (
+        !previous ||
+        previous.clientId !== interactiveClientId ||
+        previous.revokedAt ||
+        previous.expiresAt <= new Date()
+      )
+        throw new WeldallAuthError("invalid_grant");
+      // Possession is proven before a reuse signal can revoke somebody else's family.
+      verifiedJkt = (await validateBoundProof(request, previous)).jkt;
+      if (previous.browserConnectionId) {
+        liveBrowserConnection = await requireLiveBrowserBinding(
+          request,
+          previous,
+          interactiveClientId,
+        );
+        const providerPrevious = await db.oauthRefreshToken.findUnique({
+          where: { token: hash(refreshTokenValue) },
+        });
+        if (
+          !providerPrevious ||
+          providerPrevious.clientId !== previous.clientId ||
+          providerPrevious.userId !== previous.userId ||
+          providerPrevious.referenceId !== liveBrowserConnection.providerReferenceId ||
+          confirmationJkt(providerPrevious.confirmation) !== previous.dpopJkt
+        )
+          throw new WeldallAuthError("invalid_grant");
+      } else if (interactiveClientId !== WELDALL_CLIENT_ID)
         throw new WeldallAuthError("invalid_grant");
       if (previous.rotatedAt) {
-        await db.oAuthDeviceRefreshBinding.updateMany({
-          where: { familyId: previous.familyId, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
+        if (liveBrowserConnection)
+          await db.$transaction((tx) =>
+            revokeBrowserConnectionFamily(tx, liveBrowserConnection!.id, {
+              actorId: previous!.userId,
+              reason: "refresh_reuse",
+            }),
+          );
+        else
+          await db.oAuthDeviceRefreshBinding.updateMany({
+            where: { familyId: previous.familyId, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
         throw new WeldallAuthError(
           "invalid_grant",
           "refresh token reuse detected",
@@ -414,7 +544,6 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
           "replay_detected",
         );
       }
-      verifiedJkt = (await validateBoundProof(request, previous)).jkt;
     }
 
     // Better Auth validates DPoP against request.url. Canonicalize the URL because
@@ -425,11 +554,20 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
         .clone()
         .json()
         .catch(() => null)) as { error?: unknown } | null;
-      if (providerError?.error === "invalid_grant")
-        await db.oAuthDeviceRefreshBinding.updateMany({
-          where: { familyId: previous.familyId, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
+      if (providerError?.error === "invalid_grant") {
+        if (liveBrowserConnection)
+          await db.$transaction((tx) =>
+            revokeBrowserConnectionFamily(tx, liveBrowserConnection!.id, {
+              actorId: previous!.userId,
+              reason: "provider_refresh_rejected",
+            }),
+          );
+        else
+          await db.oAuthDeviceRefreshBinding.updateMany({
+            where: { familyId: previous.familyId, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+      }
       return response;
     }
     if (!response.ok || (grantType !== "authorization_code" && grantType !== "refresh_token"))
@@ -466,10 +604,14 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
       !payload.sub ||
       !audiences.includes(WELDALL_RESOURCE) ||
       new Set(audiences).size !== audiences.length ||
-      payload.client_id !== WELDALL_CLIENT_ID ||
-      (audiences.length > 1 && payload.azp !== WELDALL_CLIENT_ID) ||
+      payload.client_id !== interactiveClientId ||
+      (audiences.length > 1 && payload.azp !== interactiveClientId) ||
       typeof (payload.cnf as { jkt?: unknown } | undefined)?.jkt !== "string" ||
-      !safeEqual((payload.cnf as { jkt: string }).jkt, verifiedJkt)
+      !safeEqual((payload.cnf as { jkt: string }).jkt, verifiedJkt) ||
+      (liveBrowserConnection &&
+        (payload.weldall_connection_id !== liveBrowserConnection.id ||
+          payload.weldall_connection_origin !== liveBrowserConnection.origin ||
+          payload.weldall_connection_resource !== liveBrowserConnection.resourceIdentifier))
     )
       throw new WeldallAuthError("server_error", "provider returned an unbound token", 500);
     if (!(await hasLoginScopeForUserId(payload.sub))) {
@@ -478,31 +620,46 @@ export async function tokenFacadeWithAuditWriter(request: Request, auditWriter: 
 
     const tokenHash = hash(data.refresh_token);
     if (previous) {
-      await db.$transaction([
-        db.oAuthDeviceRefreshBinding.update({
-          where: { id: previous.id },
-          data: { rotatedAt: new Date(), replacementHash: tokenHash },
-        }),
-        db.oAuthDeviceRefreshBinding.create({
+      await db.$transaction(async (tx) => {
+        if (liveBrowserConnection) await lockBrowserResourceLifecycle(tx);
+        const now = new Date();
+        const rotated = await tx.oAuthDeviceRefreshBinding.updateMany({
+          where: { id: previous!.id, rotatedAt: null, revokedAt: null },
+          data: { rotatedAt: now, replacementHash: tokenHash },
+        });
+        if (rotated.count !== 1) throw new WeldallAuthError("invalid_grant");
+        await tx.oAuthDeviceRefreshBinding.create({
           data: {
             tokenHash,
-            familyId: previous.familyId,
-            clientId: previous.clientId,
-            userId: previous.userId,
-            dpopJkt: previous.dpopJkt,
-            expiresAt: new Date(Date.now() + 30 * 86_400_000),
+            familyId: previous!.familyId,
+            clientId: previous!.clientId,
+            userId: previous!.userId,
+            dpopJkt: previous!.dpopJkt,
+            ...(liveBrowserConnection ? { browserConnectionId: liveBrowserConnection.id } : {}),
+            expiresAt: new Date(now.getTime() + BROWSER_REFRESH_LIFETIME_MS),
           },
-        }),
-      ]);
-      const familyWasRevoked = await db.oAuthDeviceRefreshBinding.findFirst({
-        where: { familyId: previous.familyId, revokedAt: { not: null } },
-        select: { id: true },
-      });
-      if (familyWasRevoked)
-        await db.oAuthDeviceRefreshBinding.updateMany({
-          where: { familyId: previous.familyId, revokedAt: null },
-          data: { revokedAt: new Date() },
         });
+        if (liveBrowserConnection) {
+          const connection = await tx.browserConnection.findUnique({
+            where: { id: liveBrowserConnection.id },
+          });
+          if (!connection || connection.state !== "ACTIVE")
+            throw new WeldallAuthError("invalid_grant");
+          await tx.browserConnection.update({
+            where: { id: connection.id },
+            data: { lastUsedAt: now },
+          });
+        }
+        const familyWasRevoked = await tx.oAuthDeviceRefreshBinding.findFirst({
+          where: { familyId: previous!.familyId, revokedAt: { not: null } },
+          select: { id: true },
+        });
+        if (familyWasRevoked)
+          await tx.oAuthDeviceRefreshBinding.updateMany({
+            where: { familyId: previous!.familyId, revokedAt: null },
+            data: { revokedAt: now },
+          });
+      });
     } else {
       await db.oAuthDeviceRefreshBinding.create({
         data: {
@@ -533,13 +690,29 @@ export async function revocationFacade(request: Request) {
         status: 200,
         headers: { "cache-control": "no-store", pragma: "no-cache" },
       });
+    const clientId = requiredString(form, "client_id");
+    if (clientId !== binding.clientId) throw new WeldallAuthError("invalid_client");
     await validateBoundProof(request, binding, WELDALL_REVOCATION_ENDPOINT);
+    const browserConnection = binding.browserConnectionId
+      ? await requireLiveBrowserBinding(request, binding, clientId)
+      : null;
+    if (!browserConnection && clientId !== WELDALL_CLIENT_ID)
+      throw new WeldallAuthError("invalid_client");
     const response = await auth.handler(new Request(WELDALL_REVOCATION_ENDPOINT, request));
-    if (response.ok)
-      await db.oAuthDeviceRefreshBinding.updateMany({
-        where: { familyId: binding.familyId },
-        data: { revokedAt: new Date() },
-      });
+    if (response.ok) {
+      if (browserConnection)
+        await db.$transaction((tx) =>
+          revokeBrowserConnectionFamily(tx, browserConnection.id, {
+            actorId: binding.userId,
+            reason: "oauth_revocation",
+          }),
+        );
+      else
+        await db.oAuthDeviceRefreshBinding.updateMany({
+          where: { familyId: binding.familyId },
+          data: { revokedAt: new Date() },
+        });
+    }
     return response;
   } catch (error) {
     return loggedOauthErrorResponse(error);

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { decodeProtectedHeader, importJWK, jwtVerify, type JWTPayload } from "jose";
 import { JWT_DPOP_DRAFT, JWT_DPOP_GRANT } from "./constants.js";
+import { createBrowserCors } from "./cors.js";
 import { isSha256JwkThumbprint } from "./crypto.js";
 import { WeldallDiscovery } from "./discovery.js";
 import { verifyStrictDpop } from "./dpop.js";
@@ -18,6 +19,7 @@ import {
 } from "./signing.js";
 import type {
   AuthContext,
+  BrowserCorsMethod,
   IdJagClaims,
   ScopePolicy,
   VerifyResult,
@@ -70,6 +72,28 @@ export function initWeldall(host: string, options: WeldallOptions) {
   if (typeof options.clientId !== "string" || !options.clientId.trim())
     throw new TypeError("clientId is required");
   const supportedScopes = uniqueScopes(options.supportedScopes, "supportedScopes");
+  const allowedOrigins = options.allowedOrigins?.length
+    ? options.allowedOrigins.map(
+        (origin) => parseUrl(origin, "allowedOrigins", true, allowInsecure).origin,
+      )
+    : [publicOriginUrl.origin];
+  if (new Set(allowedOrigins).size !== allowedOrigins.length)
+    throw new TypeError("allowedOrigins must contain unique exact origins");
+  const defaultMethods: readonly BrowserCorsMethod[] = [
+    "GET",
+    "HEAD",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+  ];
+  const allowedMethods = options.allowedMethods ? [...options.allowedMethods] : [...defaultMethods];
+  if (
+    !allowedMethods.length ||
+    new Set(allowedMethods).size !== allowedMethods.length ||
+    allowedMethods.some((method) => !defaultMethods.includes(method))
+  )
+    throw new TypeError("allowedMethods must contain unique supported HTTP methods");
   const discoveryTimeoutMs = options.discoveryTimeoutMs ?? 5_000;
   if (
     !Number.isSafeInteger(discoveryTimeoutMs) ||
@@ -99,6 +123,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
   const discovery = new WeldallDiscovery(hostUrl.origin, discoveryTimeoutMs);
   const tokenEndpoint = `${issuer}/oauth/token`;
   const skillsEndpoint = `${issuer}${SKILL_CATALOG_PATH}`;
+  const cors = createBrowserCors({ allowedOrigins, allowedMethods });
 
   const ready = async () => {
     await Promise.all([discovery.ready(), validatedJwks(signing)]);
@@ -491,30 +516,58 @@ export function initWeldall(host: string, options: WeldallOptions) {
     }
   };
 
+  const preflight = (
+    request: Request,
+    methods: readonly BrowserCorsMethod[],
+    expectedPathname?: string,
+  ): Response => {
+    if (
+      !methods.length ||
+      new Set(methods).size !== methods.length ||
+      methods.some((method) => !allowedMethods.includes(method))
+    )
+      throw new TypeError("Preflight methods must be unique configured allowedMethods");
+    if (expectedPathname !== undefined && new URL(request.url).pathname !== expectedPathname)
+      return new Response(null, { status: 404 });
+    return cors.preflight(request, methods) ?? new Response(null, { status: 405 });
+  };
+
   const handlers = {
-    token,
-    authorizationServerMetadata: async (_request?: Request) =>
-      Response.json({
-        issuer,
-        token_endpoint: tokenEndpoint,
-        jwks_uri: `${issuer}/.well-known/jwks.json`,
-        grant_types_supported: [JWT_DPOP_GRANT],
-        response_types_supported: [],
-        token_endpoint_auth_methods_supported: ["none"],
-        dpop_signing_alg_values_supported: ["ES256"],
-        "urn:weldall:jwt-dpop-draft": JWT_DPOP_DRAFT,
-      }),
-    protectedResourceMetadata: async (_request?: Request) =>
-      Response.json({
-        resource,
-        authorization_servers: [issuer],
-        scopes_supported: supportedScopes,
-        bearer_methods_supported: ["header"],
-        dpop_signing_alg_values_supported: ["ES256"],
-        ...(options.skills ? { weldall_skills_endpoint: skillsEndpoint } : {}),
-      }),
-    skills,
-    jwks: async (_request?: Request) => Response.json({ keys: await validatedJwks(signing) }),
+    token: (request: Request) => cors.handle(request, ["POST"], () => token(request)),
+    authorizationServerMetadata: (
+      request = new Request(`${issuer}/.well-known/oauth-authorization-server`),
+    ) =>
+      cors.handle(request, ["GET"], () =>
+        Response.json({
+          issuer,
+          token_endpoint: tokenEndpoint,
+          jwks_uri: `${issuer}/.well-known/jwks.json`,
+          grant_types_supported: [JWT_DPOP_GRANT],
+          response_types_supported: [],
+          token_endpoint_auth_methods_supported: ["none"],
+          dpop_signing_alg_values_supported: ["ES256"],
+          "urn:weldall:jwt-dpop-draft": JWT_DPOP_DRAFT,
+        }),
+      ),
+    protectedResourceMetadata: (
+      request = new Request(`${issuer}/.well-known/oauth-protected-resource`),
+    ) =>
+      cors.handle(request, ["GET"], () =>
+        Response.json({
+          resource,
+          authorization_servers: [issuer],
+          scopes_supported: supportedScopes,
+          bearer_methods_supported: ["header"],
+          dpop_signing_alg_values_supported: ["ES256"],
+          ...(options.skills ? { weldall_skills_endpoint: skillsEndpoint } : {}),
+        }),
+      ),
+    skills: (request: Request) => cors.handle(request, ["GET"], () => skills(request)),
+    jwks: (request = new Request(`${issuer}/.well-known/jwks.json`)) =>
+      cors.handle(request, ["GET"], async () =>
+        Response.json({ keys: await validatedJwks(signing) }),
+      ),
+    preflight,
   };
   return {
     host: hostUrl.origin,
@@ -525,6 +578,9 @@ export function initWeldall(host: string, options: WeldallOptions) {
     ready,
     verify,
     verifyNoThrow,
+    cors,
+    preflight,
+    withBrowserCors: cors.handle,
     handlers,
   };
 }

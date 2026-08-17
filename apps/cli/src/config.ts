@@ -6,6 +6,12 @@ const REQUIRED_SCOPES = ["openid", "profile", "email", "offline_access", "weldal
 
 export type IssuerSource = "environment" | "preferences" | "prompt";
 
+export interface BrowserConnectionEndpoints {
+  deviceAuthorization: string;
+  pendingLookup: string;
+  pendingDecision: string;
+}
+
 export interface WeldallConfig {
   issuer: string;
   resource: string;
@@ -18,6 +24,7 @@ export interface WeldallConfig {
   scopes: string;
   skills: string;
   userInfo: string;
+  browserConnections?: BrowserConnectionEndpoints;
 }
 
 export interface IssuerSelection {
@@ -142,6 +149,42 @@ export async function discoverIssuer(
   if (metadata.authorization_response_iss_parameter_supported !== true)
     throw new ConfigurationError("Weldall does not bind authorization responses to its issuer");
 
+  let browserConnections: BrowserConnectionEndpoints | undefined;
+  const browserProfile = metadata.weldall_browser_connections;
+  const deviceGrant = "urn:ietf:params:oauth:grant-type:device_code";
+  if (browserProfile !== undefined || metadata.device_authorization_endpoint !== undefined) {
+    if (!isRecord(browserProfile))
+      throw new ConfigurationError("Weldall browser-connection metadata is invalid");
+    const extensions = stringArray(browserProfile.profile_extensions);
+    if (
+      browserProfile.approval_profile !== "cli-code" ||
+      !extensions?.includes("cli-approval") ||
+      !extensions.includes("initiation-time-dpop-binding") ||
+      !grants.includes(deviceGrant)
+    )
+      throw new ConfigurationError("Weldall browser-connection profile is incomplete");
+    browserConnections = {
+      deviceAuthorization: requiredEndpoint(
+        metadata,
+        "device_authorization_endpoint",
+        issuer,
+        "/api/auth/oauth2/device_authorization",
+      ),
+      pendingLookup: requiredEndpoint(
+        browserProfile,
+        "pending_lookup_endpoint",
+        issuer,
+        "/api/me/browser-connections/pending/lookup",
+      ),
+      pendingDecision: requiredEndpoint(
+        browserProfile,
+        "pending_decision_endpoint",
+        issuer,
+        "/api/me/browser-connections/pending/decision",
+      ),
+    };
+  }
+
   const resource = `${issuer}/api`;
   const protectedResource = await fetchMetadata(
     metadataUrl(issuer, "/.well-known/oauth-protected-resource/api"),
@@ -171,6 +214,7 @@ export async function discoverIssuer(
     scopes: `${issuer}/api/me/scopes`,
     skills: `${issuer}/api/me/skills`,
     userInfo: `${issuer}/api/auth/oauth2/userinfo`,
+    ...(browserConnections ? { browserConnections } : {}),
   };
 }
 

@@ -3,6 +3,89 @@ import { Prisma, PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
 const actor = "development-seed";
+const browserScopes = ["openid", "profile", "email", "offline_access", "weldall:scopes"];
+const deviceGrant = "urn:ietf:params:oauth:grant-type:device_code";
+const tokenExchangeGrant = "urn:ietf:params:oauth:grant-type:token-exchange";
+
+async function reconcileBrowserClient(resourceId: string) {
+  const resource = await db.downstreamResource.findUniqueOrThrow({
+    where: { id: resourceId },
+    include: { requestPrefixes: { select: { urlPrefix: true } } },
+  });
+  const clientId = `weldall-browser:${resource.key}`;
+  const origins = [
+    ...new Set([
+      new URL(resource.authorizationServer).origin,
+      ...resource.requestPrefixes.map(({ urlPrefix }) => new URL(urlPrefix).origin),
+    ]),
+  ].sort();
+  const existing = await db.oauthClient.findUnique({ where: { clientId } });
+  if (existing && (existing.id !== clientId || existing.referenceId !== resource.id))
+    throw new Error(`Browser client ${clientId} is already bound to another resource`);
+  await db.oauthClient.upsert({
+    where: { clientId },
+    create: {
+      id: clientId,
+      clientId,
+      disabled: !resource.enabled,
+      skipConsent: true,
+      enableEndSession: false,
+      scopes: browserScopes,
+      name: `${resource.name} browser`,
+      uri: origins[0],
+      redirectUris: [],
+      postLogoutRedirectUris: [],
+      tokenEndpointAuthMethod: "none",
+      grantTypes: [deviceGrant, "refresh_token", tokenExchangeGrant],
+      responseTypes: [],
+      public: true,
+      type: "web",
+      requirePKCE: false,
+      dpopBoundAccessTokens: true,
+      referenceId: resource.id,
+      metadata: {
+        weldallBrowser: {
+          schemaVersion: 1,
+          resourceId: resource.id,
+          resourceKey: resource.key,
+          resourceIdentifier: resource.resourceIdentifier,
+          allowedOrigins: origins,
+        },
+      },
+    },
+    update: {
+      clientSecret: null,
+      disabled: !resource.enabled,
+      skipConsent: true,
+      enableEndSession: false,
+      scopes: browserScopes,
+      userId: null,
+      name: `${resource.name} browser`,
+      uri: origins[0],
+      redirectUris: [],
+      postLogoutRedirectUris: [],
+      tokenEndpointAuthMethod: "none",
+      jwks: null,
+      jwksUri: null,
+      grantTypes: [deviceGrant, "refresh_token", tokenExchangeGrant],
+      responseTypes: [],
+      public: true,
+      type: "web",
+      requirePKCE: false,
+      dpopBoundAccessTokens: true,
+      referenceId: resource.id,
+      metadata: {
+        weldallBrowser: {
+          schemaVersion: 1,
+          resourceId: resource.id,
+          resourceKey: resource.key,
+          resourceIdentifier: resource.resourceIdentifier,
+          allowedOrigins: origins,
+        },
+      },
+    },
+  });
+}
 
 try {
   const scopeDefinitions = [
@@ -63,6 +146,7 @@ try {
     create: { resourceId: expenses.id, nextRefreshAt: new Date() },
     update: { nextRefreshAt: new Date() },
   });
+  await reconcileBrowserClient(expenses.id);
 
   const publicJwk = parseDevelopmentMachinePublicJwk(process.env.DEV_M2M_SIGNING_PUBLIC_JWK);
   const kid = parseDevelopmentMachineKid(process.env.DEV_M2M_SIGNING_KID);
@@ -171,6 +255,7 @@ try {
     },
     update: { resourceId: developmentResource.id },
   });
+  await reconcileBrowserClient(developmentResource.id);
   const now = new Date();
   const catalog = await db.discoveredSkillCatalog.upsert({
     where: { resourceId: developmentResource.id },

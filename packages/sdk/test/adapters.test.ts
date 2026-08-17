@@ -94,6 +94,18 @@ const machineRequest = async (url: string) => {
   return new Request(url, { headers: { authorization: `DPoP ${token}`, dpop: proof } });
 };
 
+const browserOrigin = "https://app.example";
+const browserPreflight = (url: string, method = "GET") =>
+  new Request(url, {
+    method: "OPTIONS",
+    headers: {
+      origin: browserOrigin,
+      "access-control-request-method": method,
+      "access-control-request-headers":
+        "Authorization, DPoP, Content-Type, X-Request-Id, X-Correlation-Id",
+    },
+  });
+
 const expectAdapterContract = async (protect: (request: Request) => Promise<Response>) => {
   const url = "https://api.example/private";
   expect((await protect(await authorizedRequest(url))).status).toBe(200);
@@ -111,10 +123,21 @@ const expectAdapterContract = async (protect: (request: Request) => Promise<Resp
 };
 
 describe("framework adapters", () => {
-  it("Hono registers routes, preserves errors, and stores typed auth", async () => {
+  it("Hono registers routes, preserves errors, stores typed auth, and handles CORS", async () => {
+    const replayStore = inMemory({ suppressWarning: true });
+    const replayConsume = vi.fn((key: string, expiresAt: Date) =>
+      replayStore.consume(key, expiresAt),
+    );
+    options = {
+      ...options,
+      replayStore: { consume: replayConsume },
+      allowedOrigins: [browserOrigin],
+      allowedMethods: ["GET", "POST"],
+    };
     const weldall = initHono("https://weldall.example", options);
     const app = new Hono<{ Variables: WeldallVariables }>();
     weldall.registerRoutes(app);
+    app.options("/private", weldall.preflight(["GET"]));
     app.get("/private", weldall.protect({ scopes: ["read"] }), (c) => {
       const auth = weldall.getAuth(c);
       return c.json({
@@ -123,6 +146,26 @@ describe("framework adapters", () => {
       });
     });
     expect((await app.request("/.well-known/oauth-protected-resource")).status).toBe(200);
+    const originlessOptions = await app.request("/private", { method: "OPTIONS" });
+    expect(originlessOptions.status).toBe(405);
+    const preflight = await app.request(browserPreflight("https://api.example/private"));
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(browserOrigin);
+    expect(replayConsume).not.toHaveBeenCalled();
+    expect(
+      (await app.request(browserPreflight("https://api.example/private", "DELETE"))).status,
+    ).toBe(403);
+    expect((await app.request(browserPreflight("https://api.example/not-registered"))).status).toBe(
+      404,
+    );
+    expect(
+      (await app.request(browserPreflight("https://api.example/oauth/token", "GET"))).status,
+    ).toBe(403);
+    const corsError = await app.request(
+      new Request("https://api.example/private", { headers: { origin: browserOrigin } }),
+    );
+    expect(corsError.status).toBe(401);
+    expect(corsError.headers.get("access-control-allow-origin")).toBe(browserOrigin);
     const response = await app.request("/private");
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toBe('DPoP error="invalid_token"');
@@ -140,9 +183,59 @@ describe("framework adapters", () => {
     await expectAdapterContract((request) => app.request(request));
   });
 
-  it("Astro uses locals and always returns a Response", async () => {
+  it("Astro uses locals, returns Responses, and handles CORS", async () => {
+    const replayStore = inMemory({ suppressWarning: true });
+    const replayConsume = vi.fn((key: string, expiresAt: Date) =>
+      replayStore.consume(key, expiresAt),
+    );
+    options = {
+      ...options,
+      replayStore: { consume: replayConsume },
+      allowedOrigins: [browserOrigin],
+      allowedMethods: ["GET", "POST"],
+    };
     const weldall = initAstro("https://weldall.example", options);
     const locals: { weldallAuth?: AuthContext } = {};
+    const preflight = await weldall.protect({}, ["GET"])(
+      { request: browserPreflight("https://api.example/private"), locals },
+      () => Response.json({ shouldNotRun: true }),
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(browserOrigin);
+    expect(replayConsume).not.toHaveBeenCalled();
+    expect(
+      (
+        await weldall.protect({}, ["GET"])(
+          {
+            request: browserPreflight("https://api.example/private", "DELETE"),
+            locals: {},
+          },
+          () => Response.json({ shouldNotRun: true }),
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await weldall.preflight(
+          ["GET"],
+          "/private",
+        )({
+          request: browserPreflight("https://api.example/not-registered"),
+          locals: {},
+        })
+      ).status,
+    ).toBe(404);
+    const corsError = await weldall.protect()(
+      {
+        request: new Request("https://api.example/private", {
+          headers: { origin: browserOrigin },
+        }),
+        locals,
+      },
+      () => Response.json({ shouldNotRun: true }),
+    );
+    expect(corsError.status).toBe(401);
+    expect(corsError.headers.get("access-control-allow-origin")).toBe(browserOrigin);
     const response = await weldall.protect()(
       { request: new Request("https://api.example/private"), locals },
       () => Response.json({ reached: true }),
@@ -175,13 +268,41 @@ describe("framework adapters", () => {
     ).resolves.toBeInstanceOf(Response);
   });
 
-  it("Next passes verified auth explicitly and preserves rejections", async () => {
+  it("Next passes verified auth explicitly, preserves rejections, and handles CORS", async () => {
     vi.doMock("server-only", () => ({}));
     const { initWeldall } = await import("../src/next.js");
+    const replayStore = inMemory({ suppressWarning: true });
+    const replayConsume = vi.fn((key: string, expiresAt: Date) =>
+      replayStore.consume(key, expiresAt),
+    );
+    options = {
+      ...options,
+      replayStore: { consume: replayConsume },
+      allowedOrigins: [browserOrigin],
+      allowedMethods: ["GET", "POST"],
+    };
     const weldall = initWeldall("https://weldall.example", options);
     const handler = weldall.withWeldall({ scopes: ["read"] }, async (_request, auth) =>
       Response.json({ subject: auth.subject }),
     );
+    const optionsHandler = weldall.preflight(["GET"], "/private");
+    const preflight = await optionsHandler(browserPreflight("https://api.example/private"), {});
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(browserOrigin);
+    expect(replayConsume).not.toHaveBeenCalled();
+    expect(
+      (await optionsHandler(browserPreflight("https://api.example/private", "DELETE"), {})).status,
+    ).toBe(403);
+    expect(
+      (await optionsHandler(browserPreflight("https://api.example/not-registered"), {})).status,
+    ).toBe(404);
+    expect((await handler(browserPreflight("https://api.example/private"), {})).status).toBe(405);
+    const corsError = await handler(
+      new Request("https://api.example/private", { headers: { origin: browserOrigin } }),
+      {},
+    );
+    expect(corsError.status).toBe(401);
+    expect(corsError.headers.get("access-control-allow-origin")).toBe(browserOrigin);
     const response = await handler(new Request("https://api.example/private"), {});
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toContain("invalid_token");

@@ -6,6 +6,7 @@ const developmentDefaults = {
   POSTGRES_URL: "postgresql://postgres@localhost:5433/postgres",
   WELDALL_DEPLOYMENT_MODE: "development",
   ENABLE_DEV_LOGIN: "true",
+  WELDALL_TRUSTED_PROXY_SECRET: "weldall-local-proxy-attestation-v1",
   GOOGLE_CLIENT_ID: '"<<insert or delete line>>"',
   GOOGLE_CLIENT_SECRET: '"<<insert or delete line>>"',
   DEV_IDP_ISSUER: "https://dev-idp.seibert.localdev",

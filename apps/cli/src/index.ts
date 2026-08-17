@@ -3,6 +3,7 @@ import { cli } from "gunshi";
 import packageJson from "../package.json" with { type: "json" };
 import {
   configCommand,
+  connectCommand,
   loginCommand,
   logoutCommand,
   mainCommand,
@@ -117,6 +118,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       strict: true,
       subCommands: {
         login: loginCommand,
+        connect: connectCommand,
         logout: logoutCommand,
         status: statusCommand,
         whoami: whoamiCommand,

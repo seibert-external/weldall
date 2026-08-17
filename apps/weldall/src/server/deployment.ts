@@ -3,6 +3,10 @@ import { ADMIN_SCOPE_KEY, db, ensureSystemScopes } from "@weldall/db";
 import { bootstrapAdmin } from "./admin/service";
 import { decryptProviderToken } from "./group-providers/credentials";
 import { WELDALL_RESOURCE } from "./oauth/constants";
+import {
+  reconcileResourceBrowserClient,
+  revokeResourceBrowserState,
+} from "./oauth/browser-resources";
 
 const LOCAL_WELDALL_RESOURCE = "https://weldall.seibert.localdev/api";
 const LOCAL_EXPENSES_RESOURCE = "https://expenses.seibert.localdev/api";
@@ -22,7 +26,10 @@ export async function bootstrapConfiguredAdmin(
   return bootstrap(email);
 }
 
-export async function prepareProductionDatabase(prisma: PrismaClient = db): Promise<void> {
+export async function prepareProductionDatabase(
+  prisma: PrismaClient = db,
+  options: { deploymentResource?: string } = {},
+): Promise<void> {
   const actor = "deployment-bootstrap";
   const oauthScopes = ["openid", "profile", "email", "offline_access", "weldall:scopes"];
 
@@ -83,22 +90,40 @@ export async function prepareProductionDatabase(prisma: PrismaClient = db): Prom
       create: { id: "default", createdBy: actor, updatedBy: actor },
       update: {},
     });
-    if (WELDALL_RESOURCE !== LOCAL_WELDALL_RESOURCE) {
-      await tx.downstreamResource.updateMany({
+    if ((options.deploymentResource ?? WELDALL_RESOURCE) !== LOCAL_WELDALL_RESOURCE) {
+      const developmentResources = await tx.downstreamResource.findMany({
         where: {
           resourceIdentifier: {
             in: [LOCAL_EXPENSES_RESOURCE, "https://development-skills.seibert.localdev/api"],
           },
           enabled: true,
         },
-        data: {
-          enabled: false,
-          skillDiscoveryEnabled: false,
-          version: { increment: 1 },
-          updatedBy: actor,
-        },
+        include: { requestPrefixes: { select: { urlPrefix: true } } },
       });
+      for (const resource of developmentResources) {
+        const disabled = await tx.downstreamResource.update({
+          where: { id: resource.id },
+          data: {
+            enabled: false,
+            skillDiscoveryEnabled: false,
+            version: { increment: 1 },
+            updatedBy: actor,
+          },
+          include: { requestPrefixes: { select: { urlPrefix: true } } },
+        });
+        await reconcileResourceBrowserClient(tx, disabled);
+        await revokeResourceBrowserState(tx, disabled, {
+          actorId: actor,
+          actorType: "machine",
+          requestId: "deployment-bootstrap",
+          reason: "resource_disabled",
+        });
+      }
     }
+    const resources = await tx.downstreamResource.findMany({
+      include: { requestPrefixes: { select: { urlPrefix: true } } },
+    });
+    for (const resource of resources) await reconcileResourceBrowserClient(tx, resource);
   });
 
   const providers = await prisma.groupProvider.findMany({

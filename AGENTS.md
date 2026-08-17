@@ -6,6 +6,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - For CLI syntax, read `apps/cli/src/commands.tsx` and validate the built interface with `./apps/cli/dist/index.js <command> --help`; request payload behavior is covered in `apps/cli/test/transfers.test.ts`.
 - The product model is defined by `packages/db/prisma/schema.prisma`, with scope/resource policy in `apps/weldall/src/server/policy/` and local demonstration records in `packages/db/prisma/seed.dev.ts`.
 - Standalone CLI targets, build/archive checks, and release upload behavior live in `apps/cli/scripts/standalone-targets.mjs` and `.github/workflows/release-cli-assets.yml`.
+- Browser-SPA protocol, lifecycle, and revocation are owned by `apps/weldall/src/server/oauth/browser-*.ts`; the Node-free client and packed real-browser contract live in `packages/browser/`, and the full-stack fixture is `apps/expenses/src/app.ts` plus `apps/e2e/test/system.spec.ts`.
 
 ## Maintaining this file
 

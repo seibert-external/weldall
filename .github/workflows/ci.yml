@@ -69,6 +69,13 @@ jobs:
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
           pnpm --filter @weldall/pi pack:check
+          pnpm --filter @weldall/browser pack:check
+
+      - name: Install browser engines
+        run: pnpm --filter @weldall/browser exec playwright install --with-deps chromium firefox webkit
+
+      - name: Verify real-browser capability contract
+        run: pnpm --filter @weldall/browser test:browser
 
   package-compat:
     runs-on: weldall
@@ -397,6 +404,7 @@ jobs:
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
           pnpm --filter @weldall/pi pack:check
+          pnpm --filter @weldall/browser pack:check
 
       # RELEASE_GITHUB_TOKEN is a PAT/App token so Changesets-created
       # release.published events can start release-cli-assets.yml.

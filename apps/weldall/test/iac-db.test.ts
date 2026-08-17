@@ -38,6 +38,18 @@ const actor: MutationActor = {
 };
 
 afterAll(async () => {
+  await db.oAuthDeviceRefreshBinding.deleteMany({
+    where: { clientId: { startsWith: `weldall-browser:${prefix}` } },
+  });
+  await db.browserConnectionRequest.deleteMany({
+    where: { browserClientId: { startsWith: `weldall-browser:${prefix}` } },
+  });
+  await db.browserConnection.deleteMany({
+    where: { browserClientId: { startsWith: `weldall-browser:${prefix}` } },
+  });
+  await db.oauthClient.deleteMany({
+    where: { clientId: { startsWith: `weldall-browser:${prefix}` } },
+  });
   await db.iacOperation.deleteMany({ where: { workspace: { name: { startsWith: prefix } } } });
   await db.iacObjectBinding.deleteMany({ where: { workspace: { name: { startsWith: prefix } } } });
   await db.iacWorkspace.deleteMany({ where: { name: { startsWith: prefix } } });
@@ -1062,12 +1074,42 @@ describe("IaC database transaction contracts", () => {
     const before = await db.downstreamResource.findUniqueOrThrow({
       where: { key: `${prefix}-api` },
     });
+    const browserClientId = `weldall-browser:${prefix}-api`;
+    await expect(
+      db.oauthClient.findUniqueOrThrow({ where: { clientId: browserClientId } }),
+    ).resolves.toMatchObject({ referenceId: before.id, disabled: false });
+    const browserKey = await generateEs256KeyPair();
+    const connection = await db.browserConnection.create({
+      data: {
+        providerReferenceId: `${prefix}-replacement-reference`,
+        browserClientId,
+        oauthClientId: browserClientId,
+        resourceId: before.id,
+        resourceKey: before.key,
+        resourceIdentifier: before.resourceIdentifier,
+        origin: "https://auth.example.com",
+        userId: `${prefix}-replacement-user`,
+        dpopJkt: browserKey.jkt,
+        refreshFamilyId: `${prefix}-replacement-family`,
+        approvedVia: "cli-code",
+      },
+    });
     await apply(resource(newIdentifier));
     const after = await db.downstreamResource.findUniqueOrThrow({
       where: { key: `${prefix}-api` },
     });
     expect(after.id).not.toBe(before.id);
     expect(after.resourceIdentifier).toBe(newIdentifier);
+    await expect(
+      db.oauthClient.findUniqueOrThrow({ where: { clientId: browserClientId } }),
+    ).resolves.toMatchObject({ referenceId: after.id, disabled: false });
+    await expect(
+      db.browserConnection.findUniqueOrThrow({ where: { id: connection.id } }),
+    ).resolves.toMatchObject({
+      resourceId: null,
+      state: "REVOKED",
+      revocationReason: "resource_deleted",
+    });
   });
 
   it("replaces a scope after staging same-workspace resource and machine relations", async () => {

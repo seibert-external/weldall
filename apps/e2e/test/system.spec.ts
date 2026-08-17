@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { spawn as spawnPty } from "@lydell/node-pty";
 
 const workspace = process.env.WELDALL_E2E_WORKSPACE ?? "/workspace";
 const credentialsFile = "/tmp/weldall-e2e-credentials.json";
@@ -77,6 +78,71 @@ const describeCliResult = ({ code, stdout, stderr }: CliResult) =>
   [`exit code: ${code}`, `stdout:\n${stdout || "(empty)"}`, `stderr:\n${stderr || "(empty)"}`].join(
     "\n",
   );
+
+const plainTerminalOutput = (value: string) =>
+  value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "").replace(/\r/g, "");
+
+const runCliPty = async (
+  args: string[],
+  answer: string,
+  timeoutMs = 60_000,
+): Promise<CliResult> => {
+  const terminal = spawnPty(process.execPath, ["--use-system-ca", cli, ...args], {
+    cwd: workspace,
+    env: Object.fromEntries(
+      Object.entries(cliEnv)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+        .map(([name, value]) => [name, value]),
+    ),
+    name: "xterm-256color",
+    cols: 120,
+    rows: 40,
+    useConpty: false,
+  });
+  let output = "";
+  let answered = false;
+  const subscription = terminal.onData((chunk) => {
+    output += chunk;
+    if (!answered && output.includes("Approve this browser connection?")) {
+      answered = true;
+      terminal.write(`${answer}\r`);
+    }
+  });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      terminal.kill();
+      reject(
+        new Error(`PTY CLI timed out: weldall ${args.join(" ")}\n${plainTerminalOutput(output)}`),
+      );
+    }, timeoutMs);
+    terminal.onExit(({ exitCode, signal }) => {
+      clearTimeout(timer);
+      subscription.dispose();
+      resolve({
+        code: signal ? 128 + signal : exitCode,
+        stdout: plainTerminalOutput(output),
+        stderr: "",
+      });
+    });
+  });
+};
+
+async function loginAlice(page: Page): Promise<void> {
+  const login = startCli(["login"], 150_000);
+  await page.goto(await waitForBrowserUrl(login));
+  await page.getByRole("button", { name: "Development login" }).click();
+  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByLabel("Email").selectOption("alice@example.com");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByRole("button", { name: "Approve" }).click();
+  const result = await login.result;
+  expect(result, result.stderr).toMatchObject({ code: 0 });
+}
 
 const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
   // The public welcome page no longer prewarms login during the stack health check,
@@ -432,6 +498,605 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const afterLogout = await runCli("scopes");
   expect(afterLogout.code).toBe(1);
   expect(afterLogout.stderr).toContain("not logged in");
+});
+
+test("connects a real Expenses SPA through the CLI and enforces live browser policy", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(360_000);
+  await loginAlice(page);
+
+  // Make this test independent from seed policy while preserving the existing admin UI path.
+  await page.goto("https://weldall.seibert.localdev/assignments");
+  const aliceRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
+  await expect(aliceRow).toBeVisible();
+  await aliceRow.click();
+  for (const scope of ["expenses:read", "expenses:create"]) {
+    const checkbox = page.getByRole("checkbox", { name: new RegExp(`^${scope}`) });
+    if (!(await checkbox.isChecked())) await checkbox.check();
+  }
+  await page.getByRole("button", { name: "Save assignment" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/assignments");
+
+  // Keep a second enabled registration for the cross-resource assertion. The
+  // earlier administration test deletes its own Reports fixture.
+  await page.goto("https://weldall.seibert.localdev/resources");
+  await page.getByRole("link", { name: "Create resource" }).click();
+  await page.getByLabel("Resource key").fill("browser-reports");
+  await page.getByLabel("Name").fill("Browser reports");
+  await page.getByLabel("Resource identifier").fill("https://reports.seibert.localdev/api");
+  await page.getByLabel("Authorization server").fill("https://reports.seibert.localdev");
+  await page.getByLabel("Downstream client ID").fill("weldall-cli-at-reports");
+  await page.getByLabel("Request prefixes").fill("https://reports.seibert.localdev/api");
+  await page.getByRole("button", { name: "Supported scopes" }).click();
+  await page.getByRole("option", { name: "expenses:read" }).click();
+  await page.getByRole("button", { name: "Create resource" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "browser-reports" })).toBeVisible();
+
+  const spa = await context.newPage();
+  const browserFailures: string[] = [];
+  spa.on("pageerror", (error) => browserFailures.push(`pageerror:${error.message}`));
+  spa.on("console", (message) => {
+    if (message.type() === "error") browserFailures.push(`console:${message.text()}`);
+  });
+  await spa.goto("https://expenses.seibert.localdev/weldall-browser");
+  await expect(spa.getByText("Supported browser", { exact: true })).toBeVisible();
+  await expect(spa.locator('script[type="module"]')).toHaveAttribute(
+    "src",
+    "/weldall-browser/app.js",
+  );
+
+  const connect = async () => {
+    await spa.getByRole("button", { name: "Start connection" }).click();
+    await expect(spa.locator("#command")).toContainText("weldall connect", { timeout: 30_000 });
+    const command = (await spa.locator("#command").textContent()) ?? "";
+    const code = command.match(/weldall connect ([A-Z2-9]{4}-[A-Z2-9]{4})/u)?.[1];
+    expect(code).toBeTruthy();
+    const approval = await runCliPty(["connect", code!], "yes", 90_000);
+    expect(approval, describeCliResult(approval)).toMatchObject({ code: 0 });
+    expect(approval.stdout).toContain(code!);
+    expect(approval.stdout).toContain("https://expenses.seibert.localdev");
+    expect(approval.stdout).toContain("Expenses");
+    expect(approval.stdout).toContain("Approve only if you started this connection");
+    expect(approval.stdout).toContain("Approved the browser connection");
+    await expect(spa.locator("#identity")).not.toHaveText("Not connected", { timeout: 45_000 });
+  };
+
+  const storedState = () =>
+    spa.evaluate(async () => {
+      const databaseName =
+        "weldall-browser:https://weldall.seibert.localdev:https://expenses.seibert.localdev/api";
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName, 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        const record = await new Promise<any>((resolve, reject) => {
+          const request = database
+            .transaction("state", "readonly")
+            .objectStore("state")
+            .get("connection");
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        let privateExportRejected = false;
+        try {
+          await crypto.subtle.exportKey("jwk", record.privateKey);
+        } catch {
+          privateExportRejected = true;
+        }
+        return {
+          connectionId: record.connectionId as string,
+          refreshToken: record.refreshToken as string,
+          subject: record.subject as string,
+          extractable: record.privateKey.extractable as boolean,
+          privateExportRejected,
+          keyType: record.privateKey.type as string,
+        };
+      } finally {
+        database.close();
+      }
+    });
+
+  const directExchange = (
+    targetResource = "https://expenses.seibert.localdev/api",
+    audience = "https://expenses.seibert.localdev",
+    scope = "expenses:read",
+  ) =>
+    spa.evaluate(
+      async ({ targetResource, audience, scope }) => {
+        const sdkUrl = "/weldall-browser/sdk/index.js";
+        const sdk = await import(sdkUrl);
+        const issuer = "https://weldall.seibert.localdev";
+        const sourceResource = "https://expenses.seibert.localdev/api";
+        const database = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open(`weldall-browser:${issuer}:${sourceResource}`, 1);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const stored = await new Promise<any>((resolve, reject) => {
+          const request = database
+            .transaction("state", "readonly")
+            .objectStore("state")
+            .get("connection");
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        database.close();
+        if (!stored?.refreshToken || !stored.privateKey)
+          return { blocked: true, error: "missing-local-credentials" };
+        const endpoint = `${issuer}/api/auth/oauth2/token`;
+        const proof = await sdk.createBrowserDpopProof({
+          privateKey: stored.privateKey,
+          publicJwk: stored.publicJwk,
+          method: "POST",
+          url: endpoint,
+        });
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
+            body: new URLSearchParams({
+              grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+              requested_token_type: "urn:ietf:params:oauth:token-type:id-jag",
+              subject_token_type: "urn:ietf:params:oauth:token-type:refresh_token",
+              subject_token: stored.refreshToken,
+              client_id: stored.browserClientId,
+              resource: targetResource,
+              audience,
+              scope,
+            }),
+            credentials: "omit",
+            redirect: "error",
+          });
+          const body = await response.json().catch(() => null);
+          return {
+            blocked: !response.ok,
+            status: response.status,
+            error: body && typeof body.error === "string" ? body.error : null,
+          };
+        } catch (error) {
+          return {
+            blocked: true,
+            error: "cors",
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+      { targetResource, audience, scope },
+    );
+
+  await connect();
+  const initial = await storedState();
+  expect(initial).toMatchObject({
+    connectionId: expect.any(String),
+    subject: expect.any(String),
+    extractable: false,
+    privateExportRejected: true,
+    keyType: "private",
+  });
+  await spa.reload();
+  await expect(spa.getByText("Supported browser", { exact: true })).toBeVisible();
+  const reloaded = await storedState();
+  expect(reloaded.connectionId).toBe(initial.connectionId);
+  expect(reloaded.extractable).toBe(false);
+  await spa.getByRole("button", { name: "Verify remotely" }).click();
+  await expect(spa.locator("#output")).toContainText('"verified": "remote"');
+  const rotated = await storedState();
+  expect(rotated.refreshToken).not.toBe(initial.refreshToken);
+
+  await spa.getByRole("button", { name: "Read expenses" }).click();
+  await expect(spa.locator("#output")).toContainText("expense-1");
+  await spa.getByRole("button", { name: "Create expense" }).click();
+  await expect(spa.locator("#output")).toContainText("Browser development expense");
+
+  const protocolChecks = await spa.evaluate(async () => {
+    const sdkUrl = "/weldall-browser/sdk/index.js";
+    const sdk = await import(sdkUrl);
+    const issuer = "https://weldall.seibert.localdev";
+    const originResource = "https://expenses.seibert.localdev/api";
+    const clientId = "weldall-browser:expenses";
+    const token = `${issuer}/api/auth/oauth2/token`;
+    const device = `${issuer}/api/auth/oauth2/device_authorization`;
+    const databaseName = `weldall-browser:${issuer}:${originResource}`;
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const stored = await new Promise<any>((resolve, reject) => {
+      const request = database
+        .transaction("state", "readonly")
+        .objectStore("state")
+        .get("connection");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    database.close();
+    const pairA = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const pairB = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const jwkA = await crypto.subtle.exportKey("jwk", pairA.publicKey);
+    const jwkB = await crypto.subtle.exportKey("jwk", pairB.publicKey);
+    const proofA = await sdk.createBrowserDpopProof({
+      privateKey: pairA.privateKey,
+      publicJwk: jwkA,
+      method: "POST",
+      url: device,
+    });
+    const startBody = new URLSearchParams({ client_id: clientId, resource: originResource });
+    const started = await fetch(device, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", dpop: proofA },
+      body: startBody,
+      credentials: "omit",
+    });
+    const startedJson = await started.json();
+    const replay = await fetch(device, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", dpop: proofA },
+      body: startBody,
+      credentials: "omit",
+    });
+    const wrongResourceProof = await sdk.createBrowserDpopProof({
+      privateKey: pairA.privateKey,
+      publicJwk: jwkA,
+      method: "POST",
+      url: device,
+    });
+    const wrongResource = await fetch(device, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        dpop: wrongResourceProof,
+      },
+      body: new URLSearchParams({
+        client_id: clientId,
+        resource: "https://reports.seibert.localdev/api",
+      }),
+      credentials: "omit",
+    });
+    const wrongKeyProof = await sdk.createBrowserDpopProof({
+      privateKey: pairB.privateKey,
+      publicJwk: jwkB,
+      method: "POST",
+      url: token,
+    });
+    const wrongKey = await fetch(token, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", dpop: wrongKeyProof },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        client_id: clientId,
+        device_code: startedJson.device_code,
+      }),
+      credentials: "omit",
+    });
+    const crossResourceProof = await sdk.createBrowserDpopProof({
+      privateKey: stored.privateKey,
+      publicJwk: stored.publicJwk,
+      method: "POST",
+      url: token,
+    });
+    const crossResource = await fetch(token, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        dpop: crossResourceProof,
+      },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+        requested_token_type: "urn:ietf:params:oauth:token-type:id-jag",
+        subject_token_type: "urn:ietf:params:oauth:token-type:refresh_token",
+        subject_token: stored.refreshToken,
+        client_id: clientId,
+        resource: "https://reports.seibert.localdev/api",
+        audience: "https://reports.seibert.localdev",
+        scope: "expenses:read",
+      }),
+      credentials: "omit",
+    });
+    const crossResourceBody = await crossResource.json();
+
+    const exchangeProof = await sdk.createBrowserDpopProof({
+      privateKey: stored.privateKey,
+      publicJwk: stored.publicJwk,
+      method: "POST",
+      url: token,
+    });
+    const exchange = await fetch(token, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", dpop: exchangeProof },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+        requested_token_type: "urn:ietf:params:oauth:token-type:id-jag",
+        subject_token_type: "urn:ietf:params:oauth:token-type:refresh_token",
+        subject_token: stored.refreshToken,
+        client_id: clientId,
+        resource: originResource,
+        audience: "https://expenses.seibert.localdev",
+        scope: "expenses:read",
+      }),
+      credentials: "omit",
+    });
+    const assertion = (await exchange.json()).access_token as string;
+    const downstreamTokenUrl = "https://expenses.seibert.localdev/oauth/token";
+    const downstreamProof = await sdk.createBrowserDpopProof({
+      privateKey: stored.privateKey,
+      publicJwk: stored.publicJwk,
+      method: "POST",
+      url: downstreamTokenUrl,
+    });
+    const downstream = await fetch(downstreamTokenUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", dpop: downstreamProof },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-dpop",
+        assertion,
+      }),
+      credentials: "omit",
+    });
+    const downstreamAccess = (await downstream.json()).access_token as string;
+    const apiUrl = "https://expenses.seibert.localdev/api/expenses";
+    const apiProof = await sdk.createBrowserDpopProof({
+      privateKey: stored.privateKey,
+      publicJwk: stored.publicJwk,
+      method: "GET",
+      url: apiUrl,
+      accessToken: downstreamAccess,
+    });
+    const apiInit = {
+      headers: { authorization: `DPoP ${downstreamAccess}`, dpop: apiProof },
+      credentials: "omit" as const,
+    };
+    const firstApi = await fetch(apiUrl, apiInit);
+    const replayedApi = await fetch(apiUrl, apiInit);
+    return {
+      start: started.status,
+      replay: replay.status,
+      wrongResource: wrongResource.status,
+      wrongKey: wrongKey.status,
+      crossResource: crossResource.status,
+      crossResourceError: crossResourceBody.error,
+      exchange: exchange.status,
+      downstream: downstream.status,
+      firstApi: firstApi.status,
+      replayedApi: replayedApi.status,
+    };
+  });
+  expect(protocolChecks).toEqual({
+    start: 200,
+    replay: 400,
+    wrongResource: 400,
+    wrongKey: 400,
+    crossResource: 400,
+    crossResourceError: "invalid_target",
+    exchange: 200,
+    downstream: 200,
+    firstApi: 200,
+    replayedApi: 401,
+  });
+
+  const foreignOrigin = await context.newPage();
+  await foreignOrigin.goto("https://catcher.seibert.localdev/health");
+  await expect(
+    foreignOrigin.evaluate(async () => {
+      const endpoint = "https://weldall.seibert.localdev/api/auth/oauth2/device_authorization";
+      const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
+        "sign",
+        "verify",
+      ])) as CryptoKeyPair;
+      const publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+      const base64url = (bytes: Uint8Array) => {
+        let binary = "";
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+      };
+      const encoded = (value: unknown) =>
+        base64url(new TextEncoder().encode(JSON.stringify(value)));
+      const header = encoded({ typ: "dpop+jwt", alg: "ES256", jwk: publicJwk });
+      const payload = encoded({
+        htu: endpoint,
+        htm: "POST",
+        iat: Math.floor(Date.now() / 1_000),
+        jti: crypto.randomUUID(),
+      });
+      const input = `${header}.${payload}`;
+      const signature = new Uint8Array(
+        await crypto.subtle.sign(
+          { name: "ECDSA", hash: "SHA-256" },
+          pair.privateKey,
+          new TextEncoder().encode(input),
+        ),
+      );
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            dpop: `${input}.${base64url(signature)}`,
+          },
+          body: new URLSearchParams({
+            client_id: "weldall-browser:expenses",
+            resource: "https://expenses.seibert.localdev/api",
+          }),
+          credentials: "omit",
+          redirect: "error",
+        });
+        const body = await response.text();
+        return {
+          blocked: false,
+          status: response.status,
+          exposedPending: /device_code|user_code|weldall connect/iu.test(body),
+        };
+      } catch {
+        return {
+          blocked: true,
+          exposedPending: /weldall connect|[A-Z2-9]{4}-[A-Z2-9]{4}/u.test(
+            document.body.textContent ?? "",
+          ),
+        };
+      }
+    }),
+  ).resolves.toEqual({ blocked: true, exposedPending: false });
+  await foreignOrigin.close();
+
+  // Removing a business scope blocks the next just-in-time assertion without revoking the connection.
+  await page.goto("https://weldall.seibert.localdev/assignments");
+  await page.getByRole("row").filter({ hasText: "alice@example.com" }).click();
+  await page.getByRole("checkbox", { name: /^expenses:read/ }).uncheck();
+  await page.getByRole("button", { name: "Save assignment" }).click();
+  await expect(directExchange()).resolves.toEqual({
+    blocked: true,
+    status: 400,
+    error: "invalid_scope",
+  });
+  await spa.getByRole("button", { name: "Read expenses" }).click();
+  await expect(spa.locator("#output")).toContainText("permission-denied");
+  await page.goto("https://weldall.seibert.localdev/assignments");
+  await page.getByRole("row").filter({ hasText: "alice@example.com" }).click();
+  await page.getByRole("checkbox", { name: /^expenses:read/ }).check();
+  await page.getByRole("button", { name: "Save assignment" }).click();
+
+  await spa.getByRole("button", { name: "Disconnect remotely" }).click();
+  await expect(spa.locator("#output")).toContainText('"state": "disconnected"');
+
+  // Origin removal atomically revokes its family even if the origin is restored later.
+  await connect();
+  await page.goto("https://weldall.seibert.localdev/resources");
+  await page
+    .getByRole("row")
+    .filter({ has: page.getByText("expenses", { exact: true }) })
+    .click();
+  await page.getByLabel("Authorization server").fill("https://changed-origin.seibert.localdev");
+  await page.getByLabel("Request prefixes").fill("https://changed-origin.seibert.localdev/api");
+  await page.getByRole("button", { name: "Save resource" }).click();
+  const removedOriginCorsStart = browserFailures.length;
+  await expect(directExchange()).resolves.toMatchObject({ blocked: true, error: "cors" });
+  await spa.getByRole("button", { name: "Verify remotely" }).click();
+  await expect(spa.locator("#output")).toContainText('"reason": "origin-changed"');
+  expect(
+    browserFailures
+      .slice(removedOriginCorsStart)
+      .every((failure) =>
+        /cors|access-control-allow-origin|blocked by access control|failed to fetch/iu.test(
+          failure,
+        ),
+      ),
+  ).toBe(true);
+  await page
+    .getByRole("row")
+    .filter({ has: page.getByText("expenses", { exact: true }) })
+    .click();
+  await page.getByLabel("Authorization server").fill("https://expenses.seibert.localdev");
+  await page.getByLabel("Request prefixes").fill("https://expenses.seibert.localdev/api");
+  await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(directExchange()).resolves.toEqual({
+    blocked: true,
+    status: 400,
+    error: "invalid_grant",
+  });
+  await spa.getByRole("button", { name: "Verify remotely" }).click();
+  await expect(spa.locator("#output")).toContainText('"reason": "revoked"');
+  await spa.getByRole("button", { name: "Clear local credentials" }).click();
+
+  expect(
+    browserFailures.filter(
+      (failure) =>
+        !/cors|access-control-allow-origin|blocked by access control|failed to fetch/iu.test(
+          failure,
+        ),
+    ),
+  ).toEqual([]);
+
+  // Resource disablement blocks refresh and requires a fresh approval after re-enable.
+  await connect();
+  await page.goto("https://weldall.seibert.localdev/resources");
+  await page
+    .getByRole("row")
+    .filter({ has: page.getByText("expenses", { exact: true }) })
+    .click();
+  await page.getByLabel("Enabled").click();
+  await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(directExchange()).resolves.toMatchObject({ blocked: true, error: "cors" });
+  const expectedCorsFailureStart = browserFailures.length;
+  await spa.getByRole("button", { name: "Verify remotely" }).click();
+  await expect(spa.locator("#output")).toContainText('"reason": "origin-changed"');
+  expect(
+    browserFailures
+      .slice(expectedCorsFailureStart)
+      .every((failure) =>
+        /cors|access-control-allow-origin|blocked by access control|failed to fetch/iu.test(
+          failure,
+        ),
+      ),
+  ).toBe(true);
+  await page.goto("https://weldall.seibert.localdev/resources");
+  await page
+    .getByRole("row")
+    .filter({ has: page.getByText("expenses", { exact: true }) })
+    .click();
+  await page.getByLabel("Enabled").click();
+  await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(directExchange()).resolves.toEqual({
+    blocked: true,
+    status: 400,
+    error: "invalid_grant",
+  });
+  await spa.getByRole("button", { name: "Verify remotely" }).click();
+  await expect(spa.locator("#output")).toContainText('"reason": "revoked"');
+  await spa.getByRole("button", { name: "Clear local credentials" }).click();
+
+  // The administration view can revoke an individual family and renders its audit event clearly.
+  await connect();
+  await page.goto("https://weldall.seibert.localdev/users");
+  await page.getByRole("row").filter({ hasText: "alice@example.com" }).click();
+  await expect(page.getByRole("heading", { name: "Connected browsers" })).toBeVisible();
+  const activeConnection = page
+    .getByRole("row")
+    .filter({ hasText: "https://expenses.seibert.localdev" })
+    .filter({ hasText: "Active" })
+    .last();
+  await activeConnection.getByRole("button", { name: "Revoke connection" }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Revoke browser connections" })
+    .click();
+  await expect(page.getByText("Browser connection revoked", { exact: true })).toBeVisible();
+  await expect(directExchange()).resolves.toEqual({
+    blocked: true,
+    status: 400,
+    error: "invalid_grant",
+  });
+  await spa.getByRole("button", { name: "Verify remotely" }).click();
+  await expect(spa.locator("#output")).toContainText('"reason": "revoked"');
+  await expect(
+    page.getByText("Browser connection revoked", { exact: true }).filter({ visible: true }).last(),
+  ).toBeVisible();
+
+  expect(
+    browserFailures.filter(
+      (failure) =>
+        !/cors|access-control-allow-origin|blocked by access control|failed to fetch/iu.test(
+          failure,
+        ),
+    ),
+  ).toEqual([]);
+
+  await page.goto("https://weldall.seibert.localdev/resources");
+  const browserReportsRow = page.getByRole("row").filter({ hasText: "browser-reports" });
+  await browserReportsRow.click();
+  await page.getByRole("button", { name: "Delete resource" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete resource" }).click();
+  await expect(browserReportsRow).toHaveCount(0);
+  await spa.close();
 });
 
 test("denies CLI login without weldall:login while preserving browser authentication", async ({

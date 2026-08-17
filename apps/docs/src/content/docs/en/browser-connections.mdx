@@ -1,0 +1,86 @@
+---
+title: Browser SPA connections
+---
+
+A first-party SPA hosted by an enabled Weldall resource can create a durable Weldall connection without another identity-provider login. The browser generates its own non-exportable P-256 WebCrypto key, displays a short code, and the user explicitly approves the exact application origin and resource through the already-authenticated CLI:
+
+```sh
+weldall connect ABCD-EFGH
+```
+
+The CLI records only the approval. It never receives the browser access token, refresh token, or private key. Weldall issues a separate `weldall-browser:<resource-key>` session and refresh family bound to the browser JKT.
+
+## Protocol profile
+
+Pairing uses RFC 8628 device authorization and the standard `urn:ietf:params:oauth:grant-type:device_code` token grant. RFC 9449 DPoP binds initiation, polling, refresh, token exchange, and API requests to the same key. RFC 8693 token exchange produces the pinned ID-JAG, which is exchanged immediately at the resource server. RFC 9700 is the public-client and refresh baseline.
+
+Two behaviors are Weldall extensions and are advertised as such in discovery:
+
+- the CLI, rather than a verification web page, records the explicit approval;
+- the pending request is pre-bound to the browser JKT at initiation.
+
+The device flow does not use PKCE. A later top-level browser authorization-code strategy will use exact redirect URIs, state, nonce, PKCE, resource, and `dpop_jkt`, then feed the same `BrowserConnection` issuer. Refresh, ID-JAG, downstream exchange, storage, audit, and revocation stay unchanged.
+
+## Browser integration
+
+Install the browser-only ESM package; do not import the Node resource SDK into a SPA:
+
+```sh
+pnpm add @weldall/browser
+```
+
+```ts
+import { createWeldallBrowserClient, inspectWeldallBrowserSupport } from "@weldall/browser";
+
+const support = await inspectWeldallBrowserSupport();
+if (!support.supported) renderUnsupported(support.missingFeatures);
+
+const weldall = await createWeldallBrowserClient({
+  issuer: "https://weldall.example.com",
+  resource: "https://expenses.example.com/api",
+});
+
+const local = await weldall.getConnectionStatus({ verify: "local" });
+if (local.state === "disconnected") {
+  const pairing = await weldall.connect({ method: "cli-code" });
+  show(`weldall connect ${pairing.userCode}`);
+  await pairing.connected;
+}
+
+const response = await weldall.request("https://expenses.example.com/api/expenses", {
+  scopes: ["expenses:read"],
+});
+```
+
+`verify: "local"` performs no network request or rotation. Remote verification refreshes under `navigator.locks` and checks the server connection. `disconnect()` revokes remotely before deleting local credentials; retryable network failures preserve them. `clearLocalConnection()` is intentionally local-only recovery and abandons the unusable DPoP-bound server family until expiry or administrative revocation.
+
+Protect UI reads and writes through the same Weldall-protected API routes used by `weldall request`. Do not create cookie-only bypass routes for a SPA. The downstream service trusts the Weldall subject in its validated token independently of any unrelated application cookie identity.
+
+## Live policy and lifecycle
+
+A connection stores identity, resource, origin, browser client, refresh family, and JKT—not business scopes. Every refresh and ID-JAG request rechecks current `weldall:login`, the enabled browser client/resource, exact current origin membership, connection/family/JKT equality, and the current direct and group-derived policy. Every ID-JAG is limited to the connection resource and currently supported and granted scopes.
+
+Resource mutations are authoritative for every admin and IaC path:
+
+- create repairs the derived browser client;
+- origin removal revokes affected connections and families;
+- disable blocks issuance and revokes all resource connections;
+- delete revokes before mutation and retains the connection snapshot for audit.
+
+After deploying the browser-connection migration, run Prisma migration deploy and the normal production initialization. Initialization backfills/repairs browser clients for existing resources and reconciles incomplete issuance attempts. Do not manually create browser OAuth clients or edit their metadata.
+
+## Administration and audit
+
+User and resource details list active and revoked browser connections with account, origin, resource, created/last-used time, approval method, and state. Administrators can revoke one connection or all connections selected by user, resource, or origin. The CLI-authenticated user API can list and revoke that user's own connections; the SPA can revoke its current connection.
+
+Audit events cover request, approval, denial, issuance, failure, and revocation. Metadata contains only authoritative IDs, origin/resource/client/JKT, timestamps, outcome, reason, and correlation identifiers. Codes, tokens, authorization headers, and complete DPoP proofs are never audit fields.
+
+## Browser and deployment security
+
+A non-exportable `CryptoKey` prevents raw export through WebCrypto, but malicious same-origin JavaScript can still ask it to sign. Require HTTPS, a strict CSP, controlled third-party scripts, reviewed dependencies, lockfile integrity, and prompt security patching. Access tokens, ID-JAGs, and downstream access tokens remain memory-only; the key and rotating refresh token live in schema-versioned IndexedDB.
+
+Weldall browser endpoints use exact dynamic CORS with no wildcard and no cookie credentials. Resource servers configure exact origins and route-specific preflight through `@weldall/sdk`. Production resource servers need a stable ES256 signing key and an atomic shared replay store when horizontally scaled; `inMemory()` is only for local or consciously single-process deployments.
+
+The Weldall edge must overwrite the forwarding chain and add the secret proxy-attestation header documented in the deployment guide. Browser replay, pending state, rate limits, quotas, and approval APIs use PostgreSQL. Current native provider grant replay still requires the documented single-replica Weldall deployment until its provider store is shared.
+
+See the package README for tested browser versions, capability codes, private-mode caveats, packed-browser verification, and troubleshooting.

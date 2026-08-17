@@ -22,6 +22,7 @@ const secret = () => randomBytes(32).toString("base64url");
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 const postgresUrl = "postgresql://postgres:postgres@postgres:5432/postgres";
 const devIdpClientSecret = secret();
+const trustedProxySecret = "weldall-e2e-proxy-attestation-secret-v1";
 const devUsers = JSON.stringify([
   {
     sub: "dev-alice",
@@ -47,6 +48,7 @@ const files: Record<string, Record<string, string>> = {
     POSTGRES_URL: postgresUrl,
     BETTER_AUTH_SECRET: secret(),
     OAUTH_PROXY_SECRET: secret(),
+    WELDALL_TRUSTED_PROXY_SECRET: trustedProxySecret,
     WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(weldall.privateJwk),
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(weldall.publicJwk),
     WELDALL_SIGNING_KID: "weldall-e2e",

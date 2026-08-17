@@ -13,3 +13,4 @@ apps/e2e/test-results/
 .pi-subagents/
 .pnpm-store/
 packages/db/src/generated/
+packages/browser/.playwright-packed-fixture/

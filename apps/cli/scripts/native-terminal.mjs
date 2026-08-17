@@ -57,11 +57,12 @@ export function terminalLauncher(
         });
       });
     });
-    result.interrupt = () => {
+    result.write = (value) => {
       if (exited) return false;
-      terminal.write("\x03");
+      terminal.write(value);
       return true;
     };
+    result.interrupt = () => result.write("\x03");
     result.cancel = async () => {
       if (!exited) terminal.kill();
       return result;

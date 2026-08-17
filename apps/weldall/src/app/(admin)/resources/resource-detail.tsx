@@ -20,6 +20,7 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
+import { BrowserConnections } from "../browser-connections";
 
 const catalogStatuses = {
   fresh: { icon: "success", color: "success", label: "Fresh" },
@@ -435,6 +436,12 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           </FormLayout>
         </form>
       </div>
+      {current ? (
+        <>
+          <hr className="border-border m-0 border-0 border-t" />
+          <BrowserConnections resourceId={current.id} ownerLabel={current.name} />
+        </>
+      ) : null}
       <AlertDialog
         actionLabel="Delete resource"
         description={

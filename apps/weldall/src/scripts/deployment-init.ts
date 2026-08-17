@@ -2,6 +2,7 @@ import { db } from "@weldall/db";
 import { bootstrapConfiguredAdmin, prepareProductionDatabase } from "../server/deployment";
 import { errorForLog, logger } from "../server/observability/logger";
 import { refreshDueCatalogs } from "../server/skills/catalogs";
+import { reconcileAllBrowserIssuancesAtStartup } from "../server/oauth/browser-issuance";
 
 logger.info({ event: "deployment_init.started" }, "Deployment initialization started");
 try {
@@ -9,6 +10,7 @@ try {
     await prepareProductionDatabase();
   }
 
+  await reconcileAllBrowserIssuancesAtStartup();
   await refreshDueCatalogs();
 
   const email = process.env.WELDALL_BOOTSTRAP_ADMIN_EMAIL?.trim();

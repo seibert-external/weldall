@@ -1,10 +1,94 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { ensureSystemScopes } from "../src/system-scopes.js";
 
 const db = new PrismaClient();
 const actor = "production-seed";
+const browserScopes = ["openid", "profile", "email", "offline_access", "weldall:scopes"];
+const deviceGrant = "urn:ietf:params:oauth:grant-type:device_code";
+const tokenExchangeGrant = "urn:ietf:params:oauth:grant-type:token-exchange";
+
+async function reconcileBrowserClients(tx: Prisma.TransactionClient) {
+  const resources = await tx.downstreamResource.findMany({
+    include: { requestPrefixes: { select: { urlPrefix: true } } },
+  });
+  for (const resource of resources) {
+    const clientId = `weldall-browser:${resource.key}`;
+    const origins = [
+      ...new Set([
+        new URL(resource.authorizationServer).origin,
+        ...resource.requestPrefixes.map(({ urlPrefix }) => new URL(urlPrefix).origin),
+      ]),
+    ].sort();
+    const existing = await tx.oauthClient.findUnique({ where: { clientId } });
+    if (existing && (existing.id !== clientId || existing.referenceId !== resource.id))
+      throw new Error(`Browser client ${clientId} is already bound to another resource`);
+    await tx.oauthClient.upsert({
+      where: { clientId },
+      create: {
+        id: clientId,
+        clientId,
+        disabled: !resource.enabled,
+        skipConsent: true,
+        enableEndSession: false,
+        scopes: browserScopes,
+        name: `${resource.name} browser`,
+        uri: origins[0],
+        redirectUris: [],
+        postLogoutRedirectUris: [],
+        tokenEndpointAuthMethod: "none",
+        grantTypes: [deviceGrant, "refresh_token", tokenExchangeGrant],
+        responseTypes: [],
+        public: true,
+        type: "web",
+        requirePKCE: false,
+        dpopBoundAccessTokens: true,
+        referenceId: resource.id,
+        metadata: {
+          weldallBrowser: {
+            schemaVersion: 1,
+            resourceId: resource.id,
+            resourceKey: resource.key,
+            resourceIdentifier: resource.resourceIdentifier,
+            allowedOrigins: origins,
+          },
+        },
+      },
+      update: {
+        clientSecret: null,
+        disabled: !resource.enabled,
+        skipConsent: true,
+        enableEndSession: false,
+        scopes: browserScopes,
+        userId: null,
+        name: `${resource.name} browser`,
+        uri: origins[0],
+        redirectUris: [],
+        postLogoutRedirectUris: [],
+        tokenEndpointAuthMethod: "none",
+        jwks: null,
+        jwksUri: null,
+        grantTypes: [deviceGrant, "refresh_token", tokenExchangeGrant],
+        responseTypes: [],
+        public: true,
+        type: "web",
+        requirePKCE: false,
+        dpopBoundAccessTokens: true,
+        referenceId: resource.id,
+        metadata: {
+          weldallBrowser: {
+            schemaVersion: 1,
+            resourceId: resource.id,
+            resourceKey: resource.key,
+            resourceIdentifier: resource.resourceIdentifier,
+            allowedOrigins: origins,
+          },
+        },
+      },
+    });
+  }
+}
 
 export async function seedProduction(prisma: PrismaClient = db): Promise<void> {
   const issuer = new URL(process.env.WELDALL_ISSUER ?? "https://weldall.seibert.localdev");
@@ -69,6 +153,7 @@ export async function seedProduction(prisma: PrismaClient = db): Promise<void> {
         update: {},
       }),
     ]);
+    await reconcileBrowserClients(tx);
   });
 }
 

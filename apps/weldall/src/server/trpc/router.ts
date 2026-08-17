@@ -17,6 +17,7 @@ import {
   getSkill,
   getUser,
   listAssignments,
+  listBrowserConnections,
   listResources,
   listScopeOptions,
   listScopes,
@@ -26,6 +27,7 @@ import {
   listUsers,
   replaceAssignment,
   requireAdminUser,
+  revokeBrowserConnections,
   updateCliSettings,
   updateResource,
   updateScope,
@@ -138,6 +140,39 @@ export const appRouter = trpc.router({
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getUser(input.id))),
+    }),
+    browserConnections: trpc.router({
+      list: adminProcedure
+        .input(
+          z
+            .object({
+              userId: z.string().min(1).max(191).optional(),
+              resourceId: z.string().min(1).max(191).optional(),
+              origin: z.string().url().max(2_000).optional(),
+              includeRevoked: z.boolean().default(false),
+            })
+            .strict(),
+        )
+        .query(({ input }) => mapDomainErrors(() => listBrowserConnections(input))),
+      revoke: adminProcedure
+        .input(
+          z
+            .object({
+              connectionId: z.string().min(1).max(191).optional(),
+              userId: z.string().min(1).max(191).optional(),
+              resourceId: z.string().min(1).max(191).optional(),
+              origin: z.string().url().max(2_000).optional(),
+            })
+            .strict()
+            .refine(
+              (input) =>
+                Boolean(input.connectionId || input.userId || input.resourceId || input.origin),
+              { message: "Choose a browser connection revocation target." },
+            ),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => revokeBrowserConnections(input, ctx.adminActor)),
+        ),
     }),
     auditEvents: trpc.router({
       list: adminProcedure

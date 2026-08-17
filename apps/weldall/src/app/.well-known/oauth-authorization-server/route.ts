@@ -3,6 +3,7 @@ import { db } from "@weldall/db";
 import { auth } from "@/server/auth/auth";
 import { extendOAuthMetadata } from "@/server/oauth/metadata";
 import { withRequestLogging } from "@/server/observability/http";
+import { withBrowserCors } from "@/server/oauth/browser-cors";
 
 const providerMetadata = oauthProviderAuthServerMetadata(auth as any);
 
@@ -16,6 +17,10 @@ async function get(request: Request) {
   });
 }
 
-export const GET = withRequestLogging("/.well-known/oauth-authorization-server", get, {
+const handler = withBrowserCors(["GET"], get);
+export const GET = withRequestLogging("/.well-known/oauth-authorization-server", handler, {
+  successLevel: "debug",
+});
+export const OPTIONS = withRequestLogging("/.well-known/oauth-authorization-server", handler, {
   successLevel: "debug",
 });

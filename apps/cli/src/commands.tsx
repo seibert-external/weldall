@@ -17,6 +17,11 @@ import {
   warning,
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
+import {
+  connectBrowserApplication,
+  normalizeConnectionCode,
+  requireInteractiveConnectionApproval,
+} from "./services/connect.js";
 import { listScopes, resourceRequest, type ResourceGrant } from "./services/resources.js";
 import { listSkills, showSkill, type SkillWarning } from "./services/skills.js";
 import { issuerPreferences } from "./storage/preferences.js";
@@ -108,6 +113,24 @@ export const loginCommand = define({
         "Run `weldall status` to try again.",
       );
     }
+  },
+});
+
+export const connectCommand = define({
+  name: "connect",
+  description: "Approve a browser application connection",
+  args: {
+    code: {
+      type: "positional",
+      required: true,
+      description: "Short code displayed by the browser application",
+    },
+  },
+  examples: "weldall connect ABCD-EFGH",
+  run: async (context) => {
+    const code = normalizeConnectionCode(context.values.code);
+    requireInteractiveConnectionApproval();
+    await connectBrowserApplication(await resolveWeldallConfig(), code);
   },
 });
 

@@ -64,6 +64,8 @@ const weldall = initWeldall(weldallIssuer, {
     publicJwk: key.publicJwk,
   },
   replayStore: inMemory(),
+  allowedOrigins: ["https://contracts.example.com"],
+  allowedMethods: ["GET"],
   skills: {
     items: [
       {
@@ -102,6 +104,8 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8787) });
 The `skills` attribute publishes the agent instructions with the service. See [SDKs](../sdks/) for the other options and framework examples.
 
 `weldall.protect` checks every incoming request before the handler reads contract data. The handler runs only when the request satisfies the `contracts:read` scope. The identity contains the stable Weldall subject and the verified email that Weldall signed into the ID-JAG and the SDK copied into the downstream access token. How the service uses that identity with its own user database remains application-specific.
+
+`allowedOrigins` is an exact browser allowlist; omit it to allow only `publicOrigin`. Hono registers exact `OPTIONS` handlers for SDK protocol routes; protected application routes bind `app.options(path, weldall.preflight(methods))`. Next.js and Astro export `weldall.preflight(methods, exactPathname)` for each protected browser-visible route. Preflight allows `Authorization`, `DPoP`, `Content-Type`, `X-Request-Id`, and `X-Correlation-Id` before authentication or replay consumption and adds credentialless CORS headers to success and OAuth errors. Never use a wildcard or catch-all preflight.
 
 :::note[Replay protection with horizontal scaling]
 `inMemory()` stores used ID-JAGs and DPoP proofs only in the current process. With multiple service instances, one instance does not know which replays another instance has already seen. The replay store prevents an ID-JAG from being exchanged more than once and a DPoP proof from being reused; it does not mark the access token itself as consumed after one use.

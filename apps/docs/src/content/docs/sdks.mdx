@@ -5,7 +5,7 @@ sidebar:
 description: Die npm-Pakete für die Weldall CLI und angebundene Unternehmensservices.
 ---
 
-Weldall veröffentlicht zwei npm-Pakete. Die CLI läuft auf dem Gerät eines Mitarbeiters. Das SDK läuft im angebundenen Service.
+Weldall veröffentlicht drei npm-Pakete. Die CLI läuft auf dem Gerät eines Mitarbeiters, das Browser-Paket in einer First-Party-SPA und das Resource-SDK im angebundenen Service.
 
 ## `@weldall/cli`
 
@@ -33,6 +33,14 @@ chmod +x ./weldall
 
 Windows PowerShell: `Unblock-File .\weldall.exe`.
 
+## `@weldall/browser`
+
+[`@weldall/browser`](https://www.npmjs.com/package/@weldall/browser) ist ein reines Browser-ESM-Paket mit WebCrypto-DPoP, IndexedDB, CLI-freigegebener Kopplung, Refresh-Rotation, Live-ID-JAG und getrenntem Remote-/Local-Cleanup. Es enthält keine Node-Runtime-Imports oder Polyfills. [Browser-SPA-Verbindungen](../browser-connections/) beschreibt Integration und Same-Origin-Script-Grenze.
+
+```sh
+pnpm add @weldall/browser
+```
+
 ## `@weldall/sdk`
 
 [`@weldall/sdk`](https://www.npmjs.com/package/@weldall/sdk) prüft Requests, bevor ein Service Daten liest oder Änderungen ausführt. Es stellt eine Fetch-API und Adapter für Hono, Next.js und Astro bereit.
@@ -53,8 +61,12 @@ const weldall = initWeldall("https://weldall.example.com", {
   supportedScopes: ["contracts:read", "contracts:update"],
   signingKey,
   replayStore,
+  allowedOrigins: ["https://contracts.example.com"],
+  allowedMethods: ["GET", "POST"],
 });
 ```
+
+`allowedOrigins` ist exakt und verwendet standardmäßig nur `publicOrigin`; Wildcard- und Cookie-CORS werden nicht unterstützt. Hono registriert exakte Preflight-Routen nur für SDK-Protokollendpunkte; geschützte Routen binden `app.options(path, weldall.preflight(methods))`. Fetch-Integrationen verwenden `weldall.withBrowserCors`. Next.js und Astro exportieren für geschützte Routen `weldall.preflight(methods, exactPathname)`. Preflight erlaubt nur `Authorization`, `DPoP`, `Content-Type`, `X-Request-Id` und `X-Correlation-Id` und läuft vor Authentifizierung und Replay-Verbrauch.
 
 In einem Fetch-Handler prüft `weldall.verify(request, { scopes: [...] })` den Request vor der Geschäftslogik. Die Framework-Adapter stellen dafür Middleware oder Handler-Wrapper bereit:
 

@@ -8,15 +8,18 @@ datasource db {
 }
 
 model User {
-  id            String    @id
-  name          String
-  email         String    @unique
-  emailVerified Boolean
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  sessions      Session[]
-  accounts      Account[]
+  id                          String                     @id
+  name                        String
+  email                       String                     @unique
+  emailVerified               Boolean
+  image                       String?
+  createdAt                   DateTime                   @default(now())
+  updatedAt                   DateTime                   @updatedAt
+  sessions                    Session[]
+  accounts                    Account[]
+  browserConnectionApprovals  BrowserConnectionRequest[] @relation("BrowserConnectionApprovalUser")
+  browserConnectionDecisions  BrowserConnectionRequest[] @relation("BrowserConnectionDecisionUser")
+  browserConnectionReferences BrowserConnection[]        @relation("BrowserConnectionUser")
 }
 
 model Scope {
@@ -121,15 +124,15 @@ enum SkillVisibility {
 }
 
 model Skill {
-  id             String          @id @default(cuid())
-  slug           String          @unique
+  id             String            @id @default(cuid())
+  slug           String            @unique
   title          String
   content        String
-  requiredScopes String[]        @default([])
-  visibility     SkillVisibility @default(DEFAULT)
-  version        Int             @default(1)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  requiredScopes String[]          @default([])
+  visibility     SkillVisibility   @default(DEFAULT)
+  version        Int               @default(1)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
   createdBy      String
   updatedBy      String
   iacBinding     IacObjectBinding?
@@ -148,24 +151,26 @@ model CliSettings {
 }
 
 model DownstreamResource {
-  id                    String                   @id @default(cuid())
-  key                   String                   @unique
-  name                  String
-  resourceIdentifier    String                   @unique
-  authorizationServer   String
-  downstreamClientId    String
-  enabled               Boolean                  @default(true)
-  skillDiscoveryEnabled Boolean                  @default(false)
-  version               Int                      @default(1)
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  createdBy             String
-  updatedBy             String
-  scopes                ResourceScope[]
-  requestPrefixes       ResourceRequestPrefix[]
-  discoveredCatalog     DiscoveredSkillCatalog?
-  allowedForMachines    MachineAllowedResource[]
-  iacBinding            IacObjectBinding?
+  id                        String                     @id @default(cuid())
+  key                       String                     @unique
+  name                      String
+  resourceIdentifier        String                     @unique
+  authorizationServer       String
+  downstreamClientId        String
+  enabled                   Boolean                    @default(true)
+  skillDiscoveryEnabled     Boolean                    @default(false)
+  version                   Int                        @default(1)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  createdBy                 String
+  updatedBy                 String
+  scopes                    ResourceScope[]
+  requestPrefixes           ResourceRequestPrefix[]
+  discoveredCatalog         DiscoveredSkillCatalog?
+  allowedForMachines        MachineAllowedResource[]
+  iacBinding                IacObjectBinding?
+  browserConnectionRequests BrowserConnectionRequest[]
+  browserConnections        BrowserConnection[]
 
   @@index([name])
   @@index([updatedAt])
@@ -466,41 +471,43 @@ model Jwks {
 }
 
 model OauthClient {
-  id                               String   @id
-  clientId                         String   @unique
+  id                               String                     @id
+  clientId                         String                     @unique
   clientSecret                     String?
-  disabled                         Boolean  @default(false)
+  disabled                         Boolean                    @default(false)
   skipConsent                      Boolean?
   enableEndSession                 Boolean?
   subjectType                      String?
-  scopes                           String[] @default([])
+  scopes                           String[]                   @default([])
   userId                           String?
   name                             String?
   uri                              String?
   icon                             String?
-  contacts                         String[] @default([])
+  contacts                         String[]                   @default([])
   tos                              String?
   policy                           String?
   softwareId                       String?
   softwareVersion                  String?
   softwareStatement                String?
   redirectUris                     String[]
-  postLogoutRedirectUris           String[] @default([])
+  postLogoutRedirectUris           String[]                   @default([])
   backchannelLogoutUri             String?
   backchannelLogoutSessionRequired Boolean?
   tokenEndpointAuthMethod          String?
   jwks                             String?
   jwksUri                          String?
-  grantTypes                       String[] @default([])
-  responseTypes                    String[] @default([])
+  grantTypes                       String[]                   @default([])
+  responseTypes                    String[]                   @default([])
   public                           Boolean?
   type                             String?
   requirePKCE                      Boolean?
-  dpopBoundAccessTokens            Boolean  @default(false)
+  dpopBoundAccessTokens            Boolean                    @default(false)
   referenceId                      String?
   metadata                         Json?
-  createdAt                        DateTime @default(now())
-  updatedAt                        DateTime @updatedAt
+  createdAt                        DateTime                   @default(now())
+  updatedAt                        DateTime                   @updatedAt
+  browserConnectionRequests        BrowserConnectionRequest[]
+  browserConnections               BrowserConnection[]
 
   @@index([userId])
 }
@@ -604,20 +611,152 @@ model OauthClientAssertion {
   expiresAt DateTime
 }
 
+enum BrowserConnectionRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+  ISSUING
+  CONSUMED
+}
+
+enum BrowserConnectionIssuanceStatus {
+  CLAIMED
+  PROVIDER_ISSUED
+  BINDING_CREATED
+  COMMITTED
+  FAILED
+}
+
+enum BrowserConnectionState {
+  ACTIVE
+  REVOKED
+}
+
+/// RFC 8628 state. Device and user codes are stored only as keyed hashes.
+model BrowserConnectionRequest {
+  id                  String                            @id @default(cuid())
+  deviceCodeHash      String                            @unique
+  userCodeHash        String                            @unique
+  browserClientId     String
+  oauthClientId       String
+  resourceId          String
+  origin              String
+  dpopJkt             String
+  status              BrowserConnectionRequestStatus    @default(PENDING)
+  attempts            Int                               @default(0)
+  pollIntervalSeconds Int                               @default(5)
+  lastPolledAt        DateTime?
+  issuanceClaimedAt   DateTime?
+  connectionId        String?                           @unique
+  expiresAt           DateTime
+  approvedAt          DateTime?
+  approvedByUserId    String?
+  decidedByUserId     String?
+  deniedAt            DateTime?
+  consumedAt          DateTime?
+  createdAt           DateTime                          @default(now())
+  updatedAt           DateTime                          @updatedAt
+  oauthClient         OauthClient                       @relation(fields: [oauthClientId], references: [id], onDelete: Cascade)
+  resource            DownstreamResource                @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  approvedByUser      User?                             @relation("BrowserConnectionApprovalUser", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  decidedByUser       User?                             @relation("BrowserConnectionDecisionUser", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  issuanceAttempt     BrowserConnectionIssuanceAttempt?
+  connection          BrowserConnection?                @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([status, expiresAt])
+  @@index([resourceId, status, expiresAt])
+  @@index([browserClientId, status, expiresAt])
+  @@index([origin, status, expiresAt])
+}
+
+/// Durable, idempotent provider-issuance journal. It never stores raw credentials.
+model BrowserConnectionIssuanceAttempt {
+  id                       String                          @id @default(cuid())
+  requestId                String                          @unique
+  status                   BrowserConnectionIssuanceStatus @default(CLAIMED)
+  providerAccessTokenHash  String?                         @unique
+  providerRefreshTokenHash String?                         @unique
+  refreshFamilyId          String                          @unique
+  connectionId             String?                         @unique
+  failureCode              String?
+  claimedAt                DateTime                        @default(now())
+  providerIssuedAt         DateTime?
+  bindingCreatedAt         DateTime?
+  committedAt              DateTime?
+  failedAt                 DateTime?
+  updatedAt                DateTime                        @updatedAt
+  request                  BrowserConnectionRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  connection               BrowserConnection?              @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
+}
+
+/// Durable browser identity/key relationship. Resource and user snapshots survive deletion.
+model BrowserConnection {
+  id                  String                            @id @default(cuid())
+  providerReferenceId String                            @unique
+  browserClientId     String
+  oauthClientId       String?
+  resourceId          String?
+  resourceKey         String
+  resourceIdentifier  String
+  origin              String
+  userId              String
+  userReferenceId     String?
+  dpopJkt             String
+  refreshFamilyId     String                            @unique
+  approvedVia         String
+  state               BrowserConnectionState            @default(ACTIVE)
+  createdAt           DateTime                          @default(now())
+  lastUsedAt          DateTime?
+  revokedAt           DateTime?
+  revokedBy           String?
+  revocationReason    String?
+  oauthClient         OauthClient?                      @relation(fields: [oauthClientId], references: [id], onDelete: SetNull)
+  resource            DownstreamResource?               @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  userReference       User?                             @relation("BrowserConnectionUser", fields: [userReferenceId], references: [id], onDelete: SetNull)
+  request             BrowserConnectionRequest?
+  issuanceAttempt     BrowserConnectionIssuanceAttempt?
+  refreshBindings     OAuthDeviceRefreshBinding[]       @relation("BrowserRefreshConnection")
+
+  @@unique([id, refreshFamilyId, browserClientId, userId, dpopJkt], map: "BrowserConnection_binding_identity_key")
+  @@index([userId, state])
+  @@index([resourceId, state])
+  @@index([resourceKey, state])
+  @@index([origin, state])
+  @@index([browserClientId, state])
+}
+
+/// Durable fixed-window counters used for horizontally consistent device-flow limits.
+model BrowserConnectionRateLimitBucket {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
 model OAuthDeviceRefreshBinding {
-  id              String    @id @default(cuid())
-  tokenHash       String    @unique
-  familyId        String
-  clientId        String
-  userId          String
-  dpopJkt         String
-  expiresAt       DateTime
-  rotatedAt       DateTime?
-  revokedAt       DateTime?
-  replacementHash String?   @unique
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                  String             @id @default(cuid())
+  tokenHash           String             @unique
+  familyId            String
+  clientId            String
+  userId              String
+  dpopJkt             String
+  browserConnectionId String?
+  expiresAt           DateTime
+  rotatedAt           DateTime?
+  revokedAt           DateTime?
+  replacementHash     String?            @unique
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  browserConnection   BrowserConnection? @relation("BrowserRefreshConnection", fields: [browserConnectionId, familyId, clientId, userId, dpopJkt], references: [id, refreshFamilyId, browserClientId, userId, dpopJkt], onDelete: Cascade)
 
   @@index([familyId])
   @@index([userId, clientId])
+  @@index([browserConnectionId])
 }

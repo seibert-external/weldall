@@ -97,6 +97,7 @@ weldall state mv scope.old scope.new
 
 ```sh
 weldall login
+weldall connect ABCD-EFGH
 weldall status
 weldall whoami
 weldall scopes
@@ -109,6 +110,15 @@ weldall request --scope files:read --output ./report.pdf \
   https://files.example.com/api/report.pdf
 weldall logout
 ```
+
+`weldall connect CODE` approves a connection requested by a browser SPA. Start the connection in
+the application first, then run the exact command it displays. Weldall looks up the code through the
+current CLI session and shows the server-authoritative application origin, resource, account, and
+expiry. Compare the code and exact origin with the application before typing `yes`; type `no` if any
+detail differs. Approval is always interactive—piped input and non-interactive automation fail closed.
+The code is short-lived and one-use. It is sent only in JSON POST bodies and is never written to CLI
+logs or configuration. The browser receives its own WebCrypto-bound session; the CLI does not receive
+or store browser credentials.
 
 `weldall status` gives people the friendly overview: the signed-in display name and verified email,
 which Weldall host is active, and what that account is allowed to do. `weldall scopes` shows every
