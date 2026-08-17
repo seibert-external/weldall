@@ -41,15 +41,50 @@ export class SkillTemporarilyUnavailableError extends Error {
 const sortedUnique = (values: string[]): string[] => [...new Set(values)].sort();
 
 export async function listVisibleSkills(email: string): Promise<VisibleSkillsEnvelope> {
+  return listVisibleSkillsForScopes(await effectiveScopesFor(email));
+}
+
+export async function listVisibleSkillsForScopes(
+  grants: readonly string[],
+): Promise<VisibleSkillsEnvelope> {
   const now = new Date();
-  const [manualSkills, resources, scopeRows, grants] = await Promise.all([
-    db.skill.findMany(),
+  const [manualSkills, resources, scopeRows] = await Promise.all([
+    db.skill.findMany({
+      select: {
+        slug: true,
+        title: true,
+        requiredScopes: true,
+        visibility: true,
+        updatedAt: true,
+      },
+    }),
     db.downstreamResource.findMany({
       where: { enabled: true, skillDiscoveryEnabled: true },
-      include: { discoveredCatalog: { include: { skills: true } } },
+      select: {
+        id: true,
+        key: true,
+        name: true,
+        version: true,
+        discoveredCatalog: {
+          select: {
+            lastSuccessfulRefreshAt: true,
+            staleAfter: true,
+            sourceResourceVersion: true,
+            lastFailureCategory: true,
+            skills: {
+              select: {
+                canonicalId: true,
+                title: true,
+                requiredScopes: true,
+                visibility: true,
+                updatedAt: true,
+              },
+            },
+          },
+        },
+      },
     }),
     db.scope.findMany({ select: { key: true } }),
-    effectiveScopesFor(email),
   ]);
   const grantedScopes = new Set<string>(grants);
   const canViewCatalogIssues = grantedScopes.has(ADMIN_SCOPE_KEY);

@@ -137,7 +137,13 @@ describe("admin tRPC middleware", () => {
     await expect(caller().admin.status()).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
+    await expect(caller().admin.users.get({ id: normalUserId })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
     await expect(caller(normalUserId).admin.status()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(caller(normalUserId).admin.users.get({ id: normalUserId })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
     await expect(

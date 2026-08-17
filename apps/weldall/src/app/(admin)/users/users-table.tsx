@@ -132,6 +132,13 @@ export function UsersTable() {
           width={280}
         />
       </HerocrumbsActions>
+      <div className="mb-4 max-w-3xl">
+        <Text color="secondary">
+          Every person known through a sign-in to this Weldall server is listed here, including
+          people without current access assignments. Open a person to inspect their effective access
+          and how it was granted.
+        </Text>
+      </div>
       {usersQuery.error ? (
         <Banner
           container="card"
@@ -188,7 +195,9 @@ export function UsersTable() {
                   <TableRow>
                     <TableCell colSpan={columns.length}>
                       <Text color="secondary">
-                        {q ? "No users match this search." : "No users have signed in yet."}
+                        {q
+                          ? "No people match this search."
+                          : "No people are known to this server yet."}
                       </Text>
                     </TableCell>
                   </TableRow>
