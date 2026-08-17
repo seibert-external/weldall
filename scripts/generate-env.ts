@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 const developmentDefaults = {
   NODE_USE_SYSTEM_CA: "1",
-  POSTGRES_URL: "postgresql://postgres@localhost:5433/postgres",
+  POSTGRES_URL: process.env.POSTGRES_URL ?? "postgresql://postgres@localhost:5433/postgres",
   WELDALL_DEPLOYMENT_MODE: "development",
   ENABLE_DEV_LOGIN: "true",
   WELDALL_TRUSTED_PROXY_SECRET: "weldall-local-proxy-attestation-v1",
