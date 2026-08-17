@@ -384,4 +384,4 @@ pnpm changeset:status
 
 Select `@weldall/cli`, `@weldall/pi`, `@weldall/sdk`, and/or `@weldall/browser`, choose the SemVer bump, and commit the generated `.changeset/*.md`. The browser package is published through normal Changesets/npm; it is not part of the standalone CLI asset workflow. Documentation, tests, and internal-only changes that do not alter a published package do not need an empty Changeset.
 
-The published CLI, Pi extension, and SDK packages declare Apache-2.0 licensing in their package manifests; the CLI and SDK also carry package-local license copies at [`apps/cli/LICENSE`](apps/cli/LICENSE) and [`packages/sdk/LICENSE`](packages/sdk/LICENSE).
+The published CLI, Pi extension, SDK, and browser packages declare Apache-2.0 licensing in their package manifests; the CLI, SDK, and browser packages also carry package-local license copies at [`apps/cli/LICENSE`](apps/cli/LICENSE), [`packages/sdk/LICENSE`](packages/sdk/LICENSE), and [`packages/browser/LICENSE`](packages/browser/LICENSE).
