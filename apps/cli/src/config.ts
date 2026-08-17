@@ -127,7 +127,7 @@ export async function discoverIssuer(
 ): Promise<WeldallConfig> {
   const issuer = normalizeIssuer(rawIssuer);
   const fetcher = options.fetcher ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 5_000;
+  const timeoutMs = options.timeoutMs ?? 15_000;
   const metadata = await fetchMetadata(
     metadataUrl(issuer, "/.well-known/oauth-authorization-server"),
     fetcher,
