@@ -291,6 +291,9 @@ describe("deterministic release utilities", () => {
       await writeFile(join(dist, "weldall"), "binary debris");
       await writeFile(join(dist, ".cache", "cached.zip"), "ignored cache");
       await writeFile(join(dist, "index.js"), "normal build output");
+      const workspaceModules = join(root, "packages", "pi", "node_modules", ".bin");
+      await mkdir(workspaceModules, { recursive: true });
+      await writeFile(join(workspaceModules, "weldall"), "installed dependency");
       await writeFile(join(root, ".gitignore"), ".bun-build/\napps/cli/dist/\n");
       expect(await findPackageDebris(root)).toEqual([
         ".bun-build",

@@ -16,6 +16,7 @@ machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> res
 
 - **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
 - **Weldall CLI** — a cross-platform npm package with experimental standalone executables for Ubuntu x64, Windows x64, and macOS ARM64/x64. It supports native YAML IaC, interactive OAuth, capability discovery, and authenticated user requests while keeping sessions in the operating system's secure credential store.
+- **Pi extension** — the published `@weldall/pi` package loads the signed-in user's administrator-managed skills through the npm-installed CLI and exposes them as namespaced Pi commands.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
 - **Supporting services** — the Prisma database package, a local Development IdP, an Expenses resource-server example, documentation, framework examples, and the Playwright/Docker E2E system.
 
@@ -38,6 +39,7 @@ For a protocol-level walkthrough, read [A complete agent run](apps/docs/src/cont
 | [`@weldall/example-hono`](examples/hono/)       | Standalone Hono example that registers SDK infrastructure routes and protects an Expenses endpoint.                                                                   |
 | [`@weldall/example-next`](examples/next/)       | Next.js 16 App Router example using Node.js route handlers and the SDK's Next.js adapter.                                                                             |
 | [`@weldall/db`](packages/db/)                   | Private Prisma package containing the PostgreSQL schema, generated client export, migrations, production initialization, and development seed data.                   |
+| [`@weldall/pi`](packages/pi/)                   | Published Pi extension for loading and activating administrator-managed Weldall skills. See its [package README](packages/pi/README.md).                              |
 | [`@weldall/sdk`](packages/sdk/)                 | Published resource-server SDK and Fetch, Hono, Next.js, and Astro adapters. See its [package README](packages/sdk/README.md).                                         |
 | [`@weldall/eslint-config`](tooling/eslint/)     | Shared ESLint flat configuration for TypeScript workspaces.                                                                                                           |
 | [`@weldall/prettier-config`](tooling/prettier/) | Shared Prettier configuration, including Astro formatting support.                                                                                                    |
@@ -329,6 +331,8 @@ Useful targeted commands:
 ```sh
 pnpm --filter @weldall/cli test
 pnpm --filter @weldall/cli pack:check
+pnpm --filter @weldall/pi test
+pnpm --filter @weldall/pi pack:check
 pnpm --filter @weldall/sdk test
 pnpm --filter @weldall/sdk pack:check
 pnpm --filter @weldall/docs build
@@ -349,13 +353,13 @@ Set `KEEP_E2E_ARTIFACTS=1` only when you intentionally want to retain Playwright
 - Documentation development: [`apps/docs/README.md`](apps/docs/README.md)
 - Resource SDK and production constraints: [`packages/sdk/README.md`](packages/sdk/README.md)
 
-Changes to either published package need a Changeset when they affect the release:
+Changes to a published package need a Changeset when they affect the release:
 
 ```sh
 pnpm changeset
 pnpm changeset:status
 ```
 
-Select `@weldall/cli` and/or `@weldall/sdk`, choose the SemVer bump, and commit the generated `.changeset/*.md`. Documentation, tests, and internal-only changes that do not alter a published package do not need an empty Changeset.
+Select the affected package (`@weldall/cli`, `@weldall/pi`, or `@weldall/sdk`), choose the SemVer bump, and commit the generated `.changeset/*.md`. Documentation, tests, and internal-only changes that do not alter a published package do not need an empty Changeset.
 
-The published CLI and SDK packages are licensed under Apache-2.0; see [`apps/cli/LICENSE`](apps/cli/LICENSE) and [`packages/sdk/LICENSE`](packages/sdk/LICENSE).
+The published CLI, Pi extension, and SDK packages declare Apache-2.0 licensing in their package manifests; the CLI and SDK also carry package-local license copies at [`apps/cli/LICENSE`](apps/cli/LICENSE) and [`packages/sdk/LICENSE`](packages/sdk/LICENSE).
