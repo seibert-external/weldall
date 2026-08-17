@@ -5,6 +5,7 @@ import { hasLoginScopeForUserId } from "../auth/login-policy";
 import { auditRequestIdentifiers, prismaAuditWriter, type AuditWriter } from "../audit/service";
 import { WELDALL_ISSUER, WELDALL_TOKEN_ENDPOINT } from "./constants";
 import {
+  BROWSER_LIFECYCLE_TRANSACTION_OPTIONS,
   browserClientIdForResourceKey,
   browserOriginsForResource,
   lockBrowserResourceLifecycle,
@@ -914,7 +915,7 @@ export async function pollBrowserConnectionRequest(
       include: { resource: true, oauthClient: true, approvedByUser: true },
     });
     return { pending: claimed, attemptId: attempt.id, refreshFamilyId: attempt.refreshFamilyId };
-  });
+  }, BROWSER_LIFECYCLE_TRANSACTION_OPTIONS);
   if ("pending" in outcome && outcome.pending) {
     const claimed = outcome.pending;
     let loginAllowed = false;
@@ -938,7 +939,7 @@ export async function pollBrowserConnectionRequest(
           where: { id: claimed.id, status: "ISSUING" },
           data: { status: "DENIED", deniedAt: failedAt },
         });
-      });
+      }, BROWSER_LIFECYCLE_TRANSACTION_OPTIONS);
       throw new WeldallAuthError("invalid_grant", "login access is no longer available");
     }
 
@@ -990,7 +991,7 @@ export async function pollBrowserConnectionRequest(
       )
         throw new WeldallAuthError("invalid_grant", "connection claim is no longer available");
       return current;
-    });
+    }, BROWSER_LIFECYCLE_TRANSACTION_OPTIONS);
   }
   const messages: Record<typeof outcome.error, string> = {
     access_denied: "connection denied",
