@@ -980,6 +980,7 @@ test("connects a real Expenses SPA through the CLI and enforces live browser pol
   await page.getByLabel("Authorization server").fill("https://changed-origin.seibert.localdev");
   await page.getByLabel("Request prefixes").fill("https://changed-origin.seibert.localdev/api");
   await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
   const removedOriginCorsStart = browserFailures.length;
   await expect(directExchange()).resolves.toMatchObject({ blocked: true, error: "cors" });
   await spa.getByRole("button", { name: "Verify remotely" }).click();
@@ -1000,6 +1001,7 @@ test("connects a real Expenses SPA through the CLI and enforces live browser pol
   await page.getByLabel("Authorization server").fill("https://expenses.seibert.localdev");
   await page.getByLabel("Request prefixes").fill("https://expenses.seibert.localdev/api");
   await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
   await expect(directExchange()).resolves.toEqual({
     blocked: true,
     status: 400,
@@ -1027,6 +1029,7 @@ test("connects a real Expenses SPA through the CLI and enforces live browser pol
     .click();
   await page.getByLabel("Enabled").click();
   await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
   await expect(directExchange()).resolves.toMatchObject({ blocked: true, error: "cors" });
   const expectedCorsFailureStart = browserFailures.length;
   await spa.getByRole("button", { name: "Verify remotely" }).click();
@@ -1047,6 +1050,7 @@ test("connects a real Expenses SPA through the CLI and enforces live browser pol
     .click();
   await page.getByLabel("Enabled").click();
   await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
   await expect(directExchange()).resolves.toEqual({
     blocked: true,
     status: 400,
