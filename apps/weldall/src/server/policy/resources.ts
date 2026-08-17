@@ -16,9 +16,48 @@ interface ResolvedProviderMembership {
   groupIds: string[];
 }
 
+export type EffectiveScopeAssignment =
+  | { type: "email"; id: string; email: string }
+  | {
+      type: "group";
+      id: string;
+      providerId: string;
+      providerKey: string;
+      providerName: string;
+      groupId: string;
+    };
+
+export interface EffectiveScopeGrant {
+  key: ScopeKey;
+  assignments: EffectiveScopeAssignment[];
+}
+
+export interface EffectiveScopeAccess {
+  effectiveScopes: EffectiveScopeGrant[];
+  unavailableGroupProviders: { id: string; key: string; name: string }[];
+}
+
+interface ProviderMembershipResolution {
+  memberships: ResolvedProviderMembership[];
+  unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"];
+}
+
+export async function effectiveScopeAccessFor(email: string): Promise<EffectiveScopeAccess> {
+  const normalizedEmail = normalizePolicyEmail(email);
+  const resolution = await resolveProviderMemberships(normalizedEmail);
+  const effectiveScopes = await db.$transaction(
+    (tx) => loadEffectiveScopeGrants(tx, normalizedEmail, resolution.memberships),
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
+  return {
+    effectiveScopes,
+    unavailableGroupProviders: resolution.unavailableGroupProviders,
+  };
+}
+
 export async function effectiveScopesFor(email: string): Promise<ScopeKey[]> {
   const normalizedEmail = normalizePolicyEmail(email);
-  const memberships = await resolveProviderMemberships(normalizedEmail);
+  const { memberships } = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction((tx) => loadEffectiveScopes(tx, normalizedEmail, memberships), {
     isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
   });
@@ -29,7 +68,7 @@ export async function hasEffectiveSystemScopeFor(
   scopeKey: string,
 ): Promise<boolean> {
   const normalizedEmail = normalizePolicyEmail(email);
-  const memberships = await resolveProviderMemberships(normalizedEmail);
+  const { memberships } = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction(
     async (tx) => {
       const [scope, effectiveScopes] = await Promise.all([
@@ -54,7 +93,7 @@ export async function assignedScopesFor(email: string): Promise<ScopeKey[]> {
 
 export async function resourceRegistryFor(email: string): Promise<ResourceRegistryEntry[]> {
   const normalizedEmail = normalizePolicyEmail(email);
-  const memberships = await resolveProviderMemberships(normalizedEmail);
+  const { memberships } = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction(
     async (tx) => {
       const [resources, assignedScopes] = await Promise.all([
@@ -145,7 +184,7 @@ async function loadExchangePolicy(
   // Remote membership resolution happens first. Current grants, provider versions, system-scope
   // metadata, and resource support are then read together so changes committed during the HTTP
   // calls win without resolving a provider twice for one exchange.
-  const memberships = await resolveProviderMemberships(normalizedEmail);
+  const { memberships } = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction(
     async (tx) => {
       const [resource, effectiveScopes, requiredScope] = await Promise.all([
@@ -203,12 +242,14 @@ function exchangePolicy(
 
 async function resolveProviderMemberships(
   normalizedEmail: string,
-): Promise<ResolvedProviderMembership[]> {
+): Promise<ProviderMembershipResolution> {
   const providers = await db.groupProvider.findMany({
     where: { enabled: true, assignments: { some: {} } },
+    orderBy: { key: "asc" },
     select: {
       id: true,
       key: true,
+      name: true,
       adapterType: true,
       baseUrl: true,
       encryptedToken: true,
@@ -217,6 +258,7 @@ async function resolveProviderMemberships(
     },
   });
   const memberships: ResolvedProviderMembership[] = [];
+  const unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"] = [];
 
   // Sequential provider resolution is an intentionally conservative concurrency bound.
   for (const provider of providers) {
@@ -249,6 +291,7 @@ async function resolveProviderMemberships(
         groupIds: sortedUnique(detail.groupIds),
       });
     } catch (error) {
+      unavailableGroupProviders.push({ id: provider.id, key: provider.key, name: provider.name });
       logger.warn(
         {
           event: "group_provider.authorization_lookup.failed",
@@ -263,7 +306,96 @@ async function resolveProviderMemberships(
     }
   }
 
-  return memberships;
+  return { memberships, unavailableGroupProviders };
+}
+
+async function loadEffectiveScopeGrants(
+  tx: Prisma.TransactionClient,
+  normalizedEmail: string,
+  memberships: ResolvedProviderMembership[],
+): Promise<EffectiveScopeGrant[]> {
+  const assignmentFilters = groupAssignmentFilters(memberships);
+  const [directGrants, groupGrants] = await Promise.all([
+    tx.emailScopeGrant.findMany({
+      where: { assignment: { normalizedEmail } },
+      select: {
+        assignment: { select: { id: true, normalizedEmail: true } },
+        scope: { select: { key: true } },
+      },
+    }),
+    assignmentFilters.length
+      ? tx.groupScopeGrant.findMany({
+          where: { assignment: { is: { OR: assignmentFilters } } },
+          select: {
+            assignment: {
+              select: {
+                id: true,
+                groupId: true,
+                provider: { select: { id: true, key: true, name: true } },
+              },
+            },
+            scope: { select: { key: true } },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+  const byScope = new Map<ScopeKey, Map<string, EffectiveScopeAssignment>>();
+  const add = (scopeKey: string, assignment: EffectiveScopeAssignment) => {
+    const key = scopeKeySchema.parse(scopeKey);
+    const assignments = byScope.get(key) ?? new Map<string, EffectiveScopeAssignment>();
+    assignments.set(`${assignment.type}:${assignment.id}`, assignment);
+    byScope.set(key, assignments);
+  };
+  for (const grant of directGrants) {
+    add(grant.scope.key, {
+      type: "email",
+      id: grant.assignment.id,
+      email: grant.assignment.normalizedEmail,
+    });
+  }
+  for (const grant of groupGrants) {
+    add(grant.scope.key, {
+      type: "group",
+      id: grant.assignment.id,
+      providerId: grant.assignment.provider.id,
+      providerKey: grant.assignment.provider.key,
+      providerName: grant.assignment.provider.name,
+      groupId: grant.assignment.groupId,
+    });
+  }
+  return [...byScope.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, assignments]) => ({
+      key,
+      assignments: [...assignments.values()].sort(compareEffectiveAssignments),
+    }));
+}
+
+function compareEffectiveAssignments(
+  left: EffectiveScopeAssignment,
+  right: EffectiveScopeAssignment,
+): number {
+  const leftKey =
+    left.type === "email"
+      ? `0:${left.email}:${left.id}`
+      : `1:${left.providerKey}:${left.groupId}:${left.id}`;
+  const rightKey =
+    right.type === "email"
+      ? `0:${right.email}:${right.id}`
+      : `1:${right.providerKey}:${right.groupId}:${right.id}`;
+  return leftKey.localeCompare(rightKey);
+}
+
+function groupAssignmentFilters(
+  memberships: ResolvedProviderMembership[],
+): Prisma.GroupScopeAssignmentWhereInput[] {
+  return memberships
+    .filter(({ groupIds }) => groupIds.length > 0)
+    .map(({ providerId, providerVersion, groupIds }) => ({
+      providerId,
+      groupId: { in: groupIds },
+      provider: { enabled: true, version: providerVersion },
+    }));
 }
 
 async function loadEffectiveScopes(
@@ -271,13 +403,7 @@ async function loadEffectiveScopes(
   normalizedEmail: string,
   memberships: ResolvedProviderMembership[],
 ): Promise<ScopeKey[]> {
-  const assignmentFilters: Prisma.GroupScopeAssignmentWhereInput[] = memberships
-    .filter(({ groupIds }) => groupIds.length > 0)
-    .map(({ providerId, providerVersion, groupIds }) => ({
-      providerId,
-      groupId: { in: groupIds },
-      provider: { enabled: true, version: providerVersion },
-    }));
+  const assignmentFilters = groupAssignmentFilters(memberships);
   const [directGrants, groupGrants] = await Promise.all([
     tx.emailScopeGrant.findMany({
       where: { assignment: { normalizedEmail } },

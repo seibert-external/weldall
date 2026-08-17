@@ -22,8 +22,13 @@ import {
   PrimitiveMutationError,
   type MutationActor,
 } from "../domain/primitive-mutations";
-import { hasEffectiveSystemScopeFor } from "../policy/resources";
+import {
+  effectiveScopeAccessFor,
+  hasEffectiveSystemScopeFor,
+  type EffectiveScopeGrant,
+} from "../policy/resources";
 import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
+import { listVisibleSkillsForScopes, type SkillSource } from "../skills/service";
 
 export { ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY } from "@weldall/db";
 export const MAX_ASSIGNMENT_SCOPES = 100;
@@ -85,6 +90,31 @@ export interface UserDto {
   email: string;
   emailVerified: boolean;
   createdAt: string;
+}
+
+export interface UserResourceAccessDto {
+  id: string;
+  key: string;
+  name: string;
+  grantedScopes: string[];
+}
+
+export interface UserSkillAccessDto {
+  slug: string;
+  title: string;
+  requiredScopes: string[];
+  source: SkillSource;
+}
+
+export interface UserAccessDto {
+  effectiveScopes: EffectiveScopeGrant[];
+  resources: UserResourceAccessDto[];
+  skills: UserSkillAccessDto[];
+  unavailableGroupProviders: { id: string; key: string; name: string }[];
+}
+
+export interface UserDetailDto extends UserDto {
+  access: UserAccessDto;
 }
 
 export type ManagementDto = ManagementMetadata;
@@ -280,10 +310,60 @@ export async function listUsers(input: {
   return { items: items.map(serializeUser), total };
 }
 
-export async function getUser(id: string): Promise<UserDto> {
+export async function getUser(id: string): Promise<UserDetailDto> {
+  const user = await getUserIdentity(id);
+  return { ...user, access: await userAccess(user.email) };
+}
+
+async function getUserIdentity(id: string): Promise<UserDto> {
   const user = await db.user.findUnique({ where: { id } });
   if (!user) throw new AdminDomainError("NOT_FOUND", "User not found.");
   return serializeUser(user);
+}
+
+async function userAccess(email: string): Promise<UserAccessDto> {
+  const scopeAccess = await effectiveScopeAccessFor(email);
+  const granted = new Set<string>(scopeAccess.effectiveScopes.map(({ key }) => key));
+  const [resourceRows, visibleSkills] = await Promise.all([
+    db.downstreamResource.findMany({
+      where: {
+        enabled: true,
+        scopes: { some: { scope: { key: { in: [...granted] } } } },
+      },
+      orderBy: [{ name: "asc" }, { key: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        key: true,
+        name: true,
+        scopes: { select: { scope: { select: { key: true } } } },
+      },
+    }),
+    listVisibleSkillsForScopes([...granted]),
+  ]);
+  const resources = resourceRows
+    .map((resource) => ({
+      id: resource.id,
+      key: resource.key,
+      name: resource.name,
+      grantedScopes: sortedUnique(
+        resource.scopes.map(({ scope }) => scope.key).filter((key) => granted.has(key)),
+      ),
+    }))
+    .filter((resource) => resource.grantedScopes.length > 0);
+  const skills = visibleSkills.items
+    .filter((skill) => skill.available)
+    .map(({ slug, title, requiredScopes, source }) => ({
+      slug,
+      title,
+      requiredScopes,
+      source,
+    }));
+  return {
+    effectiveScopes: scopeAccess.effectiveScopes,
+    resources,
+    skills,
+    unavailableGroupProviders: scopeAccess.unavailableGroupProviders,
+  };
 }
 
 export async function listUserAuditEvents(
@@ -298,7 +378,7 @@ export async function listUserAuditEvents(
     sort: "occurredAt.asc" | "occurredAt.desc";
   },
 ) {
-  const user = await getUser(userId);
+  const user = await getUserIdentity(userId);
   const assignment = await db.emailScopeAssignment.findUnique({
     where: { normalizedEmail: normalizeEmail(user.email) },
     select: { id: true },
