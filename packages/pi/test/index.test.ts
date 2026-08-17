@@ -65,6 +65,10 @@ describe("WeldAll Pi extension", () => {
       .mockResolvedValueOnce({ title: "One", document: "body" })
       .mockResolvedValueOnce({ document: 4 });
     await expect(fetchSkills(run)).rejects.toThrow("unexpected skill data for two");
+    const nullDetail = vi.fn()
+      .mockResolvedValueOnce({ items: [{ slug: "null" }], warnings: [] })
+      .mockResolvedValueOnce(null);
+    await expect(fetchSkills(nullDetail)).rejects.toThrow("unexpected skill data for null");
   });
 
   it("rejects catalog warnings and malformed list entries", async () => {

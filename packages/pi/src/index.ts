@@ -81,11 +81,12 @@ export async function fetchSkills(run = runCli): Promise<Skill[]> {
       throw new Error("WeldAll CLI returned an invalid skill entry; update @weldall/cli and try again.");
     }
     const slug = item.slug;
-    const value = await run(["skills", "show", slug, "--json"]) as { document?: unknown; title?: unknown };
-    if (typeof value.document !== "string") {
+    const value = await run(["skills", "show", slug, "--json"]);
+    if (typeof value !== "object" || value === null || !("document" in value) || typeof value.document !== "string") {
       throw new Error(`WeldAll CLI returned unexpected skill data for ${slug}; update @weldall/cli and try again.`);
     }
-    result.push({ slug, title: typeof value.title === "string" ? value.title : slug, document: value.document });
+    const title = "title" in value && typeof value.title === "string" ? value.title : slug;
+    result.push({ slug, title, document: value.document });
   }
   return result;
 }
