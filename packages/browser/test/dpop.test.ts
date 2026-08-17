@@ -40,6 +40,10 @@ describe("browser DPoP", () => {
         ),
       );
     expect(decode(encodedHeader!)).toMatchObject({ alg: "ES256", typ: "dpop+jwt" });
+    expect(decode(encodedHeader!)).toMatchObject({
+      jwk: { kty: "EC", crv: "P-256", x: expect.any(String), y: expect.any(String) },
+    });
+    expect((decode(encodedHeader!).jwk as JsonWebKey).ext).toBeUndefined();
     expect(decode(encodedPayload!)).toMatchObject({
       htm: "POST",
       htu: "https://api.example.test/path",

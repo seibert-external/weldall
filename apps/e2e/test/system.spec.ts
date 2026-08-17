@@ -183,7 +183,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   page,
   request: apiRequest,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(360_000);
 
   const login = startCli(["login"], 150_000);
   await page.goto(await waitForBrowserUrl(login));

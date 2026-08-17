@@ -40,9 +40,14 @@ export async function createBrowserDpopProof(input: {
   accessToken?: string;
 }): Promise<string> {
   const htu = normalizeHtu(input.url);
-  const header = utf8Base64url(
-    JSON.stringify({ typ: "dpop+jwt", alg: "ES256", jwk: input.publicJwk }),
-  );
+  await calculateJkt(input.publicJwk);
+  const publicJwk = {
+    kty: input.publicJwk.kty!,
+    crv: input.publicJwk.crv!,
+    x: input.publicJwk.x!,
+    y: input.publicJwk.y!,
+  };
+  const header = utf8Base64url(JSON.stringify({ typ: "dpop+jwt", alg: "ES256", jwk: publicJwk }));
   const payload = utf8Base64url(
     JSON.stringify({
       htu,
