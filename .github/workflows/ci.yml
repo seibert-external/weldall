@@ -303,6 +303,9 @@ jobs:
     needs: cli-standalone-native
     strategy:
       fail-fast: false
+      # Each detached smoke is short. Avoid bursting identical action archive
+      # downloads across four hosted runners and triggering codeload throttling.
+      max-parallel: 1
       matrix:
         include:
           - runner: ubuntu-latest

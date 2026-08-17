@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { db } from "@weldall/db";
 
 Object.assign(process.env, {
   BETTER_AUTH_SECRET: "browser-cors-routes-test-secret-at-least-32-characters",
@@ -75,6 +76,21 @@ const browserRoutes = [
 ] as const;
 
 describe("browser-facing Weldall route CORS wiring", () => {
+  it("exposes public authorization metadata to opaque cross-origin reachability probes", async () => {
+    vi.spyOn(db.installationIdentity, "findUnique").mockResolvedValueOnce(null);
+    const route =
+      (await import("../src/app/.well-known/oauth-authorization-server/route")) as RouteModule;
+    const response = await route.GET!(
+      new Request("https://weldall.example/.well-known/oauth-authorization-server", {
+        headers: { origin: "https://spa.example" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://spa.example");
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
+  });
+
   it.each(browserRoutes)("enforces exact CORS on %s", async (path, method, load) => {
     const route = (await load()) as RouteModule;
     const actualHandler = route[method];
