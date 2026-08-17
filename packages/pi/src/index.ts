@@ -7,7 +7,12 @@ type Skill = { slug: string; title: string; document: string };
 const require = createRequire(import.meta.url);
 
 export function commandName(slug: string, used: Set<string>): string {
-  const base = `weldall-${slug.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "skill"}`;
+  const base = `weldall-${
+    slug
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "skill"
+  }`;
   let name = base;
   let n = 2;
   while (used.has(name)) name = `${base}-${n++}`;
@@ -24,7 +29,9 @@ export async function runCli(
   try {
     entry = resolveEntry();
   } catch {
-    throw new Error("@weldall/cli is missing or incompatible; install it with npm install @weldall/cli");
+    throw new Error(
+      "@weldall/cli is missing or incompatible; install it with npm install @weldall/cli",
+    );
   }
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [entry, ...args], { stdio: ["ignore", "pipe", "pipe"] });
@@ -47,43 +54,76 @@ export async function runCli(
       });
     }, timeoutMs);
     timeoutTimer.unref?.();
-    child.stdout.on("data", (data) => { out += data; });
-    child.on("error", (error) => finish(() => reject(new Error(`WeldAll CLI failed: ${error.message}`))));
-    child.on("close", (code) => finish(() => {
-      if (code !== 0) {
-        reject(new Error("WeldAll CLI could not fetch skills; check login, network, and access."));
-        return;
-      }
-      try {
-        resolve(JSON.parse(out));
-      } catch {
-        reject(new Error("WeldAll CLI returned invalid skill data."));
-      }
-    }));
+    child.stdout.on("data", (data) => {
+      out += data;
+    });
+    child.on("error", (error) =>
+      finish(() => reject(new Error(`WeldAll CLI failed: ${error.message}`))),
+    );
+    child.on("close", (code) =>
+      finish(() => {
+        if (code !== 0) {
+          reject(
+            new Error("WeldAll CLI could not fetch skills; check login, network, and access."),
+          );
+          return;
+        }
+        try {
+          resolve(JSON.parse(out));
+        } catch {
+          reject(new Error("WeldAll CLI returned invalid skill data."));
+        }
+      }),
+    );
   });
 }
 
 export async function fetchSkills(run = runCli): Promise<Skill[]> {
   const listed = await run(["skills", "--json"]);
-  if (typeof listed !== "object" || listed === null || !("items" in listed) || !("warnings" in listed)) {
-    throw new Error("WeldAll CLI returned an unexpected skill list; update @weldall/cli and try again.");
+  if (
+    typeof listed !== "object" ||
+    listed === null ||
+    !("items" in listed) ||
+    !("warnings" in listed)
+  ) {
+    throw new Error(
+      "WeldAll CLI returned an unexpected skill list; update @weldall/cli and try again.",
+    );
   }
   const { items, warnings } = listed as { items: unknown; warnings: unknown };
   if (!Array.isArray(items) || !Array.isArray(warnings)) {
-    throw new Error("WeldAll CLI returned an unexpected skill list; update @weldall/cli and try again.");
+    throw new Error(
+      "WeldAll CLI returned an unexpected skill list; update @weldall/cli and try again.",
+    );
   }
   if (warnings.length > 0) {
-    throw new Error("WeldAll skill catalog is unavailable or stale; check network and access, then refresh.");
+    throw new Error(
+      "WeldAll skill catalog is unavailable or stale; check network and access, then refresh.",
+    );
   }
   const result: Skill[] = [];
   for (const item of items as ListedSkill[]) {
-    if (typeof item !== "object" || item === null || typeof item.slug !== "string" || !item.slug.trim()) {
-      throw new Error("WeldAll CLI returned an invalid skill entry; update @weldall/cli and try again.");
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      typeof item.slug !== "string" ||
+      !item.slug.trim()
+    ) {
+      throw new Error(
+        "WeldAll CLI returned an invalid skill entry; update @weldall/cli and try again.",
+      );
     }
     const slug = item.slug;
     const value = await run(["skills", "show", slug, "--json"]);
-    if (typeof value !== "object" || value === null || !("document" in value) || typeof value.document !== "string") {
-      throw new Error(`WeldAll CLI returned unexpected skill data for ${slug}; update @weldall/cli and try again.`);
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("document" in value) ||
+      typeof value.document !== "string"
+    ) {
+      throw new Error(
+        `WeldAll CLI returned unexpected skill data for ${slug}; update @weldall/cli and try again.`,
+      );
     }
     const title = "title" in value && typeof value.title === "string" ? value.title : slug;
     result.push({ slug, title, document: value.document });
@@ -109,22 +149,37 @@ export function createExtension(loadSkills: () => Promise<Skill[]> = fetchSkills
           const name = commandName(skill.slug, used);
           pi.registerCommand(name, {
             description: `WeldAll skill: ${skill.title}`,
-            handler: async () => { pi.sendUserMessage(`Activate this WeldAll administrator-managed skill:\n\n${skill.document}`); },
+            handler: async () => {
+              pi.sendUserMessage(
+                `Activate this WeldAll administrator-managed skill:\n\n${skill.document}`,
+              );
+            },
           });
         }
-        if (notify) ctx.ui.notify(`WeldAll: ${skills.length} skill${skills.length === 1 ? "" : "s"} loaded.`, "info");
+        if (notify)
+          ctx.ui.notify(
+            `WeldAll: ${skills.length} skill${skills.length === 1 ? "" : "s"} loaded.`,
+            "info",
+          );
       } catch (error) {
         skills = [];
-        ctx.ui.notify(error instanceof Error ? error.message : "WeldAll skills could not be loaded.", "error");
+        ctx.ui.notify(
+          error instanceof Error ? error.message : "WeldAll skills could not be loaded.",
+          "error",
+        );
       }
     };
 
     pi.registerCommand("weldall-refresh", {
       description: "Refresh WeldAll administrator-managed skills",
-      handler: async (_args, ctx) => { await ctx.reload(); },
+      handler: async (_args, ctx) => {
+        await ctx.reload();
+      },
     });
     pi.on("session_start", (event, ctx) => install(ctx, event.reason === "reload"));
-    pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${instructions(skills)}` }));
+    pi.on("before_agent_start", (event) => ({
+      systemPrompt: `${event.systemPrompt}\n\n${instructions(skills)}`,
+    }));
   };
 }
 

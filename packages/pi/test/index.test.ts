@@ -7,7 +7,9 @@ vi.mock("node:child_process", () => ({ spawn }));
 
 import { commandName, createExtension, fetchSkills, runCli } from "../src/index.js";
 
-function harness(loadSkills: () => Promise<Array<{ slug: string; title: string; document: string }>>) {
+function harness(
+  loadSkills: () => Promise<Array<{ slug: string; title: string; document: string }>>,
+) {
   const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
   const handlers = new Map<string, (event: any, ctx: any) => any>();
   const messages: unknown[] = [];
@@ -33,10 +35,14 @@ describe("WeldAll Pi extension", () => {
   });
 
   it("loads startup context, registers commands, and activates complete instructions", async () => {
-    const app = harness(async () => [{ slug: "review", title: "Review", document: "Complete instructions" }]);
+    const app = harness(async () => [
+      { slug: "review", title: "Review", document: "Complete instructions" },
+    ]);
     await app.handlers.get("session_start")!({ reason: "startup" }, { ui: { notify: vi.fn() } });
     expect(app.commands.has("weldall-review")).toBe(true);
-    expect((await app.handlers.get("before_agent_start")!({ systemPrompt: "base" }, {})).systemPrompt).toContain("Complete instructions");
+    expect(
+      (await app.handlers.get("before_agent_start")!({ systemPrompt: "base" }, {})).systemPrompt,
+    ).toContain("Complete instructions");
     await app.commands.get("weldall-review")!.handler("", {});
     expect(app.messages).toEqual([expect.stringContaining("Complete instructions")]);
   });
@@ -45,39 +51,53 @@ describe("WeldAll Pi extension", () => {
     const reload = vi.fn();
     const app = harness(async () => []);
     await app.handlers.get("session_start")!({ reason: "startup" }, { ui: { notify: vi.fn() } });
-    expect((await app.handlers.get("before_agent_start")!({ systemPrompt: "base" }, {})).systemPrompt).toContain("none visible");
+    expect(
+      (await app.handlers.get("before_agent_start")!({ systemPrompt: "base" }, {})).systemPrompt,
+    ).toContain("none visible");
     await app.commands.get("weldall-refresh")!.handler("", { reload });
     expect(reload).toHaveBeenCalledOnce();
   });
 
   it("clears context and reports startup failures without throwing", async () => {
     const notify = vi.fn();
-    const app = harness(async () => { throw new Error("logged out"); });
+    const app = harness(async () => {
+      throw new Error("logged out");
+    });
     await app.handlers.get("session_start")!({ reason: "startup" }, { ui: { notify } });
     expect(notify).toHaveBeenCalledWith("logged out", "error");
-    expect((await app.handlers.get("before_agent_start")!({ systemPrompt: "base" }, {})).systemPrompt).toContain("none visible");
+    expect(
+      (await app.handlers.get("before_agent_start")!({ systemPrompt: "base" }, {})).systemPrompt,
+    ).toContain("none visible");
   });
 
   it("validates list and detail output", async () => {
     await expect(fetchSkills(async () => ({}))).rejects.toThrow("unexpected skill list");
-    const run = vi.fn()
+    const run = vi
+      .fn()
       .mockResolvedValueOnce({ items: [{ slug: "one" }, { slug: "two" }], warnings: [] })
       .mockResolvedValueOnce({ title: "One", document: "body" })
       .mockResolvedValueOnce({ document: 4 });
     await expect(fetchSkills(run)).rejects.toThrow("unexpected skill data for two");
-    const nullDetail = vi.fn()
+    const nullDetail = vi
+      .fn()
       .mockResolvedValueOnce({ items: [{ slug: "null" }], warnings: [] })
       .mockResolvedValueOnce(null);
     await expect(fetchSkills(nullDetail)).rejects.toThrow("unexpected skill data for null");
   });
 
   it("rejects catalog warnings and malformed list entries", async () => {
-    await expect(fetchSkills(async () => ({
-      items: [{ slug: "stale" }],
-      warnings: [{ source: "catalog", code: "catalog_temporarily_unavailable" }],
-    }))).rejects.toThrow("catalog is unavailable or stale");
-    await expect(fetchSkills(async () => ({ items: [{ id: "legacy" }], warnings: [] }))).rejects.toThrow("invalid skill entry");
-    await expect(fetchSkills(async () => ({ items: [{ slug: " " }], warnings: [] }))).rejects.toThrow("invalid skill entry");
+    await expect(
+      fetchSkills(async () => ({
+        items: [{ slug: "stale" }],
+        warnings: [{ source: "catalog", code: "catalog_temporarily_unavailable" }],
+      })),
+    ).rejects.toThrow("catalog is unavailable or stale");
+    await expect(
+      fetchSkills(async () => ({ items: [{ id: "legacy" }], warnings: [] })),
+    ).rejects.toThrow("invalid skill entry");
+    await expect(
+      fetchSkills(async () => ({ items: [{ slug: " " }], warnings: [] })),
+    ).rejects.toThrow("invalid skill entry");
   });
 
   it("parses CLI output and converts failures to actionable errors", async () => {
@@ -107,7 +127,11 @@ describe("WeldAll Pi extension", () => {
     malformed.emit("close", 0);
     await expect(invalid).rejects.toThrow("invalid skill data");
 
-    await expect(runCli([], 20_000, () => { throw new Error("missing"); })).rejects.toThrow("npm install @weldall/cli");
+    await expect(
+      runCli([], 20_000, () => {
+        throw new Error("missing");
+      }),
+    ).rejects.toThrow("npm install @weldall/cli");
   });
 
   it("rejects a hung CLI and terminates it", async () => {

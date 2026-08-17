@@ -28,7 +28,7 @@ minimumReleaseAgeExclude:
   - lucode-starlight@0.2.0
 
 allowBuilds:
-  '@google/genai': true
+  "@google/genai": true
   "@napi-rs/keyring": true
   "@prisma/client": true
   "@prisma/engines": true
