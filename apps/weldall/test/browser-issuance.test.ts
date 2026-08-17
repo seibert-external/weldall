@@ -229,6 +229,7 @@ beforeAll(async () => {
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(issuerKey.publicJwk),
     WELDALL_SIGNING_KID: `browser-issuance-${runId}`,
     OAUTH_PROXY_SECRET: "browser-issuance-oauth-proxy-secret-32-characters",
+    ENABLE_DEV_LOGIN: "false",
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"),
     GOOGLE_CLIENT_ID: "browser-issuance-google-client",
     GOOGLE_CLIENT_SECRET: "browser-issuance-google-secret",
