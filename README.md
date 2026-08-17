@@ -318,7 +318,7 @@ After installing dependencies and generating `.env`, prepare PostgreSQL as shown
 
 ```sh
 pnpm format:check
-pnpm lint
+pnpm check
 pnpm typecheck
 pnpm test
 pnpm build:dev
