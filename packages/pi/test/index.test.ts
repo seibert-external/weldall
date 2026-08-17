@@ -61,10 +61,19 @@ describe("WeldAll Pi extension", () => {
   it("validates list and detail output", async () => {
     await expect(fetchSkills(async () => ({}))).rejects.toThrow("unexpected skill list");
     const run = vi.fn()
-      .mockResolvedValueOnce({ items: [{ slug: "one" }, { id: "two" }, { slug: 3 }] })
+      .mockResolvedValueOnce({ items: [{ slug: "one" }, { slug: "two" }], warnings: [] })
       .mockResolvedValueOnce({ title: "One", document: "body" })
       .mockResolvedValueOnce({ document: 4 });
     await expect(fetchSkills(run)).rejects.toThrow("unexpected skill data for two");
+  });
+
+  it("rejects catalog warnings and malformed list entries", async () => {
+    await expect(fetchSkills(async () => ({
+      items: [{ slug: "stale" }],
+      warnings: [{ source: "catalog", code: "catalog_temporarily_unavailable" }],
+    }))).rejects.toThrow("catalog is unavailable or stale");
+    await expect(fetchSkills(async () => ({ items: [{ id: "legacy" }], warnings: [] }))).rejects.toThrow("invalid skill entry");
+    await expect(fetchSkills(async () => ({ items: [{ slug: " " }], warnings: [] }))).rejects.toThrow("invalid skill entry");
   });
 
   it("parses CLI output and converts failures to actionable errors", async () => {

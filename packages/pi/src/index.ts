@@ -64,12 +64,23 @@ export async function runCli(
 }
 
 export async function fetchSkills(run = runCli): Promise<Skill[]> {
-  const listed = await run(["skills", "--json"]) as { items?: ListedSkill[] };
-  if (!Array.isArray(listed.items)) throw new Error("WeldAll CLI returned an unexpected skill list.");
+  const listed = await run(["skills", "--json"]);
+  if (typeof listed !== "object" || listed === null || !("items" in listed) || !("warnings" in listed)) {
+    throw new Error("WeldAll CLI returned an unexpected skill list; update @weldall/cli and try again.");
+  }
+  const { items, warnings } = listed as { items: unknown; warnings: unknown };
+  if (!Array.isArray(items) || !Array.isArray(warnings)) {
+    throw new Error("WeldAll CLI returned an unexpected skill list; update @weldall/cli and try again.");
+  }
+  if (warnings.length > 0) {
+    throw new Error("WeldAll skill catalog is unavailable or stale; check network and access, then refresh.");
+  }
   const result: Skill[] = [];
-  for (const item of listed.items) {
-    const slug = typeof item.slug === "string" ? item.slug : typeof item.id === "string" ? item.id : "";
-    if (!slug) continue;
+  for (const item of items as ListedSkill[]) {
+    if (typeof item !== "object" || item === null || typeof item.slug !== "string" || !item.slug.trim()) {
+      throw new Error("WeldAll CLI returned an invalid skill entry; update @weldall/cli and try again.");
+    }
+    const slug = item.slug;
     const value = await run(["skills", "show", slug, "--json"]) as { document?: unknown; title?: unknown };
     if (typeof value.document !== "string") {
       throw new Error(`WeldAll CLI returned unexpected skill data for ${slug}; update @weldall/cli and try again.`);
