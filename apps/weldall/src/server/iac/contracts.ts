@@ -1,4 +1,5 @@
 import { createHash, createPublicKey } from "node:crypto";
+import { IAC_SCOPE_KEY, isMachineOnlySystemScope, SYSTEM_SCOPE_DEFINITIONS } from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
@@ -8,7 +9,7 @@ import { z } from "zod";
 
 export const IAC_MANIFEST_VERSION = "weldall.dev/v1" as const;
 export const IAC_API_VERSION = "v1" as const;
-export const IAC_SCOPE = "weldall:iac" as const;
+export const IAC_SCOPE = IAC_SCOPE_KEY;
 export const IAC_LIMITS = {
   payloadBytes: 1_000_000,
   objects: 1_000,
@@ -172,7 +173,7 @@ export const desiredStateSchema = z
       identities.add(composite);
     }
     for (const scope of Object.values(manifest.scopes)) {
-      if (["weldall:login", "weldall:administer", IAC_SCOPE].includes(scope.key))
+      if (SYSTEM_SCOPE_DEFINITIONS.some(({ key }) => key === scope.key))
         context.addIssue({
           code: "custom",
           message: `System scope ${scope.key} cannot be declared`,
@@ -182,8 +183,9 @@ export const desiredStateSchema = z
       ...Object.values(manifest.emailAssignments),
       ...Object.values(manifest.groupAssignments),
     ]) {
-      if (assignment.scopes.includes(IAC_SCOPE))
-        context.addIssue({ code: "custom", message: `${IAC_SCOPE} is machine-only` });
+      const machineOnlyScope = assignment.scopes.find(isMachineOnlySystemScope);
+      if (machineOnlyScope)
+        context.addIssue({ code: "custom", message: `${machineOnlyScope} is machine-only` });
     }
   });
 

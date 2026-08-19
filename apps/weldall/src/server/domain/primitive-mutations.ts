@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ADMIN_SCOPE_KEY, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
+import { ADMIN_SCOPE_KEY, isMachineOnlySystemScope, Prisma } from "@weldall/db";
 import {
   assertPublicP256,
   normalizeAuthorizationServer,
@@ -451,8 +451,9 @@ export async function mutateEmailAssignment(
 ): Promise<any | null> {
   const email = normalizeMutationEmail(input.email);
   const keys = parseScopeKeys(input.scopeKeys);
-  if (keys.includes(IAC_SCOPE_KEY))
-    throw new PrimitiveMutationError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
+  const machineOnlyScope = keys.find(isMachineOnlySystemScope);
+  if (machineOnlyScope)
+    throw new PrimitiveMutationError("SYSTEM_SCOPE", `${machineOnlyScope} is machine-only.`);
   const current = await tx.emailScopeAssignment.findUnique({
     where: { normalizedEmail: email },
     include: emailInclude,
@@ -914,8 +915,9 @@ function parseScopeKeys(values: string[], human = false) {
       "INVALID_SCOPE",
       human ? "Choose between 1 and 100 scopes." : "At most 100 scopes may be selected.",
     );
-  if (human && keys.includes(IAC_SCOPE_KEY))
-    throw new PrimitiveMutationError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
+  const machineOnlyScope = human ? keys.find(isMachineOnlySystemScope) : undefined;
+  if (machineOnlyScope)
+    throw new PrimitiveMutationError("SYSTEM_SCOPE", `${machineOnlyScope} is machine-only.`);
   return keys;
 }
 async function scopesByKeys(tx: Prisma.TransactionClient, keys: string[]) {

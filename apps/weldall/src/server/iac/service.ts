@@ -1,4 +1,4 @@
-import { db, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
+import { db, IAC_SCOPE_KEY, Prisma, SYSTEM_SCOPE_DEFINITIONS } from "@weldall/db";
 import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
 import { createPlan, desiredObjects, loadPlanningState } from "./planner";
 import { lockSkillScopeChanges } from "../domain/configuration";
@@ -501,10 +501,7 @@ export async function importIac(
   },
   actor: IacActor,
 ) {
-  if (
-    input.kind === "scope" &&
-    ["weldall:login", "weldall:administer", IAC_SCOPE_KEY].includes(input.identity)
-  )
+  if (input.kind === "scope" && SYSTEM_SCOPE_DEFINITIONS.some(({ key }) => key === input.identity))
     throw new IacError("SYSTEM_SCOPE", "System scopes cannot be imported");
   return db.$transaction(
     async (tx) => {

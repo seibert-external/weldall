@@ -1,4 +1,4 @@
-import { db, IAC_SCOPE_KEY, Prisma } from "@weldall/db";
+import { db, isMachineOnlySystemScope, Prisma } from "@weldall/db";
 import { z } from "zod";
 import {
   AdminDomainError,
@@ -339,8 +339,9 @@ export async function createGroupAssignments(
 ): Promise<GroupAssignmentDto[]> {
   const groupIds = parseGroupIds(input.groupIds);
   const scopeKeys = parseAssignmentScopeKeys(input.scopeKeys);
-  if (scopeKeys.some((key) => key === IAC_SCOPE_KEY))
-    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
+  const machineOnlyScope = scopeKeys.find(isMachineOnlySystemScope);
+  if (machineOnlyScope)
+    throw new AdminDomainError("SYSTEM_SCOPE", `${machineOnlyScope} is machine-only.`);
   try {
     return await db.$transaction(async (tx) => {
       await lockConfigurationChanges(tx);
@@ -372,8 +373,9 @@ export async function replaceGroupAssignment(
   actor: AdminActor,
 ): Promise<GroupAssignmentDto> {
   const scopeKeys = parseAssignmentScopeKeys(input.scopeKeys);
-  if (scopeKeys.some((key) => key === IAC_SCOPE_KEY))
-    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
+  const machineOnlyScope = scopeKeys.find(isMachineOnlySystemScope);
+  if (machineOnlyScope)
+    throw new AdminDomainError("SYSTEM_SCOPE", `${machineOnlyScope} is machine-only.`);
   return db.$transaction(async (tx) => {
     await lockConfigurationChanges(tx);
     try {

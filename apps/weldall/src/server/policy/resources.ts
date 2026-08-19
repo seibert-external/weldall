@@ -1,6 +1,7 @@
-import { db, Prisma } from "@weldall/db";
+import { db, Prisma, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { z } from "zod";
+import { lockConfigurationChanges } from "../domain/configuration";
 import { decryptProviderToken } from "../group-providers/credentials";
 import { createGroupProviderAdapter } from "../group-providers/registry";
 import { errorForLog, logger } from "../observability/logger";
@@ -39,6 +40,7 @@ export interface EffectiveScopeAccess {
 
 interface ProviderMembershipResolution {
   memberships: ResolvedProviderMembership[];
+  resolvedGroupProviders: { id: string; version: number }[];
   unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"];
 }
 
@@ -89,6 +91,147 @@ export async function hasEffectiveSystemScopeFor(
 
 export async function assignedScopesFor(email: string): Promise<ScopeKey[]> {
   return effectiveScopesFor(email);
+}
+
+export type SubjectScopeCheckErrorCode = "FORBIDDEN" | "NOT_FOUND" | "TEMPORARILY_UNAVAILABLE";
+
+export class SubjectScopeCheckError extends Error {
+  constructor(readonly code: SubjectScopeCheckErrorCode) {
+    super(code);
+    this.name = "SubjectScopeCheckError";
+  }
+}
+
+export async function checkSubjectScopesForMachine(input: {
+  clientId: string;
+  keyId: string;
+  keyThumbprint: string;
+  subject: string;
+  scopes: string[];
+}): Promise<{ granted: ScopeKey[]; missing: ScopeKey[] }> {
+  const requestedScopes = sortedUnique(input.scopes.map((scope) => scopeKeySchema.parse(scope)));
+  const machine = await db.machineClient.findUnique({
+    where: { clientId: input.clientId },
+    include: {
+      allowedResources: {
+        where: { resource: { enabled: true } },
+        include: {
+          resource: {
+            include: {
+              scopes: {
+                where: { scope: { key: { in: requestedScopes } } },
+                select: { scope: { select: { key: true } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  const queryableScopes = new Set(
+    machine?.allowedResources.flatMap(({ resource }) =>
+      resource.scopes.map(({ scope }) => scope.key),
+    ) ?? [],
+  );
+  if (
+    !machine?.enabled ||
+    machine.deactivatedAt ||
+    requestedScopes.some((scope) => !queryableScopes.has(scope))
+  ) {
+    throw new SubjectScopeCheckError("FORBIDDEN");
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: input.subject },
+    select: { email: true, emailVerified: true },
+  });
+  if (!user?.emailVerified) throw new SubjectScopeCheckError("NOT_FOUND");
+
+  const normalizedEmail = normalizePolicyEmail(user.email);
+  const resolution = await resolveProviderMemberships(normalizedEmail);
+  return db.$transaction(async (tx) => {
+    await lockConfigurationChanges(tx);
+    const currentUsers = await tx.$queryRaw<Array<{ email: string; emailVerified: boolean }>>`
+      SELECT "email", "emailVerified"
+      FROM "User"
+      WHERE "id" = ${input.subject}
+      FOR SHARE
+    `;
+    const currentUser = currentUsers[0];
+    const currentEmail = emailSchema.safeParse(currentUser?.email);
+    if (
+      currentUsers.length !== 1 ||
+      !currentUser?.emailVerified ||
+      !currentEmail.success ||
+      currentEmail.data !== normalizedEmail
+    ) {
+      throw new SubjectScopeCheckError("NOT_FOUND");
+    }
+    const [effectiveGrants, authorizedMachine] = await Promise.all([
+      loadEffectiveScopeGrants(tx, normalizedEmail, resolution.memberships),
+      tx.machineClient.findFirst({
+        where: {
+          clientId: input.clientId,
+          enabled: true,
+          deactivatedAt: null,
+          keys: {
+            some: {
+              kid: input.keyId,
+              thumbprint: input.keyThumbprint,
+              revokedAt: null,
+            },
+          },
+          allowedScopes: { some: { scope: { key: SUBJECT_SCOPES_CHECK_SCOPE_KEY } } },
+        },
+        select: {
+          allowedResources: {
+            where: { resource: { enabled: true } },
+            select: {
+              resource: {
+                select: {
+                  scopes: {
+                    where: { scope: { key: { in: requestedScopes } } },
+                    select: { scope: { select: { key: true } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+    const stillQueryable = new Set(
+      authorizedMachine?.allowedResources.flatMap(({ resource }) =>
+        resource.scopes.map(({ scope }) => scope.key),
+      ) ?? [],
+    );
+    if (!authorizedMachine || requestedScopes.some((scope) => !stillQueryable.has(scope))) {
+      throw new SubjectScopeCheckError("FORBIDDEN");
+    }
+    const effective = new Set(effectiveGrants.map(({ key }) => key));
+    const granted = requestedScopes.filter((scope) => effective.has(scope));
+    const missing = requestedScopes.filter((scope) => !effective.has(scope));
+    if (missing.length) {
+      const resolvedProviderVersions = resolution.resolvedGroupProviders.map(({ id, version }) => ({
+        id,
+        version,
+      }));
+      const uncertainGrant = await tx.groupScopeGrant.findFirst({
+        where: {
+          scope: { key: { in: missing } },
+          assignment: {
+            provider: {
+              enabled: true,
+              ...(resolvedProviderVersions.length ? { NOT: { OR: resolvedProviderVersions } } : {}),
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (uncertainGrant) throw new SubjectScopeCheckError("TEMPORARILY_UNAVAILABLE");
+    }
+    return { granted, missing };
+  });
 }
 
 export async function resourceRegistryFor(email: string): Promise<ResourceRegistryEntry[]> {
@@ -258,6 +401,7 @@ async function resolveProviderMemberships(
     },
   });
   const memberships: ResolvedProviderMembership[] = [];
+  const resolvedGroupProviders: ProviderMembershipResolution["resolvedGroupProviders"] = [];
   const unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"] = [];
 
   // Sequential provider resolution is an intentionally conservative concurrency bound.
@@ -273,7 +417,10 @@ async function resolveProviderMemberships(
         token: decryptProviderToken(provider),
       });
       const summary = await adapter.findUserByEmail(normalizedEmail);
-      if (!summary) continue;
+      if (!summary) {
+        resolvedGroupProviders.push({ id: provider.id, version: provider.version });
+        continue;
+      }
       if (!summary.active || normalizePolicyEmail(summary.email) !== normalizedEmail) {
         throw new Error("invalid_summary_identity");
       }
@@ -290,6 +437,7 @@ async function resolveProviderMemberships(
         providerVersion: provider.version,
         groupIds: sortedUnique(detail.groupIds),
       });
+      resolvedGroupProviders.push({ id: provider.id, version: provider.version });
     } catch (error) {
       unavailableGroupProviders.push({ id: provider.id, key: provider.key, name: provider.name });
       logger.warn(
@@ -306,7 +454,7 @@ async function resolveProviderMemberships(
     }
   }
 
-  return { memberships, unavailableGroupProviders };
+  return { memberships, resolvedGroupProviders, unavailableGroupProviders };
 }
 
 async function loadEffectiveScopeGrants(

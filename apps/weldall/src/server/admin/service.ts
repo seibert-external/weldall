@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ADMIN_SCOPE_KEY, db, IAC_SCOPE_KEY, LOGIN_SCOPE_KEY, Prisma } from "@weldall/db";
+import {
+  ADMIN_SCOPE_KEY,
+  db,
+  isMachineOnlySystemScope,
+  LOGIN_SCOPE_KEY,
+  Prisma,
+} from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
@@ -983,8 +989,9 @@ export async function replaceAssignment(
 ): Promise<AssignmentDto | null> {
   const normalizedEmail = normalizeEmail(input.email);
   const scopeKeys = parseScopeKeys(input.scopeKeys);
-  if (scopeKeys.includes(IAC_SCOPE_KEY)) {
-    throw new AdminDomainError("SYSTEM_SCOPE", `${IAC_SCOPE_KEY} is machine-only.`);
+  const machineOnlyScope = scopeKeys.find(isMachineOnlySystemScope);
+  if (machineOnlyScope) {
+    throw new AdminDomainError("SYSTEM_SCOPE", `${machineOnlyScope} is machine-only.`);
   }
   try {
     return await db.$transaction(
