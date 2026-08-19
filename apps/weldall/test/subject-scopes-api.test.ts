@@ -384,4 +384,45 @@ describe("machine subject scope checks", () => {
     });
     vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
   });
+
+  it("treats provider version changes during resolution as uncertainty", async () => {
+    const token = await machineToken();
+    const currentProvider = await db.groupProvider.findUniqueOrThrow({
+      where: { id: providerId },
+      select: { version: true },
+    });
+    let providerLookupStarted!: () => void;
+    let finishProviderLookup!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      providerLookupStarted = resolve;
+    });
+    const finishLookup = new Promise<void>((resolve) => {
+      finishProviderLookup = resolve;
+    });
+    vi.stubGlobal("fetch", async () => {
+      providerLookupStarted();
+      await finishLookup;
+      return new Response("[]", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const pendingCheck = check(token, { subject, scopes: [uncertainScopeKey] });
+    await lookupStarted;
+    await db.groupProvider.update({
+      where: { id: providerId },
+      data: { version: { increment: 1 } },
+    });
+    finishProviderLookup();
+    const response = await pendingCheck;
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: "temporarily_unavailable" });
+
+    await db.groupProvider.update({
+      where: { id: providerId },
+      data: { version: currentProvider.version },
+    });
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
+  });
 });

@@ -40,6 +40,7 @@ export interface EffectiveScopeAccess {
 
 interface ProviderMembershipResolution {
   memberships: ResolvedProviderMembership[];
+  resolvedGroupProviders: { id: string; version: number }[];
   unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"];
 }
 
@@ -194,13 +195,21 @@ export async function checkSubjectScopesForMachine(input: {
     const effective = new Set(effectiveGrants.map(({ key }) => key));
     const granted = requestedScopes.filter((scope) => effective.has(scope));
     const missing = requestedScopes.filter((scope) => !effective.has(scope));
-    if (missing.length && resolution.unavailableGroupProviders.length) {
+    if (missing.length) {
+      const resolvedProviderVersions = resolution.resolvedGroupProviders.map(({ id, version }) => ({
+        id,
+        version,
+      }));
       const uncertainGrant = await tx.groupScopeGrant.findFirst({
         where: {
           scope: { key: { in: missing } },
           assignment: {
-            providerId: { in: resolution.unavailableGroupProviders.map(({ id }) => id) },
-            provider: { enabled: true },
+            provider: {
+              enabled: true,
+              ...(resolvedProviderVersions.length
+                ? { NOT: { OR: resolvedProviderVersions } }
+                : {}),
+            },
           },
         },
         select: { id: true },
@@ -378,6 +387,7 @@ async function resolveProviderMemberships(
     },
   });
   const memberships: ResolvedProviderMembership[] = [];
+  const resolvedGroupProviders: ProviderMembershipResolution["resolvedGroupProviders"] = [];
   const unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"] = [];
 
   // Sequential provider resolution is an intentionally conservative concurrency bound.
@@ -393,7 +403,10 @@ async function resolveProviderMemberships(
         token: decryptProviderToken(provider),
       });
       const summary = await adapter.findUserByEmail(normalizedEmail);
-      if (!summary) continue;
+      if (!summary) {
+        resolvedGroupProviders.push({ id: provider.id, version: provider.version });
+        continue;
+      }
       if (!summary.active || normalizePolicyEmail(summary.email) !== normalizedEmail) {
         throw new Error("invalid_summary_identity");
       }
@@ -410,6 +423,7 @@ async function resolveProviderMemberships(
         providerVersion: provider.version,
         groupIds: sortedUnique(detail.groupIds),
       });
+      resolvedGroupProviders.push({ id: provider.id, version: provider.version });
     } catch (error) {
       unavailableGroupProviders.push({ id: provider.id, key: provider.key, name: provider.name });
       logger.warn(
@@ -426,7 +440,7 @@ async function resolveProviderMemberships(
     }
   }
 
-  return { memberships, unavailableGroupProviders };
+  return { memberships, resolvedGroupProviders, unavailableGroupProviders };
 }
 
 async function loadEffectiveScopeGrants(
