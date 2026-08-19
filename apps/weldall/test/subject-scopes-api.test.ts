@@ -425,4 +425,35 @@ describe("machine subject scope checks", () => {
     });
     vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
   });
+
+  it("refuses stale subject identity after provider resolution", async () => {
+    const token = await machineToken();
+    let providerLookupStarted!: () => void;
+    let finishProviderLookup!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      providerLookupStarted = resolve;
+    });
+    const finishLookup = new Promise<void>((resolve) => {
+      finishProviderLookup = resolve;
+    });
+    vi.stubGlobal("fetch", async () => {
+      providerLookupStarted();
+      await finishLookup;
+      return new Response(null, { status: 503 });
+    });
+
+    const pendingCheck = check(token, { subject, scopes: [grantedScopeKey] });
+    await lookupStarted;
+    await db.user.update({
+      where: { id: subject },
+      data: { email: `changed-${email}` },
+    });
+    finishProviderLookup();
+    const response = await pendingCheck;
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: "not_found" });
+
+    await db.user.update({ where: { id: subject }, data: { email } });
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
+  });
 });

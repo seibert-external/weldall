@@ -151,6 +151,22 @@ export async function checkSubjectScopesForMachine(input: {
   const resolution = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction(async (tx) => {
     await lockConfigurationChanges(tx);
+    const currentUsers = await tx.$queryRaw<Array<{ email: string; emailVerified: boolean }>>`
+      SELECT "email", "emailVerified"
+      FROM "User"
+      WHERE "id" = ${input.subject}
+      FOR SHARE
+    `;
+    const currentUser = currentUsers[0];
+    const currentEmail = emailSchema.safeParse(currentUser?.email);
+    if (
+      currentUsers.length !== 1 ||
+      !currentUser?.emailVerified ||
+      !currentEmail.success ||
+      currentEmail.data !== normalizedEmail
+    ) {
+      throw new SubjectScopeCheckError("NOT_FOUND");
+    }
     const [effectiveGrants, authorizedMachine] = await Promise.all([
       loadEffectiveScopeGrants(tx, normalizedEmail, resolution.memberships),
       tx.machineClient.findFirst({
