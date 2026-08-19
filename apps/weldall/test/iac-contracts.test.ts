@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MACHINE_ONLY_SYSTEM_SCOPE_KEYS } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
 import {
   applyRequestSchema,
@@ -240,13 +241,19 @@ describe("native YAML IaC contracts", () => {
         },
       }),
     ).toThrow();
-    expect(() =>
-      parseDesiredState({
-        apiVersion: "weldall.dev/v1",
-        workspace: { id: crypto.randomUUID(), name: "x", issuer: "https://weldall.example.com" },
-        emailAssignments: { alice: { email: "alice@example.com", scopes: ["weldall:iac"] } },
-      }),
-    ).toThrow(/machine-only/);
+    for (const scope of MACHINE_ONLY_SYSTEM_SCOPE_KEYS) {
+      expect(() =>
+        parseDesiredState({
+          apiVersion: "weldall.dev/v1",
+          workspace: {
+            id: crypto.randomUUID(),
+            name: "x",
+            issuer: "https://weldall.example.com",
+          },
+          emailAssignments: { alice: { email: "alice@example.com", scopes: [scope] } },
+        }),
+      ).toThrow(/machine-only/);
+    }
   });
 
   it("scopes logical addresses to the current workspace while collisions remain global", () => {

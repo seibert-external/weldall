@@ -91,6 +91,78 @@ export async function assignedScopesFor(email: string): Promise<ScopeKey[]> {
   return effectiveScopesFor(email);
 }
 
+export type SubjectScopeCheckErrorCode = "FORBIDDEN" | "NOT_FOUND" | "TEMPORARILY_UNAVAILABLE";
+
+export class SubjectScopeCheckError extends Error {
+  constructor(readonly code: SubjectScopeCheckErrorCode) {
+    super(code);
+    this.name = "SubjectScopeCheckError";
+  }
+}
+
+export async function checkSubjectScopesForMachine(input: {
+  clientId: string;
+  subject: string;
+  scopes: string[];
+}): Promise<{ granted: ScopeKey[]; missing: ScopeKey[] }> {
+  const requestedScopes = sortedUnique(input.scopes.map((scope) => scopeKeySchema.parse(scope)));
+  const machine = await db.machineClient.findUnique({
+    where: { clientId: input.clientId },
+    include: {
+      allowedResources: {
+        where: { resource: { enabled: true } },
+        include: {
+          resource: {
+            include: {
+              scopes: {
+                where: { scope: { key: { in: requestedScopes } } },
+                select: { scope: { select: { key: true } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  const queryableScopes = new Set(
+    machine?.allowedResources.flatMap(({ resource }) =>
+      resource.scopes.map(({ scope }) => scope.key),
+    ) ?? [],
+  );
+  if (
+    !machine?.enabled ||
+    machine.deactivatedAt ||
+    requestedScopes.some((scope) => !queryableScopes.has(scope))
+  ) {
+    throw new SubjectScopeCheckError("FORBIDDEN");
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: input.subject },
+    select: { email: true, emailVerified: true },
+  });
+  if (!user?.emailVerified) throw new SubjectScopeCheckError("NOT_FOUND");
+
+  const access = await effectiveScopeAccessFor(user.email);
+  const effective = new Set(access.effectiveScopes.map(({ key }) => key));
+  const granted = requestedScopes.filter((scope) => effective.has(scope));
+  const missing = requestedScopes.filter((scope) => !effective.has(scope));
+  if (missing.length && access.unavailableGroupProviders.length) {
+    const uncertainGrant = await db.groupScopeGrant.findFirst({
+      where: {
+        scope: { key: { in: missing } },
+        assignment: {
+          providerId: { in: access.unavailableGroupProviders.map(({ id }) => id) },
+          provider: { enabled: true },
+        },
+      },
+      select: { id: true },
+    });
+    if (uncertainGrant) throw new SubjectScopeCheckError("TEMPORARILY_UNAVAILABLE");
+  }
+  return { granted, missing };
+}
+
 export async function resourceRegistryFor(email: string): Promise<ResourceRegistryEntry[]> {
   const normalizedEmail = normalizePolicyEmail(email);
   const { memberships } = await resolveProviderMemberships(normalizedEmail);

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { db, IAC_SCOPE_KEY } from "@weldall/db";
+import { db, MACHINE_ONLY_SYSTEM_SCOPE_KEYS } from "@weldall/db";
 import {
   PRIVATE_KEY_JWT_ASSERTION_TYPE,
   MACHINE_TOKEN_LIFETIME_SECONDS,
@@ -189,9 +189,12 @@ export async function issueMachineToken(
     if (lockedIdentity.length !== 1) throw new WeldallAuthError("invalid_client");
     const locked = lockedIdentity[0]!;
 
-    const internalIacRequest =
-      resourceIdentifier === WELDALL_RESOURCE && scopes.length === 1 && scopes[0] === IAC_SCOPE_KEY;
-    const lockedResources = internalIacRequest
+    const internalWeldallRequest =
+      resourceIdentifier === WELDALL_RESOURCE &&
+      scopes.every((scope) =>
+        (MACHINE_ONLY_SYSTEM_SCOPE_KEYS as readonly string[]).includes(scope),
+      );
+    const lockedResources = internalWeldallRequest
       ? [{ resourceId: "weldall-api" }]
       : await tx.$queryRaw<Array<{ resourceId: string }>>`
           SELECT r."id" AS "resourceId"
@@ -202,7 +205,7 @@ export async function issueMachineToken(
     if (lockedResources.length !== 1) throw new WeldallAuthError("invalid_target");
     const lockedResource = lockedResources[0]!;
 
-    if (!internalIacRequest) {
+    if (!internalWeldallRequest) {
       const lockedAccess = await tx.$queryRaw<Array<{ resourceId: string }>>`
         SELECT a."resourceId"
         FROM "MachineAllowedResource" a
@@ -239,15 +242,15 @@ export async function issueMachineToken(
 
     const allowedResource = client.allowedResources[0];
     if (
-      !internalIacRequest &&
+      !internalWeldallRequest &&
       (!allowedResource ||
         !allowedResource.resource.enabled ||
         allowedResource.resource.resourceIdentifier !== resourceIdentifier)
     )
       throw new WeldallAuthError("invalid_target");
     const allowedScopes = new Set(client.allowedScopes.map(({ scope }) => scope.key));
-    const supportedScopes = internalIacRequest
-      ? new Set([IAC_SCOPE_KEY])
+    const supportedScopes = internalWeldallRequest
+      ? new Set<string>(MACHINE_ONLY_SYSTEM_SCOPE_KEYS)
       : new Set(allowedResource!.resource.scopes.map(({ scope }) => scope.key));
     if (scopes.some((scope) => !allowedScopes.has(scope) || !supportedScopes.has(scope)))
       throw new WeldallAuthError("invalid_scope");
@@ -261,7 +264,9 @@ export async function issueMachineToken(
         sub: `machine:${client.clientId}`,
         client_id: client.clientId,
         azp: client.clientId,
-        aud: internalIacRequest ? WELDALL_RESOURCE : allowedResource!.resource.resourceIdentifier,
+        aud: internalWeldallRequest
+          ? WELDALL_RESOURCE
+          : allowedResource!.resource.resourceIdentifier,
         scope: scopes.join(" "),
         identity_type: "machine",
         token_type: "machine",
@@ -287,7 +292,7 @@ export async function issueMachineToken(
           metadata: {
             clientId: client.clientId,
             kid: key.kid,
-            audience: internalIacRequest
+            audience: internalWeldallRequest
               ? WELDALL_RESOURCE
               : allowedResource!.resource.resourceIdentifier,
             requestedScopes: context.requestedScopes,

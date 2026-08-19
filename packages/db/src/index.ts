@@ -3,8 +3,11 @@ export {
   ADMIN_SCOPE_KEY,
   IAC_SCOPE_KEY,
   LOGIN_SCOPE_KEY,
+  MACHINE_ONLY_SYSTEM_SCOPE_KEYS,
+  SUBJECT_SCOPES_CHECK_SCOPE_KEY,
   SYSTEM_SCOPE_DEFINITIONS,
   ensureSystemScopes,
+  isMachineOnlySystemScope,
 } from "./system-scopes.js";
 export {
   IacOperationStatus,

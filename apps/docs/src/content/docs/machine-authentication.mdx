@@ -69,6 +69,44 @@ Die Umgebungsvariablen sollten als Secrets in der Deployment-Plattform hinterleg
 
 Nach Ablauf des DPoP-gebundenen Access Tokens fordert der Service ein neues Token an.
 
+## Aktuelle Benutzer-Scopes prüfen
+
+Ein Backend, das eine langlebige lokale Berechtigung erneut prüfen muss, kann für die Weldall API den Machine-only-Scope `weldall:subject-scopes-check` anfordern. Dafür werden dem Machine Client dieser System-Scope und die eigene Ressource des Backends zugewiesen. Weldall erlaubt nur Abfragen für Scopes, die mindestens einer freigegebenen Ressource des Machine Clients zugeordnet sind.
+
+Als Benutzerkennung wird ausschließlich der opake `sub` aus einem zuvor verifizierten Weldall-Benutzertoken verwendet, niemals eine E-Mail-Adresse:
+
+```ts
+import { createDpopProof, requestMachineToken } from "@weldall/sdk";
+
+const issuer = "https://weldall.example.com";
+const token = await requestMachineToken({
+  issuer,
+  clientId: "randomapp",
+  resource: `${issuer}/api`,
+  scopes: ["weldall:subject-scopes-check"],
+  kid: process.env.MACHINE_SIGNING_KID!,
+  key,
+});
+const endpoint = `${issuer}/api/authorization/v1/check-scopes`;
+const proof = await createDpopProof({
+  ...key,
+  method: "POST",
+  url: endpoint,
+  accessToken: token.accessToken,
+});
+const response = await fetch(endpoint, {
+  method: "POST",
+  headers: {
+    authorization: `DPoP ${token.accessToken}`,
+    dpop: proof,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ subject, scopes: ["randomapp:mint-key"] }),
+});
+```
+
+Eine erfolgreiche Antwort enthält sortierte Arrays `granted` und `missing` sowie `evaluatedAt`. Die Antwort ist mit `no-store` markiert; der Aufrufer kann selbst kurzzeitig cachen. Wenn ein relevanter Gruppen-Provider nicht ausgewertet werden kann, liefert Weldall `503 temporarily_unavailable`, statt einen Scope fälschlich als sicher fehlend zu melden.
+
 ## Ziel-API absichern
 
 Expenses B bindet Weldall genauso ein wie eine API, die von Benutzern aufgerufen wird:

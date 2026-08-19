@@ -69,6 +69,44 @@ Configure these environment variables through your deployment platform's secret 
 
 The response contains a DPoP-bound access token and no refresh token. Request a new token when the current one expires.
 
+## Check a user's current scopes
+
+A backend that must re-evaluate a persistent local credential can request the machine-only `weldall:subject-scopes-check` scope for the Weldall API. Assign that system scope and the backend's own resource to its machine client. Weldall only permits checks for scopes supported by one of the machine's allowed resources.
+
+Use the opaque `sub` captured from a previously verified Weldall user token, never an email address:
+
+```ts
+import { createDpopProof, requestMachineToken } from "@weldall/sdk";
+
+const issuer = "https://weldall.example.com";
+const token = await requestMachineToken({
+  issuer,
+  clientId: "randomapp",
+  resource: `${issuer}/api`,
+  scopes: ["weldall:subject-scopes-check"],
+  kid: process.env.MACHINE_SIGNING_KID!,
+  key,
+});
+const endpoint = `${issuer}/api/authorization/v1/check-scopes`;
+const proof = await createDpopProof({
+  ...key,
+  method: "POST",
+  url: endpoint,
+  accessToken: token.accessToken,
+});
+const response = await fetch(endpoint, {
+  method: "POST",
+  headers: {
+    authorization: `DPoP ${token.accessToken}`,
+    dpop: proof,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ subject, scopes: ["randomapp:mint-key"] }),
+});
+```
+
+A successful response contains sorted `granted` and `missing` arrays plus `evaluatedAt`. Responses are marked `no-store`; a caller may apply its own short cache. Weldall returns `503 temporarily_unavailable` rather than reporting an authoritative missing scope when a relevant group provider cannot be evaluated.
+
 ## Protect the receiving service
 
 Expenses B uses the same `initWeldall` setup as an API that serves employees:

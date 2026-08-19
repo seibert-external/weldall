@@ -1,10 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import {
-  ADMIN_SCOPE_KEY,
   db,
   ensureSystemScopes,
-  IAC_SCOPE_KEY,
   LOGIN_SCOPE_KEY,
   Prisma,
   SYSTEM_SCOPE_DEFINITIONS,
@@ -29,7 +27,7 @@ describe("built-in system scope provisioning", () => {
         await ensureSystemScopes(tx, "system-scope-test-second");
 
         const scopes = await tx.scope.findMany({
-          where: { key: { in: [ADMIN_SCOPE_KEY, IAC_SCOPE_KEY, LOGIN_SCOPE_KEY] } },
+          where: { key: { in: SYSTEM_SCOPE_DEFINITIONS.map(({ key }) => key) } },
           orderBy: { key: "asc" },
         });
         expect(scopes).toHaveLength(SYSTEM_SCOPE_DEFINITIONS.length);
@@ -58,7 +56,7 @@ describe("built-in system scope provisioning", () => {
     ).resolves.toBe(grantsBefore);
   });
 
-  it.each([ADMIN_SCOPE_KEY, IAC_SCOPE_KEY, LOGIN_SCOPE_KEY])(
+  it.each(SYSTEM_SCOPE_DEFINITIONS.map(({ key }) => key))(
     "fails closed instead of promoting a user-created %s collision",
     async (key) => {
       await expect(

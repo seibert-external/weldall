@@ -1,4 +1,4 @@
-import { IAC_SCOPE_KEY } from "@weldall/db";
+import { IAC_SCOPE_KEY, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
 import { WELDALL_ISSUER } from "./constants";
 
 export function extendOAuthMetadata(
@@ -26,7 +26,14 @@ export function extendOAuthMetadata(
     dpop_signing_alg_values_supported: append(metadata.dpop_signing_alg_values_supported, [
       "ES256",
     ]),
-    scopes_supported: append(metadata.scopes_supported, [IAC_SCOPE_KEY]),
+    scopes_supported: append(metadata.scopes_supported, [
+      IAC_SCOPE_KEY,
+      SUBJECT_SCOPES_CHECK_SCOPE_KEY,
+    ]),
+    weldall_subject_scope_check: {
+      endpoint: `${WELDALL_ISSUER}/api/authorization/v1/check-scopes`,
+      scope: SUBJECT_SCOPES_CHECK_SCOPE_KEY,
+    },
     weldall_iac: {
       endpoint: `${WELDALL_ISSUER}/api/iac/v1`,
       manifestVersions: ["weldall.dev/v1"],
