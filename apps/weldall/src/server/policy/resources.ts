@@ -222,9 +222,7 @@ export async function checkSubjectScopesForMachine(input: {
           assignment: {
             provider: {
               enabled: true,
-              ...(resolvedProviderVersions.length
-                ? { NOT: { OR: resolvedProviderVersions } }
-                : {}),
+              ...(resolvedProviderVersions.length ? { NOT: { OR: resolvedProviderVersions } } : {}),
             },
           },
         },
