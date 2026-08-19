@@ -26,16 +26,15 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function InstallPrompt({ host }: { host: string }) {
+export function InstallPrompt() {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const resetTimer = useRef<number | undefined>(undefined);
-  const prompt = promptForHost(host);
   const promptPreview = "Read install.md to install weldall cli on this machine.";
 
   useEffect(() => () => window.clearTimeout(resetTimer.current), []);
 
   const copyPrompt = async () => {
-    const copied = await copyToClipboard(prompt);
+    const copied = await copyToClipboard(promptForHost(window.location.origin));
     setCopyState(copied ? "copied" : "failed");
     window.clearTimeout(resetTimer.current);
     resetTimer.current = window.setTimeout(() => setCopyState("idle"), 5000);
@@ -64,7 +63,11 @@ export function InstallPrompt({ host }: { host: string }) {
           <span>Copy Prompt</span>
         </button>
         <span className="welcome-copy-subline">
-          <span className="welcome-copy-preview" data-visible={copyState === "idle"} title={prompt}>
+          <span
+            className="welcome-copy-preview"
+            data-visible={copyState === "idle"}
+            title={promptPreview}
+          >
             <span className="welcome-copy-quote" aria-hidden="true">
               “
             </span>

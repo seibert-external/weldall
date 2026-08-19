@@ -123,43 +123,32 @@ export function IdentityCard({
   );
 }
 
-export interface PermissionItem {
-  description: string;
-  scope: string;
-}
-
 export interface AvailableApi {
   id: string;
   name: string;
 }
 
 export function PermissionsCard({
-  permissions,
+  scopes,
   availableApis,
 }: {
-  permissions: PermissionItem[];
+  scopes: string[];
   availableApis: AvailableApi[];
 }) {
   return (
     <Card title="Access" accent={palette.primary}>
-      <Text bold>Assigned permissions:</Text>
+      <Text bold>Assigned scopes:</Text>
       <Box flexDirection="column" marginTop={1}>
-        {permissions.length === 0 ? (
+        {scopes.length === 0 ? (
           <>
-            <Text>No permissions are currently assigned to your account.</Text>
+            <Text>No scopes are currently assigned to your account.</Text>
             <Text dimColor>Ask your Weldall administrator for the access you need.</Text>
           </>
         ) : (
-          permissions.map(({ description, scope }) => (
-            <Box key={scope}>
-              <Box width={2} flexShrink={0}>
-                <Text color={palette.success}>✓</Text>
-              </Box>
-              <Box flexDirection="column">
-                <Text>{terminalText(description)}</Text>
-                <Text dimColor>{terminalText(scope)}</Text>
-              </Box>
-            </Box>
+          scopes.map((scope) => (
+            <Text key={scope} color={palette.success}>
+              • {terminalText(scope)}
+            </Text>
           ))
         )}
       </Box>

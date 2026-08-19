@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
-import { explainScope, formatSkillWarning, printPermissions } from "../src/commands.js";
+import { formatSkillWarning, printPermissions } from "../src/commands.js";
 import {
   appendixFrame,
   brandHeading,
@@ -17,23 +17,6 @@ import {
 } from "../src/output.js";
 import { printFriendlyValidation } from "../src/validation.js";
 
-describe("friendly scope descriptions", () => {
-  it.each([
-    ["expenses:read", "Read data"],
-    ["expenses:create", "Create new data"],
-    ["expenses:write", "Create or change data"],
-    ["expenses:update", "Change existing data"],
-    ["expenses:delete", "Delete data"],
-    ["weldall:administer", "Manage access and settings"],
-  ])("explains %s", (scope, description) => {
-    expect(explainScope(scope)).toBe(description);
-  });
-
-  it("keeps unknown permissions understandable without guessing", () => {
-    expect(explainScope("documents:publish")).toBe("publish permission");
-  });
-});
-
 describe("friendly resource output", () => {
   it("shows assigned scopes even when no enabled resource exposes them", () => {
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -42,9 +25,10 @@ describe("friendly resource output", () => {
 
     expect(text).toContain("╭");
     expect(text).toContain("Access");
-    expect(text).toContain("weldall:administer");
+    expect(text).toContain("Assigned scopes:");
+    expect(text).toContain("• weldall:administer");
     expect(text).toContain("No enabled API resource");
-    expect(text).not.toContain("No permissions are currently assigned");
+    expect(text).not.toContain("No scopes are currently assigned");
     output.mockRestore();
   });
 
