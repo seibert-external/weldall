@@ -1,6 +1,5 @@
 import { Heading } from "@astryxdesign/core/Heading";
 import { VStack } from "@astryxdesign/core/Stack";
-import { WELDALL_ISSUER } from "@/server/oauth/constants";
 import { AppearanceSequence } from "./_components/appearance-sequence";
 import { InstallPrompt } from "./install-prompt";
 
@@ -37,7 +36,7 @@ export default function Home() {
                 </Heading>
               </div>
               <div data-appear>
-                <InstallPrompt host={WELDALL_ISSUER} />
+                <InstallPrompt />
               </div>
             </VStack>
             <a className="welcome-admin-link" href="/login" data-appear>

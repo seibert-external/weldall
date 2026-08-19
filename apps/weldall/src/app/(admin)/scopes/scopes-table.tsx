@@ -39,6 +39,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const emptyScopes: ScopeDto[] = [];
 
 export function ScopesTable() {
   const trpc = useTRPC();
@@ -57,7 +58,7 @@ export function ScopesTable() {
   const scopesQuery = useQuery(
     trpc.admin.scopes.list.queryOptions({ page, pageSize: 20, q, sort }),
   );
-  const scopes = scopesQuery.data?.items ?? [];
+  const scopes = scopesQuery.data?.items ?? emptyScopes;
 
   const columns = useMemo<ColumnDef<ScopeDto>[]>(
     () => [

@@ -37,34 +37,12 @@ const identityCard = (identity: Identity) => (
 
 const printIdentity = (identity: Identity) => printUi(identityCard(identity));
 
-export const explainScope = (scope: string) => {
-  const action = terminalText(scope.split(":").at(-1) ?? "").toLowerCase();
-  const descriptions: Record<string, string> = {
-    read: "Read data",
-    create: "Create new data",
-    write: "Create or change data",
-    update: "Change existing data",
-    delete: "Delete data",
-    administer: "Manage access and settings",
-    admin: "Manage access and settings",
-    manage: "Manage data and settings",
-  };
-  const knownDescription = action ? descriptions[action] : undefined;
-  return (
-    knownDescription ??
-    (action ? `${action.replaceAll(/[-_]/g, " ")} permission` : "Custom permission")
-  );
-};
-
 const permissionsCard = (
   grants: ResourceGrant[],
   assignedScopes = [...new Set(grants.flatMap((grant) => grant.grantedScopes))].sort(),
 ) => (
   <PermissionsCard
-    permissions={assignedScopes.map((scope) => ({
-      description: explainScope(scope),
-      scope,
-    }))}
+    scopes={assignedScopes}
     availableApis={grants
       .filter((grant) => grant.grantedScopes.length > 0)
       .map((grant) => ({ id: grant.key, name: grant.name }))}
