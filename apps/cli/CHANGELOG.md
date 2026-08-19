@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.9.1
+
+### Patch Changes
+
+- d987bcd: Display assigned scopes directly in CLI access output instead of replacing them with potentially misleading permission descriptions.
+
 ## 0.9.0
 
 ### Minor Changes
