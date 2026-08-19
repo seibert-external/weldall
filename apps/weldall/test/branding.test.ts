@@ -1,5 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { db } from "@weldall/db";
+import Home from "../src/app/page";
 import {
   DEFAULT_CLI_LOGO_URL,
   getEffectiveCliLogoUrl,
@@ -31,5 +34,20 @@ describe("CLI branding", () => {
       data: { logoUrl: "https://example.com/brand.svg" },
     });
     await expect(getEffectiveCliLogoUrl()).resolves.toBe("https://example.com/brand.svg");
+  });
+
+  it("renders the configured logo on the welcome page", async () => {
+    const settings = await db.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
+    originalLogoUrl = settings.logoUrl;
+    await db.cliSettings.update({
+      where: { id: "default" },
+      data: { logoUrl: "https://cdn.example.com/company-logo.svg" },
+    });
+
+    const html = renderToStaticMarkup(createElement(await Home()));
+
+    expect(html).toContain(
+      '<img src="https://cdn.example.com/company-logo.svg" alt="Seibert"',
+    );
   });
 });
