@@ -10,10 +10,12 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
+import { messages } from "../../messages/en";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
 
 export function CliSettings() {
+  const copy = messages.cliSettings;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const formId = useId();
@@ -89,17 +91,17 @@ export function CliSettings() {
               name="logoUrl"
               validators={{
                 onChange: ({ value }) =>
-                  value.length <= 2_000 ? undefined : "Logo URL must be 2,000 characters or less.",
+                  value.length <= 2_000 ? undefined : copy.logoUrl.tooLong,
                 onSubmit: ({ value }) =>
-                  value.length <= 2_000 ? undefined : "Logo URL must be 2,000 characters or less.",
+                  value.length <= 2_000 ? undefined : copy.logoUrl.tooLong,
               }}
             >
               {(field) => (
                 <TextInput
-                  label="Logo URL"
+                  label={copy.logoUrl.label}
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
-                  placeholder="https://example.com/logo.svg"
+                  placeholder={copy.logoUrl.placeholder}
                   value={String(field.state.value)}
                 />
               )}
