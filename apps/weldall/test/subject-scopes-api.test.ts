@@ -28,6 +28,7 @@ const endpoint = `${WELDALL_ISSUER}/api/authorization/v1/check-scopes`;
 const providerKey = `scopecheck-provider-${runId}`;
 let machineKey: DpopKeyPair;
 let machineId: string;
+let resourceId: string;
 let assignmentId: string;
 let providerId: string;
 
@@ -96,6 +97,7 @@ beforeAll(async () => {
       },
     }),
   ]);
+  resourceId = resource.id;
   await db.user.create({
     data: { id: subject, name: "Scope Check User", email, emailVerified: true },
   });
@@ -280,5 +282,35 @@ describe("machine subject scope checks", () => {
     await db.machineAllowedScope.create({
       data: { machineClientId: machineId, scopeId: checkScope.id },
     });
+  });
+
+  it("revalidates allowed resources after provider resolution", async () => {
+    const token = await machineToken();
+    let providerLookupStarted!: () => void;
+    let finishProviderLookup!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      providerLookupStarted = resolve;
+    });
+    const finishLookup = new Promise<void>((resolve) => {
+      finishProviderLookup = resolve;
+    });
+    vi.stubGlobal("fetch", async () => {
+      providerLookupStarted();
+      await finishLookup;
+      return new Response(null, { status: 503 });
+    });
+
+    const pendingCheck = check(token, { subject, scopes: [grantedScopeKey] });
+    await lookupStarted;
+    await db.machineAllowedResource.delete({
+      where: { machineClientId_resourceId: { machineClientId: machineId, resourceId } },
+    });
+    finishProviderLookup();
+    const response = await pendingCheck;
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: "insufficient_scope" });
+
+    await db.machineAllowedResource.create({ data: { machineClientId: machineId, resourceId } });
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
   });
 });

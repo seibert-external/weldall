@@ -1,6 +1,7 @@
-import { db, Prisma } from "@weldall/db";
+import { db, Prisma, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { z } from "zod";
+import { lockConfigurationChanges } from "../domain/configuration";
 import { decryptProviderToken } from "../group-providers/credentials";
 import { createGroupProviderAdapter } from "../group-providers/registry";
 import { errorForLog, logger } from "../observability/logger";
@@ -147,20 +148,62 @@ export async function checkSubjectScopesForMachine(input: {
   const effective = new Set(access.effectiveScopes.map(({ key }) => key));
   const granted = requestedScopes.filter((scope) => effective.has(scope));
   const missing = requestedScopes.filter((scope) => !effective.has(scope));
-  if (missing.length && access.unavailableGroupProviders.length) {
-    const uncertainGrant = await db.groupScopeGrant.findFirst({
+  return db.$transaction(async (tx) => {
+    await lockConfigurationChanges(tx);
+    if (missing.length && access.unavailableGroupProviders.length) {
+      const uncertainGrant = await tx.groupScopeGrant.findFirst({
+        where: {
+          scope: { key: { in: missing } },
+          assignment: {
+            providerId: { in: access.unavailableGroupProviders.map(({ id }) => id) },
+            provider: { enabled: true },
+          },
+        },
+        select: { id: true },
+      });
+      if (uncertainGrant) throw new SubjectScopeCheckError("TEMPORARILY_UNAVAILABLE");
+    }
+    const authorizedMachine = await tx.machineClient.findFirst({
       where: {
-        scope: { key: { in: missing } },
-        assignment: {
-          providerId: { in: access.unavailableGroupProviders.map(({ id }) => id) },
-          provider: { enabled: true },
+        clientId: input.clientId,
+        enabled: true,
+        deactivatedAt: null,
+        allowedScopes: { some: { scope: { key: SUBJECT_SCOPES_CHECK_SCOPE_KEY } } },
+        allowedResources: {
+          some: {
+            resource: {
+              enabled: true,
+              scopes: { some: { scope: { key: { in: requestedScopes } } } },
+            },
+          },
         },
       },
-      select: { id: true },
+      select: {
+        allowedResources: {
+          where: { resource: { enabled: true } },
+          select: {
+            resource: {
+              select: {
+                scopes: {
+                  where: { scope: { key: { in: requestedScopes } } },
+                  select: { scope: { select: { key: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
     });
-    if (uncertainGrant) throw new SubjectScopeCheckError("TEMPORARILY_UNAVAILABLE");
-  }
-  return { granted, missing };
+    const stillQueryable = new Set(
+      authorizedMachine?.allowedResources.flatMap(({ resource }) =>
+        resource.scopes.map(({ scope }) => scope.key),
+      ) ?? [],
+    );
+    if (!authorizedMachine || requestedScopes.some((scope) => !stillQueryable.has(scope))) {
+      throw new SubjectScopeCheckError("FORBIDDEN");
+    }
+    return { granted, missing };
+  });
 }
 
 export async function resourceRegistryFor(email: string): Promise<ResourceRegistryEntry[]> {
