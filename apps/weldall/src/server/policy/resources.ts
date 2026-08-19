@@ -103,6 +103,8 @@ export class SubjectScopeCheckError extends Error {
 
 export async function checkSubjectScopesForMachine(input: {
   clientId: string;
+  keyId: string;
+  keyThumbprint: string;
   subject: string;
   scopes: string[];
 }): Promise<{ granted: ScopeKey[]; missing: ScopeKey[] }> {
@@ -144,56 +146,43 @@ export async function checkSubjectScopesForMachine(input: {
   });
   if (!user?.emailVerified) throw new SubjectScopeCheckError("NOT_FOUND");
 
-  const access = await effectiveScopeAccessFor(user.email);
-  const effective = new Set(access.effectiveScopes.map(({ key }) => key));
-  const granted = requestedScopes.filter((scope) => effective.has(scope));
-  const missing = requestedScopes.filter((scope) => !effective.has(scope));
+  const normalizedEmail = normalizePolicyEmail(user.email);
+  const resolution = await resolveProviderMemberships(normalizedEmail);
   return db.$transaction(async (tx) => {
     await lockConfigurationChanges(tx);
-    if (missing.length && access.unavailableGroupProviders.length) {
-      const uncertainGrant = await tx.groupScopeGrant.findFirst({
+    const [effectiveGrants, authorizedMachine] = await Promise.all([
+      loadEffectiveScopeGrants(tx, normalizedEmail, resolution.memberships),
+      tx.machineClient.findFirst({
         where: {
-          scope: { key: { in: missing } },
-          assignment: {
-            providerId: { in: access.unavailableGroupProviders.map(({ id }) => id) },
-            provider: { enabled: true },
-          },
-        },
-        select: { id: true },
-      });
-      if (uncertainGrant) throw new SubjectScopeCheckError("TEMPORARILY_UNAVAILABLE");
-    }
-    const authorizedMachine = await tx.machineClient.findFirst({
-      where: {
-        clientId: input.clientId,
-        enabled: true,
-        deactivatedAt: null,
-        allowedScopes: { some: { scope: { key: SUBJECT_SCOPES_CHECK_SCOPE_KEY } } },
-        allowedResources: {
-          some: {
-            resource: {
-              enabled: true,
-              scopes: { some: { scope: { key: { in: requestedScopes } } } },
+          clientId: input.clientId,
+          enabled: true,
+          deactivatedAt: null,
+          keys: {
+            some: {
+              kid: input.keyId,
+              thumbprint: input.keyThumbprint,
+              revokedAt: null,
             },
           },
+          allowedScopes: { some: { scope: { key: SUBJECT_SCOPES_CHECK_SCOPE_KEY } } },
         },
-      },
-      select: {
-        allowedResources: {
-          where: { resource: { enabled: true } },
-          select: {
-            resource: {
-              select: {
-                scopes: {
-                  where: { scope: { key: { in: requestedScopes } } },
-                  select: { scope: { select: { key: true } } },
+        select: {
+          allowedResources: {
+            where: { resource: { enabled: true } },
+            select: {
+              resource: {
+                select: {
+                  scopes: {
+                    where: { scope: { key: { in: requestedScopes } } },
+                    select: { scope: { select: { key: true } } },
+                  },
                 },
               },
             },
           },
         },
-      },
-    });
+      }),
+    ]);
     const stillQueryable = new Set(
       authorizedMachine?.allowedResources.flatMap(({ resource }) =>
         resource.scopes.map(({ scope }) => scope.key),
@@ -201,6 +190,22 @@ export async function checkSubjectScopesForMachine(input: {
     );
     if (!authorizedMachine || requestedScopes.some((scope) => !stillQueryable.has(scope))) {
       throw new SubjectScopeCheckError("FORBIDDEN");
+    }
+    const effective = new Set(effectiveGrants.map(({ key }) => key));
+    const granted = requestedScopes.filter((scope) => effective.has(scope));
+    const missing = requestedScopes.filter((scope) => !effective.has(scope));
+    if (missing.length && resolution.unavailableGroupProviders.length) {
+      const uncertainGrant = await tx.groupScopeGrant.findFirst({
+        where: {
+          scope: { key: { in: missing } },
+          assignment: {
+            providerId: { in: resolution.unavailableGroupProviders.map(({ id }) => id) },
+            provider: { enabled: true },
+          },
+        },
+        select: { id: true },
+      });
+      if (uncertainGrant) throw new SubjectScopeCheckError("TEMPORARILY_UNAVAILABLE");
     }
     return { granted, missing };
   });

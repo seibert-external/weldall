@@ -57,6 +57,8 @@ export async function subjectScopesCheck(request: Request): Promise<Response> {
     const body = await requestBody(request);
     const result = await checkSubjectScopesForMachine({
       clientId: actor.clientId,
+      keyId: actor.keyId,
+      keyThumbprint: actor.keyThumbprint,
       subject: body.subject,
       scopes: body.scopes,
     });

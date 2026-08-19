@@ -30,6 +30,7 @@ let machineKey: DpopKeyPair;
 let machineId: string;
 let resourceId: string;
 let assignmentId: string;
+let grantedScopeId: string;
 let providerId: string;
 
 beforeAll(async () => {
@@ -61,6 +62,7 @@ beforeAll(async () => {
       }),
     ),
   );
+  grantedScopeId = grantedScope.id;
   const [resource] = await Promise.all([
     db.downstreamResource.create({
       data: {
@@ -311,6 +313,75 @@ describe("machine subject scope checks", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "insufficient_scope" });
 
     await db.machineAllowedResource.create({ data: { machineClientId: machineId, resourceId } });
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
+  });
+
+  it("revalidates the authenticated key after provider resolution", async () => {
+    const token = await machineToken();
+    let providerLookupStarted!: () => void;
+    let finishProviderLookup!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      providerLookupStarted = resolve;
+    });
+    const finishLookup = new Promise<void>((resolve) => {
+      finishProviderLookup = resolve;
+    });
+    vi.stubGlobal("fetch", async () => {
+      providerLookupStarted();
+      await finishLookup;
+      return new Response(null, { status: 503 });
+    });
+
+    const pendingCheck = check(token, { subject, scopes: [grantedScopeKey] });
+    await lookupStarted;
+    await db.machineClientKey.update({
+      where: { machineClientId_kid: { machineClientId: machineId, kid: "current" } },
+      data: { revokedAt: new Date(), revokedBy: actorId },
+    });
+    finishProviderLookup();
+    const response = await pendingCheck;
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: "insufficient_scope" });
+
+    await db.machineClientKey.update({
+      where: { machineClientId_kid: { machineClientId: machineId, kid: "current" } },
+      data: { revokedAt: null, revokedBy: null },
+    });
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
+  });
+
+  it("loads current grants after provider resolution", async () => {
+    const token = await machineToken();
+    let providerLookupStarted!: () => void;
+    let finishProviderLookup!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      providerLookupStarted = resolve;
+    });
+    const finishLookup = new Promise<void>((resolve) => {
+      finishProviderLookup = resolve;
+    });
+    vi.stubGlobal("fetch", async () => {
+      providerLookupStarted();
+      await finishLookup;
+      return new Response(null, { status: 503 });
+    });
+
+    const pendingCheck = check(token, { subject, scopes: [grantedScopeKey] });
+    await lookupStarted;
+    await db.emailScopeGrant.delete({
+      where: { assignmentId_scopeId: { assignmentId, scopeId: grantedScopeId } },
+    });
+    finishProviderLookup();
+    const response = await pendingCheck;
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      granted: [],
+      missing: [grantedScopeKey],
+    });
+
+    await db.emailScopeGrant.create({
+      data: { assignmentId, scopeId: grantedScopeId, createdBy: actorId },
+    });
     vi.stubGlobal("fetch", async () => new Response(null, { status: 503 }));
   });
 });
