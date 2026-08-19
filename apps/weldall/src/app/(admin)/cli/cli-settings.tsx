@@ -90,10 +90,8 @@ export function CliSettings() {
             <form.Field
               name="logoUrl"
               validators={{
-                onChange: ({ value }) =>
-                  value.length <= 2_000 ? undefined : copy.logoUrl.tooLong,
-                onSubmit: ({ value }) =>
-                  value.length <= 2_000 ? undefined : copy.logoUrl.tooLong,
+                onChange: ({ value }) => (value.length <= 2_000 ? undefined : copy.logoUrl.tooLong),
+                onSubmit: ({ value }) => (value.length <= 2_000 ? undefined : copy.logoUrl.tooLong),
               }}
             >
               {(field) => (

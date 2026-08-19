@@ -45,8 +45,6 @@ describe("CLI branding", () => {
 
     const html = renderToStaticMarkup(await Home());
 
-    expect(html).toContain(
-      '<img src="https://cdn.example.com/company-logo.svg" alt="Seibert"',
-    );
+    expect(html).toContain('<img src="https://cdn.example.com/company-logo.svg" alt="Seibert"');
   });
 });
