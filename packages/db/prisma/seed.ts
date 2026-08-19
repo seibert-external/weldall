@@ -65,7 +65,7 @@ export async function seedProduction(prisma: PrismaClient = db): Promise<void> {
       }),
       tx.cliSettings.upsert({
         where: { id: "default" },
-        create: { id: "default", createdBy: actor, updatedBy: actor },
+        create: { id: "default", logoUrl: "", createdBy: actor, updatedBy: actor },
         update: {},
       }),
     ]);

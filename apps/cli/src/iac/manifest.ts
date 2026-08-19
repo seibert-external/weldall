@@ -10,7 +10,6 @@ export const MANIFEST_FILE = "weldall.yml";
 export const LOCK_FILE = "weldall.lock.yml";
 export const MAX_INCLUDES = 100;
 export const MAX_OBJECTS = 1_000;
-const DEFAULT_CLI_LOGO_URL = "https://seibert.group/dk/wp-content/uploads/2024/06/seibert_logo.svg";
 
 export interface Manifest {
   apiVersion: typeof MANIFEST_VERSION;
@@ -399,7 +398,7 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
   return {
     apiVersion: manifest.apiVersion,
     workspace: manifest.workspace,
-    ...(manifest.cli ? { cli: { logoUrl: manifest.cli.logoUrl || DEFAULT_CLI_LOGO_URL } } : {}),
+    ...(manifest.cli ? { cli: { logoUrl: manifest.cli.logoUrl } } : {}),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({
       ...value,

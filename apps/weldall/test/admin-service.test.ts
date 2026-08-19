@@ -792,8 +792,13 @@ describe("admin scope service", () => {
         primaryActor,
       ),
     ).rejects.toMatchObject({ code: "INVALID_CLI_SETTINGS" });
+    const cleared = await updateCliSettings(
+      { appendix, logoUrl: "", expectedVersion: updated.version },
+      primaryActor,
+    );
+    expect(cleared.logoUrl).toBe("");
     await updateCliSettings(
-      { appendix: initial.appendix, logoUrl: initial.logoUrl, expectedVersion: updated.version },
+      { appendix: initial.appendix, logoUrl: initial.logoUrl, expectedVersion: cleared.version },
       primaryActor,
     );
   });

@@ -25,14 +25,12 @@ const manifest = () =>
   });
 
 describe("native YAML IaC contracts", () => {
-  it("plans canonical CLI logo updates and defaults an empty value", () => {
+  it("plans canonical CLI logo updates and preserves an empty value", () => {
     const desired = parseDesiredState({
       ...manifest(),
       cli: { logoUrl: "" },
     });
-    expect(desired.cli?.logoUrl).toBe(
-      "https://seibert.group/dk/wp-content/uploads/2024/06/seibert_logo.svg",
-    );
+    expect(desired.cli?.logoUrl).toBe("");
     const plan = createPlan(desired, {
       revision: 1,
       objects: [],

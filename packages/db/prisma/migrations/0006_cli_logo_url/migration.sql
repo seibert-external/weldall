@@ -1,2 +1,8 @@
 ALTER TABLE "CliSettings"
-  ADD COLUMN "logoUrl" TEXT NOT NULL DEFAULT 'https://seibert.group/dk/wp-content/uploads/2024/06/seibert_logo.svg';
+  ADD COLUMN "logoUrl" TEXT;
+
+UPDATE "CliSettings"
+SET "logoUrl" = '';
+
+ALTER TABLE "CliSettings"
+  ALTER COLUMN "logoUrl" SET NOT NULL;

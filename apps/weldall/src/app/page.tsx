@@ -13,7 +13,11 @@ export default async function Home() {
       <main className="login-panel welcome-panel">
         <AppearanceSequence>
           <VStack gap={8} hAlign="stretch">
-            <div className="welcome-brand-lockup" aria-label="Weldall by Seibert" data-appear>
+            <div
+              className="welcome-brand-lockup"
+              aria-label={logoUrl ? "Weldall with custom branding" : "Weldall"}
+              data-appear
+            >
               <img
                 src="/assets/images/weldall.png"
                 alt="Weldall"
@@ -21,16 +25,20 @@ export default async function Home() {
                 height={101}
                 className="welcome-brand-logo welcome-brand-weldall"
               />
-              <span className="welcome-brand-x" aria-hidden="true">
-                ×
-              </span>
-              <img
-                src={logoUrl}
-                alt="Seibert"
-                width={958}
-                height={245}
-                className="welcome-brand-logo welcome-brand-seibert"
-              />
+              {logoUrl ? (
+                <>
+                  <span className="welcome-brand-x" aria-hidden="true">
+                    ×
+                  </span>
+                  <img
+                    src={logoUrl}
+                    alt="Configured company logo"
+                    width={958}
+                    height={245}
+                    className="welcome-brand-logo welcome-brand-seibert"
+                  />
+                </>
+              ) : null}
             </div>
             <VStack className="welcome-content" gap={4} hAlign="stretch">
               <div data-appear>

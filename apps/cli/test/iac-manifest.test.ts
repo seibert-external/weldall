@@ -34,14 +34,12 @@ const importContext = {
 };
 
 describe("native YAML workspaces", () => {
-  it("serializes a CLI logo declaration and restores the compatible default for empty values", async () => {
+  it("serializes a CLI logo declaration without defaulting empty values", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
     await workspace(root, 'cli:\n  logoUrl: ""\n');
     const loaded = await loadWorkspace(root);
     const manifest = serverManifest(loaded.manifest, newLock(loaded.manifest));
-    expect(manifest.cli).toEqual({
-      logoUrl: "https://seibert.group/dk/wp-content/uploads/2024/06/seibert_logo.svg",
-    });
+    expect(manifest.cli).toEqual({ logoUrl: "" });
     expect(canonicalManifestDigest(manifest)).toMatch(/^[a-f0-9]{64}$/);
     await expect(
       (async () => {
