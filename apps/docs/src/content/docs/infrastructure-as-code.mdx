@@ -1,6 +1,6 @@
 ---
 title: Infrastructure as Code
-description: Weldall-Scopes, Ressourcen, Machines, Skills und Zuweisungen mit YAML verwalten.
+description: Weldall-CLI-Einstellungen, Scopes, Ressourcen, Machines, Skills und Zuweisungen mit YAML verwalten.
 sidebar:
   label: Infrastructure as Code
   order: 8
@@ -140,6 +140,13 @@ machines:
 ```
 
 Ins Manifest gehören nur öffentliche Machine-Schlüssel.
+
+Das Logo auf der CLI-Willkommensseite lässt sich als Singleton-Einstellung verwalten. Eine leere URL stellt das eingebaute Seibert-Logo wieder her:
+
+```yaml
+cli:
+  logoUrl: https://example.com/brand-logo.svg
+```
 
 Administrativ verwaltete Skills enthalten das Markdown direkt und geben alle konfigurierbaren Felder explizit an:
 

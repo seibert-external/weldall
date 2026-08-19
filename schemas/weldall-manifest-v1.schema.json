@@ -26,6 +26,18 @@
         }
       }
     },
+    "cli": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logoUrl"],
+      "properties": {
+        "logoUrl": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^(|https://)"
+        }
+      }
+    },
     "include": {
       "type": "array",
       "maxItems": 100,

@@ -24,6 +24,7 @@ export interface CurrentObject {
 export interface PlanningState {
   revision: number;
   objects: CurrentObject[];
+  cliSettings?: { logoUrl: string; version: number };
   externalBlockers?: IacBlocker[];
 }
 
@@ -162,6 +163,17 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
     else actions.push(actionFor(object, "create"));
   }
 
+  if (manifest.cli) {
+    const currentCli = current.cliSettings;
+    actions.push({
+      address: "cli.default",
+      kind: "cli",
+      identity: "default",
+      action: currentCli?.logoUrl === manifest.cli.logoUrl ? "noop" : "update",
+      ...(currentCli ? { observedVersion: currentCli.version } : {}),
+    });
+  }
+
   const desiredAddresses = new Set(desired.map((object) => object.address));
   for (const existing of current.objects
     .filter((object) => object.ownerWorkspaceId === manifest.workspace.id && object.address)
@@ -238,6 +250,7 @@ const kindRank: Record<IacKind, number> = {
   emailAssignment: 4,
   groupAssignment: 4,
   skill: 2,
+  cli: 1,
 };
 function compareActions(left: IacAction, right: IacAction): number {
   const action = actionRank[left.action] - actionRank[right.action];
@@ -257,25 +270,27 @@ export async function loadPlanningState(
   manifest: DesiredState,
 ): Promise<PlanningState> {
   const workspace = await tx.iacWorkspace.findUnique({ where: { id: manifest.workspace.id } });
-  const [bindings, scopes, resources, machines, emails, groups, skills] = await Promise.all([
-    tx.iacObjectBinding.findMany({ include: { workspace: true } }),
-    tx.scope.findMany(),
-    tx.downstreamResource.findMany({
-      include: { scopes: { include: { scope: true } }, requestPrefixes: true },
-    }),
-    tx.machineClient.findMany({
-      include: {
-        keys: true,
-        allowedResources: { include: { resource: true } },
-        allowedScopes: { include: { scope: true } },
-      },
-    }),
-    tx.emailScopeAssignment.findMany({ include: { grants: { include: { scope: true } } } }),
-    tx.groupScopeAssignment.findMany({
-      include: { provider: true, grants: { include: { scope: true } } },
-    }),
-    tx.skill.findMany(),
-  ]);
+  const [bindings, scopes, resources, machines, emails, groups, skills, cliSettings] =
+    await Promise.all([
+      tx.iacObjectBinding.findMany({ include: { workspace: true } }),
+      tx.scope.findMany(),
+      tx.downstreamResource.findMany({
+        include: { scopes: { include: { scope: true } }, requestPrefixes: true },
+      }),
+      tx.machineClient.findMany({
+        include: {
+          keys: true,
+          allowedResources: { include: { resource: true } },
+          allowedScopes: { include: { scope: true } },
+        },
+      }),
+      tx.emailScopeAssignment.findMany({ include: { grants: { include: { scope: true } } } }),
+      tx.groupScopeAssignment.findMany({
+        include: { provider: true, grants: { include: { scope: true } } },
+      }),
+      tx.skill.findMany(),
+      tx.cliSettings.findUnique({ where: { id: "default" } }),
+    ]);
   const bindingTargets = new Map<string, (typeof bindings)[number]>();
   for (const binding of bindings) {
     for (const id of [
@@ -505,7 +520,14 @@ export async function loadPlanningState(
           `Scope ${key} is referenced by skill ${skill.slug}`,
         );
     }
-  return { revision: workspace?.revision ?? 0, objects, externalBlockers };
+  return {
+    revision: workspace?.revision ?? 0,
+    objects,
+    ...(cliSettings
+      ? { cliSettings: { logoUrl: cliSettings.logoUrl, version: cliSettings.version } }
+      : {}),
+    externalBlockers,
+  };
 }
 
 function bindingInfo(binding: { address: string; workspaceId: string } | undefined) {

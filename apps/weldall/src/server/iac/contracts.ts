@@ -6,6 +6,7 @@ import {
   normalizeResourceIdentifier,
 } from "@weldall/sdk";
 import { z } from "zod";
+import { parseCliLogoUrl } from "../branding";
 
 export const IAC_MANIFEST_VERSION = "weldall.dev/v1" as const;
 export const IAC_API_VERSION = "v1" as const;
@@ -70,6 +71,24 @@ export const desiredStateSchema = z
           .refine((value) => new URL(value).protocol === "https:"),
       })
       .strict(),
+    cli: z
+      .object({
+        logoUrl: z
+          .union([
+            z.literal(""),
+            z
+              .string()
+              .url()
+              .max(2_000)
+              .refine((value) => {
+                const url = new URL(value);
+                return url.protocol === "https:" && !url.username && !url.password;
+              }, "Logo URL must be HTTPS without credentials"),
+          ])
+          .transform(parseCliLogoUrl),
+      })
+      .strict()
+      .optional(),
     scopes: z
       .record(
         addressKey,
@@ -191,7 +210,7 @@ export const desiredStateSchema = z
 
 export type DesiredState = z.output<typeof desiredStateSchema>;
 export type IacKind =
-  "scope" | "resource" | "machine" | "emailAssignment" | "groupAssignment" | "skill";
+  "scope" | "resource" | "machine" | "emailAssignment" | "groupAssignment" | "skill" | "cli";
 export type IacActionType =
   "create" | "update" | "replace" | "delete" | "recreate" | "register_key" | "revoke_key" | "noop";
 export interface IacAction {

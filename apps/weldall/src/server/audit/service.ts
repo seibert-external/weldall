@@ -173,8 +173,20 @@ const resourceScopesMetadata = z.discriminatedUnion("entityType", [
 
 const cliSettingsMetadata = z
   .object({
-    before: z.object({ appendixSha256: digest, version: z.number().int().positive() }).strict(),
-    after: z.object({ appendixSha256: digest, version: z.number().int().positive() }).strict(),
+    before: z
+      .object({
+        appendixSha256: digest,
+        logoUrl: z.string().url().max(2_000),
+        version: z.number().int().positive(),
+      })
+      .strict(),
+    after: z
+      .object({
+        appendixSha256: digest,
+        logoUrl: z.string().url().max(2_000),
+        version: z.number().int().positive(),
+      })
+      .strict(),
   })
   .strict();
 const skillVisibility = z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]);

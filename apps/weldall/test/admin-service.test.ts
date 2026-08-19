@@ -769,21 +769,31 @@ describe("admin scope service", () => {
   it("updates the CLI appendix with optimistic locking and an audit event", async () => {
     const initial = await getCliSettings();
     const appendix = `Gude from ${runId}. Use this for everything related to Seibert.`;
+    const logoUrl = `https://${namespace}.example/logo.svg`;
     const updated = await updateCliSettings(
-      { appendix, expectedVersion: initial.version },
+      { appendix, logoUrl, expectedVersion: initial.version },
       primaryActor,
     );
-    expect(updated).toMatchObject({ appendix, version: initial.version + 1 });
+    expect(updated).toMatchObject({ appendix, logoUrl, version: initial.version + 1 });
     await expect(
-      updateCliSettings({ appendix: "stale", expectedVersion: initial.version }, primaryActor),
+      updateCliSettings(
+        { appendix: "stale", logoUrl, expectedVersion: initial.version },
+        primaryActor,
+      ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(
       db.auditEvent.count({
         where: { actorId: primaryUserId, eventType: "cli_settings.updated" },
       }),
     ).resolves.toBeGreaterThanOrEqual(1);
+    await expect(
+      updateCliSettings(
+        { appendix, logoUrl: "http://example.com/logo.svg", expectedVersion: updated.version },
+        primaryActor,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_CLI_SETTINGS" });
     await updateCliSettings(
-      { appendix: initial.appendix, expectedVersion: updated.version },
+      { appendix: initial.appendix, logoUrl: initial.logoUrl, expectedVersion: updated.version },
       primaryActor,
     );
   });

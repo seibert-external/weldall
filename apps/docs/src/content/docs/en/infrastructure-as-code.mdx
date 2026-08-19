@@ -1,6 +1,6 @@
 ---
 title: Infrastructure as code
-description: Manage Weldall scopes, resources, machines, skills, and assignments from YAML.
+description: Manage Weldall CLI settings, scopes, resources, machines, skills, and assignments from YAML.
 sidebar:
   label: Infrastructure as code
   order: 8
@@ -140,6 +140,13 @@ machines:
 ```
 
 Only public machine keys belong in the manifest.
+
+The CLI welcome page logo can be managed as a singleton setting. An empty URL restores the built-in Seibert logo:
+
+```yaml
+cli:
+  logoUrl: https://example.com/brand-logo.svg
+```
 
 Administrator-managed skills use inline Markdown and explicitly declare every configurable field:
 

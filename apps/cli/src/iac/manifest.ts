@@ -10,11 +10,13 @@ export const MANIFEST_FILE = "weldall.yml";
 export const LOCK_FILE = "weldall.lock.yml";
 export const MAX_INCLUDES = 100;
 export const MAX_OBJECTS = 1_000;
+const DEFAULT_CLI_LOGO_URL = "https://seibert.group/dk/wp-content/uploads/2024/06/seibert_logo.svg";
 
 export interface Manifest {
   apiVersion: typeof MANIFEST_VERSION;
   workspace: { name: string; issuer: string };
   include?: string[];
+  cli?: { logoUrl: string };
   scopes?: Record<string, unknown>;
   resources?: Record<string, unknown>;
   skills?: Record<string, unknown>;
@@ -40,6 +42,7 @@ const objectSections = [
   "emailAssignments",
   "groupAssignments",
 ] as const;
+const rootSections = ["cli", ...objectSections] as const;
 const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new CliError("Expected a YAML mapping");
@@ -106,7 +109,11 @@ function parseYaml(source: string, path: string): unknown {
 export function validateRoot(value: Manifest) {
   const root = record(value);
   for (const field of Object.keys(root))
-    if (!["apiVersion", "workspace", "include", ...objectSections].includes(field))
+    if (
+      !["apiVersion", "workspace", "include", ...rootSections].includes(
+        field as (typeof rootSections)[number] | "apiVersion" | "workspace" | "include",
+      )
+    )
       throw new CliError(`Unknown manifest field ${field}`);
   if (value.apiVersion !== MANIFEST_VERSION)
     throw new CliError(`apiVersion must be ${MANIFEST_VERSION}`);
@@ -126,6 +133,15 @@ export function validateRoot(value: Manifest) {
     throw new CliError("include must be an array of paths");
 }
 function validateManifest(value: Manifest) {
+  if (value.cli !== undefined) {
+    const cli = record(value.cli);
+    if (Object.keys(cli).some((field) => field !== "logoUrl"))
+      throw new CliError("Unknown cli field");
+    if (typeof cli.logoUrl !== "string" || cli.logoUrl.length > 2_000)
+      throw new CliError("Invalid cli.logoUrl");
+    if (cli.logoUrl && canonicalHttpsUrl(cli.logoUrl, "cli.logoUrl", "asset") !== cli.logoUrl)
+      throw new CliError("cli.logoUrl must be a canonical HTTPS URL");
+  }
   let count = 0;
   const identities = new Set<string>();
   for (const section of objectSections)
@@ -294,7 +310,11 @@ function validatePrimitive(
   }
 }
 
-function canonicalHttpsUrl(value: string, label: string, kind: "origin" | "identifier" | "prefix") {
+function canonicalHttpsUrl(
+  value: string,
+  label: string,
+  kind: "origin" | "identifier" | "prefix" | "asset",
+) {
   let url: URL;
   try {
     url = new URL(value);
@@ -379,6 +399,7 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
   return {
     apiVersion: manifest.apiVersion,
     workspace: manifest.workspace,
+    ...(manifest.cli ? { cli: { logoUrl: manifest.cli.logoUrl || DEFAULT_CLI_LOGO_URL } } : {}),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({
       ...value,

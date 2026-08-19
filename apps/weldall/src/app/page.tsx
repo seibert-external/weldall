@@ -2,8 +2,12 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { VStack } from "@astryxdesign/core/Stack";
 import { AppearanceSequence } from "./_components/appearance-sequence";
 import { InstallPrompt } from "./install-prompt";
+import { getEffectiveCliLogoUrl } from "../server/branding";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const logoUrl = await getEffectiveCliLogoUrl();
   return (
     <div className="login-shell welcome-shell">
       <main className="login-panel welcome-panel">
@@ -21,7 +25,7 @@ export default function Home() {
                 ×
               </span>
               <img
-                src="https://seibert.group/dk/wp-content/uploads/2024/06/seibert_logo.svg"
+                src={logoUrl}
                 alt="Seibert"
                 width={958}
                 height={245}

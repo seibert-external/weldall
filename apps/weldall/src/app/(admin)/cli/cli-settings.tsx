@@ -6,6 +6,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
@@ -26,20 +27,22 @@ export function CliSettings() {
     }),
   );
   const form = useForm({
-    defaultValues: { appendix: "" },
+    defaultValues: { appendix: "", logoUrl: "" },
     onSubmit: async ({ value }) => {
       if (!settingsQuery.data) return;
       const updated = await updateMutation.mutateAsync({
         appendix: value.appendix,
+        logoUrl: value.logoUrl,
         expectedVersion: settingsQuery.data.version,
       });
-      form.reset({ appendix: updated.appendix });
+      form.reset({ appendix: updated.appendix, logoUrl: updated.logoUrl });
       await queryClient.invalidateQueries();
     },
   });
 
   useEffect(() => {
-    if (settingsQuery.data) form.reset({ appendix: settingsQuery.data.appendix });
+    if (settingsQuery.data)
+      form.reset({ appendix: settingsQuery.data.appendix, logoUrl: settingsQuery.data.logoUrl });
   }, [form, settingsQuery.data]);
 
   if (settingsQuery.isPending) return <Text color="secondary">Loading CLI settings…</Text>;
@@ -82,6 +85,25 @@ export function CliSettings() {
           }}
         >
           <FormLayout>
+            <form.Field
+              name="logoUrl"
+              validators={{
+                onChange: ({ value }) =>
+                  value.length <= 2_000 ? undefined : "Logo URL must be 2,000 characters or less.",
+                onSubmit: ({ value }) =>
+                  value.length <= 2_000 ? undefined : "Logo URL must be 2,000 characters or less.",
+              }}
+            >
+              {(field) => (
+                <TextInput
+                  label="Logo URL"
+                  onBlur={field.handleBlur}
+                  onChange={field.handleChange}
+                  placeholder="https://example.com/logo.svg"
+                  value={String(field.state.value)}
+                />
+              )}
+            </form.Field>
             <form.Field
               name="appendix"
               validators={{

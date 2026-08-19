@@ -140,6 +140,7 @@ model Skill {
 model CliSettings {
   id        String   @id @default("default")
   appendix  String   @default("")
+  logoUrl   String   @default("https://seibert.group/dk/wp-content/uploads/2024/06/seibert_logo.svg")
   version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

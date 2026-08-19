@@ -12,6 +12,7 @@ import {
   normalizeResourceIdentifier,
 } from "@weldall/sdk";
 import { z } from "zod";
+import { parseCliLogoUrl } from "../branding";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
   lockConfigurationChanges,
@@ -182,6 +183,7 @@ export interface SkillDto {
 
 export interface CliSettingsDto {
   appendix: string;
+  logoUrl: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -407,7 +409,7 @@ export async function getCliSettings(): Promise<CliSettingsDto> {
 }
 
 export async function updateCliSettings(
-  input: { appendix: string; expectedVersion: number },
+  input: { appendix: string; logoUrl?: string; expectedVersion: number },
   actor: AdminActor,
 ): Promise<CliSettingsDto> {
   const appendix = input.appendix.trim();
@@ -422,11 +424,21 @@ export async function updateCliSettings(
       where: { id: "default" },
     });
     if (!current) throw new AdminDomainError("NOT_FOUND", "CLI settings are not initialized.");
+    let logoUrl: string;
+    try {
+      logoUrl = parseCliLogoUrl(input.logoUrl ?? current.logoUrl);
+    } catch (error) {
+      throw new AdminDomainError(
+        "INVALID_CLI_SETTINGS",
+        error instanceof Error ? error.message : "The logo URL is invalid.",
+      );
+    }
     assertVersion(current.version, input.expectedVersion);
-    if (current.appendix === appendix) return serializeCliSettings(current);
+    if (current.appendix === appendix && current.logoUrl === logoUrl)
+      return serializeCliSettings(current);
     const write = await tx.cliSettings.updateMany({
       where: { id: current.id, version: input.expectedVersion },
-      data: { appendix, version: { increment: 1 }, updatedBy: actor.id },
+      data: { appendix, logoUrl, version: { increment: 1 }, updatedBy: actor.id },
     });
     if (write.count !== 1) {
       throw new AdminDomainError("CONFLICT", "The CLI settings changed. Reload and try again.");
@@ -441,10 +453,12 @@ export async function updateCliSettings(
       metadata: {
         before: {
           appendixSha256: contentHash(current.appendix),
+          logoUrl: current.logoUrl,
           version: current.version,
         },
         after: {
           appendixSha256: contentHash(updated.appendix),
+          logoUrl: updated.logoUrl,
           version: updated.version,
         },
       },
@@ -1369,12 +1383,14 @@ function serializeScope(
 
 function serializeCliSettings(settings: {
   appendix: string;
+  logoUrl: string;
   version: number;
   createdAt: Date;
   updatedAt: Date;
 }): CliSettingsDto {
   return {
     appendix: settings.appendix,
+    logoUrl: settings.logoUrl,
     version: settings.version,
     createdAt: settings.createdAt.toISOString(),
     updatedAt: settings.updatedAt.toISOString(),

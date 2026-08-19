@@ -30,6 +30,7 @@ import {
 
 const runId = randomUUID().replaceAll("-", "");
 const prefix = `iacdb-${runId}`;
+let originalCliLogoUrl: string | undefined;
 const actor: MutationActor = {
   type: "machine",
   id: `${prefix}-runner`,
@@ -38,6 +39,11 @@ const actor: MutationActor = {
 };
 
 afterAll(async () => {
+  if (originalCliLogoUrl !== undefined)
+    await db.cliSettings.update({
+      where: { id: "default" },
+      data: { logoUrl: originalCliLogoUrl },
+    });
   await db.iacOperation.deleteMany({ where: { workspace: { name: { startsWith: prefix } } } });
   await db.iacObjectBinding.deleteMany({ where: { workspace: { name: { startsWith: prefix } } } });
   await db.iacWorkspace.deleteMany({ where: { name: { startsWith: prefix } } });
@@ -332,6 +338,9 @@ describe("IaC database transaction contracts", () => {
       keyThumbprint: thumbprint,
       requestId: `${prefix}-apply-request`,
     };
+    const cliSettings = await db.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
+    originalCliLogoUrl ??= cliSettings.logoUrl;
+    const logoUrl = `https://${prefix}.example/logo.svg`;
     const manifest = parseDesiredState({
       apiVersion: "weldall.dev/v1",
       workspace: {
@@ -339,6 +348,7 @@ describe("IaC database transaction contracts", () => {
         name: `${prefix}-workspace`,
         issuer: "https://weldall.example.com",
       },
+      cli: { logoUrl },
       scopes: { managed: { key: `${prefix}:managed`, description: "Managed" } },
       skills: {
         review: {
@@ -360,6 +370,11 @@ describe("IaC database transaction contracts", () => {
     };
     const committed = await applyIac(request, iacActor);
     await expect(applyIac(request, iacActor)).resolves.toEqual(committed);
+    await expect(
+      db.cliSettings.findUniqueOrThrow({ where: { id: "default" } }),
+    ).resolves.toMatchObject({
+      logoUrl,
+    });
     await expect(getIacState(manifest.workspace.id)).resolves.toMatchObject({
       objects: expect.arrayContaining([
         {
