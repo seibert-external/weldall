@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { db } from "@weldall/db";
@@ -44,7 +43,7 @@ describe("CLI branding", () => {
       data: { logoUrl: "https://cdn.example.com/company-logo.svg" },
     });
 
-    const html = renderToStaticMarkup(createElement(await Home()));
+    const html = renderToStaticMarkup(await Home());
 
     expect(html).toContain(
       '<img src="https://cdn.example.com/company-logo.svg" alt="Seibert"',
