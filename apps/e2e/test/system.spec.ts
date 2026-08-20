@@ -459,8 +459,9 @@ test("denies CLI login without weldall:login while preserving browser authentica
   );
 
   await page.goto("https://weldall.seibert.localdev/");
-  await expect(page.getByRole("heading", { name: "Skills available to you" })).toBeVisible();
-  await expect(page.getByLabel("Search skills")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Skill directory" })).toBeVisible();
+  await expect(page.getByText("bob@example.com", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No skills available yet" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
 
   await page.goto("https://weldall.seibert.localdev/resources");
