@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.5.0
+
+### Minor Changes
+
+- ac4d043: Allow resource servers to retrieve Weldall authorization-server metadata and signing keys through a dedicated discovery proxy while retaining canonical issuer validation.
+
 ## 0.4.0
 
 ### Minor Changes
