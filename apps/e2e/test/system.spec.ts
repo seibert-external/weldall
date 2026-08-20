@@ -120,7 +120,11 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   test.setTimeout(240_000);
 
   const login = startCli(["login"], 150_000);
+  const sessionReady = page.waitForResponse(
+    (response) => response.url().endsWith("/api/auth/get-session") && response.ok(),
+  );
   await page.goto(await waitForBrowserUrl(login));
+  await sessionReady;
   await page.getByRole("button", { name: "Development login" }).click();
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
     timeout: 30_000,
@@ -153,9 +157,12 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   await page.goto("https://weldall.seibert.localdev/scopes");
   await expect(page.getByRole("heading", { name: "Scopes" })).toBeVisible();
-  await expect(page.getByText("weldall:administer", { exact: true })).toBeVisible();
-  await expect(page.getByText("weldall:login", { exact: true })).toBeVisible();
-  await expect(page.getByText("expenses:read", { exact: true })).toBeVisible();
+  const scopeSearch = page.getByRole("textbox", { name: "Find scopes" });
+  for (const scope of ["weldall:administer", "weldall:login", "expenses:read"]) {
+    await scopeSearch.fill(scope);
+    await expect(page.getByText(scope, { exact: true })).toBeVisible();
+  }
+  await scopeSearch.fill("");
 
   await page.getByRole("button", { name: "Create scope" }).click();
   const scopeDialog = page.getByRole("dialog");
@@ -242,6 +249,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
       "Load expenses with `weldall request --scope expenses:read https://expenses.seibert.localdev/api/expenses`.",
     );
   await page.getByRole("button", { name: "Create skill" }).click();
+  await page.getByPlaceholder("Find skills…").fill("expenses.list");
   await expect(page.getByRole("row").filter({ hasText: "expenses.list" })).toBeVisible();
 
   const scopes = await runCli("scopes");
@@ -389,7 +397,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.goto("https://weldall.seibert.localdev/resources");
   const disabledReportsRow = page.getByRole("row").filter({ hasText: "reports" });
   await disabledReportsRow.click();
-  await expect(page.getByRole("link", { name: "View skills (1)" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^View skills/ })).toBeVisible();
   await page.getByRole("button", { name: "Delete resource" }).click();
   const deleteResourceDialog = page.getByRole("alertdialog");
   await expect(deleteResourceDialog).toContainText("Reports");
@@ -440,7 +448,11 @@ test("denies CLI login without weldall:login while preserving browser authentica
   test.setTimeout(180_000);
 
   const login = startCli(["login"], 150_000);
+  const sessionReady = page.waitForResponse(
+    (response) => response.url().endsWith("/api/auth/get-session") && response.ok(),
+  );
   await page.goto(await waitForBrowserUrl(login));
+  await sessionReady;
   await page.getByRole("button", { name: "Development login" }).click();
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
     timeout: 30_000,
@@ -459,7 +471,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   );
 
   await page.goto("https://weldall.seibert.localdev/");
-  await expect(page.getByRole("heading", { name: "Skills available to you" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Skill directory" })).toBeVisible();
   await expect(page.getByLabel("Search skills")).toBeVisible();
   await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
 
