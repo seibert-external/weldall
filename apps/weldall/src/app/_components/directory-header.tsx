@@ -7,11 +7,11 @@ export function DirectoryHeader({
 }) {
   return (
     <header className="directory-header">
-      <a className="directory-brand" href="/" aria-label="Weldall home">
-        <img src="/assets/images/weldall.png" alt="Weldall" width={182} height={51} />
-        {logoUrl ? <span aria-hidden="true">×</span> : null}
-        {logoUrl ? <img src={logoUrl} alt="" width={958} height={245} /> : null}
-      </a>
+      {logoUrl ? (
+        <a className="directory-brand" href="/" aria-label="Skill directory home">
+          <img src={logoUrl} alt="Company logo" width={958} height={245} />
+        </a>
+      ) : null}
       <div className="directory-header-actions">{children}</div>
     </header>
   );

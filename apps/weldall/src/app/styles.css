@@ -435,16 +435,12 @@
     object-fit: contain;
   }
 
-  .directory-brand img:last-child:not(:first-child) {
-    max-width: 7rem;
-    max-height: 2rem;
-  }
-
   .directory-header-actions {
     display: flex;
     min-width: 0;
     align-items: center;
     gap: 0.75rem;
+    margin-left: auto;
   }
 
   .directory-user-email {
@@ -534,11 +530,20 @@
     letter-spacing: -0.025em;
   }
 
-  .skill-directory-intro p {
-    margin: 0.5rem 0 0;
-    color: #666;
-    font-size: 0.875rem;
-    line-height: 1.5;
+  .skill-directory-powered-by {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+    color: #737373;
+    font-size: 0.75rem;
+    opacity: 0.55;
+  }
+
+  .skill-directory-powered-by img {
+    width: auto;
+    height: 0.875rem;
+    filter: grayscale(1);
   }
 
   .skill-directory-layout {
@@ -1062,8 +1067,6 @@
       padding-inline: 1rem;
     }
 
-    .directory-brand img:last-child:not(:first-child),
-    .directory-brand span,
     .directory-user-email {
       display: none;
     }

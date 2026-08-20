@@ -34,8 +34,11 @@ export default async function Home() {
       <main className="skill-directory-main">
         <div className="skill-directory-intro">
           <div>
-            <h1>Skills available to you</h1>
-            <p>Browse skills available to your agent.</p>
+            <h1>Skill directory</h1>
+            <div className="skill-directory-powered-by">
+              <span>powered by</span>
+              <img src="/assets/images/weldall.png" alt="Weldall" width={182} height={51} />
+            </div>
           </div>
         </div>
         <SkillDirectory skills={skills} />

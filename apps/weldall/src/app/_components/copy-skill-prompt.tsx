@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 const promptForSkill = (origin: string, slug: string, title: string) =>
-  `Read ${origin}/install.md to install the Weldall CLI. Then run \`weldall skills show ${slug}\` and follow the returned instructions to help me with: ${title}.`;
+  `Check if Weldall is installed. Otherwise, read ${origin}/install.md to install the Weldall CLI. Then run \`weldall skills show ${slug}\` and follow the returned instructions to help me with: ${title}.`;
 
 async function copyToClipboard(text: string): Promise<boolean> {
   try {

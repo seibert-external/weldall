@@ -68,7 +68,7 @@ export function SkillDirectory({ skills }: { skills: VisibleSkill[] }) {
           filter: "blur(0px)",
           duration: 0.24,
           ease: "power2.out",
-          stagger: { amount: 0.35, from: "start" },
+          stagger: { each: 0.08, from: "start" },
           overwrite: "auto",
         },
       );
