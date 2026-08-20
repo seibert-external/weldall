@@ -223,6 +223,8 @@ describe("configuration and metadata", () => {
             requiredScopes: ["expenses:read"],
             visibility: "DEFAULT",
             content: "# Review expenses",
+            meta: { tags: ["finance", ""], owner: "user-123" },
+            lastUpdatedAt: "not restricted to a timestamp",
           },
         ],
       },
@@ -259,7 +261,14 @@ describe("configuration and metadata", () => {
     await expect(response.json()).resolves.toMatchObject({
       schemaVersion: 1,
       resource,
-      skills: [{ id: "review", visibility: "DEFAULT" }],
+      skills: [
+        {
+          id: "review",
+          visibility: "DEFAULT",
+          meta: { tags: ["finance", ""], owner: "user-123" },
+          lastUpdatedAt: "not restricted to a timestamp",
+        },
+      ],
     });
     await expect(instance.handlers.skills(request())).resolves.toMatchObject({
       status: 401,

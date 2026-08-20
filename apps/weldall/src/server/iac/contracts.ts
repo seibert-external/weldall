@@ -130,6 +130,14 @@ export const desiredStateSchema = z
             content: z.string().trim().min(1).max(100_000),
             requiredScopes: z.array(scopeKey).max(IAC_LIMITS.relationItems).transform(canonicalSet),
             visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
+            meta: z
+              .object({
+                tags: z.array(z.string()).optional(),
+                owner: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+            lastUpdatedAt: z.string().optional(),
           })
           .strict(),
       )

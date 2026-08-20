@@ -382,6 +382,8 @@ export async function loadPlanningState(
         content: item.content,
         requiredScopes: [...item.requiredScopes].sort(),
         visibility: item.visibility,
+        ...(item.meta !== null ? { meta: item.meta } : {}),
+        ...(item.lastUpdatedAt !== null ? { lastUpdatedAt: item.lastUpdatedAt } : {}),
       },
       ...bindingInfo(ownership(item.id)),
     })),

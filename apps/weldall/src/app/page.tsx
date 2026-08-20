@@ -1,61 +1,84 @@
-import { Heading } from "@astryxdesign/core/Heading";
-import { VStack } from "@astryxdesign/core/Stack";
-import { AppearanceSequence } from "./_components/appearance-sequence";
-import { InstallPrompt } from "./install-prompt";
+import { Button } from "@astryxdesign/core/Button";
+import { after } from "next/server";
+import { headers } from "next/headers";
+import { isAdminEmail } from "../server/admin/service";
+import { auth } from "../server/auth/auth";
 import { getEffectiveCliLogoUrl } from "../server/branding";
+import { refreshDueCatalogs } from "../server/skills/catalogs";
+import { listVisibleSkills } from "../server/skills/service";
+import { DirectoryHeader } from "./_components/directory-header";
+import { DirectoryUserMenu } from "./_components/directory-user-menu";
+import { SkillDirectory } from "./_components/skill-directory";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const logoUrl = await getEffectiveCliLogoUrl();
+  const [logoUrl, session] = await Promise.all([
+    getEffectiveCliLogoUrl(),
+    auth.api.getSession({ headers: await headers() }),
+  ]);
+
+  if (!session?.user.email) return <LoggedOutHome logoUrl={logoUrl} />;
+
+  after(() => refreshDueCatalogs());
+  const [{ items: skills }, isAdmin] = await Promise.all([
+    listVisibleSkills(session.user.email),
+    isAdminEmail(session.user.email),
+  ]);
+
   return (
-    <div className="login-shell welcome-shell">
-      <main className="login-panel welcome-panel">
-        <AppearanceSequence>
-          <VStack gap={8} hAlign="stretch">
-            <div
-              className="welcome-brand-lockup"
-              aria-label={logoUrl ? "Weldall with custom branding" : "Weldall"}
-              data-appear
-            >
+    <div className="skill-directory-page" data-theme="light">
+      <DirectoryHeader logoUrl={logoUrl}>
+        <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
+      </DirectoryHeader>
+      <main className="skill-directory-main">
+        <div className="skill-directory-intro">
+          <div>
+            <h1>Skills available to you</h1>
+            <p>Browse skills available to your agent.</p>
+          </div>
+        </div>
+        <SkillDirectory skills={skills} />
+      </main>
+    </div>
+  );
+}
+
+function LoggedOutHome({ logoUrl }: { logoUrl: string }) {
+  return (
+    <div className="public-home" data-theme="light">
+      <DirectoryHeader logoUrl="">
+        <Button href="/login" label="Log in" size="sm" variant="primary" />
+      </DirectoryHeader>
+      <main className="public-home-main">
+        <div
+          className="public-brand-lockup"
+          aria-label={logoUrl ? "Weldall with custom branding" : "Weldall"}
+        >
+          <img
+            src="/assets/images/weldall.png"
+            alt="Weldall"
+            width={364}
+            height={101}
+            className="public-brand-logo public-brand-weldall"
+          />
+          {logoUrl ? (
+            <>
+              <span className="public-brand-x" aria-hidden="true">
+                ×
+              </span>
               <img
-                src="/assets/images/weldall.png"
-                alt="Weldall"
-                width={364}
-                height={101}
-                className="welcome-brand-logo welcome-brand-weldall"
+                src={logoUrl}
+                alt="Configured company logo"
+                width={958}
+                height={245}
+                className="public-brand-logo public-brand-company"
               />
-              {logoUrl ? (
-                <>
-                  <span className="welcome-brand-x" aria-hidden="true">
-                    ×
-                  </span>
-                  <img
-                    src={logoUrl}
-                    alt="Configured company logo"
-                    width={958}
-                    height={245}
-                    className="welcome-brand-logo welcome-brand-seibert"
-                  />
-                </>
-              ) : null}
-            </div>
-            <VStack className="welcome-content" gap={4} hAlign="stretch">
-              <div data-appear>
-                <Heading className="welcome-heading" level={1}>
-                  Weldall allows you to access your company’s services through your agent. Copy the
-                  prompt below and send it to your agent to get started.
-                </Heading>
-              </div>
-              <div data-appear>
-                <InstallPrompt />
-              </div>
-            </VStack>
-            <a className="welcome-admin-link" href="/login" data-appear>
-              I’m an admin, let me in
-            </a>
-          </VStack>
-        </AppearanceSequence>
+            </>
+          ) : null}
+        </div>
+        <p>Sign in to browse the skills available to your agent.</p>
+        <Button href="/login" label="Log in to Weldall" variant="primary" />
       </main>
     </div>
   );

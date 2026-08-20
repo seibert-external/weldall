@@ -388,19 +388,93 @@
     padding: 1.5rem;
   }
 
-  .welcome-shell {
-    background: var(--color-background-body);
-  }
-
-  .welcome-panel {
-    width: min(46rem, 100%);
-    border: 0;
-    background: transparent;
-    padding: 2rem;
+  .login-auth-panel {
     text-align: center;
   }
 
-  .welcome-brand-lockup {
+  .login-auth-logo {
+    display: block;
+    width: 10rem;
+    height: auto;
+    margin-inline: auto;
+  }
+
+  .public-home,
+  .skill-directory-page,
+  .skill-detail-page {
+    min-height: 100dvh;
+    background: #fafafa;
+    color: #171717;
+  }
+
+  .directory-header {
+    display: flex;
+    min-height: 4.5rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    border-bottom: 1px solid #e7e7e7;
+    background: rgb(255 255 255 / 92%);
+    padding: 0.75rem max(1.5rem, calc((100vw - 75rem) / 2));
+  }
+
+  .directory-brand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.75rem;
+    color: #737373;
+    text-decoration: none;
+  }
+
+  .directory-brand img {
+    display: block;
+    width: auto;
+    max-width: 8.5rem;
+    height: 2rem;
+    object-fit: contain;
+  }
+
+  .directory-brand img:last-child:not(:first-child) {
+    max-width: 7rem;
+    max-height: 2rem;
+  }
+
+  .directory-header-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .directory-user-email {
+    max-width: 18rem;
+    overflow: hidden;
+    color: #737373;
+    font-size: 0.8125rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .public-home {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .public-home-main {
+    display: flex;
+    width: min(48rem, calc(100% - 3rem));
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.75rem;
+    margin-inline: auto;
+    padding-block: 5rem 8rem;
+    text-align: center;
+  }
+
+  .public-brand-lockup {
     display: flex;
     width: 100%;
     align-items: center;
@@ -408,50 +482,249 @@
     gap: 1.5rem;
   }
 
-  .welcome-brand-logo,
-  .login-auth-logo {
+  .public-brand-logo {
     display: block;
-    height: auto;
-  }
-
-  .welcome-brand-weldall,
-  .welcome-brand-seibert {
     width: min(17rem, 42%);
+    max-height: 5.5rem;
+    object-fit: contain;
   }
 
-  .welcome-brand-x {
-    color: var(--color-text-secondary);
-    font-size: 1.75rem;
+  .public-brand-x {
+    color: #a3a3a3;
+    font-size: 2rem;
     font-weight: 300;
-    line-height: 1;
   }
 
-  [data-theme="dark"] .welcome-brand-seibert {
-    filter: invert(1);
+  .public-home-main > p {
+    margin: 0;
+    color: #737373;
+    font-size: 1rem;
   }
 
-  .welcome-content {
-    width: min(32rem, 100%);
+  .skill-directory-main,
+  .skill-detail-main {
+    width: min(75rem, calc(100% - 3rem));
     margin-inline: auto;
+    padding-block: 3rem 6rem;
+  }
+
+  .skill-directory-intro {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 2rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .skill-directory-intro > div {
+    max-width: 42rem;
+  }
+
+  .skill-directory-intro h1,
+  .skill-detail-hero h1 {
+    margin: 0;
+    font-size: clamp(2rem, 5vw, 3.25rem);
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    line-height: 1.08;
+  }
+
+  .skill-directory-intro h1 {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    letter-spacing: -0.025em;
+  }
+
+  .skill-directory-intro p {
+    margin: 0.5rem 0 0;
+    color: #666;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .skill-directory-layout {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .skill-directory-sidebar {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .skill-directory-control {
+    min-width: 0;
+  }
+
+  .skill-directory-results {
+    min-width: 0;
+  }
+
+  .skill-directory-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .skill-card {
+    display: grid;
+    min-height: 6.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 1.5rem;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    color: #171717;
+    padding: 1rem 1.25rem;
+    text-decoration: none;
+    transition: background-color 160ms ease;
+  }
+
+  .skill-card:hover {
+    background: #f4f4f4;
+  }
+
+  .skill-card:focus-visible {
+    outline: 2px solid #171717;
+    outline-offset: 3px;
+  }
+
+  .skill-card-heading {
+    min-width: 0;
+  }
+
+  .skill-noise-surface {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background-color: var(--skill-noise-from);
+    background-image: linear-gradient(
+      100deg,
+      var(--skill-noise-from) -21.3%,
+      var(--skill-noise-to) 89.88%
+    );
+    color: #fff;
+    text-shadow: 0 1px 1px rgb(0 0 0 / 20%);
+  }
+
+  .skill-noise-surface::before {
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    background-image: url("/assets/images/noise.png");
+    background-repeat: repeat;
+    content: "";
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
+  .skill-noise-surface > span {
+    position: relative;
+  }
+
+  .skill-card-heading > div {
+    min-width: 0;
+  }
+
+  .skill-card-title {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .skill-card h2 {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .skill-card-lock {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  .skill-card-tags {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .skill-card-tags {
+    margin-top: 0.625rem;
+  }
+
+  .skill-card-preview {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 0.75rem 0 0;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    color: #666;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .skill-card-tags > span,
+  .skill-scope-list .skill-noise-surface {
+    border-radius: 0;
+    padding: 0.3125rem 0.625rem;
+    font-size: 0.6875rem;
+    line-height: 1.25;
+  }
+
+  .skill-directory-empty {
+    border-top: 1px solid #dedede;
+    padding-block: 3rem;
     text-align: center;
   }
 
-  .welcome-heading {
-    color: var(--color-text-secondary);
-    font-size: 0.875rem;
-    font-weight: 400;
-    line-height: 1.6;
+  .skill-directory-empty h2 {
+    margin: 0;
+    font-size: 1.125rem;
+  }
+
+  .skill-directory-empty p {
+    margin: 0.5rem 0 0;
+    color: #737373;
+  }
+
+  .skill-detail-main {
+    padding-top: 2rem;
+  }
+
+  .skill-detail-hero {
+    border-bottom: 1px solid #dedede;
+    padding-block: 2.5rem;
+  }
+
+  .skill-detail-hero h1 {
+    overflow-wrap: anywhere;
+    font-size: clamp(1.5rem, 3vw, 2rem);
+  }
+
+  .skill-headline-char {
+    display: inline-block;
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(10px);
   }
 
   .welcome-prompt {
-    margin-top: 0.5rem;
+    min-width: 0;
+    margin-top: 1.5rem;
   }
 
   .welcome-copy-action {
     display: grid;
     width: 100%;
     gap: 0.5rem;
-    justify-items: center;
+    justify-items: start;
   }
 
   .welcome-copy-button {
@@ -459,11 +732,11 @@
     width: fit-content;
     cursor: pointer;
     align-items: center;
-    justify-self: center;
+    justify-self: start;
     gap: 0.625rem;
-    border: 1px solid #09090b;
-    border-radius: 2rem;
-    background: #09090b;
+    border: 1px solid #555bd6;
+    border-radius: 0;
+    background: #555bd6;
     color: #fff;
     padding: 0.75rem 1.25rem;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
@@ -475,14 +748,9 @@
       transform 200ms ease;
   }
 
-  @supports (corner-shape: squircle) {
-    .welcome-copy-button {
-      corner-shape: squircle;
-    }
-  }
-
   .welcome-copy-button:hover {
-    background: #27272a;
+    border-color: #454bc5;
+    background: #454bc5;
   }
 
   .welcome-copy-button:active {
@@ -545,6 +813,7 @@
     width: 100%;
     min-width: 0;
     min-height: 1.4em;
+    text-align: left;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.75rem;
     line-height: 1.4;
@@ -566,7 +835,7 @@
 
   .welcome-copy-preview {
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     color: var(--color-text-secondary);
   }
 
@@ -591,62 +860,240 @@
 
   .welcome-copy-feedback {
     color: #2563eb;
-    text-align: center;
+    text-align: left;
   }
 
   .welcome-copy-action[data-state="failed"] .welcome-copy-feedback {
     color: var(--color-text-secondary);
   }
 
-  .welcome-admin-link {
-    position: fixed;
-    z-index: 1;
-    right: 1.5rem;
-    bottom: 1.5rem;
-    width: fit-content;
-    color: var(--color-text-secondary);
-    font-size: 0.75rem;
-    opacity: 0.7;
-    text-decoration: none;
+  .skill-detail-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 18rem;
+    gap: 4rem;
+    align-items: start;
+    padding-top: 3rem;
   }
 
-  .welcome-admin-link:hover,
-  .welcome-admin-link:focus-visible {
-    color: var(--color-text-primary);
-    opacity: 1;
-    text-decoration: underline;
+  .skill-detail-instructions {
+    min-width: 0;
   }
 
-  .login-auth-panel {
-    text-align: center;
+  .skill-markdown {
+    color: #2d2d2d;
+    font-size: 0.9375rem;
+    line-height: 1.75;
   }
 
-  .login-auth-logo {
-    width: 10rem;
-    margin-inline: auto;
+  .skill-markdown > :first-child {
+    margin-top: 0;
   }
 
-  @media (max-width: 30rem) {
-    .welcome-shell {
-      padding-right: 1rem;
-      padding-left: 1rem;
+  .skill-markdown > :last-child {
+    margin-bottom: 0;
+  }
+
+  .skill-markdown h1,
+  .skill-markdown h2,
+  .skill-markdown h3 {
+    margin: 2rem 0 0.75rem;
+    color: #171717;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+  }
+
+  .skill-markdown h1 {
+    font-size: 1.75rem;
+  }
+
+  .skill-markdown h2 {
+    border-bottom: 1px solid #e7e7e7;
+    padding-bottom: 0.5rem;
+    font-size: 1.25rem;
+  }
+
+  .skill-markdown h3 {
+    font-size: 1rem;
+  }
+
+  .skill-markdown p,
+  .skill-markdown ul,
+  .skill-markdown ol,
+  .skill-markdown blockquote,
+  .skill-markdown pre {
+    margin-block: 1rem;
+  }
+
+  .skill-markdown code,
+  .skill-detail-sidebar code {
+    border-radius: 0.25rem;
+    background: #ededed;
+    padding: 0.125rem 0.3rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.875em;
+    overflow-wrap: anywhere;
+  }
+
+  .skill-markdown pre {
+    overflow-x: auto;
+    border: 1px solid #dedede;
+    border-radius: 0.625rem;
+    background: #f3f3f3;
+    padding: 1rem;
+  }
+
+  .skill-markdown pre code {
+    background: transparent;
+    padding: 0;
+  }
+
+  .skill-markdown blockquote {
+    border-left: 3px solid #a3a3a3;
+    margin-inline: 0;
+    padding-left: 1rem;
+    color: #666;
+  }
+
+  .skill-markdown a {
+    color: #245c9b;
+    text-underline-offset: 0.2em;
+  }
+
+  .skill-markdown-image-note {
+    color: #737373;
+    font-style: italic;
+  }
+
+  .skill-detail-sidebar {
+    display: grid;
+    gap: 1rem;
+    border-left: 1px solid #dedede;
+    padding-left: 2rem;
+  }
+
+  .skill-detail-sidebar h2 {
+    margin: 0 0 0.25rem;
+    color: #737373;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .skill-detail-sidebar dl,
+  .skill-detail-sidebar dd {
+    margin: 0;
+  }
+
+  .skill-detail-sidebar dl {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .skill-detail-sidebar dt {
+    margin-bottom: 0.25rem;
+    color: #737373;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .skill-detail-sidebar dd,
+  .skill-detail-muted {
+    color: #3f3f3f;
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+
+  .skill-scope-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .skill-scope-list li {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  .skill-detail-muted {
+    margin: 0;
+  }
+
+  @media (max-width: 52rem) {
+    .skill-directory-layout {
+      grid-template-columns: 1fr;
+      gap: 2rem;
     }
 
-    .welcome-panel {
-      padding: 1rem 0;
+    .skill-directory-sidebar {
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      align-items: end;
     }
 
-    .welcome-brand-lockup {
+    .skill-detail-layout {
+      grid-template-columns: 1fr;
+      gap: 3rem;
+    }
+
+    .skill-detail-sidebar {
+      grid-row: 1;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-left: 0;
+      border-bottom: 1px solid #dedede;
+      padding: 0 0 2rem;
+    }
+  }
+
+  @media (max-width: 38rem) {
+    .directory-header {
+      padding-inline: 1rem;
+    }
+
+    .directory-brand img:last-child:not(:first-child),
+    .directory-brand span,
+    .directory-user-email {
+      display: none;
+    }
+
+    .skill-directory-main,
+    .skill-detail-main {
+      width: min(100% - 2rem, 75rem);
+      padding-block: 3rem 4rem;
+    }
+
+    .skill-directory-intro {
+      align-items: stretch;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .skill-directory-sidebar {
+      grid-template-columns: 1fr;
+    }
+
+    .skill-card {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+
+    .skill-detail-sidebar {
+      grid-template-columns: 1fr;
+    }
+
+    .public-home-main {
+      width: calc(100% - 2rem);
+    }
+
+    .public-brand-lockup {
       gap: 0.75rem;
     }
 
-    .welcome-brand-x {
+    .public-brand-x {
       font-size: 1.25rem;
-    }
-
-    .welcome-admin-link {
-      right: 1rem;
-      bottom: 1rem;
     }
   }
 }
@@ -659,5 +1106,11 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .skill-headline-char {
+    opacity: 1;
+    filter: none;
+    transform: none;
   }
 }

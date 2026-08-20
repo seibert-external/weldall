@@ -190,11 +190,20 @@ const cliSettingsMetadata = z
   })
   .strict();
 const skillVisibility = z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]);
+const skillMeta = z
+  .object({
+    tags: z.array(z.string()).optional(),
+    owner: z.string().optional(),
+  })
+  .strict()
+  .nullable();
 const skillSnapshot = z
   .object({
     title: z.string().min(1).max(200),
     requiredScopes: scopeArray,
     visibility: skillVisibility,
+    meta: skillMeta,
+    lastUpdatedAt: z.string().nullable(),
     contentSha256: digest,
     version: z.number().int().positive(),
   })
@@ -205,6 +214,8 @@ const skillCreatedMetadata = z
     title: z.string().min(1).max(200),
     requiredScopes: scopeArray,
     visibility: skillVisibility,
+    meta: skillMeta,
+    lastUpdatedAt: z.string().nullable(),
     contentSha256: digest,
     version: z.number().int().positive(),
   })

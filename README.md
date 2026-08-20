@@ -183,7 +183,7 @@ pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com
 pnpm build:dev
 ```
 
-The development seed includes the Expenses scopes and resource described below. It also registers the read-only `dev-expenses-reader` machine using the public half of the `DEV_M2M_SIGNING_*` key pair generated in `.env`; production seeding does not create this machine. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
+The development seed includes the Expenses scopes and resource described below, plus 100 demonstration skills across finance, human resources, contract management, sales, support, procurement, compliance, operations, marketing, and engineering. It also registers the read-only `dev-expenses-reader` machine using the public half of the `DEV_M2M_SIGNING_*` key pair generated in `.env`; production seeding does not create this machine. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
 
 Start long-running processes in two foreground terminals:
 

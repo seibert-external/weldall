@@ -7,6 +7,10 @@ import { withAccess } from "./auth.js";
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 export type SkillSource = { type: "admin" } | { type: "resource"; key: string; name: string };
+export interface SkillMeta {
+  tags?: string[];
+  owner?: string;
+}
 
 export interface SkillSummary {
   slug: string;
@@ -16,6 +20,8 @@ export interface SkillSummary {
   available: boolean;
   missingScopes: string[];
   updatedAt: string;
+  meta?: SkillMeta;
+  lastUpdatedAt?: string;
   source: SkillSource;
 }
 
@@ -34,6 +40,12 @@ export interface SkillDetail extends SkillSummary {
   document: string;
 }
 
+const isMeta = (value: unknown): value is SkillMeta =>
+  isRecord(value) &&
+  (value.tags === undefined ||
+    (Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === "string"))) &&
+  (value.owner === undefined || typeof value.owner === "string");
+
 const isSource = (value: unknown): value is SkillSource =>
   isRecord(value) &&
   (value.type === "admin" ||
@@ -50,6 +62,8 @@ const isSkillSummary = (value: unknown): value is SkillSummary =>
   Array.isArray(value.missingScopes) &&
   value.missingScopes.every((scope) => typeof scope === "string") &&
   typeof value.updatedAt === "string" &&
+  (value.meta === undefined || isMeta(value.meta)) &&
+  (value.lastUpdatedAt === undefined || typeof value.lastUpdatedAt === "string") &&
   isSource(value.source);
 
 async function authenticatedGet(config: WeldallConfig, url: string) {

@@ -72,9 +72,17 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
       title: "",
       requiredScopes: [] as string[],
       visibility: "DEFAULT" as "DEFAULT" | "HIDDEN_IF_UNALLOWED",
+      tags: "",
+      owner: "",
+      lastUpdatedAt: "",
       content: "",
     },
     onSubmit: async ({ value }) => {
+      const meta = skillMetaFromForm(value.tags, value.owner);
+      const optionalFields = {
+        ...(meta ? { meta } : {}),
+        ...(value.lastUpdatedAt !== "" ? { lastUpdatedAt: value.lastUpdatedAt } : {}),
+      };
       if (skillQuery.data) {
         await updateMutation.mutateAsync({
           id: skillQuery.data.id,
@@ -82,6 +90,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
           content: value.content.trim(),
           requiredScopes: value.requiredScopes,
           visibility: value.visibility,
+          ...optionalFields,
           expectedVersion: skillQuery.data.version,
         });
       } else {
@@ -91,6 +100,7 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
           content: value.content.trim(),
           requiredScopes: value.requiredScopes,
           visibility: value.visibility,
+          ...optionalFields,
         });
       }
       await queryClient.invalidateQueries();
@@ -105,6 +115,9 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
       title: skillQuery.data.title,
       requiredScopes: skillQuery.data.requiredScopes,
       visibility: skillQuery.data.visibility,
+      tags: skillQuery.data.meta?.tags?.join("\n") ?? "",
+      owner: skillQuery.data.meta?.owner ?? "",
+      lastUpdatedAt: skillQuery.data.lastUpdatedAt ?? "",
       content: skillQuery.data.content,
     });
   }, [form, skillQuery.data]);
@@ -301,6 +314,42 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
                 />
               )}
             </form.Field>
+            <form.Field name="tags">
+              {(field) => (
+                <TextArea
+                  isDisabled={isReadOnly}
+                  label="Tags (one per line)"
+                  onChange={field.handleChange}
+                  placeholder={"automation\nfinance"}
+                  rows={4}
+                  value={String(field.state.value)}
+                />
+              )}
+            </form.Field>
+            <form.Field name="owner">
+              {(field) => (
+                <TextInput
+                  isDisabled={isReadOnly}
+                  label="Owner user ID"
+                  onChange={field.handleChange}
+                  placeholder="user-id"
+                  value={String(field.state.value)}
+                  width="100%"
+                />
+              )}
+            </form.Field>
+            <form.Field name="lastUpdatedAt">
+              {(field) => (
+                <TextInput
+                  isDisabled={isReadOnly}
+                  label="Last updated at"
+                  onChange={field.handleChange}
+                  placeholder="2026-06-25T12:00:00Z"
+                  value={String(field.state.value)}
+                  width="100%"
+                />
+              )}
+            </form.Field>
             <form.Field
               name="content"
               validators={{
@@ -355,6 +404,14 @@ export function SkillDetail({ skillId }: { skillId: string | null }) {
       />
     </>
   );
+}
+
+function skillMetaFromForm(tags: string, owner: string) {
+  if (tags === "" && owner === "") return undefined;
+  return {
+    ...(tags !== "" ? { tags: tags.split("\n") } : {}),
+    ...(owner !== "" ? { owner } : {}),
+  };
 }
 
 function validateSlug(value: unknown): string | undefined {

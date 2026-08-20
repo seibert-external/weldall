@@ -191,7 +191,7 @@ function validatePrimitive(
       "requestPrefixes",
       "scopes",
     ],
-    skills: ["slug", "title", "content", "requiredScopes", "visibility"],
+    skills: ["slug", "title", "content", "requiredScopes", "visibility", "meta", "lastUpdatedAt"],
     machines: ["clientId", "name", "enabled", "publicKeys", "resources", "scopes"],
     emailAssignments: ["email", "scopes"],
     groupAssignments: ["provider", "groupId", "scopes"],
@@ -199,7 +199,7 @@ function validatePrimitive(
   for (const field of Object.keys(object))
     if (!fields[section].includes(field)) throw new CliError(`Unknown ${section} field ${field}`);
   const required = fields[section].filter(
-    (field) => !(field === "skillDiscoveryEnabled" || field === "publicKeys"),
+    (field) => !["skillDiscoveryEnabled", "publicKeys", "meta", "lastUpdatedAt"].includes(field),
   );
   for (const field of required)
     if (!(field in object)) throw new CliError(`${section}.${field} is required`);
@@ -269,6 +269,20 @@ function validatePrimitive(
       throw new CliError("Invalid skills.requiredScopes");
     if (!(["DEFAULT", "HIDDEN_IF_UNALLOWED"] as unknown[]).includes(object.visibility))
       throw new CliError("Invalid skills.visibility");
+    if (object.meta !== undefined) {
+      const meta = record(object.meta);
+      if (Object.keys(meta).some((field) => !["tags", "owner"].includes(field)))
+        throw new CliError("Unknown skills.meta field");
+      if (
+        meta.tags !== undefined &&
+        (!Array.isArray(meta.tags) || !meta.tags.every((tag) => typeof tag === "string"))
+      )
+        throw new CliError("Invalid skills.meta.tags");
+      if (meta.owner !== undefined && typeof meta.owner !== "string")
+        throw new CliError("Invalid skills.meta.owner");
+    }
+    if (object.lastUpdatedAt !== undefined && typeof object.lastUpdatedAt !== "string")
+      throw new CliError("Invalid skills.lastUpdatedAt");
   } else if (section === "machines") {
     text("clientId", 128, /^[A-Za-z0-9._:-]+$/);
     text("name", 200);

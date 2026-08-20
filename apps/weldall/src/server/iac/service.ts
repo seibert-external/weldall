@@ -420,6 +420,8 @@ async function upsertObject(
               content: state.content,
               requiredScopes: state.requiredScopes,
               visibility: state.visibility,
+              meta: state.meta,
+              lastUpdatedAt: state.lastUpdatedAt,
             }
           : {
               action: "create",
@@ -428,6 +430,8 @@ async function upsertObject(
               content: state.content,
               requiredScopes: state.requiredScopes,
               visibility: state.visibility,
+              meta: state.meta,
+              lastUpdatedAt: state.lastUpdatedAt,
             },
         mutation,
       )

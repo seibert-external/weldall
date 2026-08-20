@@ -210,28 +210,32 @@ function SectionNavItem({
 
 function WeldallHeader() {
   const { isCollapsed } = useSideNavCollapse();
-  return isCollapsed ? (
-    <div className="border-border bg-surface mx-auto grid h-8 w-8 place-items-center border text-sm font-semibold">
-      W
-    </div>
-  ) : (
-    <div className="admin-brand relative -m-2 flex h-20 w-[calc(100%+1rem)] items-center justify-center overflow-hidden">
-      <div
-        aria-hidden="true"
-        className="admin-brand-noise pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage: "url(/assets/images/noise.png)",
-          backgroundRepeat: "repeat",
-        }}
-      />
-      <img
-        src="/assets/images/weldall.png"
-        alt="Weldall"
-        width={144}
-        height={40}
-        className="relative h-10 w-auto"
-      />
-    </div>
+  return (
+    <a href="/" aria-label="Open skill directory" className="block text-inherit no-underline">
+      {isCollapsed ? (
+        <div className="border-border bg-surface mx-auto grid h-8 w-8 place-items-center border text-sm font-semibold">
+          W
+        </div>
+      ) : (
+        <div className="admin-brand relative -m-2 flex h-20 w-[calc(100%+1rem)] items-center justify-center overflow-hidden">
+          <div
+            aria-hidden="true"
+            className="admin-brand-noise pointer-events-none absolute inset-0"
+            style={{
+              backgroundImage: "url(/assets/images/noise.png)",
+              backgroundRepeat: "repeat",
+            }}
+          />
+          <img
+            src="/assets/images/weldall.png"
+            alt="Weldall"
+            width={144}
+            height={40}
+            className="relative h-10 w-auto"
+          />
+        </div>
+      )}
+    </a>
   );
 }
 

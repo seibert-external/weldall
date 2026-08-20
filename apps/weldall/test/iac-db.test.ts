@@ -357,6 +357,8 @@ describe("IaC database transaction contracts", () => {
           content: "# Private initial content",
           requiredScopes: [`${prefix}:managed`],
           visibility: "HIDDEN_IF_UNALLOWED",
+          meta: { tags: ["managed", ""], owner: `${prefix}-owner` },
+          lastUpdatedAt: "managed-revision-one",
         },
       },
     });
@@ -374,6 +376,12 @@ describe("IaC database transaction contracts", () => {
       db.cliSettings.findUniqueOrThrow({ where: { id: "default" } }),
     ).resolves.toMatchObject({
       logoUrl,
+    });
+    await expect(
+      db.skill.findUniqueOrThrow({ where: { slug: `${prefix}.review` } }),
+    ).resolves.toMatchObject({
+      meta: { tags: ["managed", ""], owner: `${prefix}-owner` },
+      lastUpdatedAt: "managed-revision-one",
     });
     await expect(getIacState(manifest.workspace.id)).resolves.toMatchObject({
       objects: expect.arrayContaining([

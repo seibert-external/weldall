@@ -3,8 +3,8 @@ import "./styles.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Weldall Administration",
-  description: "Manage Weldall scopes and email assignments",
+  title: "Weldall Skills",
+  description: "Browse the agent skills available through Weldall.",
 };
 
 export const viewport: Viewport = {

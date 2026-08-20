@@ -4,12 +4,19 @@ export const SKILL_ASSERTION_TYPE = "weldall-skills+jwt" as const;
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 
+export interface SkillMeta {
+  tags?: string[];
+  owner?: string;
+}
+
 export interface PublishedSkill {
   id: string;
   title: string;
   requiredScopes: string[];
   visibility: SkillVisibility;
   content: string;
+  meta?: SkillMeta;
+  lastUpdatedAt?: string;
 }
 
 export interface SkillCatalog {
@@ -28,7 +35,16 @@ const LOCAL_SKILL_ID = /^[a-z0-9]+(?:[_-][a-z0-9]+)*$/;
 const GLOBAL_SCOPE = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
 const VISIBILITIES = new Set<SkillVisibility>(["DEFAULT", "HIDDEN_IF_UNALLOWED"]);
 const CATALOG_KEYS = new Set(["schemaVersion", "resource", "skills"]);
-const SKILL_KEYS = new Set(["id", "title", "requiredScopes", "visibility", "content"]);
+const SKILL_KEYS = new Set([
+  "id",
+  "title",
+  "requiredScopes",
+  "visibility",
+  "content",
+  "meta",
+  "lastUpdatedAt",
+]);
+const SKILL_META_KEYS = new Set(["tags", "owner"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,7 +73,7 @@ export function parseSkillCatalog(value: unknown, expectedResource?: string): Sk
     if (!isRecord(candidate) || !hasExactKeys(candidate, SKILL_KEYS)) {
       throw new TypeError("invalid published skill");
     }
-    const { id, title, requiredScopes, visibility, content } = candidate;
+    const { id, title, requiredScopes, visibility, content, meta, lastUpdatedAt } = candidate;
     if (typeof id !== "string" || id.length > 120 || !LOCAL_SKILL_ID.test(id) || ids.has(id)) {
       throw new TypeError("published skill IDs must be unique valid local IDs");
     }
@@ -83,12 +99,27 @@ export function parseSkillCatalog(value: unknown, expectedResource?: string): Sk
     if (typeof visibility !== "string" || !VISIBILITIES.has(visibility as SkillVisibility)) {
       throw new TypeError("published skill visibility is invalid");
     }
+    if (
+      meta !== undefined &&
+      (!isRecord(meta) ||
+        !hasExactKeys(meta, SKILL_META_KEYS) ||
+        (meta.tags !== undefined &&
+          (!Array.isArray(meta.tags) || !meta.tags.every((tag) => typeof tag === "string"))) ||
+        (meta.owner !== undefined && typeof meta.owner !== "string"))
+    ) {
+      throw new TypeError("published skill meta is invalid");
+    }
+    if (lastUpdatedAt !== undefined && typeof lastUpdatedAt !== "string") {
+      throw new TypeError("published skill lastUpdatedAt is invalid");
+    }
     return {
       id,
       title,
       requiredScopes: scopes,
       visibility: visibility as SkillVisibility,
       content,
+      ...(meta !== undefined ? { meta: meta as SkillMeta } : {}),
+      ...(lastUpdatedAt !== undefined ? { lastUpdatedAt } : {}),
     };
   });
   return {

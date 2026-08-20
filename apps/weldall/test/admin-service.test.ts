@@ -811,11 +811,15 @@ describe("admin scope service", () => {
         content: "Use `weldall request --scope expenses:read https://example.com/data`.",
         requiredScopes: ["expenses:read", "weldall:administer"],
         visibility: "DEFAULT",
+        meta: { tags: ["finance", "", "finance"], owner: "user-without-validation" },
+        lastUpdatedAt: "arbitrary-last-update",
       },
       primaryActor,
     );
     expect(publicSkill).toMatchObject({
       requiredScopes: ["expenses:read", "weldall:administer"],
+      meta: { tags: ["finance", "", "finance"], owner: "user-without-validation" },
+      lastUpdatedAt: "arbitrary-last-update",
       scopeWarnings: [],
     });
     const hiddenSkill = await createSkill(
@@ -859,6 +863,9 @@ describe("admin scope service", () => {
       requiredScopes: ["expenses:read", "weldall:administer"],
       available: true,
       missingScopes: [],
+      meta: { tags: ["finance", "", "finance"], owner: "user-without-validation" },
+      lastUpdatedAt: "arbitrary-last-update",
+      document: expect.stringContaining('lastUpdatedAt: "arbitrary-last-update"'),
     });
 
     const updated = await updateSkill(
@@ -876,6 +883,8 @@ describe("admin scope service", () => {
       title: "Updated public skill",
       version: 2,
     });
+    expect(updated.meta).toBeUndefined();
+    expect(updated.lastUpdatedAt).toBeUndefined();
     await expect(
       deleteSkill({ id: updated.id, expectedVersion: publicSkill.version }, primaryActor),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -889,6 +898,35 @@ describe("admin scope service", () => {
       },
       primaryActor,
     );
+  });
+
+  it("resolves resources involved through required scopes", async () => {
+    const scope = await createScope(
+      { key: `${namespace}:skill-resource`, description: "Skill resource scope." },
+      primaryActor,
+    );
+    const resource = await createResource(
+      resourceInput("skill-details", scope.id, { name: "Skill details resource" }),
+      primaryActor,
+    );
+    const skill = await createSkill(
+      {
+        slug: `${namespace}.resource-details`,
+        title: "Resource details",
+        content: "Use the involved resource.",
+        requiredScopes: [scope.key],
+        visibility: "DEFAULT",
+      },
+      primaryActor,
+    );
+
+    await expect(getVisibleSkill(primaryEmail, skill.slug)).resolves.toMatchObject({
+      involvedResources: [{ key: resource.key, name: "Skill details resource" }],
+    });
+
+    await deleteSkill({ id: skill.id, expectedVersion: skill.version }, primaryActor);
+    await deleteResource({ id: resource.id, expectedVersion: resource.version }, primaryActor);
+    await deleteScope({ id: scope.id, expectedVersion: scope.version }, primaryActor);
   });
 
   it("blocks deleting scopes that are still referenced by skills", async () => {
