@@ -611,11 +611,7 @@
   }
 
   .skill-card:hover {
-    background: color-mix(
-      in srgb,
-      var(--color-background-surface) 96%,
-      var(--color-text-primary)
-    );
+    background: color-mix(in srgb, var(--color-background-surface) 96%, var(--color-text-primary));
   }
 
   .skill-card-link {
