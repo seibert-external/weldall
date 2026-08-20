@@ -47,7 +47,8 @@ export class WeldallDiscovery {
   private unknownRefreshAt = 0;
 
   constructor(
-    private readonly host: string,
+    private readonly issuer: string,
+    private readonly fetchOrigin: string,
     private readonly timeoutMs: number,
   ) {}
 
@@ -100,13 +101,15 @@ export class WeldallDiscovery {
 
   private async fetchMetadata(): Promise<DiscoveryMetadata> {
     try {
-      const value = await this.fetchJson(`${this.host}/.well-known/oauth-authorization-server`);
+      const value = await this.fetchJson(
+        `${this.fetchOrigin}/.well-known/oauth-authorization-server`,
+      );
       if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("invalid metadata");
       const { issuer, jwks_uri: jwksUri } = value as Record<string, unknown>;
-      if (issuer !== this.host || typeof jwksUri !== "string") throw new Error("issuer mismatch");
+      if (issuer !== this.issuer || typeof jwksUri !== "string") throw new Error("issuer mismatch");
       const url = new URL(jwksUri);
-      if (url.origin !== this.host || url.username || url.password || url.search || url.hash)
+      if (url.origin !== this.issuer || url.username || url.password || url.search || url.hash)
         throw new Error("unsafe jwks_uri");
       this.metadata = { issuer, jwks_uri: url.toString() };
       return this.metadata;
@@ -121,7 +124,8 @@ export class WeldallDiscovery {
     this.jwksPromise = (async () => {
       const metadata = await this.discover();
       try {
-        const value = await this.fetchJson(metadata.jwks_uri);
+        const jwksUrl = new URL(metadata.jwks_uri);
+        const value = await this.fetchJson(`${this.fetchOrigin}${jwksUrl.pathname}`);
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new Error("invalid JWKS");
         const keys = (value as { keys?: unknown }).keys;
