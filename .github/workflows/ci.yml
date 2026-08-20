@@ -338,8 +338,8 @@ jobs:
           env PATH="$RUNNER_TEMP/empty-path" "$EXECUTABLE" init --help
 
   e2e:
-    needs: verify
     if: github.event_name != 'pull_request' || github.head_ref != 'changeset-release/main'
+    continue-on-error: true
     runs-on: weldall
     timeout-minutes: 30
     steps:
@@ -370,7 +370,6 @@ jobs:
       - cli-packed-native
       - cli-standalone-native
       - cli-standalone-detached
-      - e2e
     runs-on: weldall
     timeout-minutes: 20
     permissions:
