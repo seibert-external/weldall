@@ -7,7 +7,7 @@ The image exposes only these unauthenticated public endpoints:
 - `GET /.well-known/oauth-authorization-server`
 - `GET /api/oauth/jwks`
 
-All other paths return `404`, non-GET requests return `405`, and requests with query parameters return `404`. Responses are forwarded unchanged so resource servers can continue validating the canonical issuer and JWKS location.
+All other paths return `404`. On the two exposed paths, non-GET requests return `405` and requests with query parameters return `404`. JSON response bodies are forwarded unchanged so resource servers can continue validating the canonical issuer and JWKS location.
 
 ## Build
 
