@@ -33,7 +33,7 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
   if (!skill) notFound();
 
   return (
-    <div className="skill-detail-page" data-theme="light">
+    <div className="skill-detail-page" data-astryx-media="light">
       <DirectoryHeader logoUrl={logoUrl}>
         <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
       </DirectoryHeader>
