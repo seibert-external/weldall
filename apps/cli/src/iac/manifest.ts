@@ -3,6 +3,7 @@ import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { parseDocument } from "yaml";
+import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { CliError } from "../errors.js";
 
 export const MANIFEST_VERSION = "weldall.dev/v1";
@@ -275,7 +276,12 @@ function validatePrimitive(
         throw new CliError("Unknown skills.meta field");
       if (
         meta.tags !== undefined &&
-        (!Array.isArray(meta.tags) || !meta.tags.every((tag) => typeof tag === "string"))
+        (!Array.isArray(meta.tags) ||
+          meta.tags.length > SKILL_TAG_LIMIT ||
+          !meta.tags.every(
+            (tag) =>
+              typeof tag === "string" && tag.length > 0 && tag.length <= SKILL_TAG_LENGTH_LIMIT,
+          ))
       )
         throw new CliError("Invalid skills.meta.tags");
       if (meta.owner !== undefined && typeof meta.owner !== "string")

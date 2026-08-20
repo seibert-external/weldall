@@ -167,12 +167,14 @@ function SkillRow({ skill }: { skill: VisibleSkill }) {
   );
 
   return (
-    <a
-      className={`skill-card${skill.available ? "" : " skill-card-locked"}`}
-      href={`/skill/${encodeURIComponent(skill.slug)}`}
-    >
+    <div className={`skill-card${skill.available ? "" : " skill-card-locked"}`}>
+      <a
+        aria-label={`View ${skill.title}`}
+        className="skill-card-link"
+        href={`/skill/${encodeURIComponent(skill.slug)}`}
+      />
       {content}
-    </a>
+    </div>
   );
 }
 
@@ -192,4 +194,3 @@ function getSkillSourceLabel(skill: VisibleSkill): string {
 function formatMissingScopeCount(count: number): string {
   return `Missing ${count} ${count === 1 ? "scope" : "scopes"}`;
 }
-

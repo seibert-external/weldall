@@ -567,6 +567,7 @@
   }
 
   .skill-card {
+    position: relative;
     display: grid;
     min-height: 6.5rem;
     grid-template-columns: minmax(0, 1fr);
@@ -577,7 +578,6 @@
     background: #fff;
     color: #171717;
     padding: 1rem 1.25rem;
-    text-decoration: none;
     transition: background-color 160ms ease;
   }
 
@@ -585,7 +585,14 @@
     background: #f4f4f4;
   }
 
-  .skill-card:focus-visible {
+  .skill-card-link {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    color: inherit;
+  }
+
+  .skill-card-link:focus-visible {
     outline: 2px solid #171717;
     outline-offset: 3px;
   }
@@ -643,6 +650,8 @@
   }
 
   .skill-card-lock {
+    position: relative;
+    z-index: 2;
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;

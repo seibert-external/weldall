@@ -102,7 +102,7 @@ describe("native YAML workspaces", () => {
       content: "# Review expenses\n\nUse approved steps.",
       requiredScopes: ["expenses:read"],
       visibility: "HIDDEN_IF_UNALLOWED",
-      meta: { tags: ["finance", ""], owner: "user-123" },
+      meta: { tags: ["finance", "review"], owner: "user-123" },
       lastUpdatedAt: "unrestricted update value",
     };
     const client = {
@@ -472,7 +472,7 @@ describe("native YAML workspaces", () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
     await workspace(
       root,
-      "skills:\n  review:\n    slug: expenses.review\n    title: Review expenses\n    content: '# Review expenses'\n    requiredScopes: [expenses:write, expenses:read]\n    visibility: HIDDEN_IF_UNALLOWED\n    meta:\n      tags: [finance, '', finance]\n      owner: user-123\n    lastUpdatedAt: not-a-timestamp\n",
+      "skills:\n  review:\n    slug: expenses.review\n    title: Review expenses\n    content: '# Review expenses'\n    requiredScopes: [expenses:write, expenses:read]\n    visibility: HIDDEN_IF_UNALLOWED\n    meta:\n      tags: [finance, review, finance]\n      owner: user-123\n    lastUpdatedAt: not-a-timestamp\n",
     );
     const loaded = await loadWorkspace(root);
     const lock = newLock(loaded.manifest);
@@ -482,7 +482,7 @@ describe("native YAML workspaces", () => {
       content: "# Review expenses",
       requiredScopes: ["expenses:read", "expenses:write"],
       visibility: "HIDDEN_IF_UNALLOWED",
-      meta: { tags: ["finance", "", "finance"], owner: "user-123" },
+      meta: { tags: ["finance", "review", "finance"], owner: "user-123" },
       lastUpdatedAt: "not-a-timestamp",
     });
     expect(

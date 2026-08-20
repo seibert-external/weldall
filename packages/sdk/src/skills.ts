@@ -1,6 +1,8 @@
 export const SKILL_CATALOG_SCHEMA_VERSION = 1 as const;
 export const SKILL_CATALOG_PATH = "/.well-known/weldall-skills" as const;
 export const SKILL_ASSERTION_TYPE = "weldall-skills+jwt" as const;
+export const SKILL_TAG_LIMIT = 20 as const;
+export const SKILL_TAG_LENGTH_LIMIT = 40 as const;
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 
@@ -104,7 +106,12 @@ export function parseSkillCatalog(value: unknown, expectedResource?: string): Sk
       (!isRecord(meta) ||
         !hasExactKeys(meta, SKILL_META_KEYS) ||
         (meta.tags !== undefined &&
-          (!Array.isArray(meta.tags) || !meta.tags.every((tag) => typeof tag === "string"))) ||
+          (!Array.isArray(meta.tags) ||
+            meta.tags.length > SKILL_TAG_LIMIT ||
+            !meta.tags.every(
+              (tag) =>
+                typeof tag === "string" && tag.length > 0 && tag.length <= SKILL_TAG_LENGTH_LIMIT,
+            ))) ||
         (meta.owner !== undefined && typeof meta.owner !== "string"))
     ) {
       throw new TypeError("published skill meta is invalid");

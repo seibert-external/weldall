@@ -1,4 +1,5 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { z } from "zod";
 import { AUDIT_EVENT_TYPES, getAuditEvent, listAuditEvents } from "../audit/service";
@@ -87,7 +88,7 @@ const pageInput = {
 };
 const skillMetaInput = z
   .object({
-    tags: z.array(z.string()).optional(),
+    tags: z.array(z.string().min(1).max(SKILL_TAG_LENGTH_LIMIT)).max(SKILL_TAG_LIMIT).optional(),
     owner: z.string().optional(),
   })
   .strict()

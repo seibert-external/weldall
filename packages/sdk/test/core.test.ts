@@ -12,6 +12,7 @@ import {
   issueAccessToken,
   issueIdJag as issueSdkIdJag,
   oauthErrorResponse,
+  parseSkillCatalog,
   signEs256,
   verifyAccessToken,
   verifyIdJag,
@@ -31,6 +32,28 @@ let fetchCalls: string[];
 
 const issueIdJag = (input: Omit<Parameters<typeof issueSdkIdJag>[0], "email">) =>
   issueSdkIdJag({ ...input, email: "user@example.com" });
+
+it.each([[""], ["x".repeat(41)], Array.from({ length: 21 }, (_, index) => `tag-${index}`)])(
+  "rejects invalid published skill tags",
+  (tags) => {
+    expect(() =>
+      parseSkillCatalog({
+        schemaVersion: 1,
+        resource,
+        skills: [
+          {
+            id: "review",
+            title: "Review expenses",
+            requiredScopes: [],
+            visibility: "DEFAULT",
+            content: "# Review expenses",
+            meta: { tags },
+          },
+        ],
+      }),
+    ).toThrow(/meta/);
+  },
+);
 
 beforeEach(async () => {
   weldallKey = await generateEs256KeyPair();
@@ -223,7 +246,7 @@ describe("configuration and metadata", () => {
             requiredScopes: ["expenses:read"],
             visibility: "DEFAULT",
             content: "# Review expenses",
-            meta: { tags: ["finance", ""], owner: "user-123" },
+            meta: { tags: ["finance", "review"], owner: "user-123" },
             lastUpdatedAt: "not restricted to a timestamp",
           },
         ],
@@ -265,7 +288,7 @@ describe("configuration and metadata", () => {
         {
           id: "review",
           visibility: "DEFAULT",
-          meta: { tags: ["finance", ""], owner: "user-123" },
+          meta: { tags: ["finance", "review"], owner: "user-123" },
           lastUpdatedAt: "not restricted to a timestamp",
         },
       ],

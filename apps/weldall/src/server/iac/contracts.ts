@@ -4,6 +4,8 @@ import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
   normalizeResourceIdentifier,
+  SKILL_TAG_LENGTH_LIMIT,
+  SKILL_TAG_LIMIT,
 } from "@weldall/sdk";
 import { z } from "zod";
 import { parseCliLogoUrl } from "../branding";
@@ -132,7 +134,10 @@ export const desiredStateSchema = z
             visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
             meta: z
               .object({
-                tags: z.array(z.string()).optional(),
+                tags: z
+                  .array(z.string().min(1).max(SKILL_TAG_LENGTH_LIMIT))
+                  .max(SKILL_TAG_LIMIT)
+                  .optional(),
                 owner: z.string().optional(),
               })
               .strict()

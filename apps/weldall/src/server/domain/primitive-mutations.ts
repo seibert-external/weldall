@@ -6,6 +6,8 @@ import {
   normalizeRequestPrefix,
   normalizeResourceIdentifier,
   requestPrefixesOverlap,
+  SKILL_TAG_LENGTH_LIMIT,
+  SKILL_TAG_LIMIT,
 } from "@weldall/sdk";
 import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
@@ -876,7 +878,11 @@ function parseSkill(input: SkillMutableInput & { slug?: string }, create: boolea
     input.meta !== undefined &&
     ((input.meta.tags !== undefined &&
       (!Array.isArray(input.meta.tags) ||
-        !input.meta.tags.every((tag) => typeof tag === "string"))) ||
+        input.meta.tags.length > SKILL_TAG_LIMIT ||
+        !input.meta.tags.every(
+          (tag) =>
+            typeof tag === "string" && tag.length > 0 && tag.length <= SKILL_TAG_LENGTH_LIMIT,
+        ))) ||
       (input.meta.owner !== undefined && typeof input.meta.owner !== "string"))
   )
     throw new PrimitiveMutationError("INVALID_SKILL", "Skill meta is invalid.");
