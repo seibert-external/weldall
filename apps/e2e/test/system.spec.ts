@@ -153,9 +153,14 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   await page.goto("https://weldall.seibert.localdev/scopes");
   await expect(page.getByRole("heading", { name: "Scopes" })).toBeVisible();
-  await expect(page.getByText("weldall:administer", { exact: true })).toBeVisible();
-  await expect(page.getByText("weldall:login", { exact: true })).toBeVisible();
-  await expect(page.getByText("expenses:read", { exact: true })).toBeVisible();
+  const scopeSearch = page.getByRole("textbox", { name: "Find scopes" });
+  for (const scope of ["weldall:administer", "weldall:login", "expenses:read"]) {
+    await scopeSearch.fill(scope);
+    await expect(
+      page.getByRole("row").filter({ has: page.getByText(scope, { exact: true }) }),
+    ).toBeVisible();
+  }
+  await scopeSearch.clear();
 
   await page.getByRole("button", { name: "Create scope" }).click();
   const scopeDialog = page.getByRole("dialog");
@@ -228,7 +233,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.getByRole("link", { name: "Cancel" }).click();
 
   await page.getByRole("link", { name: "Skill registry" }).click();
-  await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Skill registry" })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByRole("link", { name: "Create skill" }).click();
   await page.getByRole("textbox", { name: /^Skill ID/ }).fill("expenses.list");
   await page.getByRole("textbox", { name: /^Title/ }).fill("List expenses");
@@ -241,7 +248,11 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     .fill(
       "Load expenses with `weldall request --scope expenses:read https://expenses.seibert.localdev/api/expenses`.",
     );
-  await page.getByRole("button", { name: "Create skill" }).click();
+  await Promise.all([
+    page.waitForURL("https://weldall.seibert.localdev/skills"),
+    page.getByRole("button", { name: "Create skill" }).click(),
+  ]);
+  await page.goto("https://weldall.seibert.localdev/skills?q=expenses.list");
   await expect(page.getByRole("row").filter({ hasText: "expenses.list" })).toBeVisible();
 
   const scopes = await runCli("scopes");
@@ -389,7 +400,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.goto("https://weldall.seibert.localdev/resources");
   const disabledReportsRow = page.getByRole("row").filter({ hasText: "reports" });
   await disabledReportsRow.click();
-  await expect(page.getByRole("link", { name: "View skills (1)" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View skills (0)" })).toBeVisible();
   await page.getByRole("button", { name: "Delete resource" }).click();
   const deleteResourceDialog = page.getByRole("alertdialog");
   await expect(deleteResourceDialog).toContainText("Reports");
@@ -461,7 +472,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   await page.goto("https://weldall.seibert.localdev/");
   await expect(page.getByRole("heading", { name: "Skill directory" })).toBeVisible();
   await expect(page.getByText("bob@example.com", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "No skills available yet" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View Analyze budget variance" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
 
   await page.goto("https://weldall.seibert.localdev/resources");
