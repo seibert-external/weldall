@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import "./styles.css";
 import { Providers } from "./providers";
 
@@ -14,11 +15,14 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default async function Layout({ children }: { children: React.ReactNode }) {
+  const savedMode = (await cookies()).get("weldall-theme")?.value;
+  const initialMode = savedMode === "light" || savedMode === "dark" ? savedMode : "system";
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <Providers>{children}</Providers>
+        <Providers initialMode={initialMode}>{children}</Providers>
       </body>
     </html>
   );

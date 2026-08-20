@@ -27,7 +27,7 @@ export default async function Home() {
   ]);
 
   return (
-    <div className="skill-directory-page" data-astryx-media="light">
+    <div className="skill-directory-page">
       <DirectoryHeader logoUrl={logoUrl}>
         <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
       </DirectoryHeader>
@@ -49,7 +49,7 @@ export default async function Home() {
 
 function LoggedOutHome({ logoUrl }: { logoUrl: string }) {
   return (
-    <div className="public-home" data-astryx-media="light">
+    <div className="public-home">
       <DirectoryHeader logoUrl="">
         <Button href="/login" label="Log in" size="sm" variant="primary" />
       </DirectoryHeader>

@@ -4,13 +4,9 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
-import { useGSAP } from "@gsap/react";
-import gsap from "gsap";
-import { useEffect, useMemo, useRef, useState, type SVGProps } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type SVGProps } from "react";
 import type { VisibleSkill } from "@/server/skills/service";
 import { SkillNoiseBadge } from "./skill-noise-badge";
-
-gsap.registerPlugin(useGSAP);
 
 const SEARCH_DEBOUNCE_MS = 200;
 
@@ -18,7 +14,6 @@ export function SkillDirectory({ skills }: { skills: VisibleSkill[] }) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [tagFilter, setTagFilter] = useState("");
-  const listRef = useRef<HTMLDivElement>(null);
   const tagOptions = useMemo(
     () => Array.from(new Set(skills.flatMap((skill) => skill.meta?.tags ?? []))).sort(),
     [skills],
@@ -45,36 +40,6 @@ export function SkillDirectory({ skills }: { skills: VisibleSkill[] }) {
       ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
     });
   }, [debouncedQuery, skills, tagFilter]);
-  const filteredSkillKey = filteredSkills.map((skill) => skill.slug).join("|");
-
-  useGSAP(
-    () => {
-      const list = listRef.current;
-      if (!list) return;
-      const rows = gsap.utils.toArray<HTMLElement>(".skill-card", list);
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (reduceMotion) {
-        gsap.set(rows, { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" });
-        return;
-      }
-
-      gsap.fromTo(
-        rows,
-        { opacity: 0, y: 12, scale: 0.99, filter: "blur(4px)" },
-        {
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          filter: "blur(0px)",
-          duration: 0.24,
-          ease: "power2.out",
-          stagger: { each: 0.08, from: "start" },
-          overwrite: "auto",
-        },
-      );
-    },
-    { dependencies: [filteredSkillKey], scope: listRef },
-  );
 
   if (skills.length === 0) {
     return (
@@ -113,11 +78,11 @@ export function SkillDirectory({ skills }: { skills: VisibleSkill[] }) {
         </div>
       </aside>
 
-      <div className="skill-directory-results" ref={listRef}>
+      <div className="skill-directory-results">
         {filteredSkills.length ? (
           <div className="skill-directory-list">
-            {filteredSkills.map((skill) => (
-              <SkillRow skill={skill} key={skill.slug} />
+            {filteredSkills.map((skill, index) => (
+              <SkillRow animationOrder={Math.min(index, 8)} skill={skill} key={skill.slug} />
             ))}
           </div>
         ) : (
@@ -131,7 +96,7 @@ export function SkillDirectory({ skills }: { skills: VisibleSkill[] }) {
   );
 }
 
-function SkillRow({ skill }: { skill: VisibleSkill }) {
+function SkillRow({ animationOrder, skill }: { animationOrder: number; skill: VisibleSkill }) {
   const content = (
     <>
       <div className="skill-card-heading">
@@ -166,8 +131,10 @@ function SkillRow({ skill }: { skill: VisibleSkill }) {
     </>
   );
 
+  const style = { "--skill-card-animation-order": animationOrder } as CSSProperties;
+
   return (
-    <div className={`skill-card${skill.available ? "" : " skill-card-locked"}`}>
+    <div className={`skill-card${skill.available ? "" : " skill-card-locked"}`} style={style}>
       <a
         aria-label={`View ${skill.title}`}
         className="skill-card-link"
