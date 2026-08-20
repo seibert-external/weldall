@@ -140,6 +140,7 @@ model Skill {
 model CliSettings {
   id        String   @id @default("default")
   appendix  String   @default("")
+  logoUrl   String
   version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

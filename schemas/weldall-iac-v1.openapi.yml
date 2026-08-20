@@ -92,6 +92,7 @@ components:
       properties:
         apiVersion: { const: weldall.dev/v1 }
         workspace: { $ref: "#/components/schemas/Workspace" }
+        cli: { $ref: "./weldall-manifest-v1.schema.json#/properties/cli" }
         scopes: { $ref: "./weldall-manifest-v1.schema.json#/properties/scopes" }
         resources: { $ref: "./weldall-manifest-v1.schema.json#/properties/resources" }
         machines: { $ref: "./weldall-manifest-v1.schema.json#/properties/machines" }
@@ -100,7 +101,7 @@ components:
         groupAssignments: { $ref: "./weldall-manifest-v1.schema.json#/properties/groupAssignments" }
     Address:
       type: string
-      pattern: '^(scope|resource|machine|emailAssignment|groupAssignment|skill)\.[a-z][a-z0-9_-]{0,119}$'
+      pattern: '^(scope|resource|machine|emailAssignment|groupAssignment|skill|cli)\.[a-z][a-z0-9_-]{0,119}$'
     Digest: { type: string, pattern: "^[a-f0-9]{64}$" }
     OperationId: { type: string, format: uuid }
     Workspace:
@@ -172,7 +173,7 @@ components:
       properties:
         {
           address: { $ref: "#/components/schemas/Address" },
-          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment, skill] },
+          kind: { enum: [scope, resource, machine, emailAssignment, groupAssignment, skill, cli] },
           action:
             { enum: [create, update, replace, delete, recreate, register_key, revoke_key, noop] },
           identity: { type: string, maxLength: 320 },

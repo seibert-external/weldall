@@ -34,6 +34,21 @@ const importContext = {
 };
 
 describe("native YAML workspaces", () => {
+  it("serializes a CLI logo declaration without defaulting empty values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(root, 'cli:\n  logoUrl: ""\n');
+    const loaded = await loadWorkspace(root);
+    const manifest = serverManifest(loaded.manifest, newLock(loaded.manifest));
+    expect(manifest.cli).toEqual({ logoUrl: "" });
+    expect(canonicalManifestDigest(manifest)).toMatch(/^[a-f0-9]{64}$/);
+    await expect(
+      (async () => {
+        await workspace(root, "cli:\n  logoUrl: http://example.com/logo.svg\n");
+        return loadWorkspace(root);
+      })(),
+    ).rejects.toThrow(/HTTPS/);
+  });
+
   it("rejects a noncanonical HTTPS init issuer without creating workspace files", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
     const previous = process.cwd();

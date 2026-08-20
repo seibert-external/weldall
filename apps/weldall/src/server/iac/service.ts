@@ -318,6 +318,19 @@ async function executeDesiredState(
       await tx.iacObjectBinding.update({ where: { id: binding.id }, data });
       Object.assign(binding, data);
     }
+  if (manifest.cli) {
+    const current = await tx.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
+    if (current.logoUrl !== manifest.cli.logoUrl)
+      await tx.cliSettings.update({
+        where: { id: current.id },
+        data: {
+          logoUrl: manifest.cli.logoUrl,
+          version: { increment: 1 },
+          updatedBy: actor.clientId,
+        },
+      });
+  }
+
   if (replacementResources.size || replacementScopes.size)
     for (const kind of [
       "resource",

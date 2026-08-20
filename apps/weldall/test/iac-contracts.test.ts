@@ -25,6 +25,32 @@ const manifest = () =>
   });
 
 describe("native YAML IaC contracts", () => {
+  it("plans canonical CLI logo updates and preserves an empty value", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      cli: { logoUrl: "" },
+    });
+    expect(desired.cli?.logoUrl).toBe("");
+    const plan = createPlan(desired, {
+      revision: 1,
+      objects: [],
+      cliSettings: { logoUrl: "https://example.com/old.svg", version: 4 },
+    });
+    expect(plan.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          address: "cli.default",
+          kind: "cli",
+          action: "update",
+          observedVersion: 4,
+        }),
+      ]),
+    );
+    expect(() =>
+      parseDesiredState({ ...manifest(), cli: { logoUrl: "http://example.com/logo.svg" } }),
+    ).toThrow();
+  });
+
   it("canonicalizes object keys and set relations deterministically", () => {
     expect(canonicalJson({ z: ["b", "a"], a: 1 })).toBe('{"a":1,"z":["b","a"]}');
     expect(digest({ b: 2, a: 1 })).toBe(digest({ a: 1, b: 2 }));
