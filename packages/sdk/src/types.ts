@@ -103,6 +103,7 @@ export type WeldallOptions = {
   signingKey: Signing;
   replayStore: ReplayStore | "disabled";
   discoveryTimeoutMs?: number;
+  discoveryProxyOrigin?: string;
   allowInsecureLoopback?: boolean;
   skills?: SkillProvider;
 };

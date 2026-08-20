@@ -70,6 +70,18 @@ A caller is either a user or a machine. Check `auth.identity.type` before readin
 
 Discovery happens on the first request that needs it. Call `await weldall.ready()` during startup if the service should fail early when Weldall cannot be reached.
 
+If the resource cannot connect to the Weldall issuer directly, set `discoveryProxyOrigin` to a trusted HTTPS reverse proxy:
+
+```ts
+const weldall = initWeldall("https://weldall.example.com", {
+  // Keep the remaining resource options unchanged.
+  discoveryProxyOrigin: "https://weldall-discovery-proxy.internal.example.com",
+  // ...
+});
+```
+
+The proxy only transports authorization-server metadata and JWKS requests. The SDK still requires metadata and signed assertions to identify the canonical Weldall issuer, and it requires the advertised `jwks_uri` to remain on that canonical origin. The proxy must expose `GET /.well-known/oauth-authorization-server` and the canonical JWKS path advertised by that response (Weldall currently uses `GET /api/oauth/jwks`) without rewriting their JSON responses.
+
 ## Scope rules
 
 A route can require one or more scopes:

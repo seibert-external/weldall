@@ -17,9 +17,12 @@ import {
   verifyAccessToken,
   verifyIdJag,
   type DpopKeyPair,
+  type WeldallOptions,
 } from "../src/index.js";
 
 const host = "https://weldall.example";
+const discoveryProxyOrigin = "https://weldall-discovery-proxy.example";
+const jwksUrl = `${host}/api/oauth/jwks`;
 const origin = "https://expenses.example";
 const resource = `${origin}/api`;
 const clientId = "weldall-cli-at-expenses";
@@ -68,9 +71,12 @@ beforeEach(async () => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       fetchCalls.push(url);
-      if (url === `${host}/.well-known/oauth-authorization-server`)
-        return Response.json({ issuer: host, jwks_uri: `${host}/jwks` });
-      if (url === `${host}/jwks`)
+      if (
+        url === `${host}/.well-known/oauth-authorization-server` ||
+        url === `${discoveryProxyOrigin}/.well-known/oauth-authorization-server`
+      )
+        return Response.json({ issuer: host, jwks_uri: jwksUrl });
+      if (url === jwksUrl || url === `${discoveryProxyOrigin}/api/oauth/jwks`)
         return Response.json({
           keys: [
             {
@@ -86,7 +92,7 @@ beforeEach(async () => {
   );
 });
 
-const sdk = () =>
+const sdk = (overrides: Partial<WeldallOptions> = {}) =>
   initWeldall(host, {
     resource,
     publicOrigin: origin,
@@ -98,6 +104,7 @@ const sdk = () =>
       publicJwk: localKey.publicJwk,
     },
     replayStore: inMemory({ suppressWarning: true }),
+    ...overrides,
   });
 
 const assertion = (key = weldallKey, kid = "w1", scopes = ["read", "write"]) =>
@@ -194,6 +201,9 @@ describe("configuration and metadata", () => {
         discoveryTimeoutMs: 0,
       }),
     ).toThrow("discoveryTimeoutMs");
+    expect(() => sdk({ discoveryProxyOrigin: "" })).toThrow("discoveryProxyOrigin");
+    expect(() => sdk({ discoveryProxyOrigin: "http://proxy.example" })).toThrow("HTTPS");
+    expect(() => sdk({ discoveryProxyOrigin: `${discoveryProxyOrigin}/path` })).toThrow("origin");
     expect(() => sdk()).not.toThrow();
   });
 
@@ -209,7 +219,7 @@ describe("configuration and metadata", () => {
     const instance = sdk();
     expect(fetchCalls).toEqual([]);
     await instance.ready();
-    expect(fetchCalls).toEqual([`${host}/.well-known/oauth-authorization-server`, `${host}/jwks`]);
+    expect(fetchCalls).toEqual([`${host}/.well-known/oauth-authorization-server`, jwksUrl]);
     await expect(instance.handlers.protectedResourceMetadata()).resolves.toMatchObject({
       status: 200,
     });
@@ -224,6 +234,18 @@ describe("configuration and metadata", () => {
       keys: { kid: string }[];
     };
     expect(jwks.keys.map(({ kid }) => kid)).toEqual(["local"]);
+  });
+
+  it("retrieves canonical Weldall metadata and keys through a discovery proxy", async () => {
+    const instance = sdk({ discoveryProxyOrigin });
+    await instance.ready();
+    expect(fetchCalls).toEqual([
+      `${discoveryProxyOrigin}/.well-known/oauth-authorization-server`,
+      `${discoveryProxyOrigin}/api/oauth/jwks`,
+    ]);
+
+    const result = await exchange(instance);
+    expect(result.response.status).toBe(200);
   });
 
   it("publishes and protects a skill catalog with a replay-safe service assertion", async () => {
@@ -594,7 +616,7 @@ describe("exchange and verification", () => {
     discoveredKid = "w2";
     const result = await exchange(instance, assertion(rotated, "w2", ["read"]));
     expect(result.response.status).toBe(200);
-    expect(fetchCalls.filter((url) => url === `${host}/jwks`)).toHaveLength(2);
+    expect(fetchCalls.filter((url) => url === jwksUrl)).toHaveLength(2);
   });
 
   it("refreshes JWKS when a rotated key reuses the kid", async () => {
@@ -604,7 +626,7 @@ describe("exchange and verification", () => {
     discoveredKey = rotated;
     const result = await exchange(instance, assertion(rotated, "w1", ["read"]));
     expect(result.response.status).toBe(200);
-    expect(fetchCalls.filter((url) => url === `${host}/jwks`)).toHaveLength(2);
+    expect(fetchCalls.filter((url) => url === jwksUrl)).toHaveLength(2);
   });
 
   it("shares a same-kid rotation refresh across concurrent exchanges", async () => {
@@ -617,7 +639,7 @@ describe("exchange and verification", () => {
       exchange(instance, assertion(rotated, "w1", ["read"])),
     ]);
     expect(results.map(({ response }) => response.status)).toEqual([200, 200]);
-    expect(fetchCalls.filter((url) => url === `${host}/jwks`)).toHaveLength(2);
+    expect(fetchCalls.filter((url) => url === jwksUrl)).toHaveLength(2);
   });
 
   it("stops trusting a removed Weldall key after the JWKS cache expires", async () => {
@@ -632,7 +654,7 @@ describe("exchange and verification", () => {
     nowSpy.mockRestore();
     expect(result.response.status).toBe(400);
     expect(result.body.error).toBe("invalid_grant");
-    expect(fetchCalls.filter((url) => url === `${host}/jwks`).length).toBeGreaterThanOrEqual(2);
+    expect(fetchCalls.filter((url) => url === jwksUrl).length).toBeGreaterThanOrEqual(2);
   });
 
   it("fails closed when replay storage fails", async () => {
@@ -659,6 +681,19 @@ describe("exchange and verification", () => {
 });
 
 describe("discovery and signing hardening", () => {
+  it("does not accept the discovery proxy as the token issuer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          issuer: discoveryProxyOrigin,
+          jwks_uri: `${discoveryProxyOrigin}/api/oauth/jwks`,
+        }),
+      ),
+    );
+    await expect(sdk({ discoveryProxyOrigin }).ready()).rejects.toBeInstanceOf(WeldallAuthError);
+  });
+
   it.each([
     { issuer: "https://evil.example", jwks_uri: `${host}/jwks` },
     { issuer: host, jwks_uri: "https://evil.example/jwks" },

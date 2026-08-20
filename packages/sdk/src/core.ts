@@ -64,6 +64,10 @@ export function initWeldall(host: string, options: WeldallOptions) {
   if (!options || typeof options !== "object") throw new TypeError("Weldall options are required");
   const allowInsecure = options.allowInsecureLoopback === true;
   const hostUrl = parseUrl(host, "Weldall host", true, allowInsecure);
+  const discoveryProxyUrl =
+    options.discoveryProxyOrigin === undefined
+      ? hostUrl
+      : parseUrl(options.discoveryProxyOrigin, "discoveryProxyOrigin", true, allowInsecure);
   const publicOriginUrl = parseUrl(options.publicOrigin, "publicOrigin", true, allowInsecure);
   const resourceUrl = parseUrl(options.resource, "resource", false, allowInsecure);
   if (resourceUrl.search) throw new TypeError("resource must not contain a query");
@@ -96,7 +100,11 @@ export function initWeldall(host: string, options: WeldallOptions) {
   const clientId = options.clientId;
   const replayStore = options.replayStore;
   const signing = createSigningProvider(options.signingKey);
-  const discovery = new WeldallDiscovery(hostUrl.origin, discoveryTimeoutMs);
+  const discovery = new WeldallDiscovery(
+    hostUrl.origin,
+    discoveryProxyUrl.origin,
+    discoveryTimeoutMs,
+  );
   const tokenEndpoint = `${issuer}/oauth/token`;
   const skillsEndpoint = `${issuer}${SKILL_CATALOG_PATH}`;
 

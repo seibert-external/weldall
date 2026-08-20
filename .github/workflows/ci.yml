@@ -61,6 +61,9 @@ jobs:
           pnpm typecheck
           pnpm test
 
+      - name: Verify discovery proxy image
+        run: pnpm --filter @weldall/discovery-proxy image:test
+
       - name: Build workspaces
         run: pnpm build:dev
 
