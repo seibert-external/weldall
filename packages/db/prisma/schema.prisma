@@ -140,14 +140,15 @@ model Skill {
 }
 
 model CliSettings {
-  id        String   @id @default("default")
-  appendix  String   @default("")
-  logoUrl   String
-  version   Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  createdBy String
-  updatedBy String
+  id          String   @id @default("default")
+  appendix    String   @default("")
+  logoUrl     String
+  darkLogoUrl String   @default("")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
 }
 
 model DownstreamResource {

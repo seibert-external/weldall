@@ -16,7 +16,7 @@ export interface Manifest {
   apiVersion: typeof MANIFEST_VERSION;
   workspace: { name: string; issuer: string };
   include?: string[];
-  cli?: { logoUrl: string };
+  cli?: { logoUrl: string; darkLogoUrl?: string };
   scopes?: Record<string, unknown>;
   resources?: Record<string, unknown>;
   skills?: Record<string, unknown>;
@@ -135,12 +135,22 @@ export function validateRoot(value: Manifest) {
 function validateManifest(value: Manifest) {
   if (value.cli !== undefined) {
     const cli = record(value.cli);
-    if (Object.keys(cli).some((field) => field !== "logoUrl"))
+    if (Object.keys(cli).some((field) => field !== "logoUrl" && field !== "darkLogoUrl"))
       throw new CliError("Unknown cli field");
     if (typeof cli.logoUrl !== "string" || cli.logoUrl.length > 2_000)
       throw new CliError("Invalid cli.logoUrl");
     if (cli.logoUrl && canonicalHttpsUrl(cli.logoUrl, "cli.logoUrl", "asset") !== cli.logoUrl)
       throw new CliError("cli.logoUrl must be a canonical HTTPS URL");
+    if (
+      cli.darkLogoUrl !== undefined &&
+      (typeof cli.darkLogoUrl !== "string" || cli.darkLogoUrl.length > 2_000)
+    )
+      throw new CliError("Invalid cli.darkLogoUrl");
+    if (
+      cli.darkLogoUrl &&
+      canonicalHttpsUrl(cli.darkLogoUrl, "cli.darkLogoUrl", "asset") !== cli.darkLogoUrl
+    )
+      throw new CliError("cli.darkLogoUrl must be a canonical HTTPS URL");
   }
   let count = 0;
   const identities = new Set<string>();
@@ -418,7 +428,16 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
   return {
     apiVersion: manifest.apiVersion,
     workspace: manifest.workspace,
-    ...(manifest.cli ? { cli: { logoUrl: manifest.cli.logoUrl } } : {}),
+    ...(manifest.cli
+      ? {
+          cli: {
+            logoUrl: manifest.cli.logoUrl,
+            ...(manifest.cli.darkLogoUrl !== undefined
+              ? { darkLogoUrl: manifest.cli.darkLogoUrl }
+              : {}),
+          },
+        }
+      : {}),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({
       ...value,

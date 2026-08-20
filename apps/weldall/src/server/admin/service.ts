@@ -192,6 +192,7 @@ export interface SkillDto {
 export interface CliSettingsDto {
   appendix: string;
   logoUrl: string;
+  darkLogoUrl: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -419,7 +420,12 @@ export async function getCliSettings(): Promise<CliSettingsDto> {
 }
 
 export async function updateCliSettings(
-  input: { appendix: string; logoUrl?: string; expectedVersion: number },
+  input: {
+    appendix: string;
+    logoUrl?: string;
+    darkLogoUrl?: string | undefined;
+    expectedVersion: number;
+  },
   actor: AdminActor,
 ): Promise<CliSettingsDto> {
   const appendix = input.appendix.trim();
@@ -435,8 +441,10 @@ export async function updateCliSettings(
     });
     if (!current) throw new AdminDomainError("NOT_FOUND", "CLI settings are not initialized.");
     let logoUrl: string;
+    let darkLogoUrl: string;
     try {
       logoUrl = parseCliLogoUrl(input.logoUrl ?? current.logoUrl);
+      darkLogoUrl = parseCliLogoUrl(input.darkLogoUrl ?? current.darkLogoUrl);
     } catch (error) {
       throw new AdminDomainError(
         "INVALID_CLI_SETTINGS",
@@ -444,11 +452,15 @@ export async function updateCliSettings(
       );
     }
     assertVersion(current.version, input.expectedVersion);
-    if (current.appendix === appendix && current.logoUrl === logoUrl)
+    if (
+      current.appendix === appendix &&
+      current.logoUrl === logoUrl &&
+      current.darkLogoUrl === darkLogoUrl
+    )
       return serializeCliSettings(current);
     const write = await tx.cliSettings.updateMany({
       where: { id: current.id, version: input.expectedVersion },
-      data: { appendix, logoUrl, version: { increment: 1 }, updatedBy: actor.id },
+      data: { appendix, logoUrl, darkLogoUrl, version: { increment: 1 }, updatedBy: actor.id },
     });
     if (write.count !== 1) {
       throw new AdminDomainError("CONFLICT", "The CLI settings changed. Reload and try again.");
@@ -464,11 +476,13 @@ export async function updateCliSettings(
         before: {
           appendixSha256: contentHash(current.appendix),
           logoUrl: current.logoUrl,
+          darkLogoUrl: current.darkLogoUrl,
           version: current.version,
         },
         after: {
           appendixSha256: contentHash(updated.appendix),
           logoUrl: updated.logoUrl,
+          darkLogoUrl: updated.darkLogoUrl,
           version: updated.version,
         },
       },
@@ -1398,6 +1412,7 @@ function serializeScope(
 function serializeCliSettings(settings: {
   appendix: string;
   logoUrl: string;
+  darkLogoUrl: string;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -1405,6 +1420,7 @@ function serializeCliSettings(settings: {
   return {
     appendix: settings.appendix,
     logoUrl: settings.logoUrl,
+    darkLogoUrl: settings.darkLogoUrl,
     version: settings.version,
     createdAt: settings.createdAt.toISOString(),
     updatedAt: settings.updatedAt.toISOString(),

@@ -196,6 +196,7 @@ export const appRouter = trpc.router({
             .object({
               appendix: z.string().max(100_000),
               logoUrl: z.string().max(2_000),
+              darkLogoUrl: z.string().max(2_000).optional(),
               expectedVersion: z.number().int().positive(),
             })
             .strict(),

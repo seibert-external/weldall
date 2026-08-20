@@ -30,7 +30,7 @@ import {
 
 const runId = randomUUID().replaceAll("-", "");
 const prefix = `iacdb-${runId}`;
-let originalCliLogoUrl: string | undefined;
+let originalCliLogoUrls: { light: string; dark: string } | undefined;
 const actor: MutationActor = {
   type: "machine",
   id: `${prefix}-runner`,
@@ -39,10 +39,13 @@ const actor: MutationActor = {
 };
 
 afterAll(async () => {
-  if (originalCliLogoUrl !== undefined)
+  if (originalCliLogoUrls)
     await db.cliSettings.update({
       where: { id: "default" },
-      data: { logoUrl: originalCliLogoUrl },
+      data: {
+        logoUrl: originalCliLogoUrls.light,
+        darkLogoUrl: originalCliLogoUrls.dark,
+      },
     });
   await db.iacOperation.deleteMany({ where: { workspace: { name: { startsWith: prefix } } } });
   await db.iacObjectBinding.deleteMany({ where: { workspace: { name: { startsWith: prefix } } } });
@@ -339,8 +342,12 @@ describe("IaC database transaction contracts", () => {
       requestId: `${prefix}-apply-request`,
     };
     const cliSettings = await db.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
-    originalCliLogoUrl ??= cliSettings.logoUrl;
+    originalCliLogoUrls ??= {
+      light: cliSettings.logoUrl,
+      dark: cliSettings.darkLogoUrl,
+    };
     const logoUrl = `https://${prefix}.example/logo.svg`;
+    const darkLogoUrl = `https://${prefix}.example/logo-dark.svg`;
     const manifest = parseDesiredState({
       apiVersion: "weldall.dev/v1",
       workspace: {
@@ -348,7 +355,7 @@ describe("IaC database transaction contracts", () => {
         name: `${prefix}-workspace`,
         issuer: "https://weldall.example.com",
       },
-      cli: { logoUrl },
+      cli: { logoUrl, darkLogoUrl },
       scopes: { managed: { key: `${prefix}:managed`, description: "Managed" } },
       skills: {
         review: {
@@ -376,6 +383,7 @@ describe("IaC database transaction contracts", () => {
       db.cliSettings.findUniqueOrThrow({ where: { id: "default" } }),
     ).resolves.toMatchObject({
       logoUrl,
+      darkLogoUrl,
     });
     await expect(
       db.skill.findUniqueOrThrow({ where: { slug: `${prefix}.review` } }),
@@ -413,6 +421,25 @@ describe("IaC database transaction contracts", () => {
     await expect(
       db.auditEvent.findFirstOrThrow({ where: { requestId: rejectedRequestId } }),
     ).resolves.toMatchObject({ eventType: "iac.apply.failed", reasonCode: "invalid_request" });
+
+    const legacyManifest = parseDesiredState({ ...manifest, cli: { logoUrl } });
+    const legacyPlan = await planIac(legacyManifest);
+    expect(legacyPlan.actions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ address: "cli.default", action: "noop" })]),
+    );
+    await applyIac(
+      {
+        manifest: legacyManifest,
+        plannedRevision: legacyPlan.revision,
+        configDigest: legacyPlan.configDigest,
+        planDigest: legacyPlan.digest,
+        operationId: randomUUID(),
+      },
+      { ...iacActor, requestId: `${prefix}-legacy-apply-request` },
+    );
+    await expect(
+      db.cliSettings.findUniqueOrThrow({ where: { id: "default" } }),
+    ).resolves.toMatchObject({ logoUrl, darkLogoUrl });
 
     const changed = parseDesiredState({
       ...manifest,

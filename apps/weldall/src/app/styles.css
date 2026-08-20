@@ -485,6 +485,18 @@
     object-fit: contain;
   }
 
+  img.theme-logo-dark {
+    display: none;
+  }
+
+  [data-theme="dark"] img.theme-logo-light {
+    display: none;
+  }
+
+  [data-theme="dark"] img.theme-logo-dark {
+    display: block;
+  }
+
   .public-brand-x {
     color: var(--color-text-disabled);
     font-size: 2rem;

@@ -10,17 +10,17 @@ import { SkillContent } from "../../_components/skill-content";
 import { SkillNoiseBadge } from "../../_components/skill-noise-badge";
 import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
-import { getEffectiveCliLogoUrl } from "@/server/branding";
+import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { getVisibleSkill } from "@/server/skills/service";
 
 export const dynamic = "force-dynamic";
 
 export default async function SkillPage({ params }: { params: Promise<{ slug: string }> }) {
-  const [{ slug }, requestHeaders, logoUrl] = await Promise.all([
+  const [{ slug }, requestHeaders, logoUrls] = await Promise.all([
     params,
     headers(),
-    getEffectiveCliLogoUrl(),
+    getEffectiveCliLogoUrls(),
   ]);
   const session = await auth.api.getSession({ headers: requestHeaders });
   if (!session?.user.email) redirect("/login");
@@ -34,7 +34,7 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
 
   return (
     <div className="skill-detail-page">
-      <DirectoryHeader logoUrl={logoUrl}>
+      <DirectoryHeader logoUrls={logoUrls}>
         <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
       </DirectoryHeader>
       <main className="skill-detail-main">

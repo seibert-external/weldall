@@ -3,22 +3,23 @@ import { after } from "next/server";
 import { headers } from "next/headers";
 import { isAdminEmail } from "../server/admin/service";
 import { auth } from "../server/auth/auth";
-import { getEffectiveCliLogoUrl } from "../server/branding";
+import { getEffectiveCliLogoUrls, type CliLogoUrls } from "../server/branding";
 import { refreshDueCatalogs } from "../server/skills/catalogs";
 import { listVisibleSkills } from "../server/skills/service";
 import { DirectoryHeader } from "./_components/directory-header";
 import { DirectoryUserMenu } from "./_components/directory-user-menu";
 import { SkillDirectory } from "./_components/skill-directory";
+import { ThemeLogo } from "./_components/theme-logo";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [logoUrl, session] = await Promise.all([
-    getEffectiveCliLogoUrl(),
+  const [logoUrls, session] = await Promise.all([
+    getEffectiveCliLogoUrls(),
     auth.api.getSession({ headers: await headers() }),
   ]);
 
-  if (!session?.user.email) return <LoggedOutHome logoUrl={logoUrl} />;
+  if (!session?.user.email) return <LoggedOutHome logoUrls={logoUrls} />;
 
   after(() => refreshDueCatalogs());
   const [{ items: skills }, isAdmin] = await Promise.all([
@@ -28,7 +29,7 @@ export default async function Home() {
 
   return (
     <div className="skill-directory-page">
-      <DirectoryHeader logoUrl={logoUrl}>
+      <DirectoryHeader logoUrls={logoUrls}>
         <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
       </DirectoryHeader>
       <main className="skill-directory-main">
@@ -47,16 +48,16 @@ export default async function Home() {
   );
 }
 
-function LoggedOutHome({ logoUrl }: { logoUrl: string }) {
+function LoggedOutHome({ logoUrls }: { logoUrls: CliLogoUrls }) {
   return (
     <div className="public-home">
-      <DirectoryHeader logoUrl="">
+      <DirectoryHeader logoUrls={{ light: "", dark: "" }}>
         <Button href="/login" label="Log in" size="sm" variant="primary" />
       </DirectoryHeader>
       <main className="public-home-main">
         <div
           className="public-brand-lockup"
-          aria-label={logoUrl ? "Weldall with custom branding" : "Weldall"}
+          aria-label={logoUrls.light ? "Weldall with custom branding" : "Weldall"}
         >
           <img
             src="/assets/images/weldall.png"
@@ -65,13 +66,14 @@ function LoggedOutHome({ logoUrl }: { logoUrl: string }) {
             height={101}
             className="public-brand-logo public-brand-weldall"
           />
-          {logoUrl ? (
+          {logoUrls.light ? (
             <>
               <span className="public-brand-x" aria-hidden="true">
                 ×
               </span>
-              <img
-                src={logoUrl}
+              <ThemeLogo
+                lightUrl={logoUrls.light}
+                darkUrl={logoUrls.dark}
                 alt="Configured company logo"
                 width={958}
                 height={245}

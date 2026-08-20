@@ -770,11 +770,17 @@ describe("admin scope service", () => {
     const initial = await getCliSettings();
     const appendix = `Gude from ${runId}. Use this for everything related to Seibert.`;
     const logoUrl = `https://${namespace}.example/logo.svg`;
+    const darkLogoUrl = `https://${namespace}.example/logo-dark.svg`;
     const updated = await updateCliSettings(
-      { appendix, logoUrl, expectedVersion: initial.version },
+      { appendix, logoUrl, darkLogoUrl, expectedVersion: initial.version },
       primaryActor,
     );
-    expect(updated).toMatchObject({ appendix, logoUrl, version: initial.version + 1 });
+    expect(updated).toMatchObject({
+      appendix,
+      logoUrl,
+      darkLogoUrl,
+      version: initial.version + 1,
+    });
     await expect(
       updateCliSettings(
         { appendix: "stale", logoUrl, expectedVersion: initial.version },
@@ -793,12 +799,17 @@ describe("admin scope service", () => {
       ),
     ).rejects.toMatchObject({ code: "INVALID_CLI_SETTINGS" });
     const cleared = await updateCliSettings(
-      { appendix, logoUrl: "", expectedVersion: updated.version },
+      { appendix, logoUrl: "", darkLogoUrl: "", expectedVersion: updated.version },
       primaryActor,
     );
     expect(cleared.logoUrl).toBe("");
     await updateCliSettings(
-      { appendix: initial.appendix, logoUrl: initial.logoUrl, expectedVersion: cleared.version },
+      {
+        appendix: initial.appendix,
+        logoUrl: initial.logoUrl,
+        darkLogoUrl: initial.darkLogoUrl,
+        expectedVersion: cleared.version,
+      },
       primaryActor,
     );
   });

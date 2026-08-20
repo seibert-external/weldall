@@ -177,6 +177,7 @@ const cliSettingsMetadata = z
       .object({
         appendixSha256: digest,
         logoUrl: z.union([z.literal(""), z.string().url().max(2_000)]),
+        darkLogoUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
         version: z.number().int().positive(),
       })
       .strict(),
@@ -184,6 +185,7 @@ const cliSettingsMetadata = z
       .object({
         appendixSha256: digest,
         logoUrl: z.union([z.literal(""), z.string().url().max(2_000)]),
+        darkLogoUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
         version: z.number().int().positive(),
       })
       .strict(),

@@ -1,12 +1,23 @@
 import { db } from "@weldall/db";
 
-export async function getEffectiveCliLogoUrl(): Promise<string> {
+export interface CliLogoUrls {
+  light: string;
+  dark: string;
+}
+
+export async function getEffectiveCliLogoUrls(): Promise<CliLogoUrls> {
   const settings = await db.cliSettings.findUnique({
     where: { id: "default" },
-    select: { logoUrl: true },
+    select: { logoUrl: true, darkLogoUrl: true },
   });
+  const light = safelyParseCliLogoUrl(settings?.logoUrl);
+  const dark = safelyParseCliLogoUrl(settings?.darkLogoUrl);
+  return { light: light || dark, dark: dark || light };
+}
+
+function safelyParseCliLogoUrl(value: string | null | undefined): string {
   try {
-    return parseCliLogoUrl(settings?.logoUrl);
+    return parseCliLogoUrl(value);
   } catch {
     return "";
   }
