@@ -24,7 +24,7 @@ export interface CurrentObject {
 export interface PlanningState {
   revision: number;
   objects: CurrentObject[];
-  cliSettings?: { logoUrl: string; version: number };
+  cliSettings?: { logoUrl: string; darkLogoUrl: string; version: number };
   externalBlockers?: IacBlocker[];
 }
 
@@ -165,11 +165,16 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
 
   if (manifest.cli) {
     const currentCli = current.cliSettings;
+    const desiredDarkLogoUrl = manifest.cli.darkLogoUrl ?? currentCli?.darkLogoUrl ?? "";
     actions.push({
       address: "cli.default",
       kind: "cli",
       identity: "default",
-      action: currentCli?.logoUrl === manifest.cli.logoUrl ? "noop" : "update",
+      action:
+        currentCli?.logoUrl === manifest.cli.logoUrl &&
+        currentCli.darkLogoUrl === desiredDarkLogoUrl
+          ? "noop"
+          : "update",
       ...(currentCli ? { observedVersion: currentCli.version } : {}),
     });
   }
@@ -526,7 +531,13 @@ export async function loadPlanningState(
     revision: workspace?.revision ?? 0,
     objects,
     ...(cliSettings
-      ? { cliSettings: { logoUrl: cliSettings.logoUrl, version: cliSettings.version } }
+      ? {
+          cliSettings: {
+            logoUrl: cliSettings.logoUrl,
+            darkLogoUrl: cliSettings.darkLogoUrl,
+            version: cliSettings.version,
+          },
+        }
       : {}),
     externalBlockers,
   };

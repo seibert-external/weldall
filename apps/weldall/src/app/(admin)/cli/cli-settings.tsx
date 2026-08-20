@@ -29,22 +29,31 @@ export function CliSettings() {
     }),
   );
   const form = useForm({
-    defaultValues: { appendix: "", logoUrl: "" },
+    defaultValues: { appendix: "", logoUrl: "", darkLogoUrl: "" },
     onSubmit: async ({ value }) => {
       if (!settingsQuery.data) return;
       const updated = await updateMutation.mutateAsync({
         appendix: value.appendix,
         logoUrl: value.logoUrl,
+        darkLogoUrl: value.darkLogoUrl,
         expectedVersion: settingsQuery.data.version,
       });
-      form.reset({ appendix: updated.appendix, logoUrl: updated.logoUrl });
+      form.reset({
+        appendix: updated.appendix,
+        logoUrl: updated.logoUrl,
+        darkLogoUrl: updated.darkLogoUrl,
+      });
       await queryClient.invalidateQueries();
     },
   });
 
   useEffect(() => {
     if (settingsQuery.data)
-      form.reset({ appendix: settingsQuery.data.appendix, logoUrl: settingsQuery.data.logoUrl });
+      form.reset({
+        appendix: settingsQuery.data.appendix,
+        logoUrl: settingsQuery.data.logoUrl,
+        darkLogoUrl: settingsQuery.data.darkLogoUrl,
+      });
   }, [form, settingsQuery.data]);
 
   if (settingsQuery.isPending) return <Text color="secondary">Loading CLI settings…</Text>;
@@ -100,6 +109,25 @@ export function CliSettings() {
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
                   placeholder={copy.logoUrl.placeholder}
+                  value={String(field.state.value)}
+                />
+              )}
+            </form.Field>
+            <form.Field
+              name="darkLogoUrl"
+              validators={{
+                onChange: ({ value }) =>
+                  value.length <= 2_000 ? undefined : copy.darkLogoUrl.tooLong,
+                onSubmit: ({ value }) =>
+                  value.length <= 2_000 ? undefined : copy.darkLogoUrl.tooLong,
+              }}
+            >
+              {(field) => (
+                <TextInput
+                  label={copy.darkLogoUrl.label}
+                  onBlur={field.handleBlur}
+                  onChange={field.handleChange}
+                  placeholder={copy.darkLogoUrl.placeholder}
                   value={String(field.state.value)}
                 />
               )}

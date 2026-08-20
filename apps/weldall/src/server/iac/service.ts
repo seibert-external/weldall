@@ -320,11 +320,13 @@ async function executeDesiredState(
     }
   if (manifest.cli) {
     const current = await tx.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
-    if (current.logoUrl !== manifest.cli.logoUrl)
+    const darkLogoUrl = manifest.cli.darkLogoUrl ?? current.darkLogoUrl;
+    if (current.logoUrl !== manifest.cli.logoUrl || current.darkLogoUrl !== darkLogoUrl)
       await tx.cliSettings.update({
         where: { id: current.id },
         data: {
           logoUrl: manifest.cli.logoUrl,
+          darkLogoUrl,
           version: { increment: 1 },
           updatedBy: actor.clientId,
         },

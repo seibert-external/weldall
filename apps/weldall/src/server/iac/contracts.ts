@@ -88,6 +88,20 @@ export const desiredStateSchema = z
               }, "Logo URL must be HTTPS without credentials"),
           ])
           .transform(parseCliLogoUrl),
+        darkLogoUrl: z
+          .union([
+            z.literal(""),
+            z
+              .string()
+              .url()
+              .max(2_000)
+              .refine((value) => {
+                const url = new URL(value);
+                return url.protocol === "https:" && !url.username && !url.password;
+              }, "Dark mode logo URL must be HTTPS without credentials"),
+          ])
+          .transform(parseCliLogoUrl)
+          .optional(),
       })
       .strict()
       .optional(),

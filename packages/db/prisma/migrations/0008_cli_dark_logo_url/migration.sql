@@ -1,0 +1,2 @@
+ALTER TABLE "CliSettings"
+  ADD COLUMN "darkLogoUrl" TEXT NOT NULL DEFAULT '';

@@ -28,13 +28,20 @@ describe("native YAML IaC contracts", () => {
   it("plans canonical CLI logo updates and preserves an empty value", () => {
     const desired = parseDesiredState({
       ...manifest(),
-      cli: { logoUrl: "" },
+      cli: { logoUrl: "", darkLogoUrl: "https://example.com/dark.svg" },
     });
-    expect(desired.cli?.logoUrl).toBe("");
+    expect(desired.cli).toEqual({
+      logoUrl: "",
+      darkLogoUrl: "https://example.com/dark.svg",
+    });
     const plan = createPlan(desired, {
       revision: 1,
       objects: [],
-      cliSettings: { logoUrl: "https://example.com/old.svg", version: 4 },
+      cliSettings: {
+        logoUrl: "https://example.com/old.svg",
+        darkLogoUrl: "https://example.com/old-dark.svg",
+        version: 4,
+      },
     });
     expect(plan.actions).toEqual(
       expect.arrayContaining([
@@ -46,8 +53,31 @@ describe("native YAML IaC contracts", () => {
         }),
       ]),
     );
+    const legacyDesired = parseDesiredState({
+      ...manifest(),
+      cli: { logoUrl: "https://example.com/old.svg" },
+    });
+    const legacyPlan = createPlan(legacyDesired, {
+      revision: 1,
+      objects: [],
+      cliSettings: {
+        logoUrl: "https://example.com/old.svg",
+        darkLogoUrl: "https://example.com/old-dark.svg",
+        version: 4,
+      },
+    });
+    expect(legacyPlan.actions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ address: "cli.default", action: "noop" })]),
+    );
+
     expect(() =>
       parseDesiredState({ ...manifest(), cli: { logoUrl: "http://example.com/logo.svg" } }),
+    ).toThrow();
+    expect(() =>
+      parseDesiredState({
+        ...manifest(),
+        cli: { logoUrl: "", darkLogoUrl: "http://example.com/logo-dark.svg" },
+      }),
     ).toThrow();
   });
 
