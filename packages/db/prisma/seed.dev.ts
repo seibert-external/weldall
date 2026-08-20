@@ -1,68 +1,172 @@
 import { createHash } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
 
 const db = new PrismaClient();
 const actor = "development-seed";
 
 try {
-  const scopeDefinitions = [
-    ["scope-expenses-read", "expenses:read", "Read expenses."],
-    ["scope-expenses-create", "expenses:create", "Create expenses."],
-    ["scope-expenses-delete", "expenses:delete", "Delete expenses."],
-    ["scope-expenses-write", "expenses:write", "Modify expenses."],
+  const resourceDefinitions = [
+    {
+      key: "contracts",
+      name: "Contract Service",
+      scopes: [
+        ["contracts:read", "Read contracts and obligations."],
+        ["contracts:draft", "Draft and revise contracts."],
+        ["contracts:approve", "Approve contract changes."],
+      ],
+    },
+    {
+      key: "licenses",
+      name: "License Server",
+      scopes: [
+        ["licenses:read", "Read software license inventory."],
+        ["licenses:manage", "Manage software licenses and renewals."],
+        ["licenses:audit", "Audit software license usage."],
+      ],
+    },
+    {
+      key: "expenses",
+      name: "Expense Service",
+      scopes: [
+        ["expenses:read", "Read expenses."],
+        ["expenses:create", "Create expenses."],
+        ["expenses:write", "Modify expenses."],
+        ["expenses:delete", "Delete expenses."],
+        ["expenses:submit", "Submit expenses."],
+        ["expenses:approve", "Approve expenses."],
+      ],
+    },
+    {
+      key: "people",
+      name: "People Directory",
+      scopes: [
+        ["people:read", "Read people and team information."],
+        ["people:manage", "Manage people and employment records."],
+        ["people:report", "Create workforce reports."],
+      ],
+    },
+    {
+      key: "crm",
+      name: "Customer CRM",
+      scopes: [
+        ["crm:read", "Read customer and opportunity records."],
+        ["crm:write", "Create and update customer records."],
+        ["crm:export", "Export customer and campaign data."],
+      ],
+    },
+    {
+      key: "projects",
+      name: "Project Hub",
+      scopes: [
+        ["projects:read", "Read projects and delivery status."],
+        ["projects:plan", "Create and update project plans."],
+        ["projects:manage", "Manage project execution."],
+      ],
+    },
+    {
+      key: "knowledge",
+      name: "Knowledge Base",
+      scopes: [
+        ["knowledge:read", "Read internal knowledge."],
+        ["knowledge:write", "Create and update knowledge content."],
+        ["knowledge:publish", "Publish knowledge content."],
+      ],
+    },
   ] as const;
-  for (const [id, key, description] of scopeDefinitions) {
-    await db.scope.upsert({
-      where: { key },
-      create: { id, key, description, createdBy: actor, updatedBy: actor },
-      update: { description, updatedBy: actor },
-    });
+
+  if (resourceDefinitions.length !== 7) {
+    throw new Error(`Expected 7 development resources, found ${resourceDefinitions.length}.`);
+  }
+  const seededScopeKeys = new Set<string>(
+    resourceDefinitions.flatMap(({ scopes }) => scopes.map(([key]) => key)),
+  );
+  const missingSkillScopes = DEVELOPMENT_SKILL_SCOPE_KEYS.filter(
+    (scope) => !seededScopeKeys.has(scope),
+  );
+  if (missingSkillScopes.length) {
+    throw new Error(
+      `Development skills reference unseeded scopes: ${missingSkillScopes.join(", ")}`,
+    );
   }
 
-  const expenses = await db.downstreamResource.upsert({
-    where: { key: "expenses" },
-    create: {
-      id: "downstream-resource-expenses",
-      key: "expenses",
-      name: "Expenses",
-      resourceIdentifier: "https://expenses.seibert.localdev/api",
-      authorizationServer: "https://expenses.seibert.localdev",
-      downstreamClientId: "weldall-cli-at-expenses",
-      enabled: true,
-      skillDiscoveryEnabled: true,
-      createdBy: actor,
-      updatedBy: actor,
-    },
-    update: { enabled: true, skillDiscoveryEnabled: true, updatedBy: actor },
+  const resourceKeys = resourceDefinitions.map(({ key }) => key);
+  await db.downstreamResource.deleteMany({
+    where: { createdBy: actor, key: { notIn: resourceKeys } },
   });
-  await db.resourceRequestPrefix.upsert({
-    where: { urlPrefix: "https://expenses.seibert.localdev/api" },
-    create: {
-      id: "resource-prefix-expenses-api",
-      resourceId: expenses.id,
-      urlPrefix: "https://expenses.seibert.localdev/api",
-      createdBy: actor,
-    },
-    update: { resourceId: expenses.id },
-  });
-  const expenseScopes = await db.scope.findMany({
-    where: { key: { startsWith: "expenses:" } },
-    select: { id: true },
-  });
-  for (const scope of expenseScopes) {
-    await db.resourceScope.upsert({
-      where: {
-        resourceId_scopeId: { resourceId: expenses.id, scopeId: scope.id },
+
+  const resources = new Map<string, { id: string }>();
+  for (const definition of resourceDefinitions) {
+    for (const [key, description] of definition.scopes) {
+      await db.scope.upsert({
+        where: { key },
+        create: {
+          id: `scope-${key.replaceAll(":", "-")}`,
+          key,
+          description,
+          createdBy: actor,
+          updatedBy: actor,
+        },
+        update: { description, updatedBy: actor },
+      });
+    }
+
+    const origin = `https://${definition.key}.seibert.localdev`;
+    const resourceIdentifier = `${origin}/api`;
+    const resource = await db.downstreamResource.upsert({
+      where: { key: definition.key },
+      create: {
+        id: `downstream-resource-${definition.key}`,
+        key: definition.key,
+        name: definition.name,
+        resourceIdentifier,
+        authorizationServer: origin,
+        downstreamClientId: `weldall-cli-at-${definition.key}`,
+        enabled: true,
+        skillDiscoveryEnabled: false,
+        createdBy: actor,
+        updatedBy: actor,
       },
-      create: { resourceId: expenses.id, scopeId: scope.id },
-      update: {},
+      update: {
+        name: definition.name,
+        resourceIdentifier,
+        authorizationServer: origin,
+        downstreamClientId: `weldall-cli-at-${definition.key}`,
+        enabled: true,
+        skillDiscoveryEnabled: false,
+        updatedBy: actor,
+      },
     });
+    await db.resourceRequestPrefix.upsert({
+      where: { urlPrefix: resourceIdentifier },
+      create: {
+        id: `resource-prefix-${definition.key}-api`,
+        resourceId: resource.id,
+        urlPrefix: resourceIdentifier,
+        createdBy: actor,
+      },
+      update: { resourceId: resource.id },
+    });
+    const scopes = await db.scope.findMany({
+      where: { key: { in: definition.scopes.map(([key]) => key) } },
+      select: { id: true },
+    });
+    await db.resourceScope.deleteMany({
+      where: { resourceId: resource.id, scopeId: { notIn: scopes.map(({ id }) => id) } },
+    });
+    for (const scope of scopes) {
+      await db.resourceScope.upsert({
+        where: { resourceId_scopeId: { resourceId: resource.id, scopeId: scope.id } },
+        create: { resourceId: resource.id, scopeId: scope.id },
+        update: {},
+      });
+    }
+    resources.set(definition.key, resource);
   }
-  await db.discoveredSkillCatalog.upsert({
-    where: { resourceId: expenses.id },
-    create: { resourceId: expenses.id, nextRefreshAt: new Date() },
-    update: { nextRefreshAt: new Date() },
-  });
+
+  await seedDevelopmentSkills(db, actor);
+  const expenses = resources.get("expenses");
+  if (!expenses) throw new Error("Development expense resource was not seeded.");
 
   const publicJwk = parseDevelopmentMachinePublicJwk(process.env.DEV_M2M_SIGNING_PUBLIC_JWK);
   const kid = parseDevelopmentMachineKid(process.env.DEV_M2M_SIGNING_KID);
@@ -143,71 +247,6 @@ try {
         update: {},
       }),
     ]);
-  });
-
-  const developmentResource = await db.downstreamResource.upsert({
-    where: { key: "development-catalog" },
-    create: {
-      id: "downstream-resource-development-catalog",
-      key: "development-catalog",
-      name: "Development catalog diagnostics",
-      resourceIdentifier: "https://development-skills.seibert.localdev/api",
-      authorizationServer: "https://development-skills.seibert.localdev",
-      downstreamClientId: "weldall-cli-at-development-skills",
-      enabled: true,
-      skillDiscoveryEnabled: true,
-      createdBy: actor,
-      updatedBy: actor,
-    },
-    update: { enabled: true, skillDiscoveryEnabled: true, updatedBy: actor },
-  });
-  await db.resourceRequestPrefix.upsert({
-    where: { urlPrefix: "https://development-skills.seibert.localdev/api" },
-    create: {
-      id: "resource-prefix-development-skills-api",
-      resourceId: developmentResource.id,
-      urlPrefix: "https://development-skills.seibert.localdev/api",
-      createdBy: actor,
-    },
-    update: { resourceId: developmentResource.id },
-  });
-  const now = new Date();
-  const catalog = await db.discoveredSkillCatalog.upsert({
-    where: { resourceId: developmentResource.id },
-    create: {
-      resourceId: developmentResource.id,
-      sourceResourceVersion: developmentResource.version,
-      schemaVersion: 1,
-      lastAttemptAt: now,
-      lastSuccessfulRefreshAt: now,
-      nextRefreshAt: new Date(now.getTime() + 10 * 60 * 1_000),
-      staleAfter: new Date(now.getTime() + 24 * 60 * 60 * 1_000),
-    },
-    update: {
-      sourceResourceVersion: developmentResource.version,
-      schemaVersion: 1,
-      lastSuccessfulRefreshAt: now,
-      nextRefreshAt: new Date(now.getTime() + 10 * 60 * 1_000),
-      staleAfter: new Date(now.getTime() + 24 * 60 * 60 * 1_000),
-    },
-  });
-  await db.discoveredSkill.upsert({
-    where: { canonicalId: "development-catalog.unknown-scope" },
-    create: {
-      catalogId: catalog.id,
-      localId: "unknown-scope",
-      canonicalId: "development-catalog.unknown-scope",
-      title: "Unknown scope diagnostics",
-      content:
-        "# Unknown scope diagnostics\n\nThis development-only skill exercises admin warnings.",
-      requiredScopes: ["development:unknown"],
-      visibility: "DEFAULT",
-    },
-    update: {
-      catalogId: catalog.id,
-      requiredScopes: ["development:unknown"],
-      visibility: "DEFAULT",
-    },
   });
 } finally {
   await db.$disconnect();

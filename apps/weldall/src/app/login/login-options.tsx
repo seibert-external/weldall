@@ -15,7 +15,7 @@ export function LoginOptions({ google, dev }: { google: boolean; dev: boolean })
     if (session.isPending || !session.data) return;
     if (!window.location.search) queueOperationSuccess("Logged in", "auth-login");
     window.location.replace(
-      window.location.search ? `/api/auth/oauth2/authorize${window.location.search}` : "/scopes",
+      window.location.search ? `/api/auth/oauth2/authorize${window.location.search}` : "/",
     );
   }, [session.data, session.isPending]);
 
@@ -25,9 +25,7 @@ export function LoginOptions({ google, dev }: { google: boolean; dev: boolean })
     try {
       const result = await authClient.signIn.social({
         provider,
-        callbackURL: window.location.search
-          ? window.location.href
-          : `${window.location.origin}/scopes`,
+        callbackURL: window.location.search ? window.location.href : window.location.origin,
       });
       if (result.error) {
         operationToast.error("Could not log in", result.error, "auth-login");

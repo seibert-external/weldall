@@ -14,7 +14,7 @@ machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> res
 
 ## Major components
 
-- **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
+- **Weldall server and web UI** — a Next.js authorization server and control plane backed by PostgreSQL. Signed-in employees can search, filter, and inspect visible skills, including default-visible skills for which they lack scopes; administrators can also manage machine clients, scope policy, resources, skills, assignments, and audit events.
 - **Weldall CLI** — a cross-platform npm package with experimental standalone executables for Ubuntu x64, Windows x64, and macOS ARM64/x64. It supports native YAML IaC, interactive OAuth, capability discovery, and authenticated user requests while keeping sessions in the operating system's secure credential store.
 - **Pi extension** — the published `@weldall/pi` package loads the signed-in user's administrator-managed skills through the npm-installed CLI and exposes them as namespaced Pi commands.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.
@@ -183,7 +183,7 @@ pnpm --filter @weldall/weldall admin:bootstrap --email alice@example.com
 pnpm build:dev
 ```
 
-The development seed includes the Expenses scopes and resource described below. It also registers the read-only `dev-expenses-reader` machine using the public half of the `DEV_M2M_SIGNING_*` key pair generated in `.env`; production seeding does not create this machine. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
+The development seed includes the Expenses scopes and resource described below, plus 100 demonstration skills across finance, human resources, contract management, sales, support, procurement, compliance, operations, marketing, and engineering. It also registers the read-only `dev-expenses-reader` machine using the public half of the `DEV_M2M_SIGNING_*` key pair generated in `.env`; production seeding does not create this machine. `admin:bootstrap` grants the first administrator the protected `weldall:login` and `weldall:administer` scopes; after that first assignment, CLI access and administration are delegated through normal email or provider-group assignments. Rerunning bootstrap does not restore a revoked login scope.
 
 Start long-running processes in two foreground terminals:
 

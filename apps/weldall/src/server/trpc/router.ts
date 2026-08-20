@@ -1,4 +1,5 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { z } from "zod";
 import { AUDIT_EVENT_TYPES, getAuditEvent, listAuditEvents } from "../audit/service";
@@ -85,6 +86,13 @@ const pageInput = {
   pageSize: z.number().int().min(1).max(100).default(20),
   q: z.string().max(200).optional(),
 };
+const skillMetaInput = z
+  .object({
+    tags: z.array(z.string().min(1).max(SKILL_TAG_LENGTH_LIMIT)).max(SKILL_TAG_LIMIT).optional(),
+    owner: z.string().optional(),
+  })
+  .strict()
+  .optional();
 
 const adminProcedure = loggedProcedure.use(async ({ ctx, next }) => {
   const userId = ctx.session?.user.id;
@@ -414,6 +422,8 @@ export const appRouter = trpc.router({
               content: z.string().max(100_000),
               requiredScopes: z.array(z.string().max(160)).max(100),
               visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
+              meta: skillMetaInput,
+              lastUpdatedAt: z.string().optional(),
             })
             .strict(),
         )
@@ -427,6 +437,8 @@ export const appRouter = trpc.router({
               content: z.string().max(100_000),
               requiredScopes: z.array(z.string().max(160)).max(100),
               visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
+              meta: skillMetaInput,
+              lastUpdatedAt: z.string().optional(),
               expectedVersion: z.number().int().positive(),
             })
             .strict(),

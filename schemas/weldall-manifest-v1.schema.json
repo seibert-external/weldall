@@ -190,6 +190,27 @@
           },
           "visibility": {
             "enum": ["DEFAULT", "HIDDEN_IF_UNALLOWED"]
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tags": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                }
+              },
+              "owner": {
+                "type": "string"
+              }
+            }
+          },
+          "lastUpdatedAt": {
+            "type": "string"
           }
         }
       }

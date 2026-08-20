@@ -162,6 +162,12 @@ skills:
     requiredScopes:
       - expenses:read
     visibility: HIDDEN_IF_UNALLOWED
+    meta:
+      tags:
+        - finance
+        - review
+      owner: Finance Operations
+    lastUpdatedAt: "2026-08-20"
 ```
 
 The slug is the skill identity, so changing it replaces the skill. An IaC-managed skill remains editable in the admin UI; such edits are drift and the next apply restores the YAML state. Administrator-managed skills may override resource-published skills with the same canonical ID. Discovered skills and catalogs cannot be imported or managed.

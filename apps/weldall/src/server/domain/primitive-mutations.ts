@@ -6,6 +6,8 @@ import {
   normalizeRequestPrefix,
   normalizeResourceIdentifier,
   requestPrefixesOverlap,
+  SKILL_TAG_LENGTH_LIMIT,
+  SKILL_TAG_LIMIT,
 } from "@weldall/sdk";
 import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
@@ -241,11 +243,18 @@ export async function mutateScope(
   return { id: current.id, affectedAssignments: affectedEmails.length + affectedGroups.length };
 }
 
+export type SkillMetaInput = {
+  tags?: string[] | undefined;
+  owner?: string | undefined;
+};
+
 export type SkillMutableInput = {
   title: string;
   content: string;
   requiredScopes: string[];
   visibility: "DEFAULT" | "HIDDEN_IF_UNALLOWED";
+  meta?: SkillMetaInput | undefined;
+  lastUpdatedAt?: string | undefined;
 };
 
 export async function mutateSkill(
@@ -283,7 +292,12 @@ export async function mutateSkill(
     if (await tx.skill.findUnique({ where: { slug }, select: { id: true } }))
       throw new PrimitiveMutationError("CONFLICT", `Skill ${slug} already exists.`);
     const created = await tx.skill.create({
-      data: { slug, ...parsed, createdBy: actor.id, updatedBy: actor.id },
+      data: {
+        slug,
+        ...skillMutationData(parsed),
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
       include: skillInclude,
     });
     await skillAudit(tx, actor, "skill.created", null, created);
@@ -294,12 +308,18 @@ export async function mutateSkill(
     current.title === parsed.title &&
     current.content === parsed.content &&
     current.visibility === parsed.visibility &&
-    same([...current.requiredScopes].sort(), parsed.requiredScopes)
+    same([...current.requiredScopes].sort(), parsed.requiredScopes) &&
+    JSON.stringify(skillMetaFromStoredValue(current.meta)) === JSON.stringify(parsed.meta) &&
+    (current.lastUpdatedAt ?? undefined) === parsed.lastUpdatedAt
   )
     return current;
   const write = await tx.skill.updateMany({
     where: { id: current.id, version: input.expectedVersion },
-    data: { ...parsed, version: { increment: 1 }, updatedBy: actor.id },
+    data: {
+      ...skillMutationData(parsed),
+      version: { increment: 1 },
+      updatedBy: actor.id,
+    },
   });
   if (write.count !== 1) conflict("skill");
   const updated = await tx.skill.findUniqueOrThrow({
@@ -854,7 +874,62 @@ function parseSkill(input: SkillMutableInput & { slug?: string }, create: boolea
   if (input.visibility !== "DEFAULT" && input.visibility !== "HIDDEN_IF_UNALLOWED")
     throw new PrimitiveMutationError("INVALID_SKILL", "Skill visibility is invalid.");
   const requiredScopes = parseScopeKeys(input.requiredScopes);
-  return { title, content, requiredScopes, visibility: input.visibility };
+  if (
+    input.meta !== undefined &&
+    ((input.meta.tags !== undefined &&
+      (!Array.isArray(input.meta.tags) ||
+        input.meta.tags.length > SKILL_TAG_LIMIT ||
+        !input.meta.tags.every(
+          (tag) =>
+            typeof tag === "string" && tag.length > 0 && tag.length <= SKILL_TAG_LENGTH_LIMIT,
+        ))) ||
+      (input.meta.owner !== undefined && typeof input.meta.owner !== "string"))
+  )
+    throw new PrimitiveMutationError("INVALID_SKILL", "Skill meta is invalid.");
+  if (input.lastUpdatedAt !== undefined && typeof input.lastUpdatedAt !== "string")
+    throw new PrimitiveMutationError("INVALID_SKILL", "Skill lastUpdatedAt is invalid.");
+  return {
+    title,
+    content,
+    requiredScopes,
+    visibility: input.visibility,
+    ...(input.meta !== undefined
+      ? {
+          meta: {
+            ...(input.meta.tags !== undefined ? { tags: [...input.meta.tags] } : {}),
+            ...(input.meta.owner !== undefined ? { owner: input.meta.owner } : {}),
+          },
+        }
+      : {}),
+    ...(input.lastUpdatedAt !== undefined ? { lastUpdatedAt: input.lastUpdatedAt } : {}),
+  };
+}
+
+function skillMetaFromStoredValue(value: unknown): SkillMetaInput | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (
+    (candidate.tags !== undefined &&
+      (!Array.isArray(candidate.tags) ||
+        !candidate.tags.every((tag) => typeof tag === "string"))) ||
+    (candidate.owner !== undefined && typeof candidate.owner !== "string")
+  )
+    return undefined;
+  return {
+    ...(candidate.tags !== undefined ? { tags: candidate.tags as string[] } : {}),
+    ...(candidate.owner !== undefined ? { owner: candidate.owner } : {}),
+  };
+}
+
+function skillMutationData(parsed: ReturnType<typeof parseSkill>) {
+  return {
+    title: parsed.title,
+    content: parsed.content,
+    requiredScopes: parsed.requiredScopes,
+    visibility: parsed.visibility,
+    meta: parsed.meta === undefined ? Prisma.DbNull : parsed.meta,
+    lastUpdatedAt: parsed.lastUpdatedAt ?? null,
+  };
 }
 
 function parseResource(input: ResourceMutableInput, create: boolean) {
@@ -1038,6 +1113,8 @@ async function skillAudit(
     title: item.title,
     requiredScopes: [...item.requiredScopes].sort(),
     visibility: item.visibility,
+    meta: item.meta,
+    lastUpdatedAt: item.lastUpdatedAt,
     contentSha256: createHash("sha256").update(item.content).digest("hex"),
     version: item.version,
   });

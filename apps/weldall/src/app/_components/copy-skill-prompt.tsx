@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const promptForHost = (host: string) =>
-  `Read ${host}/install.md to install weldall cli on this machine.`;
+const promptForSkill = (origin: string, slug: string, title: string) =>
+  `Read ${origin}/install.md to install the Weldall CLI. Then run \`weldall skills show ${slug}\` and follow the returned instructions to help me with: ${title}.`;
 
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
@@ -26,15 +26,15 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function InstallPrompt() {
+export function CopySkillPrompt({ slug, title }: { slug: string; title: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const resetTimer = useRef<number | undefined>(undefined);
-  const promptPreview = "Read install.md to install weldall cli on this machine.";
+  const promptPreview = `Run weldall skills show ${slug} and follow the returned instructions.`;
 
   useEffect(() => () => window.clearTimeout(resetTimer.current), []);
 
   const copyPrompt = async () => {
-    const copied = await copyToClipboard(promptForHost(window.location.origin));
+    const copied = await copyToClipboard(promptForSkill(window.location.origin, slug, title));
     setCopyState(copied ? "copied" : "failed");
     window.clearTimeout(resetTimer.current);
     resetTimer.current = window.setTimeout(() => setCopyState("idle"), 5000);

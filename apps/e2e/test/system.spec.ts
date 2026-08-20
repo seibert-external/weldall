@@ -389,7 +389,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await page.goto("https://weldall.seibert.localdev/resources");
   const disabledReportsRow = page.getByRole("row").filter({ hasText: "reports" });
   await disabledReportsRow.click();
-  await expect(page.getByRole("link", { name: "View skills (0)" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View skills (1)" })).toBeVisible();
   await page.getByRole("button", { name: "Delete resource" }).click();
   const deleteResourceDialog = page.getByRole("alertdialog");
   await expect(deleteResourceDialog).toContainText("Reports");
@@ -459,13 +459,11 @@ test("denies CLI login without weldall:login while preserving browser authentica
   );
 
   await page.goto("https://weldall.seibert.localdev/");
-  await expect(
-    page.getByRole("heading", {
-      name: "Weldall allows you to access your company’s services through your agent. Copy the prompt below and send it to your agent to get started.",
-    }),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Copy Prompt" })).toBeVisible();
-  await page.getByRole("link", { name: "I’m an admin, let me in" }).click();
+  await expect(page.getByRole("heading", { name: "Skills available to you" })).toBeVisible();
+  await expect(page.getByLabel("Search skills")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
+
+  await page.goto("https://weldall.seibert.localdev/resources");
   await expect(page).toHaveURL(/\/access-denied$/, { timeout: 30_000 });
   await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible({
     timeout: 30_000,

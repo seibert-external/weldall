@@ -110,6 +110,8 @@ export interface UserSkillAccessDto {
   slug: string;
   title: string;
   requiredScopes: string[];
+  meta?: SkillMetaDto;
+  lastUpdatedAt?: string;
   source: SkillSource;
 }
 
@@ -149,6 +151,10 @@ export interface AssignmentDto {
 }
 
 export type SkillVisibilityDto = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
+export interface SkillMetaDto {
+  tags?: string[] | undefined;
+  owner?: string | undefined;
+}
 
 export interface SkillSourceOptionDto {
   id: string;
@@ -162,6 +168,8 @@ export interface SkillDto {
   content: string;
   requiredScopes: string[];
   visibility: SkillVisibilityDto;
+  meta?: SkillMetaDto;
+  lastUpdatedAt?: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -360,10 +368,12 @@ async function userAccess(email: string): Promise<UserAccessDto> {
     .filter((resource) => resource.grantedScopes.length > 0);
   const skills = visibleSkills.items
     .filter((skill) => skill.available)
-    .map(({ slug, title, requiredScopes, source }) => ({
+    .map(({ slug, title, requiredScopes, meta, lastUpdatedAt, source }) => ({
       slug,
       title,
       requiredScopes,
+      ...(meta ? { meta } : {}),
+      ...(lastUpdatedAt !== undefined ? { lastUpdatedAt } : {}),
       source,
     }));
   return {
@@ -886,6 +896,8 @@ export async function createSkill(
     content: string;
     requiredScopes: string[];
     visibility: SkillVisibilityDto;
+    meta?: SkillMetaDto | undefined;
+    lastUpdatedAt?: string | undefined;
   },
   actor: AdminActor,
 ): Promise<SkillDto> {
@@ -908,6 +920,8 @@ export async function updateSkill(
     content: string;
     requiredScopes: string[];
     visibility: SkillVisibilityDto;
+    meta?: SkillMetaDto | undefined;
+    lastUpdatedAt?: string | undefined;
     expectedVersion: number;
   },
   actor: AdminActor,
@@ -1397,6 +1411,22 @@ function serializeCliSettings(settings: {
   };
 }
 
+function serializeSkillMeta(value: unknown): SkillMetaDto | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (
+    (candidate.tags !== undefined &&
+      (!Array.isArray(candidate.tags) ||
+        !candidate.tags.every((tag) => typeof tag === "string"))) ||
+    (candidate.owner !== undefined && typeof candidate.owner !== "string")
+  )
+    return undefined;
+  return {
+    ...(candidate.tags !== undefined ? { tags: candidate.tags as string[] } : {}),
+    ...(candidate.owner !== undefined ? { owner: candidate.owner } : {}),
+  };
+}
+
 function serializeSkill(skill: {
   id: string;
   slug: string;
@@ -1404,6 +1434,8 @@ function serializeSkill(skill: {
   content: string;
   requiredScopes: string[];
   visibility: SkillVisibilityDto;
+  meta: unknown;
+  lastUpdatedAt: string | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -1412,6 +1444,7 @@ function serializeSkill(skill: {
     workspace: { id: string; name: string };
   } | null;
 }): SkillDto {
+  const meta = serializeSkillMeta(skill.meta);
   return {
     id: skill.id,
     slug: skill.slug,
@@ -1419,6 +1452,8 @@ function serializeSkill(skill: {
     content: skill.content,
     requiredScopes: sortedUnique(skill.requiredScopes),
     visibility: skill.visibility,
+    ...(meta ? { meta } : {}),
+    ...(skill.lastUpdatedAt !== null ? { lastUpdatedAt: skill.lastUpdatedAt } : {}),
     version: skill.version,
     createdAt: skill.createdAt.toISOString(),
     updatedAt: skill.updatedAt.toISOString(),
@@ -1439,6 +1474,8 @@ function serializeDiscoveredSkill(
     content: string;
     requiredScopes: string[];
     visibility: SkillVisibilityDto;
+    meta: unknown;
+    lastUpdatedAt: string | null;
     createdAt: Date;
     updatedAt: Date;
     catalog: {
@@ -1458,6 +1495,7 @@ function serializeDiscoveredSkill(
   scopeRegistry: ReadonlySet<string>,
   overridden: boolean,
 ): SkillDto {
+  const meta = serializeSkillMeta(skill.meta);
   const scopeWarnings = sortedUnique(
     skill.requiredScopes.flatMap((scope) =>
       scopeRegistry.has(scope) ? [] : [`Unknown scope: ${scope}`],
@@ -1486,6 +1524,8 @@ function serializeDiscoveredSkill(
     content: skill.content,
     requiredScopes: sortedUnique(skill.requiredScopes),
     visibility: skill.visibility,
+    ...(meta ? { meta } : {}),
+    ...(skill.lastUpdatedAt !== null ? { lastUpdatedAt: skill.lastUpdatedAt } : {}),
     version: 1,
     createdAt: skill.createdAt.toISOString(),
     updatedAt: skill.updatedAt.toISOString(),
