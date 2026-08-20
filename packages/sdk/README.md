@@ -131,7 +131,7 @@ skills: {
 }
 ```
 
-A skill has a resource-local ID, a title, required scopes, visibility, and Markdown instructions:
+A skill has a resource-local ID, a title, required scopes, visibility, and Markdown instructions. Optional `meta.tags`, `meta.owner`, and `lastUpdatedAt` values supply directory metadata; tags are limited to 20 non-empty strings of at most 40 characters each.
 
 ```ts
 {
@@ -139,6 +139,8 @@ A skill has a resource-local ID, a title, required scopes, visibility, and Markd
   title: "List contracts",
   requiredScopes: ["contracts:read"],
   visibility: "HIDDEN_IF_UNALLOWED",
+  meta: { tags: ["contracts", "review"], owner: "Legal Operations" },
+  lastUpdatedAt: "2026-08-20",
   content: "# List contracts\n\n...",
 }
 ```

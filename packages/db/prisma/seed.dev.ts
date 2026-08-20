@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
-import {
-  DEVELOPMENT_SKILL_SCOPE_KEYS,
-  seedDevelopmentSkills,
-} from "./seed.dev-skills.js";
+import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
 
 const db = new PrismaClient();
 const actor = "development-seed";
@@ -88,7 +85,9 @@ try {
     (scope) => !seededScopeKeys.has(scope),
   );
   if (missingSkillScopes.length) {
-    throw new Error(`Development skills reference unseeded scopes: ${missingSkillScopes.join(", ")}`);
+    throw new Error(
+      `Development skills reference unseeded scopes: ${missingSkillScopes.join(", ")}`,
+    );
   }
 
   const resourceKeys = resourceDefinitions.map(({ key }) => key);

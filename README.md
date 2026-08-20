@@ -14,7 +14,7 @@ machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> res
 
 ## Major components
 
-- **Weldall server and admin UI** — a Next.js authorization server and control plane backed by PostgreSQL. It handles upstream sign-in, native CLI OAuth, machine client administration, scope policy, the resource registry, skill catalogs, assignments, and audit events.
+- **Weldall server and web UI** — a Next.js authorization server and control plane backed by PostgreSQL. Signed-in employees can search, filter, and inspect visible skills, including default-visible skills for which they lack scopes; administrators can also manage machine clients, scope policy, resources, skills, assignments, and audit events.
 - **Weldall CLI** — a cross-platform npm package with experimental standalone executables for Ubuntu x64, Windows x64, and macOS ARM64/x64. It supports native YAML IaC, interactive OAuth, capability discovery, and authenticated user requests while keeping sessions in the operating system's secure credential store.
 - **Pi extension** — the published `@weldall/pi` package loads the signed-in user's administrator-managed skills through the npm-installed CLI and exposes them as namespaced Pi commands.
 - **Resource-server SDK** — the published `@weldall/sdk` package for Fetch, Hono, Next.js, and Astro services. It verifies DPoP-bound requests, exposes OAuth metadata and token endpoints, and can publish service-owned skills.

@@ -40,11 +40,7 @@ export function AnimatedSkillHeadline({ title }: { title: string }) {
   return (
     <h1 ref={headlineRef} aria-label={title}>
       {Array.from(title).map((character, index) => (
-        <span
-          aria-hidden="true"
-          className="skill-headline-char"
-          key={`${character}:${index}`}
-        >
+        <span aria-hidden="true" className="skill-headline-char" key={`${character}:${index}`}>
           {character === " " ? "\u00a0" : character}
         </span>
       ))}
