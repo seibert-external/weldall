@@ -31,6 +31,11 @@ export default defineConfig({
             { slug: "oauth-security" },
             { label: "SDKs", link: "/sdks/" },
             {
+              label: "Discovery-Proxy",
+              translations: { en: "Discovery proxy" },
+              link: "/discovery-proxy/",
+            },
+            {
               label: "How to: Weldall aufsetzen",
               translations: { en: "How to: Set up Weldall" },
               link: "/weldall-setup/",

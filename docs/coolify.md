@@ -81,12 +81,12 @@ gh variable set COOLIFY_APP_UUID \
   --body '<Coolify application UUID>'
 ```
 
-The reusable `seibert-external/vibe-ci` workflow also needs these Actions secrets:
+The repository's deploy workflow also needs these Actions secrets:
 
 - `COOLIFY_API_URL` — for example `https://coolify.seibert.tools/api/v1`
 - `COOLIFY_API_TOKEN` — token with at least read/deployment-status access
 
-They are normally inherited from the `seibert-external` organization. Only add them as repository secrets if the organization secrets are not already available to this repository. The token is used for status polling; the actual deployment is triggered by Coolify's GitHub webhook.
+They are normally inherited from the `seibert-external` organization. Only add them as repository secrets if the organization secrets are not already available to this repository. The token is used to poll for up to 20 minutes, including successful retries after Coolify reports an initial failed deployment; the actual deployment is triggered by Coolify's GitHub webhook.
 
 ## 5. Verify the first deployment
 
