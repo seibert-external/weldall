@@ -2,12 +2,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import Home from "../src/app/page";
+import SkillsPage from "../src/app/skills/page";
 import { getEffectiveCliLogoUrls, parseCliLogoUrl } from "../src/server/branding";
 
 const pageMocks = vi.hoisted(() => ({
   getSession: vi.fn().mockResolvedValue(null),
   isAdminEmail: vi.fn().mockResolvedValue(false),
   listVisibleSkills: vi.fn().mockResolvedValue({ items: [], warnings: [] }),
+  redirect: vi.fn(),
 }));
 
 vi.mock("../src/server/admin/service", () => ({ isAdminEmail: pageMocks.isAdminEmail }));
@@ -19,12 +21,18 @@ vi.mock("../src/server/skills/service", () => ({
 }));
 vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers()) }));
 vi.mock("next/server", () => ({ after: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  redirect: pageMocks.redirect,
+  usePathname: vi.fn().mockReturnValue("/"),
+  useRouter: vi.fn().mockReturnValue({ push: vi.fn() }),
+}));
 
 let originalLogoUrls: { light: string; dark: string } | undefined;
 afterEach(async () => {
   pageMocks.getSession.mockResolvedValue(null);
   pageMocks.isAdminEmail.mockResolvedValue(false);
   pageMocks.listVisibleSkills.mockResolvedValue({ items: [], warnings: [] });
+  pageMocks.redirect.mockReset();
   if (originalLogoUrls) {
     await db.cliSettings.update({
       where: { id: "default" },
@@ -85,16 +93,26 @@ describe("CLI branding", () => {
     expect(html).toContain("theme-logo-dark");
   });
 
+  it("redirects signed-in users from the welcome page to skills", async () => {
+    pageMocks.getSession.mockResolvedValue({
+      user: { id: "regular-user", email: "user@example.com" },
+    });
+
+    await Home();
+
+    expect(pageMocks.redirect).toHaveBeenCalledWith("/skills");
+  });
+
   it("shows administration access to users with the administer scope", async () => {
     pageMocks.getSession.mockResolvedValue({
       user: { id: "admin-user", email: "admin@example.com" },
     });
     pageMocks.isAdminEmail.mockResolvedValue(true);
 
-    const html = renderToStaticMarkup(await Home());
+    const html = renderToStaticMarkup(await SkillsPage());
 
     expect(pageMocks.isAdminEmail).toHaveBeenCalledWith("admin@example.com");
-    expect(html).toContain('href="/resources"');
+    expect(html).toContain('href="/admin/resources"');
     expect(html).toContain("Administration");
     expect(html).not.toContain("Your organization");
   });
@@ -120,7 +138,7 @@ describe("CLI branding", () => {
       warnings: [],
     });
 
-    const html = renderToStaticMarkup(await Home());
+    const html = renderToStaticMarkup(await SkillsPage());
 
     expect(html).toContain("Review employee expenses");
     expect(html).toContain('aria-label="Missing 1 scope"');

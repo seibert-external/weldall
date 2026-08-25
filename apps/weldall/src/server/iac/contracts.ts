@@ -153,6 +153,7 @@ export const desiredStateSchema = z
                   .max(SKILL_TAG_LIMIT)
                   .optional(),
                 owner: z.string().optional(),
+                appearance: z.record(z.string(), z.string()).optional(),
               })
               .strict()
               .optional(),

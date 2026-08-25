@@ -93,15 +93,15 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const route = useMemo<AdminRoute>(() => {
-    if (pathname.startsWith("/audit")) return "audit";
-    if (pathname.startsWith("/cli")) return "cli";
-    if (pathname.startsWith("/machines")) return "machines";
-    if (pathname.startsWith("/resources")) return "resources";
-    if (pathname.startsWith("/assignments")) return "assignments";
-    if (pathname.startsWith("/group-assignments")) return "group-assignments";
-    if (pathname.startsWith("/group-providers")) return "group-providers";
-    if (pathname.startsWith("/users")) return "users";
-    if (pathname.startsWith("/skills")) return "skills";
+    if (pathname.startsWith("/admin/audit")) return "audit";
+    if (pathname.startsWith("/admin/cli")) return "cli";
+    if (pathname.startsWith("/admin/machines")) return "machines";
+    if (pathname.startsWith("/admin/resources")) return "resources";
+    if (pathname.startsWith("/admin/assignments")) return "assignments";
+    if (pathname.startsWith("/admin/group-assignments")) return "group-assignments";
+    if (pathname.startsWith("/admin/group-providers")) return "group-providers";
+    if (pathname.startsWith("/admin/users")) return "users";
+    if (pathname.startsWith("/admin/skills")) return "skills";
     return "scopes";
   }, [pathname]);
 

@@ -96,14 +96,22 @@ describe("native YAML IaC contracts", () => {
           content: "# Private operating instructions",
           requiredScopes: ["expenses:write", "expenses:read", "expenses:read"],
           visibility: "HIDDEN_IF_UNALLOWED",
-          meta: { tags: ["finance", "review", "finance"], owner: "arbitrary-user-id" },
+          meta: {
+            tags: ["finance", "review", "finance"],
+            owner: "arbitrary-user-id",
+            appearance: { icon: "file-text", futureKey: "preserved" },
+          },
           lastUpdatedAt: "not restricted to a timestamp",
         },
       },
     });
     expect(desired.skills.review).toMatchObject({
       requiredScopes: ["expenses:read", "expenses:write"],
-      meta: { tags: ["finance", "review", "finance"], owner: "arbitrary-user-id" },
+      meta: {
+        tags: ["finance", "review", "finance"],
+        owner: "arbitrary-user-id",
+        appearance: { icon: "file-text", futureKey: "preserved" },
+      },
       lastUpdatedAt: "not restricted to a timestamp",
     });
     const plan = createPlan(desired, { revision: 0, objects: [] });

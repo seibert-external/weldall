@@ -196,6 +196,7 @@ const skillMeta = z
   .object({
     tags: z.array(z.string()).optional(),
     owner: z.string().optional(),
+    appearance: z.record(z.string(), z.string()).optional(),
   })
   .strict()
   .nullable();

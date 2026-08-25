@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ScopeBadges } from "../src/app/(admin)/assignments/scope-badges";
-import { sortScopeKeys } from "../src/app/(admin)/assignments/sort-scope-keys";
+import { ScopeBadges } from "../src/app/admin/assignments/scope-badges";
+import { sortScopeKeys } from "../src/app/admin/assignments/sort-scope-keys";
 
 describe("assignment scope badges", () => {
   it("renders scope keys alphabetically without mutating the assignment data", () => {

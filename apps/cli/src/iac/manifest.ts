@@ -282,7 +282,7 @@ function validatePrimitive(
       throw new CliError("Invalid skills.visibility");
     if (object.meta !== undefined) {
       const meta = record(object.meta);
-      if (Object.keys(meta).some((field) => !["tags", "owner"].includes(field)))
+      if (Object.keys(meta).some((field) => !["tags", "owner", "appearance"].includes(field)))
         throw new CliError("Unknown skills.meta field");
       if (
         meta.tags !== undefined &&
@@ -296,6 +296,14 @@ function validatePrimitive(
         throw new CliError("Invalid skills.meta.tags");
       if (meta.owner !== undefined && typeof meta.owner !== "string")
         throw new CliError("Invalid skills.meta.owner");
+      if (
+        meta.appearance !== undefined &&
+        (!meta.appearance ||
+          typeof meta.appearance !== "object" ||
+          Array.isArray(meta.appearance) ||
+          !Object.values(meta.appearance).every((value) => typeof value === "string"))
+      )
+        throw new CliError("Invalid skills.meta.appearance");
     }
     if (object.lastUpdatedAt !== undefined && typeof object.lastUpdatedAt !== "string")
       throw new CliError("Invalid skills.lastUpdatedAt");

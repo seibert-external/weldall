@@ -206,6 +206,12 @@
               },
               "owner": {
                 "type": "string"
+              },
+              "appearance": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
               }
             }
           },

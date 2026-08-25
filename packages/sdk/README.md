@@ -143,7 +143,7 @@ skills: {
 }
 ```
 
-A skill has a resource-local ID, a title, required scopes, visibility, and Markdown instructions. Optional `meta.tags`, `meta.owner`, and `lastUpdatedAt` values supply directory metadata; tags are limited to 20 non-empty strings of at most 40 characters each.
+A skill has a resource-local ID, a title, required scopes, visibility, and Markdown instructions. Optional `meta.tags`, `meta.owner`, `meta.appearance`, and `lastUpdatedAt` values supply directory metadata; tags are limited to 20 non-empty strings of at most 40 characters each. Appearance accepts extensible string metadata; Weldall recognizes canonical kebab-case [Lucide icon names](https://lucide.dev/icons/) plus `gradientFrom`, `gradientTo`, `darkGradientFrom`, and `darkGradientTo` six-digit hex colors. Missing or invalid visual values use deterministic fallbacks.
 
 ```ts
 {
@@ -151,7 +151,17 @@ A skill has a resource-local ID, a title, required scopes, visibility, and Markd
   title: "List contracts",
   requiredScopes: ["contracts:read"],
   visibility: "HIDDEN_IF_UNALLOWED",
-  meta: { tags: ["contracts", "review"], owner: "Legal Operations" },
+  meta: {
+    tags: ["contracts", "review"],
+    owner: "Legal Operations",
+    appearance: {
+      icon: "file-text",
+      gradientFrom: "#555BD6",
+      gradientTo: "#7773E5",
+      darkGradientFrom: "#2A2660",
+      darkGradientTo: "#403A86",
+    },
+  },
   lastUpdatedAt: "2026-08-20",
   content: "# List contracts\n\n...",
 }

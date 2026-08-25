@@ -90,6 +90,7 @@ const skillMetaInput = z
   .object({
     tags: z.array(z.string().min(1).max(SKILL_TAG_LENGTH_LIMIT)).max(SKILL_TAG_LIMIT).optional(),
     owner: z.string().optional(),
+    appearance: z.record(z.string(), z.string()).optional(),
   })
   .strict()
   .optional();

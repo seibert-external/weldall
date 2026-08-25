@@ -40,7 +40,16 @@ const fetchCatalog = vi.fn(async (input: string | URL | Request, init?: RequestI
           requiredScopes: ["expenses:read"],
           visibility: "DEFAULT",
           content: "# Review catalog test data",
-          meta: { tags: ["catalog", "review"], owner: "catalog-owner" },
+          meta: {
+            tags: ["catalog", "review"],
+            owner: "catalog-owner",
+            appearance: {
+              icon: "file-text",
+              gradientFrom: "#555BD6",
+              gradientTo: "#7773E5",
+              futureKey: "preserved",
+            },
+          },
           lastUpdatedAt: "catalog-version-7",
         },
         {
@@ -164,7 +173,16 @@ describe("persisted skill catalog refresh", () => {
     const visible = await listVisibleSkills(`${id}@example.com`);
     expect(visible.items.find((skill) => skill.slug === `${key}.review`)).toMatchObject({
       preview: "Review catalog test data",
-      meta: { tags: ["catalog", "review"], owner: "catalog-owner" },
+      meta: {
+        tags: ["catalog", "review"],
+        owner: "catalog-owner",
+        appearance: {
+          icon: "file-text",
+          gradientFrom: "#555BD6",
+          gradientTo: "#7773E5",
+          futureKey: "preserved",
+        },
+      },
       lastUpdatedAt: "catalog-version-7",
     });
     expect(visible.items.find((skill) => skill.slug === `${key}.system-scope`)).toMatchObject({
@@ -173,9 +191,18 @@ describe("persisted skill catalog refresh", () => {
     });
     expect(visible.items.some((skill) => skill.slug === `${key}.unknown-scope`)).toBe(false);
     await expect(getVisibleSkill(adminEmail, `${key}.review`)).resolves.toMatchObject({
-      meta: { tags: ["catalog", "review"], owner: "catalog-owner" },
+      meta: {
+        tags: ["catalog", "review"],
+        owner: "catalog-owner",
+        appearance: {
+          icon: "file-text",
+          gradientFrom: "#555BD6",
+          gradientTo: "#7773E5",
+          futureKey: "preserved",
+        },
+      },
       lastUpdatedAt: "catalog-version-7",
-      document: expect.stringContaining('lastUpdatedAt: "catalog-version-7"'),
+      document: expect.stringContaining('icon: "file-text"'),
     });
     await expect(getVisibleSkill(adminEmail, `${key}.system-scope`)).resolves.toMatchObject({
       requiredScopes: ["weldall:administer"],

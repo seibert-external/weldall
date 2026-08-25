@@ -167,8 +167,16 @@ skills:
         - finance
         - review
       owner: Finance Operations
+      appearance:
+        icon: file-text
+        gradientFrom: "#555BD6"
+        gradientTo: "#7773E5"
+        darkGradientFrom: "#2A2660"
+        darkGradientTo: "#403A86"
     lastUpdatedAt: "2026-08-20"
 ```
+
+`meta.appearance.icon` accepts canonical kebab-case names from the [Lucide icon catalog](https://lucide.dev/icons/). Gradient overrides are applied only when both colors in a light or dark pair are six-digit hex colors; otherwise Weldall uses the deterministic slug-based fallback.
 
 The slug is the skill identity, so changing it replaces the skill. An IaC-managed skill remains editable in the admin UI; such edits are drift and the next apply restores the YAML state. Administrator-managed skills may override resource-published skills with the same canonical ID. Discovered skills and catalogs cannot be imported or managed.
 

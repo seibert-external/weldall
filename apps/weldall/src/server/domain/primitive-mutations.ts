@@ -246,6 +246,7 @@ export async function mutateScope(
 export type SkillMetaInput = {
   tags?: string[] | undefined;
   owner?: string | undefined;
+  appearance?: Record<string, string> | undefined;
 };
 
 export type SkillMutableInput = {
@@ -883,7 +884,12 @@ function parseSkill(input: SkillMutableInput & { slug?: string }, create: boolea
           (tag) =>
             typeof tag === "string" && tag.length > 0 && tag.length <= SKILL_TAG_LENGTH_LIMIT,
         ))) ||
-      (input.meta.owner !== undefined && typeof input.meta.owner !== "string"))
+      (input.meta.owner !== undefined && typeof input.meta.owner !== "string") ||
+      (input.meta.appearance !== undefined &&
+        (!input.meta.appearance ||
+          typeof input.meta.appearance !== "object" ||
+          Array.isArray(input.meta.appearance) ||
+          !Object.values(input.meta.appearance).every((value) => typeof value === "string"))))
   )
     throw new PrimitiveMutationError("INVALID_SKILL", "Skill meta is invalid.");
   if (input.lastUpdatedAt !== undefined && typeof input.lastUpdatedAt !== "string")
@@ -898,6 +904,9 @@ function parseSkill(input: SkillMutableInput & { slug?: string }, create: boolea
           meta: {
             ...(input.meta.tags !== undefined ? { tags: [...input.meta.tags] } : {}),
             ...(input.meta.owner !== undefined ? { owner: input.meta.owner } : {}),
+            ...(input.meta.appearance !== undefined
+              ? { appearance: { ...input.meta.appearance } }
+              : {}),
           },
         }
       : {}),
@@ -912,12 +921,20 @@ function skillMetaFromStoredValue(value: unknown): SkillMetaInput | undefined {
     (candidate.tags !== undefined &&
       (!Array.isArray(candidate.tags) ||
         !candidate.tags.every((tag) => typeof tag === "string"))) ||
-    (candidate.owner !== undefined && typeof candidate.owner !== "string")
+    (candidate.owner !== undefined && typeof candidate.owner !== "string") ||
+    (candidate.appearance !== undefined &&
+      (!candidate.appearance ||
+        typeof candidate.appearance !== "object" ||
+        Array.isArray(candidate.appearance) ||
+        !Object.values(candidate.appearance).every((entry) => typeof entry === "string")))
   )
     return undefined;
   return {
     ...(candidate.tags !== undefined ? { tags: candidate.tags as string[] } : {}),
     ...(candidate.owner !== undefined ? { owner: candidate.owner } : {}),
+    ...(candidate.appearance !== undefined
+      ? { appearance: candidate.appearance as Record<string, string> }
+      : {}),
   };
 }
 

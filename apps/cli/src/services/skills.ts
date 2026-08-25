@@ -10,6 +10,7 @@ export type SkillSource = { type: "admin" } | { type: "resource"; key: string; n
 export interface SkillMeta {
   tags?: string[];
   owner?: string;
+  appearance?: Record<string, string>;
 }
 
 export interface SkillSummary {
@@ -44,7 +45,10 @@ const isMeta = (value: unknown): value is SkillMeta =>
   isRecord(value) &&
   (value.tags === undefined ||
     (Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === "string"))) &&
-  (value.owner === undefined || typeof value.owner === "string");
+  (value.owner === undefined || typeof value.owner === "string") &&
+  (value.appearance === undefined ||
+    (isRecord(value.appearance) &&
+      Object.values(value.appearance).every((entry) => typeof entry === "string")));
 
 const isSource = (value: unknown): value is SkillSource =>
   isRecord(value) &&

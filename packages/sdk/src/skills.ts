@@ -9,6 +9,7 @@ export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 export interface SkillMeta {
   tags?: string[];
   owner?: string;
+  appearance?: Record<string, string>;
 }
 
 export interface PublishedSkill {
@@ -46,7 +47,7 @@ const SKILL_KEYS = new Set([
   "meta",
   "lastUpdatedAt",
 ]);
-const SKILL_META_KEYS = new Set(["tags", "owner"]);
+const SKILL_META_KEYS = new Set(["tags", "owner", "appearance"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -112,7 +113,10 @@ export function parseSkillCatalog(value: unknown, expectedResource?: string): Sk
               (tag) =>
                 typeof tag === "string" && tag.length > 0 && tag.length <= SKILL_TAG_LENGTH_LIMIT,
             ))) ||
-        (meta.owner !== undefined && typeof meta.owner !== "string"))
+        (meta.owner !== undefined && typeof meta.owner !== "string") ||
+        (meta.appearance !== undefined &&
+          (!isRecord(meta.appearance) ||
+            !Object.values(meta.appearance).every((value) => typeof value === "string"))))
     ) {
       throw new TypeError("published skill meta is invalid");
     }

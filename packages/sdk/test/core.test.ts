@@ -268,7 +268,11 @@ describe("configuration and metadata", () => {
             requiredScopes: ["expenses:read"],
             visibility: "DEFAULT",
             content: "# Review expenses",
-            meta: { tags: ["finance", "review"], owner: "user-123" },
+            meta: {
+              tags: ["finance", "review"],
+              owner: "user-123",
+              appearance: { icon: "file-text", gradientFrom: "invalid-but-safe" },
+            },
             lastUpdatedAt: "not restricted to a timestamp",
           },
         ],
@@ -310,7 +314,11 @@ describe("configuration and metadata", () => {
         {
           id: "review",
           visibility: "DEFAULT",
-          meta: { tags: ["finance", "review"], owner: "user-123" },
+          meta: {
+            tags: ["finance", "review"],
+            owner: "user-123",
+            appearance: { icon: "file-text", gradientFrom: "invalid-but-safe" },
+          },
           lastUpdatedAt: "not restricted to a timestamp",
         },
       ],

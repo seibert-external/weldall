@@ -822,14 +822,22 @@ describe("admin scope service", () => {
         content: "Use `weldall request --scope expenses:read https://example.com/data`.",
         requiredScopes: ["expenses:read", "weldall:administer"],
         visibility: "DEFAULT",
-        meta: { tags: ["finance", "review", "finance"], owner: "user-without-validation" },
+        meta: {
+          tags: ["finance", "review", "finance"],
+          owner: "user-without-validation",
+          appearance: { icon: "file-text", custom: "preserved" },
+        },
         lastUpdatedAt: "arbitrary-last-update",
       },
       primaryActor,
     );
     expect(publicSkill).toMatchObject({
       requiredScopes: ["expenses:read", "weldall:administer"],
-      meta: { tags: ["finance", "review", "finance"], owner: "user-without-validation" },
+      meta: {
+        tags: ["finance", "review", "finance"],
+        owner: "user-without-validation",
+        appearance: { icon: "file-text", custom: "preserved" },
+      },
       lastUpdatedAt: "arbitrary-last-update",
       scopeWarnings: [],
     });
@@ -874,9 +882,13 @@ describe("admin scope service", () => {
       requiredScopes: ["expenses:read", "weldall:administer"],
       available: true,
       missingScopes: [],
-      meta: { tags: ["finance", "review", "finance"], owner: "user-without-validation" },
+      meta: {
+        tags: ["finance", "review", "finance"],
+        owner: "user-without-validation",
+        appearance: { icon: "file-text", custom: "preserved" },
+      },
       lastUpdatedAt: "arbitrary-last-update",
-      document: expect.stringContaining('lastUpdatedAt: "arbitrary-last-update"'),
+      document: expect.stringContaining('icon: "file-text"'),
     });
 
     const updated = await updateSkill(

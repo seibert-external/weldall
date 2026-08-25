@@ -1,14 +1,9 @@
 import { Button } from "@astryxdesign/core/Button";
-import { after } from "next/server";
 import { headers } from "next/headers";
-import { isAdminEmail } from "../server/admin/service";
+import { redirect } from "next/navigation";
 import { auth } from "../server/auth/auth";
 import { getEffectiveCliLogoUrls, type CliLogoUrls } from "../server/branding";
-import { refreshDueCatalogs } from "../server/skills/catalogs";
-import { listVisibleSkills } from "../server/skills/service";
 import { DirectoryHeader } from "./_components/directory-header";
-import { DirectoryUserMenu } from "./_components/directory-user-menu";
-import { SkillDirectory } from "./_components/skill-directory";
 import { ThemeLogo } from "./_components/theme-logo";
 
 export const dynamic = "force-dynamic";
@@ -20,32 +15,7 @@ export default async function Home() {
   ]);
 
   if (!session?.user.email) return <LoggedOutHome logoUrls={logoUrls} />;
-
-  after(() => refreshDueCatalogs());
-  const [{ items: skills }, isAdmin] = await Promise.all([
-    listVisibleSkills(session.user.email),
-    isAdminEmail(session.user.email),
-  ]);
-
-  return (
-    <div className="skill-directory-page">
-      <DirectoryHeader logoUrls={logoUrls}>
-        <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
-      </DirectoryHeader>
-      <main className="skill-directory-main">
-        <div className="skill-directory-intro">
-          <div>
-            <h1>Skill directory</h1>
-            <div className="skill-directory-powered-by">
-              <span>powered by</span>
-              <img src="/assets/images/weldall.png" alt="Weldall" width={182} height={51} />
-            </div>
-          </div>
-        </div>
-        <SkillDirectory skills={skills} />
-      </main>
-    </div>
-  );
+  redirect("/skills");
 }
 
 function LoggedOutHome({ logoUrls }: { logoUrls: CliLogoUrls }) {

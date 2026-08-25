@@ -38,7 +38,7 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
         <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
       </DirectoryHeader>
       <main className="skill-detail-main">
-        <Button href="/" label="All skills" size="sm" variant="secondary" />
+        <Button href="/skills" label="All skills" size="sm" variant="secondary" />
 
         <header className="skill-detail-hero">
           <AnimatedSkillHeadline title={skill.title} />

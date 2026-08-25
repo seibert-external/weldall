@@ -167,8 +167,16 @@ skills:
         - finanzen
         - prüfung
       owner: Finanzbetrieb
+      appearance:
+        icon: file-text
+        gradientFrom: "#555BD6"
+        gradientTo: "#7773E5"
+        darkGradientFrom: "#2A2660"
+        darkGradientTo: "#403A86"
     lastUpdatedAt: "2026-08-20"
 ```
+
+`meta.appearance.icon` akzeptiert kanonische Namen in Kebab-Case aus dem [Lucide-Icon-Katalog](https://lucide.dev/icons/). Gradient-Overrides werden nur verwendet, wenn beide Farben eines hellen oder dunklen Paars sechsstellige Hex-Farben sind; andernfalls verwendet Weldall den deterministischen Slug-basierten Fallback.
 
 Der Slug ist die Identität des Skills; eine Änderung ersetzt den Skill. Ein über IaC verwalteter Skill bleibt in der Admin-Oberfläche bearbeitbar. Solche Änderungen gelten als Drift und werden beim nächsten Apply auf den YAML-Zustand zurückgesetzt. Administrativ verwaltete Skills dürfen einen von einer Ressource veröffentlichten Skill mit derselben kanonischen ID überschreiben. Entdeckte Skills und Kataloge können weder importiert noch verwaltet werden.
 

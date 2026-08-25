@@ -7,6 +7,7 @@ export type SkillSource = { type: "admin" } | { type: "resource"; key: string; n
 export interface SkillMeta {
   tags?: string[];
   owner?: string;
+  appearance?: Record<string, string>;
 }
 
 export interface VisibleSkill {
@@ -338,12 +339,20 @@ function parseSkillMeta(value: unknown): SkillMeta | undefined {
     (candidate.tags !== undefined &&
       (!Array.isArray(candidate.tags) ||
         !candidate.tags.every((tag) => typeof tag === "string"))) ||
-    (candidate.owner !== undefined && typeof candidate.owner !== "string")
+    (candidate.owner !== undefined && typeof candidate.owner !== "string") ||
+    (candidate.appearance !== undefined &&
+      (!candidate.appearance ||
+        typeof candidate.appearance !== "object" ||
+        Array.isArray(candidate.appearance) ||
+        !Object.values(candidate.appearance).every((entry) => typeof entry === "string")))
   )
     return undefined;
   return {
     ...(candidate.tags !== undefined ? { tags: candidate.tags as string[] } : {}),
     ...(candidate.owner !== undefined ? { owner: candidate.owner } : {}),
+    ...(candidate.appearance !== undefined
+      ? { appearance: candidate.appearance as Record<string, string> }
+      : {}),
   };
 }
 
@@ -399,6 +408,16 @@ export function renderSkillDocument(input: {
             : ["  tags: []"]
           : []),
         ...(input.meta.owner !== undefined ? [`  owner: ${JSON.stringify(input.meta.owner)}`] : []),
+        ...(input.meta.appearance !== undefined
+          ? Object.keys(input.meta.appearance).length
+            ? [
+                "  appearance:",
+                ...Object.entries(input.meta.appearance)
+                  .sort(([left], [right]) => left.localeCompare(right))
+                  .map(([key, value]) => `    ${yamlMappingKey(key)}: ${JSON.stringify(value)}`),
+              ]
+            : ["  appearance: {}"]
+          : []),
       ]
     : [];
   const metaLines = input.meta ? (metaValues.length ? ["meta:", ...metaValues] : ["meta: {}"]) : [];
@@ -416,4 +435,8 @@ export function renderSkillDocument(input: {
     input.content.trim(),
     "",
   ].join("\n");
+}
+
+function yamlMappingKey(value: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_-]*$/u.test(value) ? value : JSON.stringify(value);
 }

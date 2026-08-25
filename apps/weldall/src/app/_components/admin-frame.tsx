@@ -87,72 +87,72 @@ export function AdminFrame({ children }: { children: ReactNode }) {
               <SectionNavItem
                 route="resources"
                 label="Resources"
-                href="/resources"
+                href="/admin/resources"
                 icon={ResourceIcon}
-                isSelected={selected("/resources")}
+                isSelected={selected("/admin/resources")}
               />
               <SectionNavItem
                 route="scopes"
                 label="Scopes"
-                href="/scopes"
+                href="/admin/scopes"
                 icon={ScopeIcon}
-                isSelected={selected("/scopes")}
+                isSelected={selected("/admin/scopes")}
               />
               <SectionNavItem
                 route="assignments"
                 label="Email assignments"
-                href="/assignments"
+                href="/admin/assignments"
                 icon={AssignmentIcon}
-                isSelected={selected("/assignments")}
+                isSelected={selected("/admin/assignments")}
               />
               <SectionNavItem
                 route="group-providers"
                 label="Group providers"
-                href="/group-providers"
+                href="/admin/group-providers"
                 icon={GroupIcon}
-                isSelected={selected("/group-providers")}
+                isSelected={selected("/admin/group-providers")}
               />
               <SectionNavItem
                 route="group-assignments"
                 label="Group assignments"
-                href="/group-assignments"
+                href="/admin/group-assignments"
                 icon={AssignmentIcon}
-                isSelected={selected("/group-assignments")}
+                isSelected={selected("/admin/group-assignments")}
               />
               <SectionNavItem
                 route="users"
                 label="Users"
-                href="/users"
+                href="/admin/users"
                 icon={UserIcon}
-                isSelected={selected("/users")}
+                isSelected={selected("/admin/users")}
               />
               <SectionNavItem
                 route="machines"
                 label="Machine clients"
-                href="/machines"
+                href="/admin/machines"
                 icon={MachineIcon}
-                isSelected={selected("/machines")}
+                isSelected={selected("/admin/machines")}
               />
               <SectionNavItem
                 route="skills"
                 label="Skill registry"
-                href="/skills"
+                href="/admin/skills"
                 icon={SkillIcon}
-                isSelected={selected("/skills")}
+                isSelected={selected("/admin/skills")}
               />
               <SectionNavItem
                 route="audit"
                 label="Audit logs"
-                href="/audit"
+                href="/admin/audit"
                 icon={AuditIcon}
-                isSelected={selected("/audit")}
+                isSelected={selected("/admin/audit")}
               />
               <SectionNavItem
                 route="cli"
                 label="CLI"
-                href="/cli"
+                href="/admin/cli"
                 icon={CliIcon}
-                isSelected={selected("/cli")}
+                isSelected={selected("/admin/cli")}
               />
             </SideNavSection>
           </SideNav>

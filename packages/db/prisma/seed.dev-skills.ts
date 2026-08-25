@@ -1,5 +1,78 @@
 import type { PrismaClient } from "@prisma/client";
 
+const domainAppearances = {
+  finance: {
+    icon: "chart-column",
+    gradientFrom: "#503080",
+    gradientTo: "#7046A9",
+    darkGradientFrom: "#281840",
+    darkGradientTo: "#382354",
+  },
+  "human-resources": {
+    icon: "users",
+    gradientFrom: "#8A355C",
+    gradientTo: "#6E3F8F",
+    darkGradientFrom: "#451B2E",
+    darkGradientTo: "#372048",
+  },
+  "contract-management": {
+    icon: "file-signature",
+    gradientFrom: "#9A4F20",
+    gradientTo: "#8E3737",
+    darkGradientFrom: "#4D2810",
+    darkGradientTo: "#471C1C",
+  },
+  sales: {
+    icon: "handshake",
+    gradientFrom: "#176B57",
+    gradientTo: "#376A32",
+    darkGradientFrom: "#0C362C",
+    darkGradientTo: "#1C3519",
+  },
+  "customer-support": {
+    icon: "headset",
+    gradientFrom: "#284C91",
+    gradientTo: "#1E668F",
+    darkGradientFrom: "#142649",
+    darkGradientTo: "#0F3348",
+  },
+  procurement: {
+    icon: "shopping-cart",
+    gradientFrom: "#106276",
+    gradientTo: "#126A5A",
+    darkGradientFrom: "#08313B",
+    darkGradientTo: "#09352D",
+  },
+  "legal-compliance": {
+    icon: "scale",
+    gradientFrom: "#65417A",
+    gradientTo: "#3E527E",
+    darkGradientFrom: "#33213D",
+    darkGradientTo: "#1F293F",
+  },
+  operations: {
+    icon: "workflow",
+    gradientFrom: "#815020",
+    gradientTo: "#6D3D54",
+    darkGradientFrom: "#412810",
+    darkGradientTo: "#371F2A",
+  },
+  marketing: {
+    icon: "megaphone",
+    gradientFrom: "#8C356A",
+    gradientTo: "#704093",
+    darkGradientFrom: "#461B35",
+    darkGradientTo: "#38204A",
+  },
+  "engineering-it": {
+    icon: "code-2",
+    gradientFrom: "#2D5FA0",
+    gradientTo: "#176D75",
+    darkGradientFrom: "#172F50",
+    darkGradientTo: "#0C373B",
+  },
+} as const;
+
 type DevelopmentSkillEntry = {
   key: string;
   title: string;
@@ -8,7 +81,7 @@ type DevelopmentSkillEntry = {
 };
 
 type DevelopmentSkillDomain = {
-  key: string;
+  key: keyof typeof domainAppearances;
   label: string;
   owner: string;
   involvedScopes: [string, string, string];
@@ -795,6 +868,7 @@ export async function seedDevelopmentSkills(db: PrismaClient, actor: string): Pr
       const meta = {
         tags: [...new Set([domain.label.toLowerCase(), domain.key, ...skill.tags])],
         owner: domain.owner,
+        appearance: { ...domainAppearances[domain.key] },
       };
       const lastUpdatedAt = `2026-06-${String(domainIndex + 1).padStart(2, "0")}`;
       const involvedResourceCount = (domainIndex + skillIndex) % 4;

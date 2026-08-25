@@ -154,6 +154,7 @@ export type SkillVisibilityDto = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 export interface SkillMetaDto {
   tags?: string[] | undefined;
   owner?: string | undefined;
+  appearance?: Record<string, string> | undefined;
 }
 
 export interface SkillSourceOptionDto {
@@ -1434,12 +1435,20 @@ function serializeSkillMeta(value: unknown): SkillMetaDto | undefined {
     (candidate.tags !== undefined &&
       (!Array.isArray(candidate.tags) ||
         !candidate.tags.every((tag) => typeof tag === "string"))) ||
-    (candidate.owner !== undefined && typeof candidate.owner !== "string")
+    (candidate.owner !== undefined && typeof candidate.owner !== "string") ||
+    (candidate.appearance !== undefined &&
+      (!candidate.appearance ||
+        typeof candidate.appearance !== "object" ||
+        Array.isArray(candidate.appearance) ||
+        !Object.values(candidate.appearance).every((entry) => typeof entry === "string")))
   )
     return undefined;
   return {
     ...(candidate.tags !== undefined ? { tags: candidate.tags as string[] } : {}),
     ...(candidate.owner !== undefined ? { owner: candidate.owner } : {}),
+    ...(candidate.appearance !== undefined
+      ? { appearance: candidate.appearance as Record<string, string> }
+      : {}),
   };
 }
 

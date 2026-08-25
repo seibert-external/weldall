@@ -117,7 +117,11 @@ describe("native YAML workspaces", () => {
       content: "# Review expenses\n\nUse approved steps.",
       requiredScopes: ["expenses:read"],
       visibility: "HIDDEN_IF_UNALLOWED",
-      meta: { tags: ["finance", "review"], owner: "user-123" },
+      meta: {
+        tags: ["finance", "review"],
+        owner: "user-123",
+        appearance: { icon: "file-text", futureKey: "preserved" },
+      },
       lastUpdatedAt: "unrestricted update value",
     };
     const client = {
