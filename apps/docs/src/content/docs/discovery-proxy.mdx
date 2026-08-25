@@ -1,0 +1,26 @@
+---
+title: Discovery-Proxy
+sidebar:
+  label: Discovery-Proxy
+description: Weldall-Metadaten und JWKS über einen vertrauenswürdigen Proxy abrufen.
+---
+
+Eine Resource muss nicht dauerhaft mit dem Weldall-Server verbunden sein. Sie benötigt ihn nur, um die Server-Metadaten und Signaturschlüssel abzurufen; das SDK hält die Schlüssel kurzzeitig im Cache.
+
+Wenn ein Service den Weldall-Issuer nicht direkt erreichen kann, kann das SDK diese Anfragen über einen vertrauenswürdigen HTTPS-Proxy senden.
+
+```ts
+const weldall = initWeldall("https://weldall.example.com", {
+  // weitere Resource-Optionen
+  discoveryProxyOrigin: "https://weldall-discovery-proxy.example.com",
+});
+```
+
+Die Weldall-URL im ersten Argument bleibt die Identität, die das SDK erwartet. Der Proxy leitet nur Discovery-Anfragen weiter; das SDK prüft weiterhin, dass Metadaten und Signaturen von dieser Weldall-Instanz stammen.
+
+Für die meisten Deployments empfehlen wir den mitgelieferten [Nginx-Discovery-Proxy](https://github.com/seibert-external/weldall/tree/main/apps/discovery-proxy). Seine [Nginx-Konfiguration](https://github.com/seibert-external/weldall/blob/main/apps/discovery-proxy/default.conf.template) lässt nur diese `GET`-Endpunkte zu und leitet ihre JSON-Antworten unverändert weiter:
+
+- `/.well-known/oauth-authorization-server`
+- den in den Metadaten angegebenen JWKS-Pfad, derzeit `/api/oauth/jwks`
+
+Setze den Proxy nur ein, wenn der Service den Issuer nicht direkt erreichen kann. Er muss per HTTPS erreichbar und vertrauenswürdig sein.
