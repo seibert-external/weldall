@@ -145,7 +145,11 @@ export function GroupAssignmentsPage() {
             value={q}
             width={280}
           />
-          <Button href="/admin/group-assignments/new" label="Create group assignment" variant="primary" />
+          <Button
+            href="/admin/group-assignments/new"
+            label="Create group assignment"
+            variant="primary"
+          />
         </div>
       </HerocrumbsActions>
       {assignmentsQuery.error ? (
