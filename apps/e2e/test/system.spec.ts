@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const workspace = process.env.WELDALL_E2E_WORKSPACE ?? "/workspace";
 const credentialsFile = "/tmp/weldall-e2e-credentials.json";
@@ -105,6 +105,20 @@ const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
   );
 };
 
+const openDevelopmentLogin = async (page: Page, login: ReturnType<typeof startCli>) => {
+  const sessionProbe = page.waitForResponse((response) =>
+    response.url().includes("/api/auth/get-session"),
+  );
+  await page.goto(await waitForBrowserUrl(login));
+  // A cold dev-server compile can deliver the SSR HTML before React hydrates, so
+  // a click that lands pre-hydration silently no-ops (the sign-in request never
+  // reaches the server). The session probe is fired by a client effect once the
+  // React root has mounted, so waiting for it guarantees the click reaches its
+  // handler even on a loaded CI runner.
+  await sessionProbe;
+  await page.getByRole("button", { name: "Development login" }).click();
+};
+
 test.beforeEach(async () => {
   await Promise.all([rm(credentialsFile, { force: true }), rm(browserUrlFile, { force: true })]);
 });
@@ -120,8 +134,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   test.setTimeout(240_000);
 
   const login = startCli(["login"], 150_000);
-  await page.goto(await waitForBrowserUrl(login));
-  await page.getByRole("button", { name: "Development login" }).click();
+  await openDevelopmentLogin(page, login);
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
     timeout: 30_000,
   });
@@ -451,8 +464,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   test.setTimeout(180_000);
 
   const login = startCli(["login"], 150_000);
-  await page.goto(await waitForBrowserUrl(login));
-  await page.getByRole("button", { name: "Development login" }).click();
+  await openDevelopmentLogin(page, login);
   await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
     timeout: 30_000,
   });
@@ -470,7 +482,12 @@ test("denies CLI login without weldall:login while preserving browser authentica
   );
 
   await page.goto("https://weldall.seibert.localdev/");
-  await expect(page.getByRole("heading", { name: "Skill directory" })).toBeVisible();
+  // The skill directory moved from "/" to "/skills" and its "Skill directory"
+  // heading was replaced by the "Available skills" region (see 92b4949). Assert
+  // the region and allow generous time for the route to cold-compile in CI.
+  await expect(page.getByRole("region", { name: "Available skills" })).toBeVisible({
+    timeout: 60_000,
+  });
   await expect(page.getByText("bob@example.com", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "View Analyze budget variance" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
