@@ -16,7 +16,7 @@
     }
   },
   "dependencies": {
-    "@weldall/cli": "^0.10.0"
+    "@weldall/cli": "workspace:^"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

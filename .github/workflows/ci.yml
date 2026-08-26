@@ -406,6 +406,9 @@ jobs:
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           publish: pnpm release
+          # changeset version bumps package.json but not pnpm-lock.yaml; refresh
+          # the lockfile so version PRs and the subsequent frozen install stay in sync
+          version: changeset version && pnpm install --lockfile-only
           title: "chore: release packages"
           commit: "chore: release packages"
           createGithubReleases: true
