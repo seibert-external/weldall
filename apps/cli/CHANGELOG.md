@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.10.0
+
+### Minor Changes
+
+- 2ae041c: Support the optional `skills.meta.appearance` field in skill catalogs and IaC manifests, with validation for its string record shape.
+
 ## 0.9.1
 
 ### Patch Changes
