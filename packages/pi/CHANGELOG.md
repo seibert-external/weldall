@@ -1,5 +1,12 @@
 # @weldall/pi
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [2ae041c]
+  - @weldall/cli@0.10.0
+
 ## 0.2.0
 
 ### Minor Changes

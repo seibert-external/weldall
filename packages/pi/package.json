@@ -1,6 +1,6 @@
 {
   "name": "@weldall/pi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "WeldAll skills for Pi",
   "license": "Apache-2.0",
   "type": "module",
@@ -16,7 +16,7 @@
     }
   },
   "dependencies": {
-    "@weldall/cli": "^0.9.0"
+    "@weldall/cli": "^0.10.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
