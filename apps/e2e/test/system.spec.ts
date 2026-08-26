@@ -488,7 +488,9 @@ test("denies CLI login without weldall:login while preserving browser authentica
   await expect(page.getByRole("region", { name: "Available skills" })).toBeVisible({
     timeout: 60_000,
   });
-  await expect(page.getByText("bob@example.com", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("bob@example.com", { exact: true }).filter({ visible: true }).first(),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: "View Analyze budget variance" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
 
