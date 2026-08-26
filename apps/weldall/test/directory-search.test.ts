@@ -20,7 +20,11 @@ vi.mock("../src/server/skills/service", () => ({
   listVisibleSkillsForScopes: mocks.listVisibleSkillsForScopes,
 }));
 
-import { listSearchablePrimitives } from "../src/server/directory/search";
+import {
+  listDirectoryResources,
+  listDirectoryScopes,
+  listSearchablePrimitives,
+} from "../src/server/directory/search";
 
 describe("directory primitive search", () => {
   beforeEach(() => {
@@ -49,6 +53,36 @@ describe("directory primitive search", () => {
     mocks.findScopes
       .mockReset()
       .mockResolvedValue([{ key: "expenses:read", description: "Read expenses" }]);
+  });
+
+  it("loads only the safe resource directory fields", async () => {
+    await expect(listDirectoryResources()).resolves.toEqual([
+      {
+        key: "expenses",
+        name: "Expenses",
+        resourceIdentifier: "https://expenses.example/api",
+      },
+    ]);
+
+    expect(mocks.findResources).toHaveBeenCalledWith({
+      where: { enabled: true },
+      orderBy: [{ name: "asc" }, { key: "asc" }],
+      select: { key: true, name: true, resourceIdentifier: true },
+    });
+    expect(mocks.effectiveScopesFor).not.toHaveBeenCalled();
+  });
+
+  it("loads only scopes granted to the signed-in user", async () => {
+    await expect(listDirectoryScopes("user@example.com")).resolves.toEqual([
+      { key: "expenses:read", description: "Read expenses" },
+    ]);
+
+    expect(mocks.effectiveScopesFor).toHaveBeenCalledWith("user@example.com");
+    expect(mocks.findScopes).toHaveBeenCalledWith({
+      where: { key: { in: ["expenses:read"] } },
+      orderBy: { key: "asc" },
+      select: { key: true, description: true },
+    });
   });
 
   it("returns only compact searchable attributes for the signed-in user's view", async () => {

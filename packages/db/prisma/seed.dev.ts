@@ -95,7 +95,7 @@ try {
     where: { createdBy: actor, key: { notIn: resourceKeys } },
   });
 
-  const resources = new Map<string, { id: string }>();
+  const resources = new Map<string, { id: string; version: number }>();
   for (const definition of resourceDefinitions) {
     for (const [key, description] of definition.scopes) {
       await db.scope.upsert({
@@ -113,6 +113,7 @@ try {
 
     const origin = `https://${definition.key}.seibert.localdev`;
     const resourceIdentifier = `${origin}/api`;
+    const skillDiscoveryEnabled = definition.key === "contracts";
     const resource = await db.downstreamResource.upsert({
       where: { key: definition.key },
       create: {
@@ -123,7 +124,7 @@ try {
         authorizationServer: origin,
         downstreamClientId: `weldall-cli-at-${definition.key}`,
         enabled: true,
-        skillDiscoveryEnabled: false,
+        skillDiscoveryEnabled,
         createdBy: actor,
         updatedBy: actor,
       },
@@ -133,7 +134,7 @@ try {
         authorizationServer: origin,
         downstreamClientId: `weldall-cli-at-${definition.key}`,
         enabled: true,
-        skillDiscoveryEnabled: false,
+        skillDiscoveryEnabled,
         updatedBy: actor,
       },
     });
@@ -165,6 +166,10 @@ try {
   }
 
   await seedDevelopmentSkills(db, actor);
+  const contracts = resources.get("contracts");
+  if (!contracts) throw new Error("Development contract resource was not seeded.");
+  await seedDevelopmentResourceSkill(contracts);
+
   const expenses = resources.get("expenses");
   if (!expenses) throw new Error("Development expense resource was not seeded.");
 
@@ -250,6 +255,65 @@ try {
   });
 } finally {
   await db.$disconnect();
+}
+
+async function seedDevelopmentResourceSkill(resource: { id: string; version: number }) {
+  const validUntil = new Date("2100-01-01T00:00:00.000Z");
+  const refreshedAt = new Date();
+  const catalog = await db.discoveredSkillCatalog.upsert({
+    where: { resourceId: resource.id },
+    create: {
+      id: "development-contracts-skill-catalog",
+      resourceId: resource.id,
+      sourceResourceVersion: resource.version,
+      schemaVersion: 1,
+      lastAttemptAt: refreshedAt,
+      lastSuccessfulRefreshAt: refreshedAt,
+      nextRefreshAt: validUntil,
+      staleAfter: validUntil,
+    },
+    update: {
+      sourceResourceVersion: resource.version,
+      schemaVersion: 1,
+      lastAttemptAt: refreshedAt,
+      lastSuccessfulRefreshAt: refreshedAt,
+      nextRefreshAt: validUntil,
+      staleAfter: validUntil,
+      retryCount: 0,
+      lastFailureCategory: null,
+      lastFailureAt: null,
+      refreshLeaseId: null,
+      refreshLeaseUntil: null,
+    },
+  });
+
+  await db.discoveredSkill.upsert({
+    where: { canonicalId: "contracts.contract-review" },
+    create: {
+      id: "development-discovered-skill-contracts-contract-review",
+      catalogId: catalog.id,
+      localId: "contract-review",
+      canonicalId: "contracts.contract-review",
+      title: "Review a contract",
+      content:
+        "# Review a contract\n\nReview the contract terms, identify material risks, and summarize required follow-up.",
+      requiredScopes: ["contracts:read"],
+      visibility: "DEFAULT",
+      meta: { tags: ["contracts", "review"] },
+      lastUpdatedAt: "development-seed",
+    },
+    update: {
+      catalogId: catalog.id,
+      localId: "contract-review",
+      title: "Review a contract",
+      content:
+        "# Review a contract\n\nReview the contract terms, identify material risks, and summarize required follow-up.",
+      requiredScopes: ["contracts:read"],
+      visibility: "DEFAULT",
+      meta: { tags: ["contracts", "review"] },
+      lastUpdatedAt: "development-seed",
+    },
+  });
 }
 
 function parseDevelopmentMachinePublicJwk(value: string | undefined): Prisma.InputJsonObject {

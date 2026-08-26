@@ -3,8 +3,10 @@
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
+import { parseAsString, useQueryStates } from "nuqs";
 import {
   useCallback,
   useEffect,
@@ -21,8 +23,15 @@ import { SkillAppearanceIcon } from "./skill-appearance-icon";
 type DirectorySkill = VisibleSkill & { appearanceIconNode?: SkillAppearanceIconNode };
 
 export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
-  const [query, setQuery] = useState("");
-  const [tagFilter, setTagFilter] = useState("");
+  const [{ q: query, resource: resourceFilter, tag: tagFilter }, setDirectoryQuery] =
+    useQueryStates(
+      {
+        q: parseAsString.withDefault(""),
+        resource: parseAsString.withDefault(""),
+        tag: parseAsString.withDefault(""),
+      },
+      { history: "replace", shallow: true },
+    );
   const [tagScrollState, setTagScrollState] = useState({
     canScrollLeft: false,
     canScrollRight: false,
@@ -32,9 +41,35 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
     () => query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean),
     [query],
   );
+  const resourceOptions = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          skills.flatMap((skill) =>
+            skill.source.type === "resource" ? [[skill.source.key, skill.source.name]] : [],
+          ),
+        ),
+      )
+        .map(([value, label]) => ({ value, label }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [skills],
+  );
+  const activeResourceFilter = resourceOptions.some(({ value }) => value === resourceFilter)
+    ? resourceFilter
+    : "";
+  const resourceMatchedSkills = useMemo(
+    () =>
+      activeResourceFilter
+        ? skills.filter(
+            (skill) =>
+              skill.source.type === "resource" && skill.source.key === activeResourceFilter,
+          )
+        : skills,
+    [activeResourceFilter, skills],
+  );
   const searchMatchedSkills = useMemo(
-    () => skills.filter((skill) => skillMatchesSearch(skill, searchTerms)),
-    [searchTerms, skills],
+    () => resourceMatchedSkills.filter((skill) => skillMatchesSearch(skill, searchTerms)),
+    [resourceMatchedSkills, searchTerms],
   );
   const searchTagOptions = useMemo(
     () =>
@@ -50,9 +85,9 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
     [activeTagFilter, searchMatchedSkills],
   );
   const tagOptions = useMemo(() => {
-    const tagSourceSkills = searchTerms.length > 0 ? filteredSkills : skills;
+    const tagSourceSkills = searchTerms.length > 0 ? filteredSkills : resourceMatchedSkills;
     return Array.from(new Set(tagSourceSkills.flatMap((skill) => skill.meta?.tags ?? []))).sort();
-  }, [filteredSkills, searchTerms.length, skills]);
+  }, [filteredSkills, resourceMatchedSkills, searchTerms.length]);
   const updateTagScrollState = useCallback(() => {
     const viewport = tagViewportRef.current;
     if (!viewport) return;
@@ -70,8 +105,16 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
   }, []);
 
   useEffect(() => {
-    if (tagFilter && !searchTagOptions.includes(tagFilter)) setTagFilter("");
-  }, [searchTagOptions, tagFilter]);
+    if (resourceFilter && !activeResourceFilter) {
+      void setDirectoryQuery({ resource: null });
+    }
+  }, [activeResourceFilter, resourceFilter, setDirectoryQuery]);
+
+  useEffect(() => {
+    if (tagFilter && !searchTagOptions.includes(tagFilter)) {
+      void setDirectoryQuery({ tag: null });
+    }
+  }, [searchTagOptions, setDirectoryQuery, tagFilter]);
 
   useEffect(() => {
     const viewport = tagViewportRef.current;
@@ -109,21 +152,6 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
 
   return (
     <section className="skill-directory-layout" aria-label="Available skills">
-      <div className="skill-directory-search">
-        <TextInput
-          className="skill-directory-search-input"
-          hasClear
-          isLabelHidden
-          label="Search skills"
-          onChange={setQuery}
-          placeholder="Search skills by name, tag, publisher, or scope"
-          size="lg"
-          startIcon="search"
-          value={query}
-          width="100%"
-        />
-      </div>
-
       <div
         className="skill-directory-tags"
         data-can-scroll-left={tagScrollState.canScrollLeft || undefined}
@@ -150,7 +178,7 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
                 aria-pressed={activeTagFilter === ""}
                 icon={<Icon color="inherit" icon={GridIcon} size="sm" />}
                 label="All skills"
-                onClick={() => setTagFilter("")}
+                onClick={() => void setDirectoryQuery({ tag: null })}
                 size="lg"
                 style={getTagGradientStyle("all-skills")}
                 variant="ghost"
@@ -164,7 +192,7 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
                     icon={<SkillAppearanceIcon height={16} seed={tag} width={16} />}
                     key={tag}
                     label={`Filter by ${tag}`}
-                    onClick={() => setTagFilter(tag)}
+                    onClick={() => void setDirectoryQuery({ tag })}
                     size="lg"
                     style={getTagGradientStyle(tag)}
                     variant="ghost"
@@ -191,9 +219,32 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
       <div className="skill-directory-results">
         <div className="skill-directory-results-heading">
           <h1>{activeTagFilter || "All skills"}</h1>
-          <span aria-live="polite">
-            {filteredSkills.length} {filteredSkills.length === 1 ? "skill" : "skills"}
-          </span>
+          <div className="directory-heading-actions">
+            <Selector
+              hasClear
+              isLabelHidden
+              changeAction={async (value) => {
+                await setDirectoryQuery({ resource: value });
+              }}
+              label="Filter by resource"
+              options={resourceOptions}
+              placeholder="All resources"
+              value={activeResourceFilter || null}
+              width={190}
+            />
+            <div className="directory-inline-search">
+              <TextInput
+                hasClear
+                isLabelHidden
+                label="Search skills"
+                onChange={(value) => void setDirectoryQuery({ q: value || null })}
+                placeholder="Search skills"
+                startIcon="search"
+                value={query}
+                width="100%"
+              />
+            </div>
+          </div>
         </div>
         {filteredSkills.length ? (
           <div className="skill-directory-list">
@@ -213,6 +264,7 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
 }
 
 function SkillCard({ animationOrder, skill }: { animationOrder: number; skill: DirectorySkill }) {
+  const resourceTag = getSkillResourceTag(skill);
   const style = {
     ...getSkillGradientStyle(skill.slug, skill.meta?.appearance),
     "--skill-card-animation-order": animationOrder,
@@ -251,9 +303,10 @@ function SkillCard({ animationOrder, skill }: { animationOrder: number; skill: D
           ) : null}
         </div>
         {skill.preview ? <p className="skill-card-preview">{skill.preview}</p> : null}
-        {skill.meta?.tags?.length ? (
+        {resourceTag || skill.meta?.tags?.length ? (
           <div className="skill-card-tags">
-            {skill.meta.tags.map((tag, index) => (
+            {resourceTag ? <span className="skill-card-resource-tag">{resourceTag}</span> : null}
+            {skill.meta?.tags?.map((tag, index) => (
               <span key={`${index}:${tag}`}>{tag}</span>
             ))}
           </div>
@@ -271,6 +324,7 @@ function skillMatchesSearch(skill: VisibleSkill, terms: readonly string[]): bool
     skill.slug,
     skill.preview,
     getSkillSourceLabel(skill),
+    getSkillResourceTag(skill) ?? "",
     skill.meta?.owner ?? "",
     ...(skill.meta?.tags ?? []),
     ...skill.requiredScopes,
@@ -302,6 +356,15 @@ function getTagGradientStyle(seed: string): CSSProperties {
 
 function getSkillSourceLabel(skill: VisibleSkill): string {
   return skill.source.type === "resource" ? skill.source.name : "Weldall";
+}
+
+function getSkillResourceTag(skill: VisibleSkill): string | undefined {
+  if (skill.source.type !== "resource") return undefined;
+  return skill.source.name
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
 }
 
 function LockIcon(props: SVGProps<SVGSVGElement>) {

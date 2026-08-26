@@ -1,3 +1,4 @@
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { after } from "next/server";
 import { headers } from "next/headers";
@@ -46,6 +47,16 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
         </header>
 
         <div className="skill-detail-layout">
+          {skill.missingScopes.length ? (
+            <div className="skill-detail-warning">
+              <Banner
+                container="card"
+                description={`Your account is missing the following required scopes: ${skill.missingScopes.join(", ")}.`}
+                status="warning"
+                title="Missing required scopes"
+              />
+            </div>
+          ) : null}
           <article className="skill-detail-instructions">
             <SkillContent content={skill.content} />
           </article>

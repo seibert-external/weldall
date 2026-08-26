@@ -3,26 +3,39 @@ import type { SearchablePrimitiveDto } from "@/lib/searchable-primitives";
 import { effectiveScopesFor } from "../policy/resources";
 import { listVisibleSkillsForScopes } from "../skills/service";
 
+export interface DirectoryResource {
+  key: string;
+  name: string;
+  resourceIdentifier: string;
+}
+
+export interface DirectoryScope {
+  key: string;
+  description: string;
+}
+
+export function listDirectoryResources(): Promise<DirectoryResource[]> {
+  return db.downstreamResource.findMany({
+    where: { enabled: true },
+    orderBy: [{ name: "asc" }, { key: "asc" }],
+    select: {
+      key: true,
+      name: true,
+      resourceIdentifier: true,
+    },
+  });
+}
+
+export async function listDirectoryScopes(email: string): Promise<DirectoryScope[]> {
+  return listDirectoryScopesForKeys(await effectiveScopesFor(email));
+}
+
 export async function listSearchablePrimitives(email: string): Promise<SearchablePrimitiveDto[]> {
   const grantedScopes = await effectiveScopesFor(email);
   const [{ items: skills }, resources, scopes] = await Promise.all([
     listVisibleSkillsForScopes(grantedScopes),
-    db.downstreamResource.findMany({
-      where: { enabled: true },
-      orderBy: [{ name: "asc" }, { key: "asc" }],
-      select: {
-        key: true,
-        name: true,
-        resourceIdentifier: true,
-      },
-    }),
-    grantedScopes.length
-      ? db.scope.findMany({
-          where: { key: { in: grantedScopes } },
-          orderBy: { key: "asc" },
-          select: { key: true, description: true },
-        })
-      : Promise.resolve([]),
+    listDirectoryResources(),
+    listDirectoryScopesForKeys(grantedScopes),
   ]);
 
   return [
@@ -52,4 +65,13 @@ export async function listSearchablePrimitives(email: string): Promise<Searchabl
       ...(scope.description ? { description: scope.description } : {}),
     })),
   ];
+}
+
+function listDirectoryScopesForKeys(scopeKeys: readonly string[]): Promise<DirectoryScope[]> {
+  if (scopeKeys.length === 0) return Promise.resolve([]);
+  return db.scope.findMany({
+    where: { key: { in: [...scopeKeys] } },
+    orderBy: { key: "asc" },
+    select: { key: true, description: true },
+  });
 }

@@ -1,6 +1,8 @@
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
+import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 import Home from "../src/app/page";
 import SkillsPage from "../src/app/skills/page";
 import { getEffectiveCliLogoUrls, parseCliLogoUrl } from "../src/server/branding";
@@ -109,7 +111,7 @@ describe("CLI branding", () => {
     });
     pageMocks.isAdminEmail.mockResolvedValue(true);
 
-    const html = renderToStaticMarkup(await SkillsPage());
+    const html = renderToStaticMarkup(createElement(NuqsTestingAdapter, null, await SkillsPage()));
 
     expect(pageMocks.isAdminEmail).toHaveBeenCalledWith("admin@example.com");
     expect(html).toContain('href="/admin/resources"');
@@ -138,12 +140,65 @@ describe("CLI branding", () => {
       warnings: [],
     });
 
-    const html = renderToStaticMarkup(await SkillsPage());
+    const html = renderToStaticMarkup(createElement(NuqsTestingAdapter, null, await SkillsPage()));
 
     expect(html).toContain("Review employee expenses");
     expect(html).toContain('aria-label="Missing 1 scope"');
     expect(html).toContain('role="tooltip"');
     expect(html).toContain('href="/skill/demo.finance.expense-review"');
+  });
+
+  it("renders a colored provider tag first for resource-discovered skills", async () => {
+    pageMocks.getSession.mockResolvedValue({
+      user: { id: "regular-user", email: "user@example.com" },
+    });
+    pageMocks.listVisibleSkills.mockResolvedValue({
+      items: [
+        {
+          slug: "contracts.contract-review",
+          title: "Review a contract",
+          preview: "Review contract terms.",
+          requiredScopes: ["contracts:read"],
+          visibility: "DEFAULT",
+          available: true,
+          missingScopes: [],
+          updatedAt: "2026-06-01T00:00:00.000Z",
+          source: { type: "resource", key: "contracts", name: "Contract Service" },
+          meta: { tags: ["contracts", "review"] },
+        },
+        {
+          slug: "expenses.expense-review",
+          title: "Review an expense",
+          preview: "Review expense details.",
+          requiredScopes: ["expenses:read"],
+          visibility: "DEFAULT",
+          available: true,
+          missingScopes: [],
+          updatedAt: "2026-06-01T00:00:00.000Z",
+          source: { type: "resource", key: "expenses", name: "Expense Service" },
+          meta: { tags: ["expenses", "review"] },
+        },
+      ],
+      warnings: [],
+    });
+
+    const html = renderToStaticMarkup(
+      createElement(
+        NuqsTestingAdapter,
+        { searchParams: "?resource=contracts" },
+        await SkillsPage(),
+      ),
+    );
+    const cardTagsIndex = html.indexOf('class="skill-card-tags"');
+    const resourceTagIndex = html.indexOf("contract-service", cardTagsIndex);
+    const regularTagIndex = html.indexOf(">contracts</span>", resourceTagIndex);
+
+    expect(cardTagsIndex).toBeGreaterThan(-1);
+    expect(resourceTagIndex).toBeGreaterThan(cardTagsIndex);
+    expect(html).toContain('class="skill-card-resource-tag"');
+    expect(html).not.toContain("⚡️");
+    expect(regularTagIndex).toBeGreaterThan(resourceTagIndex);
+    expect(html).not.toContain("Review an expense");
   });
 
   it("renders no company logo when none is configured", async () => {

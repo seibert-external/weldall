@@ -680,7 +680,130 @@
   .public-page-main {
     width: min(94rem, calc(100% - 3rem));
     margin-inline: auto;
-    padding-block: 2rem;
+    padding-block: 3rem 6rem;
+  }
+
+  .directory-table-layout {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .directory-table-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0.75rem;
+  }
+
+  .directory-table-heading h1 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .directory-inline-search {
+    width: min(18rem, 65%);
+    flex: 0 1 18rem;
+  }
+
+  .directory-heading-actions {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .directory-heading-actions .directory-inline-search {
+    min-width: 10rem;
+  }
+
+  .directory-table-empty {
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+  }
+
+  .directory-table-viewport {
+    width: 100%;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .directory-table-viewport:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+  }
+
+  .directory-table {
+    width: 100%;
+    min-width: 44rem;
+    border-collapse: collapse;
+    text-align: left;
+  }
+
+  .directory-table :is(th, td) {
+    max-width: 42rem;
+  }
+
+  .directory-table th:first-child,
+  .directory-table td:first-child {
+    width: 24%;
+  }
+
+  .directory-table th:nth-child(2),
+  .directory-table td:nth-child(2) {
+    width: 30%;
+  }
+
+  .directory-table-sort {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .directory-table-sort > span {
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    font-weight: var(--font-weight-normal);
+  }
+
+  .directory-table-sort:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 3px;
+  }
+
+  .directory-table td code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+
+  .directory-table-name {
+    font-weight: var(--font-weight-medium);
+  }
+
+  .directory-table tbody tr > td {
+    transition: background-color 140ms ease;
+  }
+
+  .directory-table tbody tr[data-selected="true"] > td {
+    background: color-mix(
+      in srgb,
+      var(--color-background-surface) 88%,
+      var(--color-text-primary)
+    ) !important;
   }
 
   .public-home {
@@ -800,27 +923,6 @@
   .skill-directory-layout {
     display: grid;
     gap: 2rem;
-  }
-
-  .skill-directory-search {
-    width: min(62rem, 100%);
-    margin-inline: auto;
-  }
-
-  .skill-directory-search-input {
-    height: 4.5rem !important;
-    border-color: var(--color-border-emphasized) !important;
-    background: var(--color-background-surface) !important;
-    padding-inline: 1.25rem !important;
-  }
-
-  .skill-directory-search-input > input {
-    font-size: 1.0625rem !important;
-  }
-
-  .skill-directory-search-input > svg {
-    width: 1.25rem !important;
-    height: 1.25rem !important;
   }
 
   .skill-directory-tags {
@@ -959,7 +1061,7 @@
 
   .skill-directory-results-heading {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 1rem;
     border-bottom: 1px solid var(--color-border);
@@ -972,11 +1074,6 @@
     font-size: 1.125rem;
     font-weight: var(--font-weight-semibold);
     text-transform: capitalize;
-  }
-
-  .skill-directory-results-heading span {
-    color: var(--color-text-secondary);
-    font-size: 0.75rem;
   }
 
   .skill-directory-list {
@@ -1091,7 +1188,7 @@
   .skill-card-title {
     display: flex;
     min-width: 0;
-    align-items: flex-start;
+    align-items: center;
     gap: 0.5rem;
     padding-right: 3.5rem;
   }
@@ -1140,6 +1237,12 @@
     padding: 0.3125rem 0.625rem;
     font-size: 0.6875rem;
     line-height: 1.25;
+  }
+
+  .skill-card-tags > .skill-card-resource-tag {
+    border-color: rgb(255 255 255 / 36%);
+    background: linear-gradient(100deg, rgb(151, 132, 48), rgb(181, 111, 45));
+    font-weight: var(--font-weight-semibold);
   }
 
   .skill-noise-surface {
@@ -1369,9 +1472,14 @@
   .skill-detail-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 18rem;
-    gap: 4rem;
+    column-gap: 4rem;
+    row-gap: 3rem;
     align-items: start;
     padding-top: 3rem;
+  }
+
+  .skill-detail-warning {
+    grid-column: 1 / -1;
   }
 
   .skill-detail-instructions {
@@ -1577,6 +1685,7 @@
       display: none;
     }
 
+    .public-page-main,
     .skill-directory-main,
     .skill-detail-main {
       width: min(100% - 2rem, 94rem);
@@ -1589,9 +1698,20 @@
       gap: 1rem;
     }
 
-    .skill-directory-search-input {
-      height: 3.75rem !important;
-      padding-inline: 1rem !important;
+    .skill-directory-results-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .directory-heading-actions {
+      width: 100%;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+
+    .directory-heading-actions .directory-inline-search {
+      width: 100%;
+      flex-basis: 100%;
     }
 
     .skill-directory-list {
