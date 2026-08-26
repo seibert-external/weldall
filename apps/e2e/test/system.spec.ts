@@ -211,7 +211,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     .getByLabel("Request prefixes")
     .fill("https://expenses.seibert.localdev/api\nhttps://redirect.seibert.localdev/");
   await page.getByRole("button", { name: "Save resource" }).click();
-  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/admin/resources");
 
   await page.getByRole("link", { name: "Email assignments" }).click();
   await expect(page.getByRole("heading", { name: "Email assignments" })).toBeVisible();
@@ -396,7 +396,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   );
   await expectNoCapturedRequests();
 
-  await page.goto("https://weldall.seibert.localdev/resources");
+  await page.goto("https://weldall.seibert.localdev/admin/resources");
   const reportsRow = page.getByRole("row").filter({ hasText: "reports" });
   await reportsRow.click();
   await page.getByLabel("Enabled").click();
@@ -410,7 +410,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   expect(disabledRequest.code).toBe(1);
   expect(disabledRequest.stderr).toContain("No registered resource accepts");
 
-  await page.goto("https://weldall.seibert.localdev/resources");
+  await page.goto("https://weldall.seibert.localdev/admin/resources");
   const disabledReportsRow = page.getByRole("row").filter({ hasText: "reports" });
   await disabledReportsRow.click();
   await expect(page.getByRole("link", { name: "View skills (0)" })).toBeVisible();
@@ -418,7 +418,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const deleteResourceDialog = page.getByRole("alertdialog");
   await expect(deleteResourceDialog).toContainText("Reports");
   await deleteResourceDialog.getByRole("button", { name: "Delete resource" }).click();
-  await expect(page).toHaveURL("https://weldall.seibert.localdev/resources");
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/admin/resources");
   await expect(page.getByRole("row").filter({ hasText: "reports" })).toHaveCount(0);
 
   await page.getByRole("link", { name: "CLI", exact: true }).click();
@@ -491,7 +491,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   await expect(page.getByRole("link", { name: "View Analyze budget variance" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
 
-  await page.goto("https://weldall.seibert.localdev/resources");
+  await page.goto("https://weldall.seibert.localdev/admin/resources");
   await expect(page).toHaveURL(/\/access-denied$/, { timeout: 30_000 });
   await expect(page.getByRole("heading", { name: "Administrator access required" })).toBeVisible({
     timeout: 30_000,
