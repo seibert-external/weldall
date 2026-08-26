@@ -54,7 +54,9 @@ jobs:
             deployment_uuid=""
             if [ -n "$deployments" ]; then
               deployment_uuid=$(jq -r --arg sha "$GITHUB_SHA" \
-                '[.deployments[] | select(.commit == $sha)] | sort_by(.created_at) | last | .deployment_uuid // empty' \
+                '([.deployments[] | select(.commit == $sha)] | sort_by(.created_at)) as $matches
+                | (($matches | map(select(.status == "finished")) | last) // ($matches | last))
+                | .deployment_uuid // empty' \
                 <<<"$deployments" 2>/dev/null || true)
             fi
 

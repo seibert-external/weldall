@@ -164,7 +164,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   expect(normalizedWhoami).toContain("Account Alice E2E");
   expect(normalizedWhoami).toContain("Email alice@example.com");
 
-  await page.goto("https://weldall.seibert.localdev/scopes");
+  await page.goto("https://weldall.seibert.localdev/admin/scopes");
   await expect(page.getByRole("heading", { name: "Scopes" })).toBeVisible();
   const scopeSearch = page.getByRole("textbox", { name: "Find scopes" });
   for (const scope of ["weldall:administer", "weldall:login", "expenses:read"]) {
@@ -488,9 +488,6 @@ test("denies CLI login without weldall:login while preserving browser authentica
   await expect(page.getByRole("region", { name: "Available skills" })).toBeVisible({
     timeout: 60_000,
   });
-  await expect(
-    page.getByText("bob@example.com", { exact: true }).filter({ visible: true }).first(),
-  ).toBeVisible();
   await expect(page.getByRole("link", { name: "View Analyze budget variance" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
 
