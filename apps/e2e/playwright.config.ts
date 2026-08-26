@@ -8,7 +8,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 120_000,
-  expect: { timeout: 10_000 },
+  // Generous default so cold dev-server route compiles (observed up to ~35s on
+  // loaded CI runners) do not trip assertions that did not set an explicit timeout.
+  expect: { timeout: 30_000 },
   outputDir: join(artifacts, "playwright"),
   use: {
     trace: "off",
