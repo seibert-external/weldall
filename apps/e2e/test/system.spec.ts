@@ -155,6 +155,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await prewarmWeldallRoutes(apiRequest, [
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource/api",
+    "/consent",
   ]);
 
   const login = startCli(["login"], 150_000);
@@ -480,7 +481,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   await page.getByRole("link", { name: "Users", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible({
-    timeout: 30_000,
+    timeout: 90_000,
   });
   const userRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
   await expect(userRow).toBeVisible();
@@ -512,6 +513,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   await prewarmWeldallRoutes(request, [
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource/api",
+    "/consent",
   ]);
 
   const login = startCli(["login"], 150_000);
