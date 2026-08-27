@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const workspace = process.env.WELDALL_E2E_WORKSPACE ?? "/workspace";
 const credentialsFile = "/tmp/weldall-e2e-credentials.json";
@@ -42,7 +42,7 @@ const normalizePanelOutput = (output: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const startCli = (args: string[], timeoutMs = 45_000) => {
+const startCli = (args: string[], timeoutMs = 120_000) => {
   const child = spawn(process.execPath, ["--use-system-ca", cli, ...args], {
     cwd: workspace,
     env: cliEnv,
@@ -71,6 +71,21 @@ const startCli = (args: string[], timeoutMs = 45_000) => {
 const runCli = async (...args: string[]) => {
   const { result } = startCli(args);
   return result;
+};
+
+// `next dev --webpack` compiles each route on first request, and loaded CI
+// runners have taken over 45s for a single cold compile. That exceeds the CLI's
+// 5s discovery deadline and its 45s command deadline, so warm the routes the CLI
+// triggers before the CLI needs them instead of relying on lucky timing.
+const prewarmWeldallRoutes = async (request: APIRequestContext, paths: string[]) => {
+  await Promise.all(
+    paths.map((path) =>
+      request
+        .get(`https://weldall.seibert.localdev${path}`, { failOnStatusCode: false })
+        .then((response) => response.dispose())
+        .catch(() => undefined),
+    ),
+  );
 };
 
 const describeCliResult = ({ code, stdout, stderr }: CliResult) =>
@@ -132,8 +147,15 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   request: apiRequest,
 }) => {
   // This scenario intentionally crosses many lazily compiled admin and authenticated API routes.
-  // Loaded CI runners have taken over four minutes before reaching the CLI skill checks alone.
-  test.setTimeout(480_000);
+  // Loaded CI runners have taken over six minutes to complete the full workflow.
+  test.setTimeout(600_000);
+
+  // Warm OAuth discovery before the CLI login so its 5s discovery deadline is
+  // never consumed by a cold compile.
+  await prewarmWeldallRoutes(apiRequest, [
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource/api",
+  ]);
 
   const login = startCli(["login"], 150_000);
   await openDevelopmentLogin(page, login);
@@ -274,6 +296,15 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     "/skill/expenses.list",
   );
 
+  // The CLI account-data routes are only reached by CLI commands and are still
+  // cold here; warm them so the scopes command never races a 45s compile.
+  await prewarmWeldallRoutes(apiRequest, [
+    "/api/me/cli",
+    "/api/me/grants",
+    "/api/me/scopes",
+    "/api/me/skills",
+  ]);
+
   const scopes = await runCli("scopes");
   expect(scopes, scopes.stderr).toMatchObject({ code: 0 });
   expect(scopes.stdout.trim().split("\n").sort()).toEqual([
@@ -407,6 +438,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await reportsRow.click();
   await page.getByLabel("Enabled").click();
   await page.getByRole("button", { name: "Save resource" }).click();
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/admin/resources");
   const disabledRequest = await runCli(
     "request",
     "--scope",
@@ -436,6 +468,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   const staleHelp = await runCli();
   expect(staleHelp, staleHelp.stderr).toMatchObject({ code: 0 });
   expect(staleHelp.stdout).toContain("USAGE:");
+  expect(staleHelp.stdout).not.toContain(appendix);
+  const refreshedStatus = await runCli("status");
+  expect(refreshedStatus, refreshedStatus.stderr).toMatchObject({ code: 0 });
   const refreshedHelp = await runCli("--help");
   expect(refreshedHelp, refreshedHelp.stderr).toMatchObject({ code: 0 });
   expect(refreshedHelp.stdout).toContain(appendix);
@@ -466,8 +501,16 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
 test("denies CLI login without weldall:login while preserving browser authentication", async ({
   page,
+  request,
 }) => {
   test.setTimeout(180_000);
+
+  // Warm OAuth discovery so the CLI's 5s discovery deadline survives a cold
+  // recompile on a loaded runner (observed to exceed 40s between tests).
+  await prewarmWeldallRoutes(request, [
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource/api",
+  ]);
 
   const login = startCli(["login"], 150_000);
   await openDevelopmentLogin(page, login);
