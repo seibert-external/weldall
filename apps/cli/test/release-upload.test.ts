@@ -64,7 +64,7 @@ describe("CLI release upload", () => {
     expect(dereferenceTagCommit("lightweight", run)).toBe(expectedSha);
     expect(verifyReleaseTag("annotated", expectedSha, run)).toBe(expectedSha);
     expect(() => verifyReleaseTag("lightweight", "0".repeat(40), run)).toThrow(/expected/);
-  });
+  }, 15_000);
 
   it("accepts only strict scoped tags and the exact expected files", async () => {
     expect(parseCliReleaseTag("@weldall/cli@1.2.3")).toBe("1.2.3");

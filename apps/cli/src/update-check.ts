@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHttpsDeadlineFetch, isRecord, responseValue } from "./http.js";
 import { installMode, type InstallMode } from "./install-mode.js";
+import { atomicWriteFile } from "./storage/atomic-write.js";
 import { withLock } from "./storage/lock.js";
 import { CONFIG_DIRECTORY } from "./storage/preferences.js";
 
@@ -161,17 +161,7 @@ export class UpdateCheckStore {
   async write(cache: UpdateCheckCache): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const path = join(this.directory, UPDATE_CHECK_FILENAME);
-    const temporary = join(this.directory, `.update-check-${randomUUID()}.tmp`);
-    try {
-      await writeFile(temporary, `${JSON.stringify(cache, null, 2)}\n`, {
-        encoding: "utf8",
-        flag: "wx",
-        mode: 0o600,
-      });
-      await rename(temporary, path);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await atomicWriteFile(path, `${JSON.stringify(cache, null, 2)}\n`);
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
