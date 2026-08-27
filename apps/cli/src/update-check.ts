@@ -102,7 +102,7 @@ export function updateAdvice(
 ): UpdateAdvice {
   const message = [
     "hey there is a new weldall cli update",
-    `A new version of the Weldall CLI is available (${latestVersion} — you have ${currentVersion}).`,
+    `A new version of the Weldall CLI is available (${latestVersion} - you have ${currentVersion}).`,
   ].join("\n");
   const hint =
     mode === "standalone"

@@ -52,7 +52,7 @@ describe("updateAdvice", () => {
     const advice = updateAdvice("2.1.0", "1.0.0", "npm");
     expect(advice.message.split("\n")[0]).toBe("hey there is a new weldall cli update");
     expect(advice.message).toContain(
-      "A new version of the Weldall CLI is available (2.1.0 — you have 1.0.0).",
+      "A new version of the Weldall CLI is available (2.1.0 - you have 1.0.0).",
     );
   });
 
@@ -400,7 +400,7 @@ describe("runUpdateCheck", () => {
         stderrIsTty: true,
         nowEpoch: 1_000 + CHECK_INTERVAL_MS,
       });
-      expect(second?.message).toContain("(3.0.0 — you have 1.0.0)");
+      expect(second?.message).toContain("(3.0.0 - you have 1.0.0)");
     } finally {
       await rm(home, { recursive: true, force: true });
     }
