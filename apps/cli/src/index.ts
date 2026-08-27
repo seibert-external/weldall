@@ -29,6 +29,7 @@ import { keychain, type StoredIdentity } from "./storage/keychain.js";
 import { installTestHttpBridge } from "./test-http-bridge.js";
 import { runTestRuntimeHook } from "./test-runtime.js";
 import { phaseTiming, timingNow } from "./timing.js";
+import { printUpdateAdvice, runUpdateCheck, shouldRunUpdateCheck } from "./update-check.js";
 import { printFriendlyValidation } from "./validation.js";
 
 interface LocalHeader extends CliHeaderSnapshot {
@@ -58,6 +59,12 @@ async function loadLocalHeader(includeAppendix: boolean): Promise<LocalHeader> {
     // Help must remain available when the local configuration cannot be read.
     return { issuer: null, identity: null, ...emptySnapshot() };
   }
+}
+
+async function notifyUpdateAvailable(argv: string[]) {
+  if (!shouldRunUpdateCheck(argv)) return;
+  const advice = await runUpdateCheck({ currentVersion: packageJson.version }).catch(() => null);
+  if (advice) printUpdateAdvice(advice);
 }
 
 export async function runCli(argv = process.argv.slice(2)) {
@@ -124,6 +131,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       printFriendlyValidation(error);
       process.exitCode = 2;
       phaseTiming("total", totalStartedAt);
+      await notifyUpdateAvailable(normalizedArgv);
       return;
     }
     const cliError = error instanceof CliError ? error : undefined;
@@ -133,6 +141,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     process.exitCode = cliError?.exitCode ?? 1;
   }
   phaseTiming("total", totalStartedAt);
+  await notifyUpdateAvailable(normalizedArgv);
 }
 
 await runCli();
