@@ -15,7 +15,20 @@ RUN POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/postgres pnpm db:g
   && pnpm --filter @weldall/db build \
   && pnpm --filter @weldall/cli build \
   && pnpm --filter @weldall/expenses build \
-  && pnpm --filter @weldall/dev-idp build
+  && pnpm --filter @weldall/dev-idp build \
+  && WELDALL_DEPLOYMENT_MODE=development \
+     WELDALL_SIGNING_KID=weldall-e2e-build \
+     BETTER_AUTH_SECRET=weldall-e2e-build-secret \
+     OAUTH_PROXY_SECRET=weldall-e2e-build-secret \
+     WELDALL_CREDENTIAL_ENCRYPTION_KEY=weldall-e2e-build-encryption-key \
+     POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/postgres \
+     ENABLE_DEV_LOGIN=true \
+     DEV_IDP_ISSUER=https://dev-idp.seibert.localdev \
+     DEV_IDP_CLIENT_ID=weldall-dev \
+     DEV_IDP_CLIENT_SECRET=weldall-e2e-build-secret \
+     pnpm --filter @weldall/weldall build \
+  && cp -r apps/weldall/.next/static apps/weldall/.next/standalone/apps/weldall/.next/static \
+  && cp -r apps/weldall/public apps/weldall/.next/standalone/apps/weldall/public
 
 FROM app AS e2e
 RUN pnpm --filter @weldall/e2e exec playwright install --with-deps chromium \
