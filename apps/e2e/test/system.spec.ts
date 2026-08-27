@@ -156,6 +156,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource/api",
     "/consent",
+    "/api/auth/oauth2/userinfo",
   ]);
 
   const login = startCli(["login"], 150_000);
@@ -506,7 +507,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   page,
   request,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
 
   // Warm OAuth discovery so the CLI's 5s discovery deadline survives a cold
   // recompile on a loaded runner (observed to exceed 40s between tests).
@@ -514,6 +515,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource/api",
     "/consent",
+    "/api/auth/oauth2/userinfo",
   ]);
 
   const login = startCli(["login"], 150_000);
