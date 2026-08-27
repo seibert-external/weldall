@@ -266,7 +266,11 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     page.getByRole("button", { name: "Create skill" }).click(),
   ]);
   await page.goto("https://weldall.seibert.localdev/skills?q=expenses.list");
-  await expect(page.getByRole("row").filter({ hasText: "expenses.list" })).toBeVisible();
+  const skillDirectory = page.getByRole("region", { name: "Available skills" });
+  await expect(skillDirectory.getByRole("link", { name: "View List expenses" })).toHaveAttribute(
+    "href",
+    "/skill/expenses.list",
+  );
 
   const scopes = await runCli("scopes");
   expect(scopes, scopes.stderr).toMatchObject({ code: 0 });
