@@ -28,7 +28,8 @@
     "secrets:generate": "tsx scripts/generate-env.ts",
     "changeset": "changeset",
     "changeset:status": "changeset status",
-    "release": "changeset publish"
+    "release": "changeset publish",
+    "release:version": "changeset version && pnpm install --lockfile-only"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
