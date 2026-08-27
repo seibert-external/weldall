@@ -279,7 +279,7 @@ services:
         exec pnpm --dir apps/e2e test:e2e
     volumes:
       - e2e-trust:/trust:ro
-      - ./apps/e2e/test-results:/artifacts
+      - ${E2E_ARTIFACTS_DIR:-./apps/e2e/test-results}:/artifacts
 
 volumes:
   e2e-database:

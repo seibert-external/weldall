@@ -6,9 +6,6 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-rm -rf apps/e2e/test-results
-mkdir -p apps/e2e/test-results
-
 if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
   compose_project=$COMPOSE_PROJECT_NAME
 else
@@ -19,6 +16,9 @@ else
   checkout_hash=$(printf '%s' "$checkout_path" | git hash-object --stdin)
   compose_project="weldall-${checkout_slug:0:29}-${checkout_hash:0:12}-$$"
 fi
+artifact_dir="apps/e2e/test-results/$compose_project"
+export E2E_ARTIFACTS_DIR="./$artifact_dir"
+mkdir -p "$artifact_dir"
 compose=(docker compose -f docker-compose.e2e.yml -p "$compose_project")
 log_file=$(mktemp "${TMPDIR:-/tmp}/weldall-e2e.XXXXXX")
 chmod 0600 "$log_file"
@@ -26,7 +26,7 @@ cleanup() {
   "${compose[@]}" down --volumes --remove-orphans || true
   rm -f "$log_file"
   if [[ "${KEEP_E2E_ARTIFACTS:-0}" != "1" ]]; then
-    rm -rf apps/e2e/test-results
+    rm -rf "$artifact_dir"
   fi
 }
 trap cleanup EXIT
@@ -59,7 +59,7 @@ compose_status=${PIPESTATUS[0]}
 set -e
 
 report_status=0
-junit_report=apps/e2e/test-results/junit.xml
+junit_report="$artifact_dir/junit.xml"
 if [[ ! -f "$junit_report" ]]; then
   printf 'E2E test report is missing.\n' >&2
   report_status=1
