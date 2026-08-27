@@ -71,7 +71,6 @@ jobs:
         run: |
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
-          pnpm --filter @weldall/pi pack:check
 
   package-compat:
     runs-on: weldall
@@ -398,7 +397,6 @@ jobs:
         run: |
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
-          pnpm --filter @weldall/pi pack:check
 
       # RELEASE_GITHUB_TOKEN is a PAT/App token so Changesets-created
       # release.published events can start release-cli-assets.yml.
