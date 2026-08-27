@@ -408,7 +408,7 @@ jobs:
           publish: pnpm release
           # changeset version bumps package.json but not pnpm-lock.yaml; refresh
           # the lockfile so version PRs and the subsequent frozen install stay in sync
-          version: changeset version && pnpm install --lockfile-only
+          version: pnpm release:version
           title: "chore: release packages"
           commit: "chore: release packages"
           createGithubReleases: true
