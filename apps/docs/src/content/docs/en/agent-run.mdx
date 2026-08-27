@@ -30,7 +30,7 @@ Weldall is not tied to a specific agent. It works with Pi, Claude, and any other
 
 > Use Weldall for tasks in my company.
 
-Administrators can add further company-specific guidance to the centrally managed [CLI appendix](../features/#cli-appendix). When the agent invokes `weldall` without a subcommand, the help output includes the locally cached appendix. The CLI then fetches updates for the next invocation.
+Administrators can add further company-specific guidance to the centrally managed [CLI appendix](../features/#cli-appendix). When the agent invokes `weldall` without a subcommand, the help output includes the locally cached appendix without making a network request. Login, status, scope, and skill commands refresh the cache for later invocations.
 
 The employee then gives the agent the business task:
 

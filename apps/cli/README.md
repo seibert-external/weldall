@@ -161,6 +161,8 @@ bodies, and piped scope lists remain plain output. Help shows a rounded purple W
 effective host and cached name and email of the signed-in account. Root help stacks it above the
 yellow organization-instructions panel, a capped assigned-scope preview, and a cached skill-discovery instruction. Root help is strictly local and works offline: it never performs discovery, token refresh, or background networking. Successful login, status, scopes, and skill commands refresh the local snapshot for later invocations.
 
+Set `WELDALL_DEBUG_TIMINGS=1` to print optional phase timings to standard error. Timing output contains phase names and elapsed milliseconds, not tokens or response data.
+
 ## Development
 
 ```sh
