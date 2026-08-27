@@ -23,9 +23,9 @@
 
 Weldall CLI is a central access layer between **employees with their agents (like Claude, Copilot, pi, Open Code, ...)** on one side and **company APIs and services** on the other. It defines, in one place:
 
-1. **Which capabilities agents may use** — published as *skills* in a central catalog.
+1. **Which capabilities agents may use** — published as _skills_ in a central catalog.
 2. **Who gets them** — per person, per group, or per machine, configured in the UI or in YAML files.
-3. **Where they apply** — each *resource* (a service or API) defines its own supported permissions and request scope.
+3. **Where they apply** — each _resource_ (a service or API) defines its own supported permissions and request scope.
 
 Capabilities are defined centrally by administrators. Agents discover what they are allowed to do via the Weldall CLI. Each employee's agent gets its own skill set from the catalog, so you steer what your agents can do centrally and roll out the same workflows consistently across the company.
 
@@ -35,15 +35,14 @@ The **agent never sees an access token.** The local CLI keeps credentials in the
 
 Weldall CLI is a reference implementation of the next generation of OAuth for agentic applications: it uses DPoP-bound API requests and ID-JAGs to reduce the risk of credential leaks.
 
-| Standard | What it provides |
-| -------- | ---------------- |
+| Standard                                                                                                                                                   | What it provides                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [ID-JAG — Identity Assertion JWT Authorization Grant (Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | The authorization server issues a short-lived identity assertion for a specific resource, client, scope set, and device — the core grant that lets an agent act without holding a token. |
-| [JWT Authorization Grant with DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01) | The resource server exchanges the identity assertion for an access token bound to the device key. |
-| [RFC 9449 — DPoP (Demonstrating Proof of Possession)](https://www.rfc-editor.org/rfc/rfc9449.html) | Sender-constrained tokens: a stolen token is useless on another machine. |
-| [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html) | Browser-based sign-in for the CLI, with explicit consent. |
-| [RFC 7636 — PKCE](https://www.rfc-editor.org/rfc/rfc7636.html) | Protects the native authorization code exchange. |
-| [RFC 9700 — OAuth Security Best Current Practice](https://www.rfc-editor.org/rfc/rfc9700.html) | Applied throughout the authorization server and client. |
-
+| [JWT Authorization Grant with DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                                | The resource server exchanges the identity assertion for an access token bound to the device key.                                                                                        |
+| [RFC 9449 — DPoP (Demonstrating Proof of Possession)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                         | Sender-constrained tokens: a stolen token is useless on another machine.                                                                                                                 |
+| [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                        | Browser-based sign-in for the CLI, with explicit consent.                                                                                                                                |
+| [RFC 7636 — PKCE](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                             | Protects the native authorization code exchange.                                                                                                                                         |
+| [RFC 9700 — OAuth Security Best Current Practice](https://www.rfc-editor.org/rfc/rfc9700.html)                                                             | Applied throughout the authorization server and client.                                                                                                                                  |
 
 ## Screenshots
 
@@ -51,15 +50,15 @@ Weldall CLI is a reference implementation of the next generation of OAuth for ag
 
 ![Skill catalog](https://raw.githubusercontent.com/seibert-external/weldall/main/docs/assets/screenshot-skills.png)
 
-*Browse the central skill catalog and see which capabilities exist.*
+_Browse the central skill catalog and see which capabilities exist._
 
 ![Assignment policy](https://raw.githubusercontent.com/seibert-external/weldall/main/docs/assets/screenshot-assignments.png)
 
-*Grant scopes to people and groups; the resource still enforces its own policy.*
+_Grant scopes to people and groups; the resource still enforces its own policy._
 
 ![Resource registry](https://raw.githubusercontent.com/seibert-external/weldall/main/docs/assets/screenshot-resources.png)
 
-*Register downstream services and control where each scope may be used.*
+_Register downstream services and control where each scope may be used._
 
 ## Who is this for?
 
@@ -81,8 +80,8 @@ machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> res
 
 ## Core concepts
 
-- **Skill** — human-readable, centrally published instructions that tell an agent *how* to use a capability and *which* permissions it needs. Skills that require scopes you don't have can be hidden, or shown so you can see what else exists.
-- **Scope** — a global permission key like `expenses:read`. A scope does nothing on its own; it matters only once it's assigned to an identity *and* supported by a resource.
+- **Skill** — human-readable, centrally published instructions that tell an agent _how_ to use a capability and _which_ permissions it needs. Skills that require scopes you don't have can be hidden, or shown so you can see what else exists.
+- **Scope** — a global permission key like `expenses:read`. A scope does nothing on its own; it matters only once it's assigned to an identity _and_ supported by a resource.
 - **Assignment** — the scopes attached to a person (by email) or a group. Groups and their current memberships are read from an external provider through a small HTTP interface, so scopes can also come from LDAP or Active Directory group membership. The effective set is the union of direct and group grants.
 - **Resource** — a registered downstream service contract: its identifier, its supported scopes, and the URL prefixes where they may be used. The service still independently enforces its own routes.
 - **Machine client** — a registered machine identity that uses `private_key_jwt` (RFC 7523) and DPoP to obtain short-lived tokens for specific resources.
@@ -123,16 +122,16 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 ## What's in the box
 
-| Workspace | Purpose |
-| --------- | ------- |
-| [`@weldall/weldall`](apps/weldall/) | The Next.js authorization server and administration UI (users, scopes, assignments, resources, groups, skills, audit). |
-| [`@weldall/cli`](apps/cli/) | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests. |
-| [`@weldall/pi`](packages/pi/) | A Pi extension that exposes administrator-managed skills as agent commands. |
-| [`@weldall/sdk`](packages/sdk/) | Resource-server SDK for Fetch, Hono, Next.js, and Astro: verifies DPoP-bound requests, publishes skills. |
-| [`@weldall/dev-idp`](apps/dev-idp/) | A local-only OpenID Connect provider for development. |
-| [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK. |
-| [`@weldall/docs`](apps/docs/) | The documentation site (German and English). |
-| [`@weldall/db`](packages/db/) | The Prisma database package and migrations. |
+| Workspace                             | Purpose                                                                                                                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server and administration UI (users, scopes, assignments, resources, groups, skills, audit). |
+| [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests.                        |
+| [`@weldall/pi`](packages/pi/)         | A Pi extension that exposes administrator-managed skills as agent commands.                                            |
+| [`@weldall/sdk`](packages/sdk/)       | Resource-server SDK for Fetch, Hono, Next.js, and Astro: verifies DPoP-bound requests, publishes skills.               |
+| [`@weldall/dev-idp`](apps/dev-idp/)   | A local-only OpenID Connect provider for development.                                                                  |
+| [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK.                                                                           |
+| [`@weldall/docs`](apps/docs/)         | The documentation site (German and English).                                                                           |
+| [`@weldall/db`](packages/db/)         | The Prisma database package and migrations.                                                                            |
 
 ## Documentation
 
