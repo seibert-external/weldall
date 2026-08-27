@@ -48,9 +48,9 @@
     "chalk": "^5.6.2",
     "gunshi": "^0.37.1",
     "ink": "^7.1.1",
-    "jose": "^6.2.2",
+    "jose": "^6.2.10",
     "proper-lockfile": "^4.1.2",
-    "react": "^19.2.4",
+    "react": "^19.2.8",
     "yaml": "^2.9.0"
   },
   "optionalDependencies": {
@@ -60,11 +60,11 @@
     "@lydell/node-pty": "1.2.0-beta.15",
     "@types/node": "catalog:",
     "@types/proper-lockfile": "^4.1.4",
-    "@types/react": "^19.2.17",
+    "@types/react": "^19.2.18",
     "@weldall/sdk": "workspace:*",
     "@weldall/tsconfig": "workspace:*",
-    "esbuild": "^0.28.1",
-    "tsx": "^4.21.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

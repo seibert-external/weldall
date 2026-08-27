@@ -174,12 +174,13 @@ services:
         condition: service_healthy
     environment:
       NODE_EXTRA_CA_CERTS: /trust/root.crt
+      HOSTNAME: 0.0.0.0
     command:
       - /bin/bash
       - -euc
       - |
         . /run/e2e/env.sh
-        exec pnpm --dir apps/weldall exec next dev --webpack -p 3000
+        exec node apps/weldall/.next/standalone/apps/weldall/server.js
     volumes:
       - e2e-weldall:/run/e2e:ro
       - e2e-trust:/trust:ro

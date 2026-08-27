@@ -28,9 +28,9 @@
     "pack:check": "pnpm test && pnpm build && node scripts/verify-package.mjs"
   },
   "devDependencies": {
-    "@weldall/tsconfig": "workspace:*",
+    "@earendil-works/pi-coding-agent": "^0.84.3",
     "@types/node": "catalog:",
-    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@weldall/tsconfig": "workspace:*",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

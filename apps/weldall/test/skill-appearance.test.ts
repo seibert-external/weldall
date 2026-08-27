@@ -45,7 +45,7 @@ describe("skill appearance", () => {
   });
 
   it("resolves the full pinned Lucide catalog on the server and ignores unknown names", async () => {
-    expect(lucideIconNames).toHaveLength(1_997);
+    expect(lucideIconNames).toHaveLength(2_035);
     expect(lucideIconNames.every((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(name))).toBe(true);
     await expect(resolveLucideIconNode("file-text")).resolves.toEqual(expect.any(Array));
     await expect(resolveLucideIconNode("not-a-lucide-icon")).resolves.toBeUndefined();
