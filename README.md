@@ -126,7 +126,6 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server and administration UI (users, scopes, assignments, resources, groups, skills, audit). |
 | [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests.                        |
-| [`@weldall/pi`](packages/pi/)         | A Pi extension that exposes administrator-managed skills as agent commands.                                            |
 | [`@weldall/sdk`](packages/sdk/)       | Resource-server SDK for Fetch, Hono, Next.js, and Astro: verifies DPoP-bound requests, publishes skills.               |
 | [`@weldall/dev-idp`](apps/dev-idp/)   | A local-only OpenID Connect provider for development.                                                                  |
 | [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK.                                                                           |
@@ -144,4 +143,4 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 ## License
 
-Apache-2.0, as declared in the published `@weldall/cli`, `@weldall/pi`, and `@weldall/sdk` packages.
+Apache-2.0, as declared in the published `@weldall/cli` and `@weldall/sdk` packages.

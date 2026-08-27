@@ -148,13 +148,15 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 }) => {
   // This scenario intentionally crosses many lazily compiled admin and authenticated API routes.
   // Loaded CI runners have taken over six minutes to complete the full workflow.
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
 
   // Warm OAuth discovery before the CLI login so its 5s discovery deadline is
   // never consumed by a cold compile.
   await prewarmWeldallRoutes(apiRequest, [
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource/api",
+    "/consent",
+    "/api/auth/oauth2/userinfo",
   ]);
 
   const login = startCli(["login"], 150_000);
@@ -460,7 +462,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   await expect(page.getByRole("row").filter({ hasText: "reports" })).toHaveCount(0);
 
   await page.getByRole("link", { name: "CLI", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "CLI", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "CLI", exact: true })).toBeVisible({
+    timeout: 90_000,
+  });
   const appendix = "Gude! Use Weldall for everything related to Seibert.";
   await page.getByLabel("CLI appendix").fill(appendix);
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -478,7 +482,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
 
   await page.getByRole("link", { name: "Users", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible({
-    timeout: 30_000,
+    timeout: 90_000,
   });
   const userRow = page.getByRole("row").filter({ hasText: "alice@example.com" });
   await expect(userRow).toBeVisible();
@@ -503,13 +507,15 @@ test("denies CLI login without weldall:login while preserving browser authentica
   page,
   request,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(600_000);
 
   // Warm OAuth discovery so the CLI's 5s discovery deadline survives a cold
   // recompile on a loaded runner (observed to exceed 40s between tests).
   await prewarmWeldallRoutes(request, [
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource/api",
+    "/consent",
+    "/api/auth/oauth2/userinfo",
   ]);
 
   const login = startCli(["login"], 150_000);
@@ -520,7 +526,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   await page.getByLabel("Email").selectOption("bob@example.com");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
-    timeout: 30_000,
+    timeout: 90_000,
   });
   await page.getByRole("button", { name: "Approve" }).click();
 
