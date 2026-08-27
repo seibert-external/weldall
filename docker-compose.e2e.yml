@@ -31,6 +31,7 @@ services:
         pnpm --dir packages/db exec tsx prisma/seed.ts
         pnpm --dir packages/db exec tsx prisma/seed.dev.ts
         pnpm exec tsx apps/weldall/src/scripts/bootstrap-admin.ts --email alice@example.com
+        pnpm --dir packages/db exec tsx prisma/verify-e2e-seed.ts
         touch /run/e2e/database/ready
         exec tail -f /dev/null
     volumes:
@@ -202,6 +203,13 @@ services:
       - ./e2e/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    healthcheck:
+      # The admin endpoint answers only once the Caddyfile has loaded, which is the
+      # moment the *.seibert.localdev aliases the suite resolves actually exist.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
     networks:
       default:
         aliases:
@@ -216,7 +224,7 @@ services:
     image: alpine:3.22
     depends_on:
       caddy:
-        condition: service_started
+        condition: service_healthy
     command:
       - /bin/sh
       - -euc

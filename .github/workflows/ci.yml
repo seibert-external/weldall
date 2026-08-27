@@ -338,7 +338,6 @@ jobs:
 
   e2e:
     if: github.event_name != 'pull_request' || github.head_ref != 'changeset-release/main'
-    continue-on-error: true
     runs-on: weldall
     timeout-minutes: 30
     steps:

@@ -73,19 +73,39 @@ const runCli = async (...args: string[]) => {
   return result;
 };
 
-// `next dev --webpack` compiles each route on first request, and loaded CI
-// runners have taken over 45s for a single cold compile. That exceeds the CLI's
-// 5s discovery deadline and its 45s command deadline, so warm the routes the CLI
-// triggers before the CLI needs them instead of relying on lucky timing.
+// Routes the CLI and the browser reach lazily during a scenario. Warming them is
+// only useful if a route that cannot serve is reported: a swallowed failure here
+// shows up hundreds of milliseconds later as a missing heading or an aborted
+// navigation, which is what made this job hard to read. The readiness gate
+// (readiness-gate.ts) runs first; this keeps the warm set close to the scenario.
 const prewarmWeldallRoutes = async (request: APIRequestContext, paths: string[]) => {
-  await Promise.all(
-    paths.map((path) =>
-      request
-        .get(`https://weldall.seibert.localdev${path}`, { failOnStatusCode: false })
-        .then((response) => response.dispose())
-        .catch(() => undefined),
-    ),
+  const results = await Promise.all(
+    paths.map(async (path) => {
+      const startedAt = Date.now();
+      try {
+        const response = await request.get(`https://weldall.seibert.localdev${path}`, {
+          failOnStatusCode: false,
+        });
+        const status = response.status();
+        await response.dispose();
+        return { path, status, durationMs: Date.now() - startedAt };
+      } catch (error) {
+        return {
+          path,
+          status: 0,
+          durationMs: Date.now() - startedAt,
+          failure: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
   );
+  // 4xx is expected on authenticated and parameterised routes and still proves the
+  // route is registered and serving; 0 is a transport failure and 5xx a server error.
+  const unhealthy = results.filter((entry) => entry.status === 0 || entry.status >= 500);
+  expect(
+    unhealthy,
+    `weldall did not serve routes this scenario needs: ${JSON.stringify(unhealthy)}`,
+  ).toEqual([]);
 };
 
 const describeCliResult = ({ code, stdout, stderr }: CliResult) =>
@@ -94,8 +114,6 @@ const describeCliResult = ({ code, stdout, stderr }: CliResult) =>
   );
 
 const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
-  // The public welcome page no longer prewarms login during the stack health check,
-  // so OAuth discovery and authorization may compile cold on a loaded CI runner.
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     const event = await Promise.race([

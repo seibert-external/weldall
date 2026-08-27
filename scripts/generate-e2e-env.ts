@@ -37,6 +37,22 @@ const devUsers = JSON.stringify([
   },
 ]);
 
+// apps/e2e/test/system.spec.ts logs in as alice (administrator path) and as bob
+// (login-denied path) by selecting these addresses on the development IdP form.
+// Generating an identity set without them would only show up later as a failing
+// selectOption, so reject it here, before any container starts.
+const requiredDevEmails = ["alice@example.com", "bob@example.com"];
+const generatedDevEmails = new Set(
+  (JSON.parse(devUsers) as { email: string }[]).map((user) => user.email.toLowerCase()),
+);
+const missingDevEmails = requiredDevEmails.filter((email) => !generatedDevEmails.has(email));
+if (missingDevEmails.length > 0) {
+  throw new Error(
+    `E2E development IdP is missing required identities: ${missingDevEmails.join(", ")}. ` +
+      "Add them to devUsers in scripts/generate-e2e-env.ts.",
+  );
+}
+
 const files: Record<string, Record<string, string>> = {
   "database/env.sh": {
     POSTGRES_URL: postgresUrl,
