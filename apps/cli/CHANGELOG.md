@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.11.1
+
+### Patch Changes
+
+- f96499e: Add a once-daily, stderr-only notice when a newer `@weldall/cli` version is available, with the upgrade command matching your install method (npm or standalone).
+
 ## 0.11.0
 
 ### Minor Changes
