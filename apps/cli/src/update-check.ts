@@ -25,10 +25,15 @@ export interface UpdateAdvice {
 const SEMANTIC_VERSION =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-function semanticVersionParts(version: string): [number[], string[]] | null {
+function semanticVersionParts(version: string): [string[], string[]] | null {
   const match = SEMANTIC_VERSION.exec(version);
   if (!match) return null;
-  return [[Number(match[1]), Number(match[2]), Number(match[3])], match[4]?.split(".") ?? []];
+  return [[match[1]!, match[2]!, match[3]!], match[4]?.split(".") ?? []];
+}
+
+function compareNumericIdentifiers(left: string, right: string): number {
+  if (left.length !== right.length) return left.length > right.length ? 1 : -1;
+  return left === right ? 0 : left > right ? 1 : -1;
 }
 
 export function isNewerVersion(latestVersion: string, currentVersion: string): boolean {
@@ -36,7 +41,8 @@ export function isNewerVersion(latestVersion: string, currentVersion: string): b
   const current = semanticVersionParts(currentVersion);
   if (!latest || !current) return false;
   for (let index = 0; index < 3; index += 1) {
-    if (latest[0][index] !== current[0][index]) return latest[0][index]! > current[0][index]!;
+    const comparison = compareNumericIdentifiers(latest[0][index]!, current[0][index]!);
+    if (comparison !== 0) return comparison > 0;
   }
   if (latest[1].length === 0 || current[1].length === 0)
     return latest[1].length === 0 && current[1].length > 0;
@@ -49,7 +55,8 @@ export function isNewerVersion(latestVersion: string, currentVersion: string): b
     if (currentPart === undefined) return true;
     const latestNumeric = /^\d+$/.test(latestPart);
     const currentNumeric = /^\d+$/.test(currentPart);
-    if (latestNumeric && currentNumeric) return Number(latestPart) > Number(currentPart);
+    if (latestNumeric && currentNumeric)
+      return compareNumericIdentifiers(latestPart, currentPart) > 0;
     if (latestNumeric !== currentNumeric) return !latestNumeric;
     return latestPart > currentPart;
   }
@@ -109,6 +116,10 @@ export function printUpdateAdvice(
   stderr: Pick<NodeJS.WriteStream, "write"> = process.stderr,
 ): void {
   stderr.write(`${advice.message}\n${advice.hint}\n`);
+}
+
+export function shouldRunUpdateCheck(argv: string[]): boolean {
+  return !argv.some((argument) => argument === "--json" || argument.startsWith("--json="));
 }
 
 async function fetchLatestVersion(fetcher: typeof fetch): Promise<string | null> {

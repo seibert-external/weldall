@@ -14,6 +14,7 @@ import {
   printUpdateAdvice,
   runUpdateCheck,
   shouldCheckNow,
+  shouldRunUpdateCheck,
   updateAdvice,
   type UpdateCheckCache,
 } from "../src/update-check.js";
@@ -133,6 +134,10 @@ describe("semantic version ordering", () => {
     expect(isNewerVersion("1.0.0-rc", "1.0.0-rc.1")).toBe(false);
     expect(isNewerVersion("1.0.0-rc.1", "1.0.0")).toBe(false);
     expect(isNewerVersion("1.0.0+new", "1.0.0+old")).toBe(false);
+    expect(isNewerVersion("9007199254740993.0.0", "9007199254740992.0.0")).toBe(true);
+    expect(
+      isNewerVersion("1.0.0-9007199254740993", "1.0.0-9007199254740992"),
+    ).toBe(true);
   });
 });
 
@@ -144,6 +149,14 @@ describe("printUpdateAdvice", () => {
     expect(write.mock.calls[0]![0].split("\n")[0]).toBe(
       "hey there is a new weldall cli update",
     );
+  });
+});
+
+describe("shouldRunUpdateCheck", () => {
+  it("suppresses checks for every JSON argument form", () => {
+    expect(shouldRunUpdateCheck(["status", "--json"])).toBe(false);
+    expect(shouldRunUpdateCheck(["request", "--json={}"])).toBe(false);
+    expect(shouldRunUpdateCheck(["status"])).toBe(true);
   });
 });
 
