@@ -100,7 +100,11 @@ export async function responseValue(response: Response): Promise<unknown> {
   }
 }
 
-const throwResponseError = async (response: Response, label: string): Promise<never> => {
+const throwResponseError = async (
+  response: Response,
+  label: string,
+  configurationHint?: string,
+): Promise<never> => {
   const value = await responseValue(response);
   const detail =
     isRecord(value) && typeof value.error_description === "string"
@@ -110,11 +114,19 @@ const throwResponseError = async (response: Response, label: string): Promise<ne
         : typeof value === "string" && value.length <= 300
           ? value
           : undefined;
-  throw new CliError(`${label} failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+  throw new CliError(`${label} failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`, {
+    ...(configurationHint !== undefined && (response.status === 404 || response.status === 410)
+      ? { hint: configurationHint }
+      : {}),
+  });
 };
 
-export async function successfulResponse(response: Response, label: string): Promise<unknown> {
-  if (!response.ok) return throwResponseError(response, label);
+export async function successfulResponse(
+  response: Response,
+  label: string,
+  configurationHint?: string,
+): Promise<unknown> {
+  if (!response.ok) return throwResponseError(response, label, configurationHint);
   return responseValue(response);
 }
 

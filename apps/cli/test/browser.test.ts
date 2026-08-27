@@ -1,8 +1,10 @@
 import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { Agent, get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WeldallConfig } from "../src/config.js";
+import { loopback } from "../src/oauth/loopback.js";
 import { login } from "../src/services/auth.js";
 import {
   browserOpenTimeoutMs,
@@ -76,6 +78,32 @@ describe("browser opener", () => {
       expect(await access(path).then(() => true)).toBe(true);
     } finally {
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("closes the accepted loopback connection after returning the authorization result", async () => {
+    const callback = await loopback("expected-state", config.issuer, 5_000);
+    const callbackUrl = new URL(callback.redirectUri);
+    callbackUrl.searchParams.set("state", "expected-state");
+    callbackUrl.searchParams.set("iss", config.issuer);
+    callbackUrl.searchParams.set("code", "authorization-code");
+    const agent = new Agent({ keepAlive: true });
+
+    try {
+      const connection = await new Promise<string | undefined>((resolve, reject) => {
+        const request = get(callbackUrl, { agent }, (response) => {
+          response.resume();
+          response.once("end", () => resolve(response.headers.connection));
+        });
+        request.once("error", reject);
+      });
+
+      expect(connection).toBe("close");
+      await expect(callback.code).resolves.toBe("authorization-code");
+      await expect(fetch(callback.redirectUri)).rejects.toThrow();
+    } finally {
+      callback.close();
+      agent.destroy();
     }
   });
 

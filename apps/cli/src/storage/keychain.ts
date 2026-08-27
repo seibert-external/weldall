@@ -7,7 +7,7 @@ import type { JWK } from "jose";
 import { CliError } from "../errors.js";
 
 const SERVICE = "dev.seibert.weldall-cli";
-const CREDENTIALS_VERSION = 1;
+const CREDENTIALS_VERSION = 2 as const;
 // Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
 const runtimeEnvironmentValue = (name: string) => process.env[name];
 const testCredentialsFile = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
@@ -21,8 +21,13 @@ export interface StoredIdentity {
   email: string;
 }
 
-export interface StoredCredentials {
-  version: typeof CREDENTIALS_VERSION;
+export interface StoredAccessSession {
+  accessToken: string;
+  subject: string;
+  expiresAt: number;
+}
+
+interface StoredCredentialsBase {
   issuer: string;
   privateJwk: JWK;
   publicJwk: JWK;
@@ -30,10 +35,36 @@ export interface StoredCredentials {
   identity?: StoredIdentity;
 }
 
+export interface StoredCredentialsV1 extends StoredCredentialsBase {
+  version: 1;
+}
+
+export interface StoredCredentialsV2 extends StoredCredentialsBase {
+  version: typeof CREDENTIALS_VERSION;
+  accessSession?: StoredAccessSession;
+}
+
+export type StoredCredentials = StoredCredentialsV1 | StoredCredentialsV2;
+export type StoredCredentialsInput = Omit<StoredCredentialsBase, "issuer"> & {
+  accessSession?: StoredAccessSession;
+};
+
 type TestKeychain = Record<string, StoredCredentials>;
 
 const accountFor = (issuer: string) =>
   `session-${createHash("sha256").update(issuer).digest("base64url")}`;
+
+const validAccessSession = (value: unknown): value is StoredAccessSession =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  typeof (value as Partial<StoredAccessSession>).accessToken === "string" &&
+  Boolean((value as Partial<StoredAccessSession>).accessToken) &&
+  typeof (value as Partial<StoredAccessSession>).subject === "string" &&
+  Boolean((value as Partial<StoredAccessSession>).subject?.trim()) &&
+  typeof (value as Partial<StoredAccessSession>).expiresAt === "number" &&
+  Number.isInteger((value as Partial<StoredAccessSession>).expiresAt) &&
+  (value as StoredAccessSession).expiresAt > 0;
 
 const parseCredentials = (raw: string, issuer: string): StoredCredentials => {
   let value: unknown;
@@ -49,7 +80,8 @@ const parseCredentials = (raw: string, issuer: string): StoredCredentials => {
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    (value as Partial<StoredCredentials>).version !== CREDENTIALS_VERSION ||
+    ((value as { version?: unknown }).version !== 1 &&
+      (value as { version?: unknown }).version !== CREDENTIALS_VERSION) ||
     (value as Partial<StoredCredentials>).issuer !== issuer ||
     typeof (value as Partial<StoredCredentials>).refreshToken !== "string" ||
     !(value as Partial<StoredCredentials>).refreshToken ||
@@ -63,7 +95,10 @@ const parseCredentials = (raw: string, issuer: string): StoredCredentials => {
         typeof (value as Partial<StoredCredentials>).identity?.name !== "string" ||
         !(value as Partial<StoredCredentials>).identity?.name.trim() ||
         typeof (value as Partial<StoredCredentials>).identity?.email !== "string" ||
-        !(value as Partial<StoredCredentials>).identity?.email.trim()))
+        !(value as Partial<StoredCredentials>).identity?.email.trim())) ||
+    ((value as { version?: unknown }).version === CREDENTIALS_VERSION &&
+      (value as StoredCredentialsV2).accessSession !== undefined &&
+      !validAccessSession((value as StoredCredentialsV2).accessSession))
   )
     throw new CliError("The stored Weldall session has an unsupported format", {
       hint: "Run `weldall logout` and log in again.",
@@ -195,8 +230,8 @@ export const keychain = {
     return raw ? parseCredentials(raw, issuer) : null;
   },
 
-  async set(issuer: string, credentials: Omit<StoredCredentials, "issuer" | "version">) {
-    const stored: StoredCredentials = {
+  async set(issuer: string, credentials: StoredCredentialsInput) {
+    const stored: StoredCredentialsV2 = {
       version: CREDENTIALS_VERSION,
       issuer,
       ...credentials,

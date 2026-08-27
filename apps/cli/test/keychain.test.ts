@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +34,38 @@ describe("E2E credential store", () => {
       });
     } finally {
       vi.doUnmock("@napi-rs/keyring");
+    }
+  });
+
+  it("reads legacy v1 credentials without requiring login again", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall legacy keychain "));
+    const path = join(directory, "credentials.json");
+    try {
+      const account = `session-${createHash("sha256").update(issuer).digest("base64url")}`;
+      await writeFile(
+        path,
+        JSON.stringify({
+          [account]: {
+            version: 1,
+            issuer,
+            privateJwk: { kty: "EC", crv: "P-256", x: "x", y: "y", d: "d" },
+            publicJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+            refreshToken: "legacy-refresh-token",
+          },
+        }),
+        { mode: 0o600 },
+      );
+      vi.stubEnv("NODE_ENV", "test");
+      vi.stubEnv("WELDALL_E2E_CREDENTIALS_FILE", path);
+      const { keychain } = await import("../src/storage/keychain.js");
+
+      await expect(keychain.get(issuer)).resolves.toMatchObject({
+        version: 1,
+        issuer,
+        refreshToken: "legacy-refresh-token",
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
   });
 

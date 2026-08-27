@@ -50,6 +50,12 @@ export async function loopback(
 
     settled = true;
     clearTimeout(timer);
+    response.shouldKeepAlive = false;
+    response.setHeader("connection", "close");
+    response.once("finish", () => {
+      request.socket.destroy();
+      server.closeAllConnections();
+    });
     if (errors.length === 1) {
       response.writeHead(400).end("Authorization failed");
       const error = errors[0] || "authorization failed";
@@ -74,6 +80,7 @@ export async function loopback(
     settled = true;
     clearTimeout(timer);
     server.close();
+    server.closeAllConnections();
     reject(error);
   };
   timer = setTimeout(() => close(new Error("login timed out")), timeoutMs);

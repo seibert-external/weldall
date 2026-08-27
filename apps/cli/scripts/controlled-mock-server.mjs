@@ -343,10 +343,31 @@ export async function startControlledMockServer() {
               available: true,
               missingScopes: [],
               updatedAt: "2026-01-01T00:00:00.000Z",
+              meta: { tags: ["artifact", "files"], owner: "Platform" },
               source: { type: "resource", key: "files", name: "Artifact Files" },
             },
           ],
           warnings: [],
+        });
+      }
+      if (
+        request.method === "GET" &&
+        url.origin === issuer &&
+        url.pathname === "/api/me/skills/files.transfer"
+      ) {
+        await authenticate(request, url);
+        return json(response, {
+          slug: "files.transfer",
+          title: "Transfer artifact files",
+          requiredScopes: ["files:read"],
+          visibility: "DEFAULT",
+          available: true,
+          missingScopes: [],
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          meta: { tags: ["artifact", "files"], owner: "Platform" },
+          source: { type: "resource", key: "files", name: "Artifact Files" },
+          content: "Transfer files safely.",
+          document: "# Transfer artifact files\n\nTransfer files safely.\n",
         });
       }
       if (
@@ -377,6 +398,14 @@ export async function startControlledMockServer() {
         await authenticate(request, url, true);
         uploadedBytes = await readBody(request);
         return json(response, { uploaded: uploadedBytes.length });
+      }
+      if (url.origin === resourceAuthorizationServer && url.pathname === "/api/files/pages") {
+        assert.equal(request.method, "GET");
+        await authenticate(request, url, true);
+        assert.equal(url.searchParams.get("limit"), "2");
+        const offset = Number(url.searchParams.get("offset"));
+        assert.ok([0, 2, 4].includes(offset), "unexpected pagination offset");
+        return json(response, { metadata: { total_pages: 3 }, offset });
       }
       if (url.origin === resourceAuthorizationServer && url.pathname === "/api/files/download") {
         assert.equal(request.method, "GET");
@@ -447,6 +476,7 @@ export async function startControlledMockServer() {
     resourceAuthorizationServer,
     uploadUrl: `${resourceAuthorizationServer}/api/files/upload`,
     downloadUrl: `${resourceAuthorizationServer}/api/files/download`,
+    pagesUrl: `${resourceAuthorizationServer}/api/files/pages`,
     downloadBytes: DOWNLOAD_BYTES,
     machineEnvironment: {
       WELDALL_M2M_CLIENT_ID: MACHINE_CLIENT_ID,

@@ -1,8 +1,7 @@
 import { createDpopProof } from "@weldall/sdk";
-import type { WeldallConfig } from "../config.js";
+import { CONFIG_REFRESH_HINT, type WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { isRecord, successfulResponse } from "../http.js";
-import { withLock } from "../storage/lock.js";
 import { withAccess } from "./auth.js";
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
@@ -71,31 +70,33 @@ const isSkillSummary = (value: unknown): value is SkillSummary =>
   isSource(value.source);
 
 async function authenticatedGet(config: WeldallConfig, url: string) {
-  return withLock(() =>
-    withAccess(config, async (session) => {
-      const proof = await createDpopProof({
-        ...session.credentials,
-        method: "GET",
-        url,
-        accessToken: session.accessToken,
-      });
-      return successfulResponse(
-        await fetch(url, {
-          headers: {
-            accept: "application/json",
-            authorization: `DPoP ${session.accessToken}`,
-            dpop: proof,
-          },
-          redirect: "error",
-        }),
-        "Weldall skill registry request",
-      );
-    }),
-  );
+  return withAccess(config, async (session) => {
+    const proof = await createDpopProof({
+      ...session.credentials,
+      method: "GET",
+      url,
+      accessToken: session.accessToken,
+    });
+    const value = await successfulResponse(
+      await fetch(url, {
+        headers: {
+          accept: "application/json",
+          authorization: `DPoP ${session.accessToken}`,
+          dpop: proof,
+        },
+        redirect: "error",
+      }),
+      "Weldall skill registry request",
+      CONFIG_REFRESH_HINT,
+    );
+    return { value, subject: session.subject };
+  });
 }
 
-export async function listSkills(config: WeldallConfig): Promise<SkillList> {
-  const value = await authenticatedGet(config, config.skills);
+export async function listSkillsWithSubject(
+  config: WeldallConfig,
+): Promise<{ result: SkillList; subject: string }> {
+  const { value, subject } = await authenticatedGet(config, config.skills);
   if (
     !isRecord(value) ||
     !Array.isArray(value.items) ||
@@ -110,14 +111,32 @@ export async function listSkills(config: WeldallConfig): Promise<SkillList> {
   ) {
     throw new CliError("Weldall returned an invalid skill registry");
   }
-  return value as unknown as SkillList;
+  return { result: value as unknown as SkillList, subject };
 }
 
-export async function showSkill(config: WeldallConfig, slug: string): Promise<SkillDetail> {
-  const value = await authenticatedGet(
-    config,
-    `${config.skills}/${encodeURIComponent(slug.trim())}`,
-  );
+export async function listSkills(config: WeldallConfig): Promise<SkillList> {
+  return (await listSkillsWithSubject(config)).result;
+}
+
+export async function showSkillWithSubject(
+  config: WeldallConfig,
+  slug: string,
+): Promise<{ result: SkillDetail; subject: string }> {
+  let authenticated: Awaited<ReturnType<typeof authenticatedGet>>;
+  try {
+    authenticated = await authenticatedGet(
+      config,
+      `${config.skills}/${encodeURIComponent(slug.trim())}`,
+    );
+  } catch (error) {
+    if (error instanceof CliError && error.message.includes("HTTP 404"))
+      throw new CliError(`Unknown skill ${JSON.stringify(slug)}`, {
+        cause: error,
+        hint: "Run `weldall skills find <keyword>`, then use `weldall skills show <skill-id>` or `weldall skills <skill-id>`.",
+      });
+    throw error;
+  }
+  const { value, subject } = authenticated;
   if (
     !isSkillSummary(value) ||
     !("content" in value) ||
@@ -127,5 +146,9 @@ export async function showSkill(config: WeldallConfig, slug: string): Promise<Sk
   ) {
     throw new CliError("Weldall returned an invalid skill document");
   }
-  return value as SkillDetail;
+  return { result: value as SkillDetail, subject };
+}
+
+export async function showSkill(config: WeldallConfig, slug: string): Promise<SkillDetail> {
+  return (await showSkillWithSubject(config, slug)).result;
 }

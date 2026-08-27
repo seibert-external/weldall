@@ -4,6 +4,12 @@ import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js"
 import { CliError } from "./errors.js";
 import { responseValue } from "./http.js";
 import {
+  MAX_PAGE_CONCURRENCY,
+  MAX_PAGE_COUNT,
+  MAX_PAGE_SIZE,
+  paginateOffset,
+} from "./pagination.js";
+import {
   IdentityCard,
   PermissionsCard,
   SkillsCard,
@@ -17,14 +23,66 @@ import {
   warning,
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
-import { listScopes, resourceRequest, type ResourceGrant } from "./services/resources.js";
-import { listSkills, showSkill, type SkillWarning } from "./services/skills.js";
+import { getCliAppendix } from "./services/settings.js";
+import {
+  listScopes,
+  listScopesWithSubject,
+  resourceRequest,
+  type ResourceGrant,
+} from "./services/resources.js";
+import {
+  listSkills,
+  listSkillsWithSubject,
+  showSkillWithSubject,
+  type SkillWarning,
+} from "./services/skills.js";
+import { appendixCache, type CachedSkillPreview } from "./storage/appendix.js";
+import { weldallConfigCache } from "./storage/config-cache.js";
+import { keychain } from "./storage/keychain.js";
 import { issuerPreferences } from "./storage/preferences.js";
 import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transfers.js";
 
 const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
 type ScopeOverview = Awaited<ReturnType<typeof listScopes>>;
+type Skill = Awaited<ReturnType<typeof listSkills>>["items"][number];
+
+const skillPreview = (skill: Skill): CachedSkillPreview => ({
+  slug: skill.slug,
+  title: skill.title,
+  available: skill.available,
+  ...(skill.meta?.tags === undefined ? {} : { tags: skill.meta.tags }),
+  ...(skill.meta?.owner === undefined ? {} : { owner: skill.meta.owner }),
+  ...(skill.source.type === "resource"
+    ? { sourceKey: skill.source.key, sourceName: skill.source.name }
+    : { sourceName: "Weldall" }),
+});
+
+const cachedSubject = async (issuer: string) => {
+  const credentials = await keychain.get(issuer).catch(() => null);
+  return credentials?.version === 2
+    ? (credentials.accessSession?.subject ?? credentials.identity?.subject ?? null)
+    : (credentials?.identity?.subject ?? null);
+};
+
+const cacheSkills = async (issuer: string, skills: Skill[], subject: string) => {
+  const previews = skills.map(skillPreview);
+  const patch = {
+    skills: previews,
+    skillsInitialized: true,
+    subject,
+  };
+  return appendixCache.updateSnapshot(issuer, patch).catch(() => ({
+    appendix: "",
+    scopes: [],
+    ...patch,
+  }));
+};
+
+const updateSnapshotBestEffort = (
+  issuer: string,
+  patch: Parameters<typeof appendixCache.updateSnapshot>[1],
+) => appendixCache.updateSnapshot(issuer, patch).catch(() => undefined);
 
 const identityCard = (identity: Identity) => (
   <IdentityCard
@@ -67,17 +125,31 @@ export const loginCommand = define({
   description: "Sign in securely through your browser",
   examples: "weldall login",
   run: async () => {
-    const config = await resolveWeldallConfig();
+    const config = await resolveWeldallConfig({ refresh: true });
     info(`Opening ${config.issuer} in your browser…`);
     const subject = await login(config);
+    await updateSnapshotBestEffort(config.issuer, { subject });
     if (!process.stdout.isTTY) {
       success(`Logged in as ${terminalText(subject)}.`);
       return;
     }
     success("You're signed in.");
     try {
-      const identity = await whoAmI(config);
-      const permissions = await listScopes(config);
+      const [identity, scopedPermissions, appendix] = await Promise.all([
+        whoAmI(config),
+        listScopesWithSubject(config),
+        getCliAppendix(config).catch(() => undefined),
+      ]);
+      if (identity.subject !== scopedPermissions.subject)
+        throw new CliError("The active Weldall account changed while loading login details", {
+          hint: "Run `weldall status` to load one consistent account snapshot.",
+        });
+      const permissions = scopedPermissions.result;
+      await updateSnapshotBestEffort(config.issuer, {
+        subject: scopedPermissions.subject,
+        scopes: permissions.assignedScopes,
+        ...(appendix === undefined ? {} : { appendix }),
+      });
       console.log();
       printStatus(identity, permissions);
     } catch {
@@ -113,8 +185,21 @@ export const statusCommand = define({
   examples: "weldall status\nweldall status --json",
   run: async (context) => {
     const config = await resolveWeldallConfig();
-    const identity = await whoAmI(config);
-    const permissions = await listScopes(config);
+    const [identity, scopedPermissions, appendix] = await Promise.all([
+      whoAmI(config),
+      listScopesWithSubject(config),
+      getCliAppendix(config).catch(() => undefined),
+    ]);
+    if (identity.subject !== scopedPermissions.subject)
+      throw new CliError("The active Weldall account changed while loading status", {
+        hint: "Run `weldall status` again.",
+      });
+    const permissions = scopedPermissions.result;
+    await updateSnapshotBestEffort(config.issuer, {
+      subject: scopedPermissions.subject,
+      scopes: permissions.assignedScopes,
+      ...(appendix === undefined ? {} : { appendix }),
+    });
     if (context.values.json)
       jsonOutput({
         identity,
@@ -131,7 +216,9 @@ export const whoamiCommand = define({
   args: { json: jsonArgument },
   examples: "weldall whoami\nweldall whoami --json",
   run: async (context) => {
-    const identity = await whoAmI(await resolveWeldallConfig());
+    const config = await resolveWeldallConfig();
+    const identity = await whoAmI(config);
+    await updateSnapshotBestEffort(config.issuer, { subject: identity.subject });
     if (context.values.json) jsonOutput(identity);
     else printIdentity(identity);
   },
@@ -143,7 +230,12 @@ export const scopesCommand = define({
   args: { json: jsonArgument },
   examples: "weldall scopes\nweldall scopes --json",
   run: async (context) => {
-    const permissions = await listScopes(await resolveWeldallConfig());
+    const config = await resolveWeldallConfig();
+    const { result: permissions, subject } = await listScopesWithSubject(config);
+    await updateSnapshotBestEffort(config.issuer, {
+      scopes: permissions.assignedScopes,
+      subject,
+    });
     if (context.values.json) {
       jsonOutput(permissions);
       return;
@@ -185,6 +277,23 @@ const parseJson = (value: string): unknown => {
   } catch (error) {
     throw new TypeError("--json must contain valid JSON", { cause: error });
   }
+};
+
+const boundedInteger = (name: string, maximum: number) => (value: string) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum)
+    throw new TypeError(`${name} must be an integer between 1 and ${maximum}`);
+  return parsed;
+};
+
+const parsePagination = (value: string) => {
+  if (value !== "offset") throw new TypeError("--paginate currently supports only offset");
+  return value;
+};
+
+const parsePageOutput = (value: string) => {
+  if (value !== "jsonl") throw new TypeError("--page-output currently supports only jsonl");
+  return value;
 };
 
 const parseHeaders = (values: string[] | undefined): Record<string, string> => {
@@ -261,14 +370,103 @@ export const requestCommand = define({
       short: "o",
       description: "Write the response body to a file, or `-` for stdout",
     },
+    paginate: {
+      type: "custom",
+      parse: parsePagination,
+      description: "Paginate GET requests; currently only `offset`",
+    },
+    pageSize: {
+      type: "custom",
+      toKebab: true,
+      parse: boundedInteger("--page-size", MAX_PAGE_SIZE),
+      description: `Items per page (1-${MAX_PAGE_SIZE}); defaults to 100`,
+    },
+    totalPagesPointer: {
+      type: "string",
+      toKebab: true,
+      description: "RFC 6901 JSON Pointer to the total page count",
+    },
+    maxPages: {
+      type: "custom",
+      toKebab: true,
+      parse: boundedInteger("--max-pages", MAX_PAGE_COUNT),
+      description: `Hard page limit (1-${MAX_PAGE_COUNT}); defaults to 20`,
+    },
+    concurrency: {
+      type: "custom",
+      parse: boundedInteger("--concurrency", MAX_PAGE_CONCURRENCY),
+      description: `Concurrent page requests (1-${MAX_PAGE_CONCURRENCY}); defaults to 3`,
+    },
+    pageOutput: {
+      type: "custom",
+      toKebab: true,
+      parse: parsePageOutput,
+      description: "Paginated output format; currently only `jsonl`",
+    },
+    limitParameter: {
+      type: "string",
+      toKebab: true,
+      description: "Offset pagination limit parameter; defaults to `limit`",
+    },
+    offsetParameter: {
+      type: "string",
+      toKebab: true,
+      description: "Offset pagination offset parameter; defaults to `offset`",
+    },
   },
   examples:
     "weldall request --scope expenses:read https://expenses.example/api/expenses\n" +
     "weldall request -X POST --scope expenses:create --json '{\"amount\":24}' https://expenses.example/api/expenses\n" +
     "weldall request -X PUT --scope files:write -T ./report.pdf -H 'Content-Type: application/pdf' https://files.example/api/report.pdf\n" +
-    "weldall request --scope files:read -o ./report.pdf https://files.example/api/report.pdf",
+    "weldall request --scope files:read -o ./report.pdf https://files.example/api/report.pdf\n" +
+    "weldall request --scope personio:read --paginate offset --page-size 100 --total-pages-pointer /metadata/total_pages --max-pages 20 --concurrency 3 --page-output jsonl https://gateway.example/personio/employees",
   run: async (context) => {
     const headers = parseHeaders(context.values.header);
+    if (context.values.paginate !== undefined) {
+      if (context.values.method !== "GET")
+        throw new CliError("Offset pagination is allowed only for GET requests");
+      if (context.values.totalPagesPointer === undefined)
+        throw new CliError("--total-pages-pointer is required with --paginate offset");
+      if (context.values.pageOutput !== "jsonl")
+        throw new CliError("--page-output jsonl is required with --paginate offset");
+      if (
+        context.values.data !== undefined ||
+        context.values.json !== undefined ||
+        context.values.uploadFile !== undefined ||
+        context.values.form !== undefined ||
+        context.values.output !== undefined
+      )
+        throw new CliError("Pagination cannot be combined with request bodies or --output");
+      const config = await resolveWeldallConfig();
+      const pages = await paginateOffset(config, {
+        url: parseRequestUrl(context.values.url),
+        scopes: context.values.scope,
+        headers,
+        pageSize: context.values.pageSize ?? 100,
+        totalPagesPointer: context.values.totalPagesPointer,
+        maxPages: context.values.maxPages ?? 20,
+        concurrency: context.values.concurrency ?? 3,
+        ...(context.values.limitParameter === undefined
+          ? {}
+          : { limitParameter: context.values.limitParameter }),
+        ...(context.values.offsetParameter === undefined
+          ? {}
+          : { offsetParameter: context.values.offsetParameter }),
+      });
+      for (const page of pages) console.log(JSON.stringify(page));
+      return;
+    }
+    if (
+      context.values.pageOutput !== undefined ||
+      context.values.totalPagesPointer !== undefined ||
+      context.values.pageSize !== undefined ||
+      context.values.maxPages !== undefined ||
+      context.values.concurrency !== undefined ||
+      context.values.limitParameter !== undefined ||
+      context.values.offsetParameter !== undefined
+    )
+      throw new CliError("Pagination options require --paginate offset");
+
     const payload = await buildRequestPayload({
       method: context.values.method,
       data: context.values.data,
@@ -324,7 +522,9 @@ export const formatSkillWarning = (warning: SkillWarning): string => {
 };
 
 const printSkills = async (asJson: boolean | undefined) => {
-  const result = await listSkills(await resolveWeldallConfig());
+  const config = await resolveWeldallConfig();
+  const { result, subject } = await listSkillsWithSubject(config);
+  await cacheSkills(config.issuer, result.items, subject);
   if (asJson) {
     jsonOutput(result);
     return;
@@ -367,9 +567,75 @@ const skillsShowCommand = define({
   },
   examples: "weldall skills show expenses.review\nweldall skills show expenses.review --json",
   run: async (context) => {
-    const skill = await showSkill(await resolveWeldallConfig(), context.values.skill);
+    const config = await resolveWeldallConfig();
+    const { result: skill, subject } = await showSkillWithSubject(config, context.values.skill);
+    const snapshot = await appendixCache.readSnapshotForSubject(config.issuer, subject);
+    const previews = new Map((snapshot?.skills ?? []).map((item) => [item.slug, item]));
+    previews.set(skill.slug, skillPreview(skill));
+    await updateSnapshotBestEffort(config.issuer, {
+      skills: [...previews.values()].sort((left, right) => left.slug.localeCompare(right.slug)),
+      subject,
+    });
     if (context.values.json) jsonOutput(skill);
     else process.stdout.write(terminalDocument(skill.document));
+  },
+});
+
+const skillsFindCommand = define({
+  name: "find",
+  description: "Search the locally cached skill catalog",
+  args: {
+    keyword: {
+      type: "positional",
+      required: true,
+      description: "Text to match in skill names, tags, owners, or resources",
+    },
+    json: jsonArgument,
+  },
+  examples: "weldall skills find employee\nweldall skills find personio --json",
+  run: async (context) => {
+    const selection = await selectIssuer({ allowPrompt: false });
+    if (!selection)
+      throw new CliError("No Weldall issuer is configured", {
+        hint: "Run `weldall config set-issuer <https://host>` first.",
+      });
+    const subject = await cachedSubject(selection.issuer);
+    let snapshot = await appendixCache.readSnapshotForSubject(selection.issuer, subject);
+    if (!snapshot?.skillsInitialized) {
+      const config = await resolveWeldallConfig();
+      const { result, subject: authenticatedSubject } = await listSkillsWithSubject(config);
+      snapshot = await cacheSkills(config.issuer, result.items, authenticatedSubject);
+    }
+    const keyword = context.values.keyword.trim().toLocaleLowerCase();
+    if (!keyword) throw new CliError("Skill search keyword must not be empty");
+    const matches = snapshot.skills.filter((skill) =>
+      [
+        skill.slug,
+        skill.title,
+        ...(skill.tags ?? []),
+        skill.owner ?? "",
+        skill.sourceKey ?? "",
+        skill.sourceName ?? "",
+      ].some((value) => value.toLocaleLowerCase().includes(keyword)),
+    );
+    if (context.values.json) {
+      jsonOutput(matches);
+      return;
+    }
+    if (matches.length === 0) {
+      info(`No cached skills match ${JSON.stringify(context.values.keyword)}.`);
+      return;
+    }
+    printUi(
+      <SkillsCard
+        skills={matches.map((skill) => ({
+          id: skill.slug,
+          title: skill.title,
+          available: skill.available,
+          missingScopes: [],
+        }))}
+      />,
+    );
   },
 });
 
@@ -377,7 +643,7 @@ export const skillsCommand = define({
   name: "skills",
   description: "Discover agent instructions published by your organization",
   args: { json: jsonArgument },
-  subCommands: { list: skillsListCommand, show: skillsShowCommand },
+  subCommands: { list: skillsListCommand, show: skillsShowCommand, find: skillsFindCommand },
   run: (context) => printSkills(context.values.json),
 });
 
@@ -393,6 +659,7 @@ const setIssuerCommand = define({
   examples: "weldall config set-issuer https://weldall.example.com",
   run: async (context) => {
     const config = await discoverIssuer(context.values.issuer);
+    await weldallConfigCache.write(config.issuer, config).catch(() => undefined);
     await issuerPreferences.write(config.issuer);
     success(`Saved ${config.issuer}.`);
     if (process.env.WELDALL_ISSUER !== undefined)
@@ -428,6 +695,16 @@ const getIssuerCommand = define({
   },
 });
 
+const refreshConfigCommand = define({
+  name: "refresh",
+  description: "Refresh and revalidate cached Weldall discovery metadata",
+  examples: "weldall config refresh",
+  run: async () => {
+    const config = await resolveWeldallConfig({ refresh: true });
+    success(`Refreshed configuration for ${config.issuer}.`);
+  },
+});
+
 const resetIssuerCommand = define({
   name: "reset-issuer",
   description: "Remove the saved Weldall issuer preference",
@@ -446,6 +723,7 @@ export const configCommand = define({
     "set-issuer": setIssuerCommand,
     "get-issuer": getIssuerCommand,
     "reset-issuer": resetIssuerCommand,
+    refresh: refreshConfigCommand,
   },
   run: () => info("Run `weldall config --help` to see configuration commands."),
 });

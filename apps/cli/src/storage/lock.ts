@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -6,6 +7,7 @@ import lockfile from "proper-lockfile";
 interface LockOptions {
   path?: string;
   stale?: number;
+  retries?: number | { retries: number; factor?: number; minTimeout?: number; maxTimeout?: number };
 }
 
 export async function withLock<T>(fn: () => Promise<T>, options: LockOptions = {}): Promise<T> {
@@ -17,7 +19,7 @@ export async function withLock<T>(fn: () => Promise<T>, options: LockOptions = {
   try {
     release = await lockfile.lock(path, {
       realpath: false,
-      retries: 0,
+      retries: options.retries ?? 0,
       stale: options.stale ?? 10_000,
       update: Math.floor((options.stale ?? 10_000) / 2),
     });
@@ -32,3 +34,14 @@ export async function withLock<T>(fn: () => Promise<T>, options: LockOptions = {
     await release();
   }
 }
+
+export const withCredentialLock = <T>(issuer: string, fn: () => Promise<T>): Promise<T> =>
+  withLock(fn, {
+    path: join(
+      homedir(),
+      ".weldall",
+      `credentials-${createHash("sha256").update(issuer).digest("base64url")}`,
+    ),
+    stale: 15_000,
+    retries: { retries: 30, factor: 1.15, minTimeout: 20, maxTimeout: 200 },
+  });

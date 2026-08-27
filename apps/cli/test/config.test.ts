@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   discoverIssuer,
@@ -5,6 +8,7 @@ import {
   resolveWeldallConfig,
   selectIssuer,
 } from "../src/config.js";
+import { WeldallConfigCache } from "../src/storage/config-cache.js";
 import type { IssuerPreferences } from "../src/storage/preferences.js";
 
 const issuer = "https://weldall.example.com";
@@ -117,13 +121,36 @@ describe("issuer configuration", () => {
     expect(prompt).toHaveBeenCalledOnce();
   });
 
+  it("reuses validated discovery until an explicit refresh", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall-config-test-"));
+    try {
+      const preferences = memoryPreferences(issuer);
+      const cache = new WeldallConfigCache(directory);
+      const fetcher = discoveryFetch();
+      await resolveWeldallConfig({ preferences, fetcher, cache });
+      await resolveWeldallConfig({ preferences, fetcher, cache });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+
+      await resolveWeldallConfig({ preferences, fetcher, cache, refresh: true });
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("stores a prompted issuer only after successful discovery", async () => {
-    const preferences = memoryPreferences();
-    await resolveWeldallConfig({
-      preferences,
-      prompt: async () => issuer,
-      fetcher: discoveryFetch(),
-    });
-    expect(preferences.write).toHaveBeenCalledWith(issuer);
+    const directory = await mkdtemp(join(tmpdir(), "weldall-config-test-"));
+    try {
+      const preferences = memoryPreferences();
+      await resolveWeldallConfig({
+        preferences,
+        prompt: async () => issuer,
+        fetcher: discoveryFetch(),
+        cache: new WeldallConfigCache(directory),
+      });
+      expect(preferences.write).toHaveBeenCalledWith(issuer);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
