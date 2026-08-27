@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createLocalJWKSet, importJWK, type JSONWebKeySet } from "jose";
 import { CONFIG_REFRESH_HINT, type WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
+import { atomicWriteFile } from "./atomic-write.js";
 
 const CACHE_VERSION = 1 as const;
 export const JWKS_CACHE_TTL_MS = 5 * 60 * 1_000;
@@ -135,12 +136,7 @@ export class WeldallJwksCache {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const path = join(this.directory, cacheName(record.issuer, record.jwksUrl));
     const temporary = join(this.directory, `.jwks-${randomUUID()}.tmp`);
-    await writeFile(temporary, JSON.stringify(record), { mode: 0o600, flag: "wx" });
-    try {
-      await rename(temporary, path);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await atomicWriteFile(path, JSON.stringify(record), { temporary });
   }
 
   private async refresh(config: WeldallConfig): Promise<LoadedJwks> {

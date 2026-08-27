@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { JWK } from "jose";
 import { CliError } from "../errors.js";
+import { atomicWriteFile } from "./atomic-write.js";
 
 const SERVICE = "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 2 as const;
@@ -119,19 +120,11 @@ const readTestKeychain = (): TestKeychain => {
   }
 };
 
-const writeTestKeychain = (value: TestKeychain) => {
+const writeTestKeychain = async (value: TestKeychain) => {
   if (!testCredentialsFile) return;
-  const temporary = join(dirname(testCredentialsFile), `.weldall-${randomUUID()}.tmp`);
-  try {
-    writeFileSync(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-    renameSync(temporary, testCredentialsFile);
-  } finally {
-    try {
-      rmSync(temporary, { force: true });
-    } catch {
-      // Best-effort cleanup must not hide the original write or replacement error.
-    }
-  }
+  await atomicWriteFile(testCredentialsFile, JSON.stringify(value), {
+    temporary: join(dirname(testCredentialsFile), `.weldall-${randomUUID()}.tmp`),
+  });
 };
 
 const credentialStoreHint =
@@ -239,7 +232,7 @@ export const keychain = {
     if (testCredentialsFile) {
       const value = readTestKeychain();
       value[accountFor(issuer)] = stored;
-      writeTestKeychain(value);
+      await writeTestKeychain(value);
       return;
     }
     try {
@@ -258,7 +251,7 @@ export const keychain = {
       const value = readTestKeychain();
       delete value[account];
       if (Object.keys(value).length === 0) rmSync(testCredentialsFile, { force: true });
-      else writeTestKeychain(value);
+      else await writeTestKeychain(value);
       return;
     }
     try {

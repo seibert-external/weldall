@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WeldallConfig } from "../config.js";
+import { atomicWriteFile } from "./atomic-write.js";
 
 const CACHE_VERSION = 1 as const;
 
@@ -72,12 +73,7 @@ export class WeldallConfigCache {
       validatedAt: Date.now(),
       config,
     };
-    await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-    try {
-      await rename(temporary, path);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await atomicWriteFile(path, JSON.stringify(value), { temporary });
   }
 }
 

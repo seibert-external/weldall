@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { withLock } from "./lock.js";
+import { atomicWriteFile } from "./atomic-write.js";
 
 const CACHE_VERSION = 1;
 const MAX_APPENDIX_LENGTH = 100_000;
@@ -121,12 +122,7 @@ export class AppendixCache {
     const path = join(this.directory, cacheName(issuer));
     const temporary = join(this.directory, `.appendix-${randomUUID()}.tmp`);
     const value: CachedAppendix = { version: CACHE_VERSION, issuer, ...snapshot };
-    await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-    try {
-      await rename(temporary, path);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await atomicWriteFile(path, JSON.stringify(value), { temporary });
   }
 
   async updateSnapshot(

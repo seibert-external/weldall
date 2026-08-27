@@ -10,6 +10,7 @@ import {
   writeFile as nodeWriteFile,
 } from "node:fs/promises";
 import { ConfigurationError } from "../errors.js";
+import { atomicWriteFile } from "./atomic-write.js";
 
 export const PREFERENCES_DOMAIN = "dev.seibert.weldall-cli";
 export const ISSUER_PREFERENCE = "Issuer";
@@ -164,15 +165,17 @@ export class FileIssuerPreferences implements IssuerPreferences {
     const temporary = join(directory, `.weldall-config-${randomUUID()}.tmp`);
     try {
       await this.files.mkdir(directory);
-      await this.files.writeFile(temporary, `${JSON.stringify({ issuer }, null, 2)}\n`);
-      await this.files.rename(temporary, this.path);
+      await atomicWriteFile(this.path, `${JSON.stringify({ issuer }, null, 2)}\n`, {
+        temporary,
+        writeFile: this.files.writeFile,
+        rename: this.files.rename,
+        rm: this.files.rm,
+      });
     } catch (error) {
       throw new ConfigurationError(`Unable to save the Weldall issuer config at ${this.path}`, {
         cause: error,
         hint: "Check that your user configuration directory is writable.",
       });
-    } finally {
-      await this.files.rm(temporary).catch(() => undefined);
     }
   }
 
