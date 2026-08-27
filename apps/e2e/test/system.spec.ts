@@ -224,7 +224,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     await page.getByRole("checkbox", { name: new RegExp(`^${scope}`) }).check();
   }
   await page.getByRole("button", { name: "Save assignment" }).click();
-  await expect(page).toHaveURL("https://weldall.seibert.localdev/assignments");
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/admin/assignments");
   await expect(
     page
       .getByRole("row")
@@ -239,7 +239,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
     timeout: 30_000,
   });
   await page.getByRole("link", { name: "Create group assignment" }).click();
-  await expect(page).toHaveURL("https://weldall.seibert.localdev/group-assignments/new");
+  await expect(page).toHaveURL("https://weldall.seibert.localdev/admin/group-assignments/new");
   await expect(page.getByRole("heading", { name: "Create group assignment" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /^weldall:login/ })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /^weldall:administer/ })).toBeVisible();
@@ -262,7 +262,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
       "Load expenses with `weldall request --scope expenses:read https://expenses.seibert.localdev/api/expenses`.",
     );
   await Promise.all([
-    page.waitForURL("https://weldall.seibert.localdev/skills"),
+    page.waitForURL("https://weldall.seibert.localdev/admin/skills"),
     page.getByRole("button", { name: "Create skill" }).click(),
   ]);
   await page.goto("https://weldall.seibert.localdev/skills?q=expenses.list");

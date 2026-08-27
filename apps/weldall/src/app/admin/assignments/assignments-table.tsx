@@ -166,7 +166,7 @@ export function AssignmentsTable() {
               <ResizableTableHeader table={table} />
               <TableBody>
                 {table.getRowModel().rows.map((row) => {
-                  const href = `/assignments/${row.original.id}`;
+                  const href = `/admin/assignments/${row.original.id}`;
                   return (
                     <TableRow
                       key={row.id}
