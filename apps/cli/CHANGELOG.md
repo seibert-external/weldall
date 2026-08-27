@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.11.0
+
+### Minor Changes
+
+- 4f9a993: Make help strictly local, cache validated discovery and signing keys, reuse verified access sessions, prepare resource authorization once per process, add bounded offset pagination with JSON Lines output, and add cached skill search and positional skill aliases.
+
 ## 0.10.0
 
 ### Minor Changes
