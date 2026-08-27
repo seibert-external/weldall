@@ -13,6 +13,7 @@ import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
+import { getSkillRetrievalSummaryBySlug } from "@/server/skills/retrieval-metrics";
 import { getVisibleSkill } from "@/server/skills/service";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +28,10 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
   if (!session?.user.email) redirect("/login");
 
   after(() => refreshDueCatalogs());
-  const [skill, isAdmin] = await Promise.all([
+  const [skill, isAdmin, retrievalSummary] = await Promise.all([
     getVisibleSkill(session.user.email, slug),
     isAdminEmail(session.user.email),
+    getSkillRetrievalSummaryBySlug(slug),
   ]);
   if (!skill) notFound();
 
@@ -85,6 +87,15 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
                 ) : null}
               </dl>
             </section>
+            <section>
+              <h2>Retrievals</h2>
+              <p className="skill-detail-muted">
+                {formatUniqueRetrievalSummary(
+                  retrievalSummary.uniqueRetrievalCount,
+                  retrievalSummary.windowDays,
+                )}
+              </p>
+            </section>
             {skill.meta?.tags !== undefined ? (
               <section>
                 <h2>Tags</h2>
@@ -138,4 +149,10 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
       </main>
     </div>
   );
+}
+
+function formatUniqueRetrievalSummary(count: number, days: number): string {
+  const retrievalLabel = count === 1 ? "retrieval" : "retrievals";
+  const dayLabel = days === 1 ? "day" : "days";
+  return `${count} unique ${retrievalLabel} in the last ${days} ${dayLabel}`;
 }
