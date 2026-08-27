@@ -163,11 +163,8 @@ yellow organization-instructions panel, a capped assigned-scope preview, and a c
 
 Set `WELDALL_DEBUG_TIMINGS=1` to print optional phase timings to standard error. Timing output contains phase names and elapsed milliseconds, not tokens or response data.
 
-On interactive terminals, the CLI checks at most once per day whether a newer `@weldall/cli` version
-is published and prints a stderr-only notice with the upgrade command for your install method (npm
-or standalone).
-The check is silent for piped output, `--json`, and non-interactive runs, and it never blocks or
-fails when the registry is unreachable.
+On interactive terminals, the CLI checks at most once per day whether a newer `@weldall/cli` version is published and prints a stderr-only notice with the upgrade command for your install method (npm or standalone).
+The check is silent for piped output, `--json`, and non-interactive runs, and it never blocks or fails when the registry is unreachable.
 
 ## Development
 

@@ -135,9 +135,7 @@ describe("semantic version ordering", () => {
     expect(isNewerVersion("1.0.0-rc.1", "1.0.0")).toBe(false);
     expect(isNewerVersion("1.0.0+new", "1.0.0+old")).toBe(false);
     expect(isNewerVersion("9007199254740993.0.0", "9007199254740992.0.0")).toBe(true);
-    expect(
-      isNewerVersion("1.0.0-9007199254740993", "1.0.0-9007199254740992"),
-    ).toBe(true);
+    expect(isNewerVersion("1.0.0-9007199254740993", "1.0.0-9007199254740992")).toBe(true);
   });
 });
 
@@ -146,9 +144,7 @@ describe("printUpdateAdvice", () => {
     const write = vi.fn();
     printUpdateAdvice(updateAdvice("2.0.0", "1.0.0", "npm"), { write });
     expect(write).toHaveBeenCalledOnce();
-    expect(write.mock.calls[0]![0].split("\n")[0]).toBe(
-      "hey there is a new weldall cli update",
-    );
+    expect(write.mock.calls[0]![0].split("\n")[0]).toBe("hey there is a new weldall cli update");
   });
 });
 
