@@ -8,8 +8,10 @@ import {
   LATEST_VERSION_URL,
   UPDATE_CHECK_FILENAME,
   UpdateCheckStore,
+  isNewerVersion,
   nextCacheState,
   parseLatestVersion,
+  printUpdateAdvice,
   runUpdateCheck,
   shouldCheckNow,
   updateAdvice,
@@ -103,6 +105,11 @@ describe("nextCacheState", () => {
     expect(cache).toEqual({ lastCheckedEpoch: 1_000, lastNotifiedVersion: null });
   });
 
+  it("does not notify for an older or invalid registry version", () => {
+    expect(nextCacheState(null, "0.9.0", "1.0.0", 1_000).notify).toBe(false);
+    expect(nextCacheState(null, "not-semver", "1.0.0", 1_000).notify).toBe(false);
+  });
+
   it("dedupes by the already notified version", () => {
     const cache: UpdateCheckCache = { lastCheckedEpoch: 0, lastNotifiedVersion: "2.0.0" };
     const { notify } = nextCacheState(cache, "2.0.0", "1.0.0", 1_000);
@@ -114,6 +121,29 @@ describe("nextCacheState", () => {
     const { notify, cache: next } = nextCacheState(cache, "3.0.0", "1.0.0", 1_000);
     expect(notify).toBe(true);
     expect(next.lastNotifiedVersion).toBe("3.0.0");
+  });
+});
+
+describe("semantic version ordering", () => {
+  it("orders stable and prerelease versions using semantic-version precedence", () => {
+    expect(isNewerVersion("2.0.0", "1.9.9")).toBe(true);
+    expect(isNewerVersion("1.0.0", "1.0.0-rc.1")).toBe(true);
+    expect(isNewerVersion("1.0.0-rc.2", "1.0.0-rc.1")).toBe(true);
+    expect(isNewerVersion("1.0.0-rc.1", "1.0.0-rc")).toBe(true);
+    expect(isNewerVersion("1.0.0-rc", "1.0.0-rc.1")).toBe(false);
+    expect(isNewerVersion("1.0.0-rc.1", "1.0.0")).toBe(false);
+    expect(isNewerVersion("1.0.0+new", "1.0.0+old")).toBe(false);
+  });
+});
+
+describe("printUpdateAdvice", () => {
+  it("writes the exact lead line first and writes only to the supplied stderr", () => {
+    const write = vi.fn();
+    printUpdateAdvice(updateAdvice("2.0.0", "1.0.0", "npm"), { write });
+    expect(write).toHaveBeenCalledOnce();
+    expect(write.mock.calls[0]![0].split("\n")[0]).toBe(
+      "hey there is a new weldall cli update",
+    );
   });
 });
 
@@ -317,6 +347,25 @@ describe("runUpdateCheck", () => {
         lastCheckedEpoch: 1_000 + CHECK_INTERVAL_MS,
         lastNotifiedVersion: "2.0.0",
       });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("allows only one concurrent invocation to check and notify", async () => {
+    const { home, store } = await temporaryStore();
+    try {
+      const fetcher = vi.fn(async () => jsonResponse({ version: "2.0.0" }));
+      const options = {
+        currentVersion: "1.0.0",
+        store,
+        fetcher,
+        stderrIsTty: true,
+        nowEpoch: 1_000,
+      };
+      const results = await Promise.all([runUpdateCheck(options), runUpdateCheck(options)]);
+      expect(results.filter((result) => result !== null)).toHaveLength(1);
+      expect(fetcher).toHaveBeenCalledTimes(1);
     } finally {
       await rm(home, { recursive: true, force: true });
     }

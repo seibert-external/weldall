@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHttpsDeadlineFetch, isRecord, responseValue } from "./http.js";
 import { installMode, type InstallMode } from "./install-mode.js";
+import { withLock } from "./storage/lock.js";
 import { CONFIG_DIRECTORY } from "./storage/preferences.js";
 
 export const LATEST_VERSION_URL = "https://registry.npmjs.org/@weldall/cli/latest";
@@ -19,6 +20,40 @@ export interface UpdateCheckCache {
 export interface UpdateAdvice {
   message: string;
   hint: string;
+}
+
+const SEMANTIC_VERSION =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+function semanticVersionParts(version: string): [number[], string[]] | null {
+  const match = SEMANTIC_VERSION.exec(version);
+  if (!match) return null;
+  return [[Number(match[1]), Number(match[2]), Number(match[3])], match[4]?.split(".") ?? []];
+}
+
+export function isNewerVersion(latestVersion: string, currentVersion: string): boolean {
+  const latest = semanticVersionParts(latestVersion);
+  const current = semanticVersionParts(currentVersion);
+  if (!latest || !current) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (latest[0][index] !== current[0][index]) return latest[0][index]! > current[0][index]!;
+  }
+  if (latest[1].length === 0 || current[1].length === 0)
+    return latest[1].length === 0 && current[1].length > 0;
+  const length = Math.max(latest[1].length, current[1].length);
+  for (let index = 0; index < length; index += 1) {
+    const latestPart = latest[1][index];
+    const currentPart = current[1][index];
+    if (latestPart === currentPart) continue;
+    if (latestPart === undefined) return false;
+    if (currentPart === undefined) return true;
+    const latestNumeric = /^\d+$/.test(latestPart);
+    const currentNumeric = /^\d+$/.test(currentPart);
+    if (latestNumeric && currentNumeric) return Number(latestPart) > Number(currentPart);
+    if (latestNumeric !== currentNumeric) return !latestNumeric;
+    return latestPart > currentPart;
+  }
+  return false;
 }
 
 export function parseLatestVersion(value: unknown): string | null {
@@ -42,7 +77,7 @@ export function nextCacheState(
   const lastNotifiedVersion = cache?.lastNotifiedVersion ?? null;
   const notify =
     latestVersion !== null &&
-    latestVersion !== currentVersion &&
+    isNewerVersion(latestVersion, currentVersion) &&
     latestVersion !== lastNotifiedVersion;
   return {
     notify,
@@ -67,6 +102,13 @@ export function updateAdvice(
       ? "Download the latest release binary from GitHub Releases (https://github.com/seibert-external/weldall/releases) and replace your current binary. The CLI README lists the standalone install steps."
       : "npm install --global @weldall/cli@latest";
   return { message, hint };
+}
+
+export function printUpdateAdvice(
+  advice: UpdateAdvice,
+  stderr: Pick<NodeJS.WriteStream, "write"> = process.stderr,
+): void {
+  stderr.write(`${advice.message}\n${advice.hint}\n`);
 }
 
 async function fetchLatestVersion(fetcher: typeof fetch): Promise<string | null> {
@@ -120,6 +162,10 @@ export class UpdateCheckStore {
       await rm(temporary, { force: true });
     }
   }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return withLock(fn, { path: join(this.directory, "update-check") });
+  }
 }
 
 export interface UpdateCheckOptions {
@@ -138,24 +184,30 @@ export async function runUpdateCheck(options: UpdateCheckOptions): Promise<Updat
   const store = options.store ?? new UpdateCheckStore();
   const fetcher = options.fetcher ?? createHttpsDeadlineFetch(REGISTRY_TIMEOUT_MS);
 
-  const cache = await store.read().catch(() => null);
-  if (!shouldCheckNow(cache, nowEpoch)) return null;
-
-  const latestVersion = await fetchLatestVersion(fetcher);
-  const { notify, cache: nextCache } = nextCacheState(
-    cache,
-    latestVersion,
-    options.currentVersion,
-    nowEpoch,
-  );
-  if (!notify || latestVersion === null) {
-    await store.write(nextCache).catch(() => undefined);
-    return null;
-  }
   try {
-    await store.write(nextCache);
+    return await store.transaction(async () => {
+      const cache = await store.read().catch(() => null);
+      if (!shouldCheckNow(cache, nowEpoch)) return null;
+
+      const latestVersion = await fetchLatestVersion(fetcher);
+      const { notify, cache: nextCache } = nextCacheState(
+        cache,
+        latestVersion,
+        options.currentVersion,
+        nowEpoch,
+      );
+      if (!notify || latestVersion === null) {
+        await store.write(nextCache).catch(() => undefined);
+        return null;
+      }
+      try {
+        await store.write(nextCache);
+      } catch {
+        return null;
+      }
+      return updateAdvice(latestVersion, options.currentVersion, mode);
+    });
   } catch {
     return null;
   }
-  return updateAdvice(latestVersion, options.currentVersion, mode);
 }
