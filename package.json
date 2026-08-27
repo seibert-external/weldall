@@ -32,15 +32,15 @@
     "release:version": "changeset version && pnpm install --lockfile-only"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.1",
+    "@changesets/cli": "^3.0.1",
     "@weldall/eslint-config": "workspace:*",
     "@weldall/prettier-config": "workspace:*",
-    "dotenv-cli": "^10.0.0",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9.39.5",
-    "jose": "^6.2.4",
+    "jose": "^6.2.10",
     "prettier": "catalog:",
-    "tsx": "^4.21.0",
-    "turbo": "^2.8.12",
+    "tsx": "^4.23.12",
+    "turbo": "^2.10.12",
     "typescript": "catalog:"
   },
   "prettier": "@weldall/prettier-config"

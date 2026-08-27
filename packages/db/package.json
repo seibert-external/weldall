@@ -25,10 +25,10 @@
     "@prisma/client": "6.19.3"
   },
   "devDependencies": {
-    "@weldall/tsconfig": "workspace:*",
     "@types/node": "catalog:",
+    "@weldall/tsconfig": "workspace:*",
     "prisma": "6.19.3",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
