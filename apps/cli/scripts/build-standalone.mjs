@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inkReactDevtoolsPlugin } from "./ink-react-devtools-plugin.mjs";
 import { canonicalOutputDirectory } from "./output-paths.mjs";
+import { packageInputsPlugin } from "./package-inputs-plugin.mjs";
 import { getNativeStandaloneTarget, getStandaloneTarget } from "./standalone-targets.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -54,24 +55,6 @@ function assertNativeBinding(target) {
   keyringRequire.resolve(target.nativeKeyringPackage);
 }
 
-function packageInputsPlugin(version) {
-  const sdkEntry = fileURLToPath(new URL("../../../packages/sdk/src/index.ts", import.meta.url));
-  return {
-    name: "weldall-package-inputs",
-    setup(build) {
-      build.onResolve({ filter: /^@weldall\/sdk$/ }, () => ({ path: sdkEntry }));
-      build.onResolve({ filter: /^\.\.\/package\.json$/ }, () => ({
-        path: "package-version",
-        namespace: "weldall",
-      }));
-      build.onLoad({ filter: /^package-version$/, namespace: "weldall" }, () => ({
-        contents: `export default ${JSON.stringify({ version })};`,
-        loader: "js",
-      }));
-    },
-  };
-}
-
 const pinnedBunVersion = (await readFile(join(repositoryRoot, ".bun-version"), "utf8")).trim();
 if (globalThis.Bun?.version !== pinnedBunVersion)
   throw new Error(
@@ -111,7 +94,7 @@ try {
     minify: false,
     sourcemap: "none",
     bytecode: false,
-    plugins: [inkReactDevtoolsPlugin(), packageInputsPlugin(packageJson.version)],
+    plugins: [inkReactDevtoolsPlugin(), packageInputsPlugin(packageJson.version, "standalone")],
     compile: {
       outfile: output,
       execArgv: ["--use-system-ca"],
