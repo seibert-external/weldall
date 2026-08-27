@@ -6,6 +6,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - For CLI syntax, read `apps/cli/src/commands.tsx` and validate the built interface with `./apps/cli/dist/index.js <command> --help`; request payload behavior is covered in `apps/cli/test/transfers.test.ts`.
 - The product model is defined by `packages/db/prisma/schema.prisma`, with scope/resource policy in `apps/weldall/src/server/policy/` and local demonstration records in `packages/db/prisma/seed.dev.ts`.
 - Standalone CLI targets, build/archive checks, and release upload behavior live in `apps/cli/scripts/standalone-targets.mjs` and `.github/workflows/release-cli-assets.yml`.
+- Atomic file replacement in the CLI storage layer must go through `atomicWriteFile` in `apps/cli/src/storage/atomic-write.ts` (all five storage writers use it): temp written with `flag:"wx"`/mode 0o600, then renamed over the destination with a bounded EPERM retry, because on Windows `rename` over a file open without `FILE_SHARE_DELETE` intermittently fails with `EPERM`.
 
 ## Maintaining this file
 
