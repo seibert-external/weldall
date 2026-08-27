@@ -9,10 +9,13 @@ fi
 rm -rf apps/e2e/test-results
 mkdir -p apps/e2e/test-results
 
-# Pin the project name. Compose otherwise derives it from the checkout directory, so
-# two worktrees of this repository that are both called "weldall" share one stack and
-# the first `down --volumes` tears down the other one's containers and seed data.
-compose=(docker compose -f docker-compose.e2e.yml -p "${COMPOSE_PROJECT_NAME:-weldall-e2e}")
+checkout_path=$(pwd -P)
+checkout_slug=$(basename "$checkout_path" | tr '[:upper:]' '[:lower:]' | \
+  sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+checkout_slug=${checkout_slug:-checkout}
+checkout_hash=$(printf '%s' "$checkout_path" | git hash-object --stdin)
+compose_project=${COMPOSE_PROJECT_NAME:-weldall-${checkout_slug:0:32}-${checkout_hash:0:12}}
+compose=(docker compose -f docker-compose.e2e.yml -p "$compose_project")
 log_file=$(mktemp "${TMPDIR:-/tmp}/weldall-e2e.XXXXXX")
 chmod 0600 "$log_file"
 cleanup() {
