@@ -4,5 +4,5 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["playwright.config.ts", "test/**/*.ts"]
+  "include": ["playwright.config.ts", "readiness-gate.ts", "test/**/*.ts"]
 }
