@@ -254,7 +254,12 @@ describe("CLI token validation", () => {
         device,
         "expected-nonce",
       ),
-    ).resolves.toEqual({ refreshToken: "refresh-token", subject: "user" });
+    ).resolves.toEqual({
+      refreshToken: "refresh-token",
+      subject: "user",
+      accessToken,
+      expiresAt: now + 600,
+    });
   });
 
   it("rejects an ID token with additional audiences", async () => {

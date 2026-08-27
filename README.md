@@ -82,6 +82,7 @@ Run `weldall --help` or any command with `--help` for the authoritative installe
 | `weldall` / `weldall --help`               | Shows command help and a cached organization-provided CLI appendix.                  |
 | `weldall config set-issuer <https-origin>` | Validates and saves the platform's non-secret issuer preference.                     |
 | `weldall config get-issuer [--json]`       | Prints the effective issuer and whether it came from the environment or preferences. |
+| `weldall config refresh`                   | Revalidates and refreshes the cached discovery configuration.                        |
 | `weldall config reset-issuer`              | Removes the saved preference; it does not unset `WELDALL_ISSUER`.                    |
 | `weldall login`                            | Opens a browser for native OAuth login and explicit consent.                         |
 | `weldall logout`                           | Attempts remote revocation, then removes the current issuer's saved session.         |
@@ -90,7 +91,9 @@ Run `weldall --help` or any command with `--help` for the authoritative installe
 | `weldall scopes [--json]`                  | Lists assigned scopes; JSON also exposes the live resource/grant registry.           |
 | `weldall skills [--json]`                  | Lists visible skills.                                                                |
 | `weldall skills list [--json]`             | Explicit form of `weldall skills`.                                                   |
+| `weldall skills find <keyword> [--json]`   | Searches the cached skill catalog by name, tags, owner, or resource.                 |
 | `weldall skills show <skill-id> [--json]`  | Prints one complete organization- or resource-published skill document.              |
+| `weldall skills <skill-id> [--json]`       | Positional alias for `weldall skills show <skill-id>`.                               |
 | `weldall request [options] <url>`          | Sends an authenticated request to a registered HTTPS target.                         |
 
 A typical inspection flow is:
@@ -101,12 +104,13 @@ weldall whoami --json
 weldall scopes
 weldall scopes --json
 weldall skills
-weldall skills show expenses.review
+weldall skills find expense
+weldall skills expenses.review
 ```
 
 ### Authenticated requests
 
-Every request requires an absolute HTTPS URL and at least one repeatable `--scope` (`-s`). Supported methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS`; the default is `GET`.
+Every request requires an absolute HTTPS URL and at least one repeatable `--scope` (`-s`). Supported methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS`; the default is `GET`. Root help is strictly local and performs no discovery or authentication networking. Validated discovery metadata and public JWKS are cached in owner-only files under `~/.weldall`; run `weldall config refresh` after an endpoint change.
 
 ```sh
 # Read JSON
@@ -142,8 +146,28 @@ Request options are:
 | `-F, --form 'name=value'`           | Multipart text field. Repeatable.                                                                            |
 | `-F, --form 'name=@path;type=MIME'` | Multipart file field. Weldall generates `Content-Type` and its boundary.                                     |
 | `-o, --output <path>`               | Atomically replace a file with the successful response body; use `-` for stdout.                             |
+| `--paginate offset`                 | Enable GET-only offset pagination.                                                                           |
+| `--page-size <count>`               | Set the bounded page size; defaults to `100`.                                                                |
+| `--total-pages-pointer <pointer>`   | Required RFC 6901 pointer to the first response's positive integer page count.                               |
+| `--max-pages <count>`               | Set the hard page safety limit; defaults to `20`.                                                            |
+| `--concurrency <count>`             | Set bounded page concurrency; defaults to `3`.                                                               |
+| `--page-output jsonl`               | Required page output mode; emits one compact JSON object per page.                                           |
+| `--limit-parameter <name>`          | Override the managed `limit` query-parameter name.                                                           |
+| `--offset-parameter <name>`         | Override the managed `offset` query-parameter name.                                                          |
 
 The four body modes (`--data`, `--json`, `--upload-file`, and `--form`) are mutually exclusive, and `GET`/`HEAD` cannot carry a body. Binary responses require `--output`. Target URLs cannot contain credentials or fragments. Query strings are allowed.
+
+Offset-paginated GETs reuse one prepared resource client and emit deterministic JSON Lines only after every page succeeds:
+
+```sh
+weldall request --scope personio:read \
+  --paginate offset --page-size 100 \
+  --total-pages-pointer /metadata/total_pages \
+  --max-pages 20 --concurrency 3 --page-output jsonl \
+  'https://gateway.example/personio/employees?limit=100&offset=0'
+```
+
+The CLI derives offsets locally, never accepts server-provided next URLs, aborts outstanding work after a page failure, and enforces bounded page size, concurrency, page count, and a 50 MiB aggregate response limit.
 
 Before sending a token or body, the CLI matches the URL's exact origin and path-segment prefix against one enabled Resource Registry entry, verifies that every requested scope is supported and granted, and rejects ambiguous or unregistered targets. It never follows redirects.
 

@@ -11,12 +11,12 @@ import {
   TOKEN_EXCHANGE_GRANT,
   type ResourceRegistryEntry,
 } from "@weldall/sdk";
-import type { WeldallConfig } from "../config.js";
+import { CONFIG_REFRESH_HINT, type WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { isRecord, successfulResponse, successfulResponseStream } from "../http.js";
 import { WELDALL_CLIENT_ID } from "../oauth/constants.js";
 import { validateIdJagResponse } from "../oauth/session.js";
-import { withLock } from "../storage/lock.js";
+import { phaseTiming, timingNow } from "../timing.js";
 import { withAccess, type AccessSession } from "./auth.js";
 
 export type ResourceGrant = ResourceRegistryEntry;
@@ -39,9 +39,8 @@ export const parseRegistry = (value: unknown): ResourceRegistryEntry[] => {
         !stringArray(resource.supportedScopes) ||
         !stringArray(resource.grantedScopes),
     )
-  ) {
+  )
     throw new CliError("Weldall returned an invalid resource registry");
-  }
   const resources = value as ResourceRegistryEntry[];
   try {
     for (const resource of resources) {
@@ -81,14 +80,9 @@ const assignedScopes = async (config: WeldallConfig, session: AccessSession) => 
     redirect: "error",
   });
   if (response.status === 404) return null;
-  const value = await successfulResponse(response, "Weldall grants request");
-  if (
-    !stringArray(value) ||
-    value.some((scope) => !scope) ||
-    new Set(value).size !== value.length
-  ) {
+  const value = await successfulResponse(response, "Weldall grants request", CONFIG_REFRESH_HINT);
+  if (!stringArray(value) || value.some((scope) => !scope) || new Set(value).size !== value.length)
     throw new CliError("Weldall returned invalid assigned scopes");
-  }
   return [...value].sort();
 };
 
@@ -110,164 +104,208 @@ const registry = async (config: WeldallConfig, session: AccessSession) => {
         redirect: "error",
       }),
       "Weldall resource request",
+      CONFIG_REFRESH_HINT,
     ),
   );
 };
 
-export async function listScopes(config: WeldallConfig) {
-  return withLock(() =>
-    withAccess(config, async (session) => {
-      const [scopes, resources] = await Promise.all([
-        assignedScopes(config, session),
-        registry(config, session),
-      ]);
-      return {
+export async function listScopesWithSubject(config: WeldallConfig) {
+  return withAccess(config, async (session) => {
+    const [scopes, resources] = await Promise.all([
+      assignedScopes(config, session),
+      registry(config, session),
+    ]);
+    return {
+      result: {
         assignedScopes:
           scopes ?? [...new Set(resources.flatMap((resource) => resource.grantedScopes))].sort(),
         resources,
-      };
-    }),
+      },
+      subject: session.subject,
+    };
+  });
+}
+
+export async function listScopes(config: WeldallConfig) {
+  return (await listScopesWithSubject(config)).result;
+}
+
+export interface PreparedRequest {
+  url: string;
+  method: string;
+  headers?: Record<string, string>;
+  body?: string | Blob | FormData;
+  json?: unknown;
+  signal?: AbortSignal;
+}
+
+export interface PreparedResourceClient {
+  resource: ResourceRegistryEntry;
+  scopes: string[];
+  request(input: PreparedRequest): Promise<Response>;
+}
+
+const targetUrl = (input: string): URL => {
+  try {
+    return normalizeRequestTarget(input);
+  } catch (error) {
+    throw new CliError("Request URL must be HTTPS and must not contain credentials or a fragment", {
+      cause: error,
+    });
+  }
+};
+
+const resourceForTarget = (resources: ResourceRegistryEntry[], target: URL) => {
+  const candidates = resolveResourceForTarget(resources, target);
+  if (candidates.length === 0)
+    throw new CliError(`No registered resource accepts ${target.toString()}`, {
+      hint: "Use a URL documented by an available Weldall skill.",
+    });
+  if (candidates.length > 1)
+    throw new CliError(`Multiple registered resources accept ${target.toString()}`);
+  return candidates[0]!;
+};
+
+const validateScopes = (resource: ResourceRegistryEntry, scopes: string[]) => {
+  const requestedScopes = [...new Set(scopes)].sort();
+  const unsupportedScopes = requestedScopes.filter(
+    (scope) => !resource.supportedScopes.includes(scope),
   );
+  if (!requestedScopes.length || unsupportedScopes.length > 0)
+    throw new CliError(
+      requestedScopes.length === 0
+        ? `No scopes were requested for ${resource.name}`
+        : unsupportedScopes.length === 1
+          ? `The requested scope ${JSON.stringify(unsupportedScopes[0])} is not supported by ${resource.name}`
+          : `The requested scopes ${unsupportedScopes.map((scope) => JSON.stringify(scope)).join(", ")} are not supported by ${resource.name}`,
+      {
+        hint:
+          `Supported scopes: ${resource.supportedScopes.join(", ") || "none"}. ` +
+          `Granted scopes: ${resource.grantedScopes.join(", ") || "none"}.`,
+      },
+    );
+  if (requestedScopes.some((scope) => !resource.grantedScopes.includes(scope)))
+    throw new CliError(`The requested scopes are not granted for ${resource.name}`);
+  return requestedScopes;
+};
+
+export async function prepareResourceClient(
+  config: WeldallConfig,
+  targetInput: URL | string,
+  scopes: string[],
+): Promise<PreparedResourceClient> {
+  const target = targetUrl(targetInput.toString());
+  return withAccess(config, async (session) => {
+    const registryStartedAt = timingNow();
+    const resource = resourceForTarget(await registry(config, session), target);
+    phaseTiming("registry", registryStartedAt);
+    const requestedScopes = validateScopes(resource, scopes);
+
+    const exchangeStartedAt = timingNow();
+    const proof = await createDpopProof({
+      ...session.credentials,
+      method: "POST",
+      url: config.token,
+    });
+    const exchange = await successfulResponse(
+      await fetch(config.token, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
+        body: new URLSearchParams({
+          grant_type: TOKEN_EXCHANGE_GRANT,
+          requested_token_type: ID_JAG_TOKEN_TYPE,
+          audience: resource.authorizationServer,
+          resource: resource.resourceIdentifier,
+          scope: requestedScopes.join(" "),
+          subject_token: session.credentials.refreshToken,
+          subject_token_type: REFRESH_TOKEN_TYPE,
+          client_id: WELDALL_CLIENT_ID,
+        }),
+        redirect: "error",
+      }),
+      "Weldall token exchange",
+      CONFIG_REFRESH_HINT,
+    );
+    if (!isRecord(exchange)) throw new CliError("Weldall returned an invalid token exchange");
+    const assertion = await validateIdJagResponse(config, exchange, session.credentials.publicJwk, {
+      subject: session.subject,
+      authorizationServer: resource.authorizationServer,
+      resource: resource.resourceIdentifier,
+      clientId: resource.downstreamClientId,
+      scopes: requestedScopes,
+    });
+
+    phaseTiming("token-exchange", exchangeStartedAt);
+    const resourceTokenStartedAt = timingNow();
+    const downstreamTokenEndpoint = `${resource.authorizationServer}/oauth/token`;
+    const downstreamProof = await createDpopProof({
+      ...session.credentials,
+      method: "POST",
+      url: downstreamTokenEndpoint,
+    });
+    const downstream = await successfulResponse(
+      await fetch(downstreamTokenEndpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", dpop: downstreamProof },
+        body: new URLSearchParams({ grant_type: JWT_DPOP_GRANT, assertion }),
+        redirect: "error",
+      }),
+      "Resource token request",
+    );
+    if (
+      !isRecord(downstream) ||
+      downstream.token_type !== "DPoP" ||
+      typeof downstream.access_token !== "string" ||
+      !downstream.access_token ||
+      typeof downstream.expires_in !== "number" ||
+      !Number.isInteger(downstream.expires_in) ||
+      downstream.expires_in < 1 ||
+      downstream.expires_in > 3_600
+    )
+      throw new CliError("The resource server returned an invalid token response");
+    const accessToken = downstream.access_token;
+    phaseTiming("resource-token", resourceTokenStartedAt);
+
+    return {
+      resource,
+      scopes: requestedScopes,
+      request: async (input: PreparedRequest) => {
+        const requestTarget = targetUrl(input.url);
+        resourceForTarget([resource], requestTarget);
+        const apiProof = await createDpopProof({
+          ...session.credentials,
+          method: input.method,
+          url: requestTarget.toString(),
+          accessToken,
+        });
+        const headers = new Headers(input.headers);
+        if (!headers.has("accept")) headers.set("accept", "application/json");
+        headers.set("authorization", `DPoP ${accessToken}`);
+        headers.set("dpop", apiProof);
+        if (input.json !== undefined) headers.set("content-type", "application/json");
+        return successfulResponseStream(
+          await fetch(requestTarget, {
+            method: input.method,
+            headers,
+            ...(input.json !== undefined
+              ? { body: JSON.stringify(input.json) }
+              : input.body !== undefined
+                ? { body: input.body }
+                : {}),
+            ...(input.signal === undefined ? {} : { signal: input.signal }),
+            redirect: "error",
+          }),
+          `${input.method} ${requestTarget.toString()}`,
+        );
+      },
+    };
+  });
 }
 
 export async function resourceRequest(
   config: WeldallConfig,
-  input: {
-    url: string;
-    method: string;
-    scopes: string[];
-    headers?: Record<string, string>;
-    body?: string | Blob | FormData;
-    json?: unknown;
-  },
+  input: PreparedRequest & { scopes: string[] },
 ) {
-  return withLock(() =>
-    withAccess(config, async (session) => {
-      let target: URL;
-      try {
-        target = normalizeRequestTarget(input.url);
-      } catch (error) {
-        throw new CliError(
-          "Request URL must be HTTPS and must not contain credentials or a fragment",
-          { cause: error },
-        );
-      }
-      const resources = await registry(config, session);
-      const candidates = resolveResourceForTarget(resources, target);
-      if (candidates.length === 0) {
-        throw new CliError(`No registered resource accepts ${target.toString()}`, {
-          hint: "Use a URL documented by an available Weldall skill.",
-        });
-      }
-      if (candidates.length > 1) {
-        throw new CliError(`Multiple registered resources accept ${target.toString()}`);
-      }
-      const resource = candidates[0]!;
-      const requestedScopes = [...new Set(input.scopes)].sort();
-      const unsupportedScopes = requestedScopes.filter(
-        (scope) => !resource.supportedScopes.includes(scope),
-      );
-      if (!requestedScopes.length || unsupportedScopes.length > 0) {
-        throw new CliError(
-          requestedScopes.length === 0
-            ? `No scopes were requested for ${resource.name}`
-            : unsupportedScopes.length === 1
-              ? `The requested scope ${JSON.stringify(unsupportedScopes[0])} is not supported by ${resource.name}`
-              : `The requested scopes ${unsupportedScopes.map((scope) => JSON.stringify(scope)).join(", ")} are not supported by ${resource.name}`,
-          {
-            hint:
-              `Supported scopes: ${resource.supportedScopes.join(", ") || "none"}. ` +
-              `Granted scopes: ${resource.grantedScopes.join(", ") || "none"}.`,
-          },
-        );
-      }
-      if (requestedScopes.some((scope) => !resource.grantedScopes.includes(scope))) {
-        throw new CliError(`The requested scopes are not granted for ${resource.name}`);
-      }
-
-      const proof = await createDpopProof({
-        ...session.credentials,
-        method: "POST",
-        url: config.token,
-      });
-      const exchange = await successfulResponse(
-        await fetch(config.token, {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
-          body: new URLSearchParams({
-            grant_type: TOKEN_EXCHANGE_GRANT,
-            requested_token_type: ID_JAG_TOKEN_TYPE,
-            audience: resource.authorizationServer,
-            resource: resource.resourceIdentifier,
-            scope: requestedScopes.join(" "),
-            subject_token: session.credentials.refreshToken,
-            subject_token_type: REFRESH_TOKEN_TYPE,
-            client_id: WELDALL_CLIENT_ID,
-          }),
-          redirect: "error",
-        }),
-        "Weldall token exchange",
-      );
-      if (!isRecord(exchange)) throw new CliError("Weldall returned an invalid token exchange");
-      const assertion = await validateIdJagResponse(
-        config,
-        exchange,
-        session.credentials.publicJwk,
-        {
-          subject: session.subject,
-          authorizationServer: resource.authorizationServer,
-          resource: resource.resourceIdentifier,
-          clientId: resource.downstreamClientId,
-          scopes: requestedScopes,
-        },
-      );
-
-      const downstreamTokenEndpoint = `${resource.authorizationServer}/oauth/token`;
-      const downstreamProof = await createDpopProof({
-        ...session.credentials,
-        method: "POST",
-        url: downstreamTokenEndpoint,
-      });
-      const downstream = await successfulResponse(
-        await fetch(downstreamTokenEndpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/x-www-form-urlencoded",
-            dpop: downstreamProof,
-          },
-          body: new URLSearchParams({ grant_type: JWT_DPOP_GRANT, assertion }),
-          redirect: "error",
-        }),
-        "Resource token request",
-      );
-      if (!isRecord(downstream) || typeof downstream.access_token !== "string") {
-        throw new CliError("The resource server returned an invalid token response");
-      }
-
-      const apiProof = await createDpopProof({
-        ...session.credentials,
-        method: input.method,
-        url: target.toString(),
-        accessToken: downstream.access_token,
-      });
-      const headers = new Headers(input.headers);
-      if (!headers.has("accept")) headers.set("accept", "application/json");
-      headers.set("authorization", `DPoP ${downstream.access_token}`);
-      headers.set("dpop", apiProof);
-      if (input.json !== undefined) headers.set("content-type", "application/json");
-      return successfulResponseStream(
-        await fetch(target, {
-          method: input.method,
-          headers,
-          ...(input.json !== undefined
-            ? { body: JSON.stringify(input.json) }
-            : input.body !== undefined
-              ? { body: input.body }
-              : {}),
-          redirect: "error",
-        }),
-        `${input.method} ${target.toString()}`,
-      );
-    }),
-  );
+  const client = await prepareResourceClient(config, input.url, input.scopes);
+  return client.request(input);
 }

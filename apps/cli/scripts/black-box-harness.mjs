@@ -47,6 +47,15 @@ const onlyCredential = async (path) => {
   return Object.values(value)[0];
 };
 
+const updateOnlyCredential = async (path, update) => {
+  const value = JSON.parse(await readFile(path, "utf8"));
+  const [account] = Object.keys(value);
+  assert.ok(account, "expected exactly one guarded test session");
+  assert.equal(Object.keys(value).length, 1, "expected exactly one guarded test session");
+  value[account] = update(value[account]);
+  await writeFile(path, JSON.stringify(value), { mode: 0o600 });
+};
+
 async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, preferencesFile }) {
   assertRun(
     await run(["config", "set-issuer", mock.issuer]),
@@ -86,16 +95,40 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
   assertRun(loginResult, 0, "login");
 
   const loginCredential = await onlyCredential(paths.credentials);
+  assert.equal(loginCredential.version, 2);
   assert.equal(loginCredential.refreshToken, "artifact-refresh-0");
   assert.equal(loginCredential.issuer, mock.issuer);
+  assert.equal(loginCredential.accessSession?.subject, "artifact-user");
+  assert.ok(loginCredential.accessSession?.expiresAt > 0);
   assert.ok(loginCredential.privateJwk?.d, "login must persist the dynamic private device JWK");
+
+  const helpRequestCount = mock.requests.length;
+  const credentialsBeforeHelp = await readFile(paths.credentials, "utf8");
+  assertRun(await run(["--help"]), 0, "configured local root help");
+  assert.equal(
+    mock.requests.length,
+    helpRequestCount,
+    "root help must perform no network requests",
+  );
+  assert.equal(
+    await readFile(paths.credentials, "utf8"),
+    credentialsBeforeHelp,
+    "root help must not write credentials",
+  );
+
+  const initialSkillFind = assertRun(
+    await run(["skills", "find", "artifact", "--json"]),
+    0,
+    "initial skill find",
+  );
+  assert.equal(JSON.parse(initialSkillFind.stdout)[0].slug, "files.transfer");
 
   const whoamiPlain = assertRun(await run(["whoami"]), 0, "whoami plain");
   assert.match(whoamiPlain.stdout, /Artifact User/);
   assert.match(whoamiPlain.stdout, /artifact\.user@example\.com/);
-  const rotatedCredential = await onlyCredential(paths.credentials);
-  assert.equal(rotatedCredential.refreshToken, "artifact-refresh-1");
-  assert.notEqual(rotatedCredential.refreshToken, loginCredential.refreshToken);
+  const reusedCredential = await onlyCredential(paths.credentials);
+  assert.equal(reusedCredential.refreshToken, loginCredential.refreshToken);
+  assert.equal(mock.rotationCount, 0, "valid cached access sessions must avoid refresh rotation");
 
   const whoamiJson = assertRun(await run(["whoami", "--json"]), 0, "whoami JSON");
   assert.deepEqual(JSON.parse(whoamiJson.stdout), {
@@ -108,6 +141,24 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
   assert.deepEqual(JSON.parse(scopes.stdout).assignedScopes, ["files:read", "files:write"]);
   const skills = assertRun(await run(["skills", "list", "--json"]), 0, "skills JSON");
   assert.equal(JSON.parse(skills.stdout).items[0].slug, "files.transfer");
+  const requestsBeforeFind = mock.requests.length;
+  const foundSkills = assertRun(
+    await run(["skills", "find", "artifact", "--json"]),
+    0,
+    "warm cached skill find",
+  );
+  assert.equal(JSON.parse(foundSkills.stdout)[0].slug, "files.transfer");
+  assert.equal(
+    mock.requests.length,
+    requestsBeforeFind,
+    "warm skill find must perform no network requests",
+  );
+  const skillAlias = assertRun(
+    await run(["skills", "files.transfer"]),
+    0,
+    "positional skill show alias",
+  );
+  assert.match(skillAlias.stdout, /# Transfer artifact files/);
 
   const uploadBytes = Buffer.from([0, 1, 2, 255, 128, 13, 10, 32, 195, 188]);
   await writeFile(paths.upload, uploadBytes);
@@ -127,6 +178,51 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
   );
   assert.deepEqual(JSON.parse(upload.stdout), { uploaded: uploadBytes.length });
   assert.deepEqual(mock.uploadedBytes, uploadBytes);
+
+  const paginationRequestStart = mock.requests.length;
+  const paginated = assertRun(
+    await run([
+      "request",
+      "--scope",
+      "files:read",
+      "--paginate",
+      "offset",
+      "--page-size",
+      "2",
+      "--total-pages-pointer",
+      "/metadata/total_pages",
+      "--max-pages",
+      "3",
+      "--concurrency",
+      "2",
+      "--page-output",
+      "jsonl",
+      mock.pagesUrl,
+    ]),
+    0,
+    "offset pagination JSONL",
+  );
+  assert.deepEqual(
+    paginated.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).offset),
+    [0, 2, 4],
+  );
+  const paginationRequests = mock.requests.slice(paginationRequestStart);
+  assert.equal(
+    paginationRequests.filter((request) => request.endsWith("/api/me/scopes")).length,
+    1,
+  );
+  assert.equal(
+    paginationRequests.filter((request) => request.endsWith("/api/auth/oauth2/token")).length,
+    1,
+  );
+  assert.equal(paginationRequests.filter((request) => request.endsWith("/oauth/token")).length, 1);
+  assert.equal(
+    paginationRequests.filter((request) => request.endsWith("/api/files/pages")).length,
+    3,
+  );
 
   await writeFile(paths.download, Buffer.from("existing destination must be replaced"));
   assertRun(
@@ -203,36 +299,27 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
     "interrupted artifact download must remove temporary debris",
   );
 
+  await updateOnlyCredential(paths.credentials, (credential) => ({
+    ...credential,
+    accessSession: { ...credential.accessSession, expiresAt: 1 },
+  }));
   const delayed = mock.armRefreshDelay();
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    delayed.release();
-  };
   const first = run(["whoami", "--json"]);
-  let contentionError;
-  try {
-    await Promise.race([
-      delayed.entered,
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error("delayed authenticated operation did not arrive")),
-          10_000,
-        ),
-      ),
-    ]);
-    const contender = await run(["scopes", "--json"]);
-    assert.equal(contender.status, 1, output(contender));
-    assert.match(contender.stderr, /another weldall command is running/);
-  } catch (error) {
-    contentionError = error;
-  } finally {
-    release();
-  }
-  const firstResult = await first;
-  if (contentionError) throw contentionError;
-  assertRun(firstResult, 0, "delayed authenticated operation");
+  await Promise.race([
+    delayed.entered,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("delayed refresh did not arrive")), 10_000),
+    ),
+  ]);
+  const follower = run(["scopes", "--json"]);
+  // Give the separately launched process time to reach the held refresh lock.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  delayed.release();
+  const [firstResult, followerResult] = await Promise.all([first, follower]);
+  assertRun(firstResult, 0, "refresh leader operation");
+  assertRun(followerResult, 0, "refresh follower operation");
+  assert.equal(mock.rotationCount, 1, "refresh contenders must produce one token rotation");
+  assert.equal((await onlyCredential(paths.credentials)).refreshToken, "artifact-refresh-1");
 
   assertRun(await run(["logout"]), 0, "logout");
   assert.equal(mock.revokedCount, 1, "logout must call remote revocation exactly once");
@@ -269,9 +356,10 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
   assert.match(lock, /observedRevision: 7/);
   assert.match(lock, /scope\.artifact_read:/);
 
-  assert.ok(
-    mock.rotationCount >= 7,
-    "authenticated reads and transfers must rotate refresh tokens",
+  assert.equal(
+    mock.rotationCount,
+    1,
+    "only the deliberately expired access session should rotate the refresh token",
   );
   for (const seam of [
     "POST /api/auth/oauth2/token",

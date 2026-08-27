@@ -1,6 +1,6 @@
 import { createDpopProof } from "@weldall/sdk";
 import { WELDALL_CLIENT_ID } from "../oauth/constants.js";
-import type { WeldallConfig } from "../config.js";
+import { CONFIG_REFRESH_HINT, type WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { isRecord, successfulResponse } from "../http.js";
 import { loopback } from "../oauth/loopback.js";
@@ -8,28 +8,34 @@ import {
   createPkce,
   generateEs256KeyPair,
   randomValue,
-  refresh,
   tokenRequest,
   validateLoginResponse,
 } from "../oauth/session.js";
-import { keychain, type StoredCredentials } from "../storage/keychain.js";
-import { withLock } from "../storage/lock.js";
+import {
+  keychain,
+  type StoredCredentials,
+  type StoredCredentialsInput,
+} from "../storage/keychain.js";
+import { withCredentialLock } from "../storage/lock.js";
+import { SessionManager, type AccessSession } from "./session-manager.js";
 import { browserOpener, type BrowserOpener } from "./browser.js";
 
-const saveCredentials = async (issuer: string, credentials: StoredCredentials) =>
-  keychain.set(issuer, {
-    privateJwk: credentials.privateJwk,
-    publicJwk: credentials.publicJwk,
-    refreshToken: credentials.refreshToken,
-    ...(credentials.identity === undefined ? {} : { identity: credentials.identity }),
-  });
+const storedInput = (credentials: StoredCredentials): StoredCredentialsInput => ({
+  privateJwk: credentials.privateJwk,
+  publicJwk: credentials.publicJwk,
+  refreshToken: credentials.refreshToken,
+  ...(credentials.identity === undefined ? {} : { identity: credentials.identity }),
+  ...(credentials.version === 2 && credentials.accessSession !== undefined
+    ? { accessSession: credentials.accessSession }
+    : {}),
+});
 
 type LoginLock = <T>(operation: () => Promise<T>) => Promise<T>;
 
 export async function login(
   config: WeldallConfig,
   openBrowser: BrowserOpener = browserOpener,
-  lock: LoginLock = withLock,
+  lock: LoginLock = (operation) => withCredentialLock(config.issuer, operation),
 ) {
   return lock(async () => {
     const key = await generateEs256KeyPair();
@@ -79,71 +85,78 @@ export async function login(
       key,
     );
     const validated = await validateLoginResponse(config, result, key, nonce);
-    await keychain.set(config.issuer, { ...key, refreshToken: validated.refreshToken });
+    await keychain.set(config.issuer, {
+      ...key,
+      refreshToken: validated.refreshToken,
+      accessSession: {
+        accessToken: validated.accessToken,
+        subject: validated.subject,
+        expiresAt: validated.expiresAt as number,
+      },
+    });
     return validated.subject;
   });
 }
 
-export interface AccessSession {
-  accessToken: string;
-  credentials: StoredCredentials;
-  subject: string;
-}
+export type { AccessSession } from "./session-manager.js";
 
 export async function withAccess<T>(
   config: WeldallConfig,
   operation: (session: AccessSession) => Promise<T>,
 ): Promise<T> {
-  const credentials = await keychain.get(config.issuer);
-  if (!credentials)
-    throw new CliError(`You are not logged in to ${config.issuer}`, {
-      hint: "Run `weldall login` first.",
-    });
-  const fresh = await refresh(config, credentials, (rotated) =>
-    saveCredentials(config.issuer, rotated),
-  );
-  return operation(fresh);
+  return operation(await new SessionManager(config).getAccessSession());
 }
 
 export async function whoAmI(config: WeldallConfig) {
-  return withLock(() =>
-    withAccess(config, async (session) => {
-      const proof = await createDpopProof({
-        ...session.credentials,
-        method: "GET",
-        url: config.userInfo,
-        accessToken: session.accessToken,
+  return withAccess(config, async (session) => {
+    const proof = await createDpopProof({
+      ...session.credentials,
+      method: "GET",
+      url: config.userInfo,
+      accessToken: session.accessToken,
+    });
+    const value = await successfulResponse(
+      await fetch(config.userInfo, {
+        headers: {
+          accept: "application/json",
+          authorization: `DPoP ${session.accessToken}`,
+          dpop: proof,
+        },
+        redirect: "error",
+      }),
+      "Weldall userinfo request",
+      CONFIG_REFRESH_HINT,
+    );
+    if (!isRecord(value) || typeof value.sub !== "string" || value.sub !== session.subject)
+      throw new CliError("Weldall returned inconsistent identity information");
+    const subject = value.sub;
+    const name = typeof value.name === "string" ? value.name.trim() : "";
+    const email = typeof value.email === "string" ? value.email.trim() : "";
+    if (!name || !email || value.email_verified !== true)
+      throw new CliError("Weldall did not return your verified profile", {
+        hint: "Run `weldall logout`, then `weldall login` to refresh your account details.",
       });
-      const value = await successfulResponse(
-        await fetch(config.userInfo, {
-          headers: {
-            accept: "application/json",
-            authorization: `DPoP ${session.accessToken}`,
-            dpop: proof,
-          },
-          redirect: "error",
-        }),
-        "Weldall userinfo request",
-      );
-      if (!isRecord(value) || typeof value.sub !== "string" || value.sub !== session.subject)
-        throw new CliError("Weldall returned inconsistent identity information");
-      const name = typeof value.name === "string" ? value.name.trim() : "";
-      const email = typeof value.email === "string" ? value.email.trim() : "";
-      if (!name || !email || value.email_verified !== true)
-        throw new CliError("Weldall did not return your verified profile", {
-          hint: "Run `weldall logout`, then `weldall login` to refresh your account details.",
-        });
-      await saveCredentials(config.issuer, {
-        ...session.credentials,
-        identity: { subject: value.sub, name, email },
+    await withCredentialLock(config.issuer, async () => {
+      const current = await keychain.get(config.issuer);
+      if (!current || current.version !== 2 || current.accessSession?.subject !== session.subject)
+        return;
+      if (
+        current.identity?.subject === subject &&
+        current.identity.name === name &&
+        current.identity.email === email
+      )
+        return;
+      await keychain.set(config.issuer, {
+        ...storedInput(current),
+        identity: { subject, name, email },
       });
-      return { issuer: config.issuer, subject: value.sub, name, email };
-    }),
-  );
+    });
+    return { issuer: config.issuer, subject, name, email };
+  });
 }
 
 export async function logout(config: WeldallConfig) {
-  return withLock(async () => {
+  return withCredentialLock(config.issuer, async () => {
     const credentials = await keychain.get(config.issuer);
     try {
       if (credentials) {

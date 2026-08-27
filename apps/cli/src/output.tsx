@@ -334,26 +334,19 @@ function ScopePreview({ scopes }: { scopes: string[] }) {
 }
 
 function SkillPreview({ skills }: { skills: HeaderSkill[] }) {
-  const visible = skills.slice(0, PREVIEW_LIMIT);
   return (
     <Card title="Skills" accent={palette.accent}>
-      {visible.length > 0 ? (
-        visible.map((skill) => (
-          <Text key={skill.slug}>
-            <Text color={skill.available ? palette.success : palette.warning}>
-              {skill.available ? "✓" : "!"}
-            </Text>{" "}
-            {terminalText(skill.title)} <Text dimColor>({terminalText(skill.slug)})</Text>
-          </Text>
-        ))
-      ) : (
-        <Text dimColor>No cached skills.</Text>
-      )}
-      {skills.length > visible.length && (
-        <Text dimColor>… {skills.length - visible.length} more</Text>
-      )}
+      <Text>
+        Find organizational capabilities with:
+        {"\n"} weldall skills find &lt;keyword&gt;
+      </Text>
       <Box marginTop={1}>
-        <Text dimColor>Run `weldall skills` to view the complete list.</Text>
+        <Text dimColor>
+          {skills.length > 0
+            ? `${skills.length} cached skill${skills.length === 1 ? "" : "s"}. `
+            : "No cached skills. "}
+          Run `weldall skills list` for the complete list.
+        </Text>
       </Box>
     </Card>
   );

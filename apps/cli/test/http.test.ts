@@ -1,6 +1,17 @@
 import { createServer, type Socket } from "node:net";
 import { describe, expect, it } from "vitest";
-import { createHttpsDeadlineFetch } from "../src/http.js";
+import { createHttpsDeadlineFetch, successfulResponse } from "../src/http.js";
+
+describe("response errors", () => {
+  it("adds a configuration-refresh hint only for missing cached endpoints", async () => {
+    await expect(
+      successfulResponse(new Response(null, { status: 404 }), "Weldall endpoint", "refresh it"),
+    ).rejects.toMatchObject({ hint: "refresh it" });
+    await expect(
+      successfulResponse(new Response(null, { status: 401 }), "Weldall endpoint", "refresh it"),
+    ).rejects.toMatchObject({ hint: undefined });
+  });
+});
 
 describe("HTTPS deadline fetch", () => {
   it("destroys a stalled connection at the deadline", async () => {

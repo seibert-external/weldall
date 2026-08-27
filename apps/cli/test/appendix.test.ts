@@ -15,6 +15,7 @@ describe("CLI appendix cache", () => {
         appendix: "# Organization instructions",
         scopes: ["expenses:read"],
         skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+        skillsInitialized: true,
         subject: "account-a",
       });
 
@@ -23,6 +24,7 @@ describe("CLI appendix cache", () => {
         appendix: "# Organization instructions",
         scopes: ["expenses:read"],
         skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+        skillsInitialized: true,
         subject: "account-a",
       });
       await expect(cache.read("https://other.example.com")).resolves.toBeNull();
@@ -55,6 +57,7 @@ describe("CLI appendix cache", () => {
         appendix: "Shared instructions",
         scopes: [],
         skills: [],
+        skillsInitialized: false,
       });
       await expect(cache.readSnapshotForSubject(issuer, null)).resolves.toMatchObject({
         appendix: "Shared instructions",
@@ -63,6 +66,51 @@ describe("CLI appendix cache", () => {
       });
       await expect(cache.readSnapshotForSubject(issuer, "account-a")).resolves.toMatchObject({
         scopes: ["account-a:read"],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("clears legacy unbound previews when binding a subject", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
+    try {
+      const cache = new AppendixCache(directory);
+      await cache.writeSnapshot(issuer, {
+        appendix: "Shared instructions",
+        scopes: ["legacy:read"],
+        skills: [{ slug: "legacy", title: "Legacy", available: true }],
+        skillsInitialized: true,
+      });
+
+      await expect(cache.updateSnapshot(issuer, { subject: "account-a" })).resolves.toMatchObject({
+        subject: "account-a",
+        scopes: [],
+        skills: [],
+        skillsInitialized: false,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes partial snapshot updates without losing fields", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
+    try {
+      const cache = new AppendixCache(directory);
+      await Promise.all([
+        cache.updateSnapshot(issuer, { subject: "account-a", scopes: ["expenses:read"] }),
+        cache.updateSnapshot(issuer, {
+          subject: "account-a",
+          skills: [{ slug: "expenses", title: "Expenses", available: true }],
+          skillsInitialized: true,
+        }),
+      ]);
+
+      await expect(cache.readSnapshotForSubject(issuer, "account-a")).resolves.toMatchObject({
+        scopes: ["expenses:read"],
+        skills: [{ slug: "expenses", title: "Expenses", available: true }],
+        skillsInitialized: true,
       });
     } finally {
       await rm(directory, { recursive: true, force: true });

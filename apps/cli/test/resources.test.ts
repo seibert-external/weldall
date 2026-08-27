@@ -74,6 +74,30 @@ describe("scope overview", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("returns the subject that authenticated scopes during session replacement", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        await blocked;
+        return String(input) === config.grants
+          ? Response.json(["expenses:read"])
+          : Response.json([expenses]);
+      }),
+    );
+    const { listScopesWithSubject } = await import("../src/services/resources.js");
+
+    const pending = listScopesWithSubject(config);
+    state.session = { ...state.session, subject: "account-b" };
+    release();
+
+    await expect(pending).resolves.toMatchObject({
+      subject: "user",
+      result: { assignedScopes: ["expenses:read"] },
+    });
+  });
+
   it("falls back to resource grants during a rolling server upgrade", async () => {
     vi.stubGlobal(
       "fetch",
@@ -89,6 +113,66 @@ describe("scope overview", () => {
       assignedScopes: ["expenses:read"],
       resources: [expenses],
     });
+  });
+});
+
+describe("prepared resource clients", () => {
+  it("prepares authorization once and creates a distinct proof for every target request", async () => {
+    const target = `${EXPENSES_ISSUER}/api/expenses`;
+    const proofs: string[] = [];
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === config.scopes) return Response.json([expenses]);
+      if (url === config.token) return Response.json({ issued_token: "id-jag" });
+      if (url === `${EXPENSES_ISSUER}/oauth/token`)
+        return Response.json({
+          token_type: "DPoP",
+          access_token: "resource-access-token",
+          expires_in: 600,
+        });
+      if (url.startsWith(target)) {
+        proofs.push(new Headers(init?.headers).get("dpop")!);
+        return Response.json({ ok: true });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const { prepareResourceClient } = await import("../src/services/resources.js");
+    const client = await prepareResourceClient(config, target, ["expenses:read"]);
+    await Promise.all(
+      [0, 1, 2].map((page) => client.request({ url: `${target}?page=${page}`, method: "GET" })),
+    );
+    expect(fetcher.mock.calls.filter(([url]) => String(url) === config.scopes)).toHaveLength(1);
+    expect(fetcher.mock.calls.filter(([url]) => String(url) === config.token)).toHaveLength(1);
+    expect(
+      fetcher.mock.calls.filter(([url]) => String(url) === `${EXPENSES_ISSUER}/oauth/token`),
+    ).toHaveLength(1);
+    expect(proofs).toHaveLength(3);
+    expect(new Set(proofs)).toHaveLength(3);
+  });
+
+  it("rejects requests outside the prepared prefix without another exchange", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === config.scopes) return Response.json([expenses]);
+      if (url === config.token) return Response.json({ issued_token: "id-jag" });
+      if (url === `${EXPENSES_ISSUER}/oauth/token`)
+        return Response.json({
+          token_type: "DPoP",
+          access_token: "resource-access-token",
+          expires_in: 600,
+        });
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const { prepareResourceClient } = await import("../src/services/resources.js");
+    const client = await prepareResourceClient(config, `${EXPENSES_ISSUER}/api/expenses`, [
+      "expenses:read",
+    ]);
+    await expect(
+      client.request({ url: "https://catcher.example/api", method: "GET" }),
+    ).rejects.toThrow("No registered resource accepts");
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -124,7 +208,11 @@ describe("URL-first resource requests", () => {
       if (url === config.scopes) return Response.json([expenses]);
       if (url === config.token) return Response.json({ issued_token: "id-jag" });
       if (url === `${EXPENSES_ISSUER}/oauth/token`) {
-        return Response.json({ access_token: "resource-access-token" });
+        return Response.json({
+          token_type: "DPoP",
+          access_token: "resource-access-token",
+          expires_in: 600,
+        });
       }
       if (url === target) {
         expect(init?.method).toBe("PUT");

@@ -1,12 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
   calculateJwkThumbprint,
-  createLocalJWKSet,
   decodeProtectedHeader,
   jwtVerify,
-  type JSONWebKeySet,
   type JWK,
   type JWTPayload,
+  type JWTVerifyOptions,
 } from "jose";
 import {
   ID_JAG_DRAFT,
@@ -16,10 +15,11 @@ import {
   isSha256JwkThumbprint,
   parseScope,
 } from "@weldall/sdk";
-import type { WeldallConfig } from "../config.js";
+import { CONFIG_REFRESH_HINT, type WeldallConfig } from "../config.js";
 import { WELDALL_CLIENT_ID } from "./constants.js";
 import { CliError } from "../errors.js";
 import type { StoredCredentials } from "../storage/keychain.js";
+import { weldallJwksCache, type WeldallJwksCache } from "../storage/jwks-cache.js";
 
 export const randomValue = (bytes = 32) => randomBytes(bytes).toString("base64url");
 export const createPkce = () => {
@@ -34,52 +34,53 @@ const jsonObject = async (response: Response, label: string): Promise<Record<str
   return value as Record<string, unknown>;
 };
 
-async function weldallJwks(config: WeldallConfig) {
-  const response = await fetch(config.jwks, {
-    headers: { accept: "application/json" },
-    redirect: "error",
-  });
-  if (!response.ok) throw new CliError("Unable to load Weldall signing keys");
-  const body = (await response.json()) as Partial<JSONWebKeySet>;
-  const kids = new Set<string>();
-  if (
-    !Array.isArray(body.keys) ||
-    body.keys.length < 1 ||
-    body.keys.some((key) => {
-      if (
-        typeof key.kid !== "string" ||
-        !key.kid ||
-        kids.has(key.kid) ||
-        key.alg !== "ES256" ||
-        key.kty !== "EC" ||
-        key.crv !== "P-256" ||
-        !key.x ||
-        !key.y ||
-        key.d ||
-        (key.use !== undefined && key.use !== "sig")
-      )
-        return true;
-      kids.add(key.kid);
-      return false;
-    })
-  )
-    throw new CliError("Weldall returned an invalid signing-key set");
-  return createLocalJWKSet(body as JSONWebKeySet);
-}
+const verifyWeldallJwt = async (
+  config: WeldallConfig,
+  token: string,
+  options: JWTVerifyOptions,
+  cache: WeldallJwksCache = weldallJwksCache,
+) => {
+  let loaded = await cache.get(config);
+  const kid = decodeProtectedHeader(token).kid;
+  if (typeof kid !== "string" || !kid) throw new CliError("The token has no signing-key ID");
+  let refreshed = false;
+  if (!loaded.kids.has(kid)) {
+    loaded = await cache.get(config, true);
+    refreshed = true;
+  }
+  try {
+    return await jwtVerify(token, loaded.set, options);
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (
+      !refreshed &&
+      (code === "ERR_JWKS_NO_MATCHING_KEY" || code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED")
+    ) {
+      return jwtVerify(token, (await cache.get(config, true)).set, options);
+    }
+    throw error;
+  }
+};
 
 export async function validateAccessToken(
   config: WeldallConfig,
   token: string,
   publicJwk: JWK,
+  cache: WeldallJwksCache = weldallJwksCache,
 ): Promise<JWTPayload & { sub: string }> {
-  const result = await jwtVerify(token, await weldallJwks(config), {
-    algorithms: ["ES256"],
-    issuer: config.issuer,
-    audience: config.resource,
-    typ: "at+jwt",
-    requiredClaims: ["iss", "aud", "sub", "exp", "iat", "client_id", "cnf"],
-    clockTolerance: 5,
-  });
+  const result = await verifyWeldallJwt(
+    config,
+    token,
+    {
+      algorithms: ["ES256"],
+      issuer: config.issuer,
+      audience: config.resource,
+      typ: "at+jwt",
+      requiredClaims: ["iss", "aud", "sub", "exp", "iat", "client_id", "cnf"],
+      clockTolerance: 5,
+    },
+    cache,
+  );
   const audiences =
     typeof result.payload.aud === "string"
       ? [result.payload.aud]
@@ -121,7 +122,9 @@ export async function tokenRequest(
     const error = typeof value.error === "string" ? value.error : "token request failed";
     const description =
       typeof value.error_description === "string" ? value.error_description : undefined;
-    throw new CliError(description ? `${error}: ${description}` : error);
+    throw new CliError(description ? `${error}: ${description}` : error, {
+      ...(response.status === 404 || response.status === 410 ? { hint: CONFIG_REFRESH_HINT } : {}),
+    });
   }
   return value;
 }
@@ -140,7 +143,7 @@ export async function validateLoginResponse(
   )
     throw new CliError("Weldall returned an invalid login response");
   const access = await validateAccessToken(config, result.access_token, key.publicJwk);
-  const id = await jwtVerify(result.id_token, await weldallJwks(config), {
+  const id = await verifyWeldallJwt(config, result.id_token, {
     algorithms: ["ES256"],
     issuer: config.issuer,
     audience: WELDALL_CLIENT_ID,
@@ -154,7 +157,13 @@ export async function validateLoginResponse(
     id.payload.sub !== access.sub
   )
     throw new CliError("Weldall returned an invalid ID-token binding");
-  return { refreshToken: result.refresh_token, subject: access.sub };
+  if (!Number.isInteger(access.exp)) throw new CliError("Weldall returned an invalid access token");
+  return {
+    refreshToken: result.refresh_token,
+    subject: access.sub,
+    accessToken: result.access_token,
+    expiresAt: access.exp,
+  };
 }
 
 export async function validateIdJagResponse(
@@ -182,7 +191,7 @@ export async function validateIdJagResponse(
   )
     throw new CliError("Weldall returned an invalid ID-JAG response");
 
-  const verified = await jwtVerify(result.access_token, await weldallJwks(config), {
+  const verified = await verifyWeldallJwt(config, result.access_token, {
     algorithms: ["ES256"],
     issuer: config.issuer,
     audience: expected.authorizationServer,
@@ -265,10 +274,12 @@ export async function refresh(
   const rotatedCredentials = { ...credentials, refreshToken: result.refresh_token };
   await onRotation(rotatedCredentials);
   const claims = await validateAccessToken(config, result.access_token, credentials.publicJwk);
+  if (!Number.isInteger(claims.exp)) throw new CliError("Weldall returned an invalid access token");
   return {
     credentials: rotatedCredentials,
     accessToken: result.access_token,
     subject: claims.sub,
+    expiresAt: claims.exp,
   };
 }
 

@@ -1,8 +1,12 @@
 import { createInterface } from "node:readline/promises";
 import { ConfigurationError, errorMessage } from "./errors.js";
+import { phaseTiming, timingNow } from "./timing.js";
+import { weldallConfigCache, type WeldallConfigCache } from "./storage/config-cache.js";
 import { issuerPreferences, type IssuerPreferences } from "./storage/preferences.js";
 
 const REQUIRED_SCOPES = ["openid", "profile", "email", "offline_access", "weldall:scopes"] as const;
+export const CONFIG_REFRESH_HINT =
+  "Run `weldall config refresh` to revalidate the cached Weldall configuration.";
 
 export type IssuerSource = "environment" | "preferences" | "prompt";
 
@@ -121,11 +125,18 @@ export async function discoverIssuer(
   const issuer = normalizeIssuer(rawIssuer);
   const fetcher = options.fetcher ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const metadata = await fetchMetadata(
-    metadataUrl(issuer, "/.well-known/oauth-authorization-server"),
-    fetcher,
-    timeoutMs,
-  );
+  const [metadata, protectedResource] = await Promise.all([
+    fetchMetadata(
+      metadataUrl(issuer, "/.well-known/oauth-authorization-server"),
+      fetcher,
+      timeoutMs,
+    ),
+    fetchMetadata(
+      metadataUrl(issuer, "/.well-known/oauth-protected-resource/api"),
+      fetcher,
+      timeoutMs,
+    ),
+  ]);
   if (metadata.issuer !== issuer)
     throw new ConfigurationError("Weldall discovery returned a different issuer");
 
@@ -143,11 +154,6 @@ export async function discoverIssuer(
     throw new ConfigurationError("Weldall does not bind authorization responses to its issuer");
 
   const resource = `${issuer}/api`;
-  const protectedResource = await fetchMetadata(
-    metadataUrl(issuer, "/.well-known/oauth-protected-resource/api"),
-    fetcher,
-    timeoutMs,
-  );
   if (
     protectedResource.resource !== resource ||
     !stringArray(protectedResource.authorization_servers)?.includes(issuer)
@@ -223,6 +229,8 @@ export async function resolveWeldallConfig(
     preferences?: IssuerPreferences;
     prompt?: PromptIssuer;
     fetcher?: typeof fetch;
+    cache?: WeldallConfigCache;
+    refresh?: boolean;
   } = {},
 ): Promise<WeldallConfig> {
   const preferences = options.preferences ?? issuerPreferences;
@@ -234,9 +242,20 @@ export async function resolveWeldallConfig(
     ...(options.prompt === undefined ? {} : { prompt: options.prompt }),
   });
   if (!selection) throw new ConfigurationError("No Weldall issuer is configured");
+  const cache = options.cache ?? weldallConfigCache;
+  if (!options.refresh) {
+    const cacheStartedAt = timingNow();
+    const cached = await cache.read(selection.issuer);
+    phaseTiming("config-cache", cacheStartedAt);
+    if (cached) {
+      if (selection.source === "prompt") await preferences.write(cached.issuer);
+      return cached.config;
+    }
+  }
   const config = await discoverIssuer(selection.issuer, {
     ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
   });
+  await cache.write(config.issuer, config).catch(() => undefined);
   if (selection.source === "prompt") await preferences.write(config.issuer);
   return config;
 }

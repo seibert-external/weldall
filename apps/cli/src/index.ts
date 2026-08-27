@@ -12,7 +12,7 @@ import {
   statusCommand,
   whoamiCommand,
 } from "./commands.js";
-import { discoverIssuer, selectIssuer } from "./config.js";
+import { selectIssuer } from "./config.js";
 import {
   iacImportCommand,
   iacInitCommand,
@@ -23,20 +23,12 @@ import {
   iacValidateCommand,
 } from "./iac/commands.js";
 import { CliError, errorMessage } from "./errors.js";
-import { createHttpsDeadlineFetch } from "./http.js";
 import { brandHeading, helpHeader, printError, terminalDocument } from "./output.js";
-import { whoAmI } from "./services/auth.js";
-import { listScopes } from "./services/resources.js";
-import { getCliAppendix } from "./services/settings.js";
-import { listSkills } from "./services/skills.js";
-import {
-  appendixCache,
-  type CachedSkillPreview,
-  type CliHeaderSnapshot,
-} from "./storage/appendix.js";
+import { appendixCache, type CliHeaderSnapshot } from "./storage/appendix.js";
 import { keychain, type StoredIdentity } from "./storage/keychain.js";
 import { installTestHttpBridge } from "./test-http-bridge.js";
 import { runTestRuntimeHook } from "./test-runtime.js";
+import { phaseTiming, timingNow } from "./timing.js";
 import { printFriendlyValidation } from "./validation.js";
 
 interface LocalHeader extends CliHeaderSnapshot {
@@ -68,49 +60,27 @@ async function loadLocalHeader(includeAppendix: boolean): Promise<LocalHeader> {
   }
 }
 
-async function refreshCliHeader(issuer: string) {
-  try {
-    const timeoutMs = 2_500;
-    const config = await discoverIssuer(issuer, {
-      fetcher: createHttpsDeadlineFetch(timeoutMs),
-      timeoutMs,
-    });
-    const snapshot = (await appendixCache.readSnapshot(issuer)) ?? emptySnapshot();
-    const appendix = await getCliAppendix(config).catch(() => snapshot.appendix);
-    const identity = await whoAmI(config).catch(() => undefined);
-    if (!identity) return;
-    const ownedSnapshot = snapshot.subject === identity.subject ? snapshot : emptySnapshot();
-    const scopes = await listScopes(config)
-      .then((result) => result.assignedScopes)
-      .catch(() => ownedSnapshot.scopes);
-    const skills = await listSkills(config)
-      .then((result): CachedSkillPreview[] =>
-        result.items.map(({ slug, title, available }) => ({ slug, title, available })),
-      )
-      .catch(() => ownedSnapshot.skills);
-    await appendixCache.writeSnapshot(issuer, {
-      appendix,
-      scopes,
-      skills,
-      subject: identity.subject,
-    });
-  } catch {
-    // The cached appendix remains usable while discovery or refresh is unavailable.
-  }
-}
-
 export async function runCli(argv = process.argv.slice(2)) {
+  const totalStartedAt = timingNow();
+  const normalizedArgv =
+    argv[0] === "skills" &&
+    argv[1] !== undefined &&
+    !argv[1].startsWith("-") &&
+    !["list", "show", "find"].includes(argv[1])
+      ? ["skills", "show", ...argv.slice(1)]
+      : argv;
   const rootHelp =
-    argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"));
+    normalizedArgv.length === 0 ||
+    (normalizedArgv.length === 1 && (normalizedArgv[0] === "--help" || normalizedArgv[0] === "-h"));
   const iacCommand = ["init", "validate", "plan", "up", "import", "unmanage", "state"].includes(
-    argv[0] ?? "",
+    normalizedArgv[0] ?? "",
   );
   let localHeader: Promise<LocalHeader> | undefined;
 
   try {
     installTestHttpBridge();
     if (await runTestRuntimeHook()) return;
-    await cli(argv.length === 0 ? ["--help"] : argv, mainCommand, {
+    await cli(normalizedArgv.length === 0 ? ["--help"] : normalizedArgv, mainCommand, {
       name: "weldall",
       version: packageJson.version,
       description: "Secure access to your organization's APIs",
@@ -153,6 +123,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     if (error instanceof AggregateError) {
       printFriendlyValidation(error);
       process.exitCode = 2;
+      phaseTiming("total", totalStartedAt);
       return;
     }
     const cliError = error instanceof CliError ? error : undefined;
@@ -161,12 +132,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       console.error(`\n${terminalDocument(error.stack)}`);
     process.exitCode = cliError?.exitCode ?? 1;
   }
-
-  if (rootHelp) {
-    localHeader ??= loadLocalHeader(true);
-    const { issuer } = await localHeader;
-    if (issuer) await refreshCliHeader(issuer);
-  }
+  phaseTiming("total", totalStartedAt);
 }
 
 await runCli();

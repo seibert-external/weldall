@@ -47,6 +47,7 @@ The environment variable is an ephemeral override and is never persisted. The is
 ```sh
 weldall config set-issuer https://weldall.example.com
 weldall config get-issuer
+weldall config refresh
 weldall config reset-issuer
 WELDALL_ISSUER=https://weldall-dev.example.com weldall login
 ```
@@ -65,7 +66,7 @@ Saved issuer locations are:
 - Windows: `%USERPROFILE%\.weldall\config.json`
 - macOS: Preferences domain/key `dev.seibert.weldall-cli/Issuer` (preserved for MDM and existing installations)
 
-The issuer is not a credential. Sessions, refresh tokens, and DPoP keys remain in the native secure store: Windows Credential Manager, macOS Keychain, or Linux Secret Service with the keyutils fallback provided by `@napi-rs/keyring`. There is no plaintext fallback.
+The issuer is not a credential. Validated discovery metadata and public signing keys are cached in owner-only files under `~/.weldall`; use `weldall config refresh` after an administrator changes endpoints. Sessions, refresh tokens, short-lived central access tokens, and DPoP keys remain in the native secure store: Windows Credential Manager, macOS Keychain, or Linux Secret Service with the keyutils fallback provided by `@napi-rs/keyring`. There is no plaintext credential fallback.
 
 On Ubuntu desktop, sign in to a normal user session and ensure the keyring is unlocked. On a headless Linux host, provide a user D-Bus session with an unlocked Secret Service implementation (for example `gnome-keyring-daemon`) or a usable kernel keyring/keyutils environment. If neither backend is usable, `login` and session commands fail closed and report the secure-store error; do not bypass this by writing credentials to files.
 
@@ -101,7 +102,8 @@ weldall status
 weldall whoami
 weldall scopes
 weldall skills
-weldall skills show expenses.review
+weldall skills find expense
+weldall skills expenses.review # alias for `skills show`
 weldall request --scope expenses:read https://expenses.example.com/api/expenses
 weldall request -X PUT --scope files:write --upload-file ./report.pdf \
   -H 'Content-Type: application/pdf' https://files.example.com/api/report.pdf
@@ -134,20 +136,30 @@ Registry prefix, then checks supported and granted scopes. It never follows redi
 ambiguous targets receive neither a token nor request data. Weldall then obtains the matching resource
 token; before forwarding its ID-JAG, the CLI verifies the bound subject and verified email alongside
 the audience, resource, scopes, and device key. It then adds the DPoP authorization headers.
-`weldall skills` and `weldall skills show` expose
-administrator-managed Markdown instructions for agents.
+`weldall skills list` refreshes a searchable local catalog. `weldall skills find <keyword>` searches cached slugs, titles, tags, owners, and resource names without networking after initialization. `weldall skills <skill-id>` is an alias for `weldall skills show <skill-id>`.
+
+For offset-paginated JSON APIs, one process can prepare authorization once and request bounded pages concurrently:
+
+```sh
+weldall request \
+  --scope personio:read \
+  --paginate offset \
+  --page-size 100 \
+  --total-pages-pointer /metadata/total_pages \
+  --max-pages 20 \
+  --concurrency 3 \
+  --page-output jsonl \
+  'https://gateway.example/personio/employees?limit=100&offset=0'
+```
+
+Pagination is GET-only, manages `limit` and `offset`, emits pages in deterministic JSON Lines order only after all pages succeed, and enforces page-count, concurrency, and 50 MiB aggregate response limits. It does not follow server-provided next links or retry failed pages.
 
 Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. Human-facing
 output is rendered with Ink in bordered account, access, skill, notice, and configuration panels. ANSI
 colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON, documents, response
 bodies, and piped scope lists remain plain output. Help shows a rounded purple Weldall panel with the
 effective host and cached name and email of the signed-in account. Root help stacks it above the
-yellow organization-instructions panel and capped previews of assigned scopes and visible skills. Each
-preview shows up to five entries, reports how many more were omitted, and points to `weldall scopes`
-or `weldall skills` for the complete list. The cached administrator appendix, account profile, scopes,
-and skills refresh for the next invocation. Discovery has a 2.5-second total deadline; an
-authenticated refresh that has already begun is allowed to finish so refresh-token rotation is not
-interrupted.
+yellow organization-instructions panel, a capped assigned-scope preview, and a cached skill-discovery instruction. Root help is strictly local and works offline: it never performs discovery, token refresh, or background networking. Successful login, status, scopes, and skill commands refresh the local snapshot for later invocations.
 
 ## Development
 

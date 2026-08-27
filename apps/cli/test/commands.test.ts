@@ -160,9 +160,10 @@ describe("CLI brand", () => {
     expect(heading).not.toContain("• six:read");
     expect(heading).toContain("… 1 more");
     expect(heading).toContain("Run `weldall scopes` to view the complete list.");
-    expect(heading).toContain("Run `weldall skills` to view the complete list.");
-    expect(heading).toContain("Five (five)");
-    expect(heading).not.toContain("Six (six)");
+    expect(heading).toContain("weldall skills find <keyword>");
+    expect(heading).toContain("6 cached skills");
+    expect(heading).toContain("Run `weldall skills list` for the complete list.");
+    expect(heading).not.toContain("Five (five)");
     vi.unstubAllEnvs();
   });
 });
