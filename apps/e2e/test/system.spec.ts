@@ -131,7 +131,9 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   page,
   request: apiRequest,
 }) => {
-  test.setTimeout(240_000);
+  // This scenario intentionally crosses many lazily compiled admin and authenticated API routes.
+  // Loaded CI runners have taken over four minutes before reaching the CLI skill checks alone.
+  test.setTimeout(480_000);
 
   const login = startCli(["login"], 150_000);
   await openDevelopmentLogin(page, login);
