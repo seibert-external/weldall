@@ -34,6 +34,11 @@ import {
   type AdminActor,
 } from "../admin/service";
 import {
+  DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS,
+  MAX_SKILL_RETRIEVAL_WINDOW_DAYS,
+  getVisibleSkillRetrievalSummary,
+} from "../skills/retrieval-metrics";
+import {
   createGroupAssignments,
   createGroupProvider,
   deleteGroupAssignment,
@@ -94,6 +99,17 @@ const skillMetaInput = z
   })
   .strict()
   .optional();
+const skillRetrievalSummaryInput = z
+  .object({
+    slug: z.string().min(1).max(120),
+    days: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_SKILL_RETRIEVAL_WINDOW_DAYS)
+      .default(DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS),
+  })
+  .strict();
 
 const adminProcedure = loggedProcedure.use(async ({ ctx, next }) => {
   const userId = ctx.session?.user.id;
@@ -119,6 +135,25 @@ export const appRouter = trpc.router({
     authenticated: Boolean(ctx.session),
     email: ctx.session?.user.email ?? null,
   })),
+  skillRetrievalMetrics: trpc.router({
+    summary: loggedProcedure.input(skillRetrievalSummaryInput).query(async ({ ctx, input }) => {
+      const email = ctx.session?.user.email;
+      if (!email) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Sign in is required.",
+        });
+      }
+      const summary = await getVisibleSkillRetrievalSummary(email, input.slug, input.days);
+      if (!summary) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Skill not found",
+        });
+      }
+      return summary;
+    }),
+  }),
   admin: trpc.router({
     status: adminProcedure.query(({ ctx }) => ({
       authenticated: true as const,

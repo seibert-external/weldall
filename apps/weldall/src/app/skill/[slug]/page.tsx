@@ -7,6 +7,7 @@ import { AnimatedSkillHeadline } from "../../_components/animated-skill-headline
 import { CopySkillPrompt } from "../../_components/copy-skill-prompt";
 import { DirectoryHeader } from "../../_components/directory-header";
 import { DirectoryUserMenu } from "../../_components/directory-user-menu";
+import { SkillRetrievalSummarySection } from "../../_components/skill-retrieval-summary";
 import { SkillContent } from "../../_components/skill-content";
 import { SkillNoiseBadge } from "../../_components/skill-noise-badge";
 import { isAdminEmail } from "@/server/admin/service";
@@ -28,10 +29,11 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
   if (!session?.user.email) redirect("/login");
 
   after(() => refreshDueCatalogs());
+  const retrievalSummaryPromise = getSkillRetrievalSummaryBySlug(slug).catch(() => null);
   const [skill, isAdmin, retrievalSummary] = await Promise.all([
     getVisibleSkill(session.user.email, slug),
     isAdminEmail(session.user.email),
-    getSkillRetrievalSummaryBySlug(slug),
+    retrievalSummaryPromise,
   ]);
   if (!skill) notFound();
 
@@ -87,15 +89,7 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
                 ) : null}
               </dl>
             </section>
-            <section>
-              <h2>Retrievals</h2>
-              <p className="skill-detail-muted">
-                {formatUniqueRetrievalSummary(
-                  retrievalSummary.uniqueRetrievalCount,
-                  retrievalSummary.windowDays,
-                )}
-              </p>
-            </section>
+            <SkillRetrievalSummarySection initialSummary={retrievalSummary} slug={skill.slug} />
             {skill.meta?.tags !== undefined ? (
               <section>
                 <h2>Tags</h2>
@@ -151,8 +145,3 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
   );
 }
 
-function formatUniqueRetrievalSummary(count: number, days: number): string {
-  const retrievalLabel = count === 1 ? "retrieval" : "retrievals";
-  const dayLabel = days === 1 ? "day" : "days";
-  return `${count} unique ${retrievalLabel} in the last ${days} ${dayLabel}`;
-}
