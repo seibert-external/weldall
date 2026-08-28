@@ -60,6 +60,7 @@ const user = {
 
 describe("skill retrieval route", () => {
   it("records one event for a successful authenticated retrieval", async () => {
+    mocks.after.mockReset();
     mocks.authenticateCliApiRequest.mockReset().mockResolvedValue(user);
     mocks.getVisibleSkill.mockReset().mockResolvedValue(skill);
     mocks.recordSkillRetrievalEvent.mockReset().mockResolvedValue(undefined);
@@ -72,6 +73,10 @@ describe("skill retrieval route", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject(skill);
+    expect(mocks.after).toHaveBeenCalledTimes(2);
+    const trackRetrieval = mocks.after.mock.calls[1]?.[0];
+    expect(trackRetrieval).toBeTypeOf("function");
+    await trackRetrieval();
     expect(mocks.recordSkillRetrievalEvent).toHaveBeenCalledTimes(1);
     expect(mocks.recordSkillRetrievalEvent).toHaveBeenCalledWith({
       skillSlug: skill.slug,
@@ -81,7 +86,35 @@ describe("skill retrieval route", () => {
     expect(mocks.warn).not.toHaveBeenCalled();
   });
 
+  it("returns the skill when deferred tracking fails", async () => {
+    const trackingError = new Error("database unavailable");
+    mocks.after.mockReset();
+    mocks.authenticateCliApiRequest.mockReset().mockResolvedValue(user);
+    mocks.getVisibleSkill.mockReset().mockResolvedValue(skill);
+    mocks.recordSkillRetrievalEvent.mockReset().mockRejectedValue(trackingError);
+    mocks.loggedOauthErrorResponse.mockReset();
+    mocks.warn.mockReset();
+
+    const response = await GET(new Request(requestUrl), {
+      params: Promise.resolve({ slug: skill.slug }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject(skill);
+    const trackRetrieval = mocks.after.mock.calls[1]?.[0];
+    await trackRetrieval();
+    expect(mocks.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "skill_retrieval.record.failed",
+        skillSlug: skill.slug,
+        retrieverId: user.id,
+      }),
+      "Failed to record skill retrieval",
+    );
+  });
+
   it("does not record denied or not-found retrievals", async () => {
+    mocks.after.mockReset();
     mocks.authenticateCliApiRequest.mockReset().mockResolvedValue(user);
     mocks.getVisibleSkill.mockReset().mockResolvedValueOnce(null);
     mocks.recordSkillRetrievalEvent.mockReset().mockResolvedValue(undefined);
@@ -97,6 +130,7 @@ describe("skill retrieval route", () => {
   });
 
   it("does not record failed authentications", async () => {
+    mocks.after.mockReset();
     const authError = new Error("authorization failed");
     mocks.authenticateCliApiRequest.mockReset().mockRejectedValue(authError);
     mocks.recordSkillRetrievalEvent.mockReset().mockResolvedValue(undefined);

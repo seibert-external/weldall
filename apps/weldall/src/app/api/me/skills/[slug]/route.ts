@@ -24,21 +24,23 @@ async function get(request: Request, context: { params: Promise<{ slug: string }
         { status: 404 },
       );
     }
-    await recordSkillRetrievalEvent({
-      skillSlug: slug,
-      retrieverId: user.id,
-      retrieverName: user.name.trim() || user.email,
-    }).catch((error) => {
-      logger.warn(
-        {
-          event: "skill_retrieval.record.failed",
-          error: errorForLog(error),
-          skillSlug: slug,
-          retrieverId: user.id,
-        },
-        "Failed to record skill retrieval",
-      );
-    });
+    after(() =>
+      recordSkillRetrievalEvent({
+        skillSlug: slug,
+        retrieverId: user.id,
+        retrieverName: user.name.trim() || user.email,
+      }).catch((error) => {
+        logger.warn(
+          {
+            event: "skill_retrieval.record.failed",
+            error: errorForLog(error),
+            skillSlug: slug,
+            retrieverId: user.id,
+          },
+          "Failed to record skill retrieval",
+        );
+      }),
+    );
     return Response.json(skill);
   } catch (error) {
     if (error instanceof SkillTemporarilyUnavailableError) {
