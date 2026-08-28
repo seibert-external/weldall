@@ -100,7 +100,9 @@ function caller(email?: string) {
 
 describe("skill retrieval metrics tRPC query", () => {
   it("returns the default 7-day window and unique retriever names for authorized callers", async () => {
-    await expect(caller(readerEmail).skillRetrievalMetrics.summary({ slug: skillSlug })).resolves.toMatchObject({
+    await expect(
+      caller(readerEmail).skillRetrievalMetrics.summary({ slug: skillSlug }),
+    ).resolves.toMatchObject({
       skillSlug,
       windowDays: 7,
       uniqueRetrievalCount: 2,
@@ -125,12 +127,16 @@ describe("skill retrieval metrics tRPC query", () => {
       ],
     });
 
-    await expect(caller(outsiderEmail).skillRetrievalMetrics.summary({ slug: skillSlug })).rejects.toMatchObject({
+    await expect(
+      caller(outsiderEmail).skillRetrievalMetrics.summary({ slug: skillSlug }),
+    ).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    await expect(caller().skillRetrievalMetrics.summary({ slug: skillSlug })).rejects.toMatchObject({
-      code: "UNAUTHORIZED",
-    });
+    await expect(caller().skillRetrievalMetrics.summary({ slug: skillSlug })).rejects.toMatchObject(
+      {
+        code: "UNAUTHORIZED",
+      },
+    );
     await expect(
       caller(readerEmail).skillRetrievalMetrics.summary({ slug: skillSlug, days: 0 }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });

@@ -42,7 +42,10 @@ describe("skill retrieval summary section", () => {
 
   it("derives a tRPC query and renders the default 7-day metric", () => {
     const html = renderToStaticMarkup(
-      <SkillRetrievalSummarySection slug={defaultSummary.skillSlug} initialSummary={defaultSummary} />,
+      <SkillRetrievalSummarySection
+        slug={defaultSummary.skillSlug}
+        initialSummary={defaultSummary}
+      />,
     );
 
     expect(mocks.queryOptions).toHaveBeenCalledWith({
