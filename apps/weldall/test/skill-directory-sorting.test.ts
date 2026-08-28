@@ -49,9 +49,11 @@ describe("skill directory sorting", () => {
       createSkill({ slug: "fresh", title: "Fresh", lastUpdatedAt: "2026-03-01T00:00:00.000Z" }),
       createSkill({ slug: "middle", title: "Middle", lastUpdatedAt: "not a date" }),
     ];
-    expect(
-      sortSkillsForDirectory(dated, "updated", {}).map(({ slug }) => slug),
-    ).toEqual(["fresh", "old", "middle"]);
+    expect(sortSkillsForDirectory(dated, "updated", {}).map(({ slug }) => slug)).toEqual([
+      "fresh",
+      "old",
+      "middle",
+    ]);
   });
 
   it("lists available skills before locked ones when sorting by availability", () => {
@@ -59,9 +61,9 @@ describe("skill directory sorting", () => {
   });
 
   it("sorts by name regardless of usage", () => {
-    expect(
-      sortSkillsForDirectory(skills, "title", { locked: 99 }).map(({ slug }) => slug),
-    ).toEqual(["locked", "alpha", "zeta"]);
+    expect(sortSkillsForDirectory(skills, "title", { locked: 99 }).map(({ slug }) => slug)).toEqual(
+      ["locked", "alpha", "zeta"],
+    );
   });
 
   it("does not mutate the incoming list", () => {

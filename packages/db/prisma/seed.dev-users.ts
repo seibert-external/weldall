@@ -183,8 +183,9 @@ export async function seedDevelopmentSkillRetrievals(db: PrismaClient): Promise<
 
   const events: Prisma.SkillRetrievalEventCreateManyInput[] = [];
   for (const [skillIndex, slug] of slugs.entries()) {
-    const [retrieverCount, recentCount] =
-      RETRIEVAL_PROFILES[skillIndex % RETRIEVAL_PROFILES.length] ?? [0, 0];
+    const [retrieverCount, recentCount] = RETRIEVAL_PROFILES[
+      skillIndex % RETRIEVAL_PROFILES.length
+    ] ?? [0, 0];
     for (const [position, retriever] of retrieversFor(skillIndex, retrieverCount)) {
       const occurrences = 1 + ((skillIndex * 2 + position) % 3);
       const daysAgo = retrievalDaysAgo(position, retrieverCount, recentCount);
