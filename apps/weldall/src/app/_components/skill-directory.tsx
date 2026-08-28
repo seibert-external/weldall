@@ -6,7 +6,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
-import { parseAsString, useQueryStates } from "nuqs";
+import { parseAsString, parseAsStringEnum, useQueryStates } from "nuqs";
 import {
   useCallback,
   useEffect,
@@ -19,15 +19,35 @@ import {
 import type { VisibleSkill } from "@/server/skills/service";
 import { resolveSkillAppearance, type SkillAppearanceIconNode } from "./skill-appearance";
 import { SkillAppearanceIcon } from "./skill-appearance-icon";
+import {
+  DEFAULT_SKILL_DIRECTORY_SORT,
+  isSkillDirectorySort,
+  SKILL_DIRECTORY_SORT_OPTIONS,
+  SKILL_DIRECTORY_SORTS,
+  sortSkillsForDirectory,
+  type SkillDirectorySort,
+} from "./skill-directory-sorting";
+import { SkillRetrievalFlame } from "./skill-retrieval-flame";
 
 type DirectorySkill = VisibleSkill & { appearanceIconNode?: SkillAppearanceIconNode };
 
-export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
-  const [{ q: query, resource: resourceFilter, tag: tagFilter }, setDirectoryQuery] =
+const skillSortOptions = [...SKILL_DIRECTORY_SORT_OPTIONS];
+
+export function SkillDirectory({
+  retrievalCounts,
+  skills,
+}: {
+  retrievalCounts: Record<string, number>;
+  skills: DirectorySkill[];
+}) {
+  const [{ q: query, resource: resourceFilter, sort, tag: tagFilter }, setDirectoryQuery] =
     useQueryStates(
       {
         q: parseAsString.withDefault(""),
         resource: parseAsString.withDefault(""),
+        sort: parseAsStringEnum<SkillDirectorySort>([...SKILL_DIRECTORY_SORTS]).withDefault(
+          DEFAULT_SKILL_DIRECTORY_SORT,
+        ),
         tag: parseAsString.withDefault(""),
       },
       { history: "replace", shallow: true },
@@ -83,6 +103,10 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
         ? searchMatchedSkills.filter((skill) => skill.meta?.tags?.includes(activeTagFilter))
         : searchMatchedSkills,
     [activeTagFilter, searchMatchedSkills],
+  );
+  const sortedSkills = useMemo(
+    () => sortSkillsForDirectory(filteredSkills, sort, retrievalCounts),
+    [filteredSkills, retrievalCounts, sort],
   );
   const tagOptions = useMemo(() => {
     const tagSourceSkills = searchTerms.length > 0 ? filteredSkills : resourceMatchedSkills;
@@ -221,6 +245,17 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
           <h1>{activeTagFilter || "All skills"}</h1>
           <div className="directory-heading-actions">
             <Selector
+              changeAction={async (value) => {
+                await setDirectoryQuery({ sort: isSkillDirectorySort(value) ? value : sort });
+              }}
+              isLabelHidden
+              label="Sort skills"
+              options={skillSortOptions}
+              startIcon="arrowsUpDown"
+              value={sort}
+              width={168}
+            />
+            <Selector
               hasClear
               isLabelHidden
               changeAction={async (value) => {
@@ -246,10 +281,15 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
             </div>
           </div>
         </div>
-        {filteredSkills.length ? (
+        {sortedSkills.length ? (
           <div className="skill-directory-list">
-            {filteredSkills.map((skill, index) => (
-              <SkillCard animationOrder={Math.min(index, 8)} skill={skill} key={skill.slug} />
+            {sortedSkills.map((skill, index) => (
+              <SkillCard
+                animationOrder={Math.min(index, 8)}
+                key={skill.slug}
+                retrievalCount={retrievalCounts[skill.slug] ?? 0}
+                skill={skill}
+              />
             ))}
           </div>
         ) : (
@@ -263,7 +303,15 @@ export function SkillDirectory({ skills }: { skills: DirectorySkill[] }) {
   );
 }
 
-function SkillCard({ animationOrder, skill }: { animationOrder: number; skill: DirectorySkill }) {
+function SkillCard({
+  animationOrder,
+  retrievalCount,
+  skill,
+}: {
+  animationOrder: number;
+  retrievalCount: number;
+  skill: DirectorySkill;
+}) {
   const resourceTag = getSkillResourceTag(skill);
   const style = {
     ...getSkillGradientStyle(skill.slug, skill.meta?.appearance),
@@ -301,6 +349,7 @@ function SkillCard({ animationOrder, skill }: { animationOrder: number; skill: D
               </span>
             </Tooltip>
           ) : null}
+          <SkillRetrievalFlame count={retrievalCount} />
         </div>
         {skill.preview ? <p className="skill-card-preview">{skill.preview}</p> : null}
         {resourceTag || skill.meta?.tags?.length ? (

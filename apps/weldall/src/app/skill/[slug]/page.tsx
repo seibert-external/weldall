@@ -8,6 +8,7 @@ import { CopySkillPrompt } from "../../_components/copy-skill-prompt";
 import { DirectoryHeader } from "../../_components/directory-header";
 import { DirectoryUserMenu } from "../../_components/directory-user-menu";
 import { SkillRetrievalSummarySection } from "../../_components/skill-retrieval-summary";
+import { SkillRetrievalFlame } from "../../_components/skill-retrieval-flame";
 import { SkillContent } from "../../_components/skill-content";
 import { SkillNoiseBadge } from "../../_components/skill-noise-badge";
 import { isAdminEmail } from "@/server/admin/service";
@@ -46,7 +47,14 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
         <Button href="/skills" label="All skills" size="sm" variant="secondary" />
 
         <header className="skill-detail-hero">
-          <AnimatedSkillHeadline title={skill.title} />
+          <AnimatedSkillHeadline title={skill.title}>
+            {retrievalSummary ? (
+              <SkillRetrievalFlame
+                count={retrievalSummary.uniqueRetrievalCount}
+                days={retrievalSummary.windowDays}
+              />
+            ) : null}
+          </AnimatedSkillHeadline>
           <CopySkillPrompt slug={skill.slug} title={skill.title} />
         </header>
 

@@ -1189,11 +1189,13 @@
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: flex-start;
+    gap: 0.375rem;
     padding-right: 3.5rem;
   }
 
   .skill-card h2 {
+    min-width: 0;
     margin: 0;
     overflow-wrap: anywhere;
     color: #fff;
@@ -1280,6 +1282,70 @@
     line-height: 1.25;
   }
 
+  /* Colored flame plus count, sized in em so it tracks the heading it sits beside. */
+  .skill-retrieval-flame {
+    --skill-flame-icon: rgb(138 143 153);
+
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.1875rem;
+    font-size: 0.6em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* In the card row flex handles spacing; in the headline the flame follows the last character. */
+  .skill-detail-hero .skill-retrieval-flame {
+    vertical-align: middle;
+    margin-inline-start: 0.375rem;
+  }
+
+  .skill-retrieval-flame svg {
+    width: 1.2em;
+    height: 1.2em;
+    color: var(--skill-flame-icon);
+    fill: var(--skill-flame-icon);
+    fill-opacity: 0.35;
+  }
+
+  .skill-retrieval-flame[data-tier="none"] {
+    opacity: 0.55;
+  }
+
+  .skill-retrieval-flame[data-tier="flame"] svg,
+  .skill-retrieval-flame[data-tier="blaze"] svg,
+  .skill-retrieval-flame[data-tier="inferno"] svg {
+    filter: drop-shadow(0 0 0.375rem var(--skill-flame-icon));
+  }
+
+  /* The card link covers the whole tile, so the flame needs its own layer to stay hoverable. */
+  .skill-card .skill-retrieval-flame {
+    position: relative;
+    z-index: 3;
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .skill-retrieval-flame[data-tier="inferno"] svg {
+      animation: skill-flame-flicker 2.4s ease-in-out infinite;
+    }
+  }
+
+  @keyframes skill-flame-flicker {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scaleY(1);
+    }
+
+    45% {
+      opacity: 0.86;
+      transform: scaleY(0.94);
+    }
+  }
+
   .skill-directory-empty {
     border-top: 1px solid var(--color-border-emphasized);
     padding-block: 3rem;
@@ -1308,6 +1374,7 @@
   .skill-detail-hero h1 {
     overflow-wrap: anywhere;
     font-size: clamp(1.5rem, 3vw, 2rem);
+    display: flex;
   }
 
   .skill-headline-char {
@@ -1646,6 +1713,11 @@
     .directory-search-label,
     .directory-search-trigger kbd {
       display: none;
+    }
+
+    .directory-heading-actions {
+      flex-wrap: wrap;
+      row-gap: 0.5rem;
     }
 
     .skill-directory-list {

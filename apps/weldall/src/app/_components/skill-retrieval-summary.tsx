@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { SkillRetrievalSummary as SkillRetrievalSummaryDto } from "@/server/skills/retrieval-metrics";
+import { skillRetrievalLabel } from "./skill-retrieval-flame";
 import { useTRPC } from "@/trpc/react";
 
 const DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS = 7;
@@ -31,15 +32,9 @@ export function SkillRetrievalSummarySection({
         </p>
       ) : (
         <p className="skill-detail-muted">
-          {formatUniqueRetrievalSummary(summary.uniqueRetrievalCount, summary.windowDays)}
+          {skillRetrievalLabel(summary.uniqueRetrievalCount, summary.windowDays)}
         </p>
       )}
     </section>
   );
-}
-
-function formatUniqueRetrievalSummary(count: number, days: number): string {
-  const retrievalLabel = count === 1 ? "retrieval" : "retrievals";
-  const dayLabel = days === 1 ? "day" : "days";
-  return `${count} unique ${retrievalLabel} in the last ${days} ${dayLabel}`;
 }

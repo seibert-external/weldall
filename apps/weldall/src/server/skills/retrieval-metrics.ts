@@ -50,6 +50,29 @@ export async function recordSkillRetrievalEvent(input: SkillRetrievalEventInput)
   });
 }
 
+/**
+ * Unique retriever counts for many skills in one query. The skill list cannot afford a
+ * summary call per card, and this shape is served by the
+ * `SkillRetrievalEvent(skillSlug, retrieverId, occurredAt, id)` index.
+ */
+export async function getSkillRetrievalCountsBySlugs(
+  slugs: readonly string[],
+  days = DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS,
+): Promise<Record<string, number>> {
+  if (slugs.length === 0) return {};
+  const windowDays = normalizeSkillRetrievalWindowDays(days);
+  const windowStart = new Date(Date.now() - windowDays * DAY_IN_MS);
+  const retrievals = await db.skillRetrievalEvent.findMany({
+    where: { skillSlug: { in: [...slugs] }, occurredAt: { gte: windowStart } },
+    distinct: ["skillSlug", "retrieverId"],
+    select: { skillSlug: true, retrieverId: true },
+  });
+
+  const counts: Record<string, number> = {};
+  for (const { skillSlug } of retrievals) counts[skillSlug] = (counts[skillSlug] ?? 0) + 1;
+  return counts;
+}
+
 export async function getSkillRetrievalSummaryBySlug(
   skillSlug: string,
   days = DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS,
