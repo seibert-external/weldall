@@ -13,6 +13,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - After bumping any CLI dependency, regenerate the committed `apps/cli/THIRD_PARTY_NOTICES` (`pnpm --filter @weldall/cli exec tsx scripts/generate-third-party-notices.mjs`); `apps/cli/test/standalone-scripts.test.ts` asserts it matches. Bumping `lucide-react` also grows the icon catalog count asserted in `apps/weldall/test/skill-appearance.test.ts`.
 - Do not bump `chalk` in `apps/cli` past 5.x: the CLI forces per-stream colors via `chalk.level` on its own instance, while `ink` still depends on `chalk ^5.6.2`, so a chalk 6 upgrade splits the instances and silently breaks "color stderr when only stderr is a TTY" (`test/commands.test.ts`).
 - CLI build-time constants (package version, npm-vs-standalone install mode) are baked via `apps/cli/scripts/package-inputs-plugin.mjs`.
+- Production deploys come from the hosting platform auto-fetching this repo, so the repo intentionally has **no** deployment workflow: `.github/workflows/` holds only `ci.yml` and `release-cli-assets.yml`. Public docs and examples use `https://weldall.example.com` as the site origin convention.
+- The diagrams in `apps/docs/src/assets/*.svg` are Excalidraw **exports** and no `.excalidraw` source is committed, so each light/`-dark` pair can only be changed by editing the exported XML in place (one long line, one `<g>` per element) — any re-layout should come from a re-export.
 
 ## Maintaining this file
 

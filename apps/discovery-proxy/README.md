@@ -23,14 +23,14 @@ pnpm --filter @weldall/discovery-proxy image:build
 
 ```sh
 docker run --rm -p 8080:8080 \
-  -e WELDALL_UPSTREAM=https://weldall.mse.coolify-dev.seibert.tools \
+  -e WELDALL_UPSTREAM=https://weldall.example.com \
   weldall-discovery-proxy:local
 ```
 
 Terminate HTTPS for the proxy at the deployment ingress. Configure the resource SDK with the canonical Weldall issuer and the externally reachable proxy origin:
 
 ```ts
-initWeldall("https://weldall.mse.coolify-dev.seibert.tools", {
+initWeldall("https://weldall.example.com", {
   discoveryProxyOrigin: "https://publicproxy.weldall.io",
   // remaining resource options
 });
