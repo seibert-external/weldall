@@ -8,7 +8,7 @@ const replay = inMemory({ suppressWarning: true });
 export async function authenticateCliApiRequest(
   request: Request,
   input: { expectedUrl: string; requiredScope: string },
-): Promise<{ id: string; email: string }> {
+): Promise<{ id: string; email: string; name: string }> {
   const authorization = request.headers.get("authorization");
   const proof = request.headers.get("dpop");
   if (!authorization?.startsWith("DPoP ") || authorization.includes(",") || !proof) {
@@ -50,10 +50,10 @@ export async function authenticateCliApiRequest(
   }
   const user = await db.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, email: true, emailVerified: true },
+    select: { id: true, email: true, name: true, emailVerified: true },
   });
   if (!user?.emailVerified) {
     throw new WeldallAuthError("invalid_token", "unknown or unverified subject", 401);
   }
-  return { id: user.id, email: user.email };
+  return { id: user.id, email: user.email, name: user.name };
 }

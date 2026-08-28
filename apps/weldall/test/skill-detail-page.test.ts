@@ -1,10 +1,13 @@
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getSkillRetrievalSummaryBySlug: vi.fn(),
   getVisibleSkill: vi.fn(),
   notFound: vi.fn(),
   redirect: vi.fn(),
+  SkillRetrievalSummarySection: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers()) }));
@@ -29,8 +32,14 @@ vi.mock("../src/server/branding", () => ({
   getEffectiveCliLogoUrls: vi.fn().mockResolvedValue({ light: "", dark: "" }),
 }));
 vi.mock("../src/server/skills/catalogs", () => ({ refreshDueCatalogs: vi.fn() }));
+vi.mock("../src/server/skills/retrieval-metrics", () => ({
+  getSkillRetrievalSummaryBySlug: mocks.getSkillRetrievalSummaryBySlug,
+}));
 vi.mock("../src/server/skills/service", () => ({
   getVisibleSkill: mocks.getVisibleSkill,
+}));
+vi.mock("../src/app/_components/skill-retrieval-summary", () => ({
+  SkillRetrievalSummarySection: mocks.SkillRetrievalSummarySection,
 }));
 
 import SkillPage from "../src/app/skill/[slug]/page";
@@ -51,6 +60,29 @@ const skill = {
 
 describe("skill detail availability", () => {
   beforeEach(() => {
+    mocks.getSkillRetrievalSummaryBySlug.mockReset().mockResolvedValue({
+      skillSlug: skill.slug,
+      windowDays: 7,
+      uniqueRetrievalCount: 5,
+      uniqueRetrievers: [
+        { id: "user-a", displayName: "Avery Analyst" },
+        { id: "user-b", displayName: "Bea Builder" },
+      ],
+    });
+    mocks.SkillRetrievalSummarySection.mockReset().mockImplementation(({ initialSummary }) =>
+      createElement(
+        "section",
+        null,
+        createElement("h2", null, "Retrievals"),
+        createElement(
+          "p",
+          { className: "skill-detail-muted" },
+          initialSummary
+            ? `${initialSummary.uniqueRetrievalCount} unique retrievals in the last ${initialSummary.windowDays} days`
+            : "Loading retrievals…",
+        ),
+      ),
+    );
     mocks.getVisibleSkill.mockReset().mockResolvedValue(skill);
     mocks.notFound.mockReset();
     mocks.redirect.mockReset();
@@ -64,6 +96,19 @@ describe("skill detail availability", () => {
     expect(html).toContain("Missing required scopes");
     expect(html).toContain(
       "Your account is missing the following required scopes: expenses:approve.",
+    );
+    expect(html).toContain("5 unique retrievals in the last 7 days");
+    expect(mocks.getSkillRetrievalSummaryBySlug).toHaveBeenCalledWith(skill.slug);
+    expect(mocks.SkillRetrievalSummarySection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: skill.slug,
+        initialSummary: expect.objectContaining({
+          skillSlug: skill.slug,
+          uniqueRetrievalCount: 5,
+          windowDays: 7,
+        }),
+      }),
+      undefined,
     );
   });
 

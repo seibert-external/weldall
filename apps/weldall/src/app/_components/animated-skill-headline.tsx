@@ -2,11 +2,17 @@
 
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 
 gsap.registerPlugin(useGSAP);
 
-export function AnimatedSkillHeadline({ title }: { title: string }) {
+export function AnimatedSkillHeadline({
+  title,
+  children,
+}: {
+  title: string;
+  children?: ReactNode;
+}) {
   const headlineRef = useRef<HTMLHeadingElement>(null);
 
   useGSAP(
@@ -44,6 +50,7 @@ export function AnimatedSkillHeadline({ title }: { title: string }) {
           {character === " " ? "\u00a0" : character}
         </span>
       ))}
+      {children}
     </h1>
   );
 }

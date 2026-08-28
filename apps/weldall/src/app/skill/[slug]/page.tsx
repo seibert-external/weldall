@@ -7,12 +7,15 @@ import { AnimatedSkillHeadline } from "../../_components/animated-skill-headline
 import { CopySkillPrompt } from "../../_components/copy-skill-prompt";
 import { DirectoryHeader } from "../../_components/directory-header";
 import { DirectoryUserMenu } from "../../_components/directory-user-menu";
+import { SkillRetrievalSummarySection } from "../../_components/skill-retrieval-summary";
+import { SkillRetrievalFlame } from "../../_components/skill-retrieval-flame";
 import { SkillContent } from "../../_components/skill-content";
 import { SkillNoiseBadge } from "../../_components/skill-noise-badge";
 import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
+import { getSkillRetrievalSummaryBySlug } from "@/server/skills/retrieval-metrics";
 import { getVisibleSkill } from "@/server/skills/service";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +30,11 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
   if (!session?.user.email) redirect("/login");
 
   after(() => refreshDueCatalogs());
-  const [skill, isAdmin] = await Promise.all([
+  const retrievalSummaryPromise = getSkillRetrievalSummaryBySlug(slug).catch(() => null);
+  const [skill, isAdmin, retrievalSummary] = await Promise.all([
     getVisibleSkill(session.user.email, slug),
     isAdminEmail(session.user.email),
+    retrievalSummaryPromise,
   ]);
   if (!skill) notFound();
 
@@ -42,7 +47,14 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
         <Button href="/skills" label="All skills" size="sm" variant="secondary" />
 
         <header className="skill-detail-hero">
-          <AnimatedSkillHeadline title={skill.title} />
+          <AnimatedSkillHeadline title={skill.title}>
+            {retrievalSummary ? (
+              <SkillRetrievalFlame
+                count={retrievalSummary.uniqueRetrievalCount}
+                days={retrievalSummary.windowDays}
+              />
+            ) : null}
+          </AnimatedSkillHeadline>
           <CopySkillPrompt slug={skill.slug} title={skill.title} />
         </header>
 
@@ -85,6 +97,7 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
                 ) : null}
               </dl>
             </section>
+            <SkillRetrievalSummarySection initialSummary={retrievalSummary} slug={skill.slug} />
             {skill.meta?.tags !== undefined ? (
               <section>
                 <h2>Tags</h2>

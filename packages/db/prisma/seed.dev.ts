@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
+import { seedDevelopmentSkillRetrievals, seedDevelopmentUsers } from "./seed.dev-users.js";
 
 const db = new PrismaClient();
 const actor = "development-seed";
@@ -169,6 +170,8 @@ try {
   const contracts = resources.get("contracts");
   if (!contracts) throw new Error("Development contract resource was not seeded.");
   await seedDevelopmentResourceSkill(contracts);
+  await seedDevelopmentUsers(db);
+  await seedDevelopmentSkillRetrievals(db);
 
   const expenses = resources.get("expenses");
   if (!expenses) throw new Error("Development expense resource was not seeded.");

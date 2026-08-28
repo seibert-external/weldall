@@ -139,6 +139,17 @@ model Skill {
   @@index([updatedAt])
 }
 
+model SkillRetrievalEvent {
+  id            String   @id @default(cuid())
+  skillSlug     String
+  retrieverId   String
+  retrieverName String
+  occurredAt    DateTime @default(now())
+
+  @@index([skillSlug, occurredAt, id])
+  @@index([skillSlug, retrieverId, occurredAt, id])
+}
+
 model CliSettings {
   id          String   @id @default("default")
   appendix    String   @default("")
