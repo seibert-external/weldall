@@ -91,8 +91,6 @@ describe("skill retrieval metrics", () => {
       { id: bobId, displayName: "Bob Builder" },
     ]);
 
-    await expect(
-      db.skillRetrievalEvent.count({ where: { skillSlug } }),
-    ).resolves.toBe(3);
+    await expect(db.skillRetrievalEvent.count({ where: { skillSlug } })).resolves.toBe(3);
   });
 });

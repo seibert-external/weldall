@@ -32,7 +32,9 @@ export function parseSkillRetrievalWindowDays(value: string | null): number | nu
   return days >= 1 && days <= MAX_SKILL_RETRIEVAL_WINDOW_DAYS ? days : null;
 }
 
-export function normalizeSkillRetrievalWindowDays(days = DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS): number {
+export function normalizeSkillRetrievalWindowDays(
+  days = DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS,
+): number {
   if (!Number.isFinite(days)) return DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS;
   return Math.min(MAX_SKILL_RETRIEVAL_WINDOW_DAYS, Math.max(1, Math.trunc(days)));
 }
@@ -61,7 +63,8 @@ export async function getSkillRetrievalSummaryBySlug(
   });
   const retrieverNames = new Map<string, string>();
   for (const event of events) {
-    if (!retrieverNames.has(event.retrieverId)) retrieverNames.set(event.retrieverId, event.retrieverName);
+    if (!retrieverNames.has(event.retrieverId))
+      retrieverNames.set(event.retrieverId, event.retrieverName);
   }
 
   const retrieverIds = [...retrieverNames.keys()];
@@ -71,9 +74,7 @@ export async function getSkillRetrievalSummaryBySlug(
         select: { id: true, name: true },
       })
     : [];
-  const currentNames = new Map(
-    currentUsers.map((user) => [user.id, user.name.trim()] as const),
-  );
+  const currentNames = new Map(currentUsers.map((user) => [user.id, user.name.trim()] as const));
   const uniqueRetrievers = retrieverIds
     .map((id) => {
       const displayName = currentNames.get(id) || retrieverNames.get(id) || id;

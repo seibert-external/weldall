@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({
   recordSkillRetrievalEvent: vi.fn(),
   refreshDueCatalogs: vi.fn(),
   warn: vi.fn(),
-  errorForLog: vi.fn((error: unknown) => ({ message: error instanceof Error ? error.message : String(error) })),
+  errorForLog: vi.fn((error: unknown) => ({
+    message: error instanceof Error ? error.message : String(error),
+  })),
 }));
 
 vi.mock("next/server", () => ({ after: mocks.after }));
