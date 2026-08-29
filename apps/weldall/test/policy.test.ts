@@ -7,6 +7,7 @@ import { normalizeEmail, parseScopeKey } from "../src/server/admin/service.js";
 import { signWeldallJwt } from "../src/server/oauth/jwt.js";
 import {
   assignedScopesFor,
+  delegatedRequestPolicyFor,
   exchangePolicyFor,
   resourceRegistryFor,
 } from "../src/server/policy/resources.js";
@@ -152,6 +153,68 @@ describe("database-backed policy", () => {
       expect((await resourceRegistryFor(email)).some((entry) => entry.key === resource.key)).toBe(
         false,
       );
+    } finally {
+      await db.emailScopeAssignment.delete({ where: { id: assignment.id } });
+      await db.downstreamResource.delete({ where: { id: resource.id } });
+    }
+  });
+
+  it("resolves one request target and login authorization from one policy snapshot", async () => {
+    const id = randomUUID();
+    const email = `chat-${id}@example.com`;
+    const [readScope, loginScope] = await Promise.all([
+      db.scope.findUniqueOrThrow({ where: { key: "expenses:read" } }),
+      db.scope.findUniqueOrThrow({ where: { key: "weldall:login" } }),
+    ]);
+    const resource = await db.downstreamResource.create({
+      data: {
+        key: `chat-${id}`,
+        name: "Chat policy test",
+        resourceIdentifier: `https://chat-${id}.example/api`,
+        authorizationServer: `https://chat-${id}.example`,
+        downstreamClientId: "chat-test-client",
+        createdBy: "policy-test",
+        updatedBy: "policy-test",
+        requestPrefixes: {
+          create: {
+            urlPrefix: `https://chat-${id}.example/api`,
+            createdBy: "policy-test",
+          },
+        },
+        scopes: { create: { scopeId: readScope.id } },
+      },
+    });
+    const assignment = await db.emailScopeAssignment.create({
+      data: {
+        normalizedEmail: email,
+        createdBy: "policy-test",
+        updatedBy: "policy-test",
+        grants: {
+          create: [readScope, loginScope].map((scope) => ({
+            id: randomUUID(),
+            scopeId: scope.id,
+            createdBy: "policy-test",
+          })),
+        },
+      },
+    });
+    try {
+      await expect(
+        delegatedRequestPolicyFor({
+          email,
+          target: new URL(`${resource.resourceIdentifier}/expenses`),
+          requiredSystemScope: "weldall:login",
+        }),
+      ).resolves.toEqual({
+        authorized: true,
+        matches: [
+          expect.objectContaining({
+            key: resource.key,
+            requestPrefixes: [resource.resourceIdentifier],
+            grantedScopes: ["expenses:read"],
+          }),
+        ],
+      });
     } finally {
       await db.emailScopeAssignment.delete({ where: { id: assignment.id } });
       await db.downstreamResource.delete({ where: { id: resource.id } });

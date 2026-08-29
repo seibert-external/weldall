@@ -162,6 +162,20 @@ model CliSettings {
   updatedBy   String
 }
 
+model ChatSettings {
+  id                   String   @id @default("default")
+  enabled              Boolean  @default(false)
+  baseUrl              String   @default("https://vllm.seibert.tools/v1")
+  model                 String   @default("deepseek-v4-flash-low")
+  encryptedApiKey       String?
+  encryptionKeyVersion Int?
+  version               Int      @default(1)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  createdBy             String
+  updatedBy             String
+}
+
 model DownstreamResource {
   id                    String                   @id @default(cuid())
   key                   String                   @unique

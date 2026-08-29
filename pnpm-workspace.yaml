@@ -26,6 +26,12 @@ minimumReleaseAgeExclude:
   - "@better-auth/telemetry@1.7.0-rc.2"
   - better-auth@1.7.0-rc.2
   - lucode-starlight@0.2.0
+  - "@ai-sdk/openai-compatible@3.0.40"
+  - "@ai-sdk/provider-utils@5.0.33"
+  - "@ai-sdk/gateway@4.0.68"
+  - "@ai-sdk/mcp@2.0.40"
+  - "@ai-sdk/react@4.0.87"
+  - ai@7.0.84
 
 allowBuilds:
   "@google/genai": true

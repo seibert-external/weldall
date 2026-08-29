@@ -148,6 +148,13 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 isSelected={selected("/admin/audit")}
               />
               <SectionNavItem
+                route="chat"
+                label="Chat"
+                href="/admin/chat"
+                icon={ChatIcon}
+                isSelected={selected("/admin/chat")}
+              />
+              <SectionNavItem
                 route="cli"
                 label="CLI"
                 href="/admin/cli"
@@ -261,6 +268,15 @@ function AuditIcon(props: IconProps) {
     <IconBase {...props}>
       <path d="M5 4h14v16H5z" />
       <path d="M8 8h8M8 12h8M8 16h5" />
+    </IconBase>
+  );
+}
+
+function ChatIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M5 5h14v11H9l-4 3z" />
+      <path d="M8 9h8M8 12h5" />
     </IconBase>
   );
 }

@@ -1,7 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
-import { WELDALL_ISSUER } from "../oauth/constants";
 import { z } from "zod";
+import { isTrustedBrowserRequest } from "../auth/browser-request";
 import { AUDIT_EVENT_TYPES, getAuditEvent, listAuditEvents } from "../audit/service";
 import {
   AdminDomainError,
@@ -13,6 +13,7 @@ import {
   deleteScope,
   deleteSkill,
   getAssignment,
+  getChatSettings,
   getCliSettings,
   getResource,
   getSkill,
@@ -27,6 +28,7 @@ import {
   listUsers,
   replaceAssignment,
   requireAdminUser,
+  updateChatSettings,
   updateCliSettings,
   updateResource,
   updateScope,
@@ -223,6 +225,24 @@ export const appRouter = trpc.router({
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getAuditEvent(input.id))),
+    }),
+    chat: trpc.router({
+      get: adminProcedure.query(() => mapDomainErrors(getChatSettings)),
+      update: adminProcedure
+        .input(
+          z
+            .object({
+              enabled: z.boolean(),
+              baseUrl: z.string().max(2_000),
+              model: z.string().max(200),
+              apiKey: z.string().max(10_000).optional(),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => updateChatSettings(input, ctx.adminActor)),
+        ),
     }),
     cli: trpc.router({
       get: adminProcedure.query(() => mapDomainErrors(getCliSettings)),
@@ -686,21 +706,7 @@ export const appRouter = trpc.router({
 export type AppRouter = typeof appRouter;
 
 export function assertBrowserRequest(request: Request): void {
-  if (request.method === "GET") return;
-  const allowedOrigins = new Set([
-    new URL(WELDALL_ISSUER).origin,
-    ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:3000"]),
-  ]);
-  const origin = request.headers.get("origin");
-  const contentType = request.headers.get("content-type") ?? "";
-  const fetchSite = request.headers.get("sec-fetch-site");
-  if (
-    !origin ||
-    !allowedOrigins.has(origin) ||
-    request.headers.get("x-weldall-csrf") !== "1" ||
-    !contentType.toLowerCase().startsWith("application/json") ||
-    (fetchSite && fetchSite !== "same-origin")
-  ) {
+  if (!isTrustedBrowserRequest(request)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Invalid request origin.",
