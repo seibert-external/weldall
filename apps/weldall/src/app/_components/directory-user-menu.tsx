@@ -20,10 +20,22 @@ gsap.registerPlugin(useGSAP);
  * the corporate identity palette instead of a rainbow.
  */
 const publicSectionDesigns = {
-  resources: { light: toPair(corporateGradients.darkLilac.light), dark: toPair(corporateGradients.darkLilac.dark) },
-  skills: { light: toPair(corporateGradients.pineApple.light), dark: toPair(corporateGradients.pineApple.dark) },
-  scopes: { light: toPair(corporateGradients.lavender.light), dark: toPair(corporateGradients.lavender.dark) },
-  administration: { light: toPair(corporateGradients.pineTeal.light), dark: toPair(corporateGradients.pineTeal.dark) },
+  resources: {
+    light: toPair(corporateGradients.darkLilac.light),
+    dark: toPair(corporateGradients.darkLilac.dark),
+  },
+  skills: {
+    light: toPair(corporateGradients.pineApple.light),
+    dark: toPair(corporateGradients.pineApple.dark),
+  },
+  scopes: {
+    light: toPair(corporateGradients.lavender.light),
+    dark: toPair(corporateGradients.lavender.dark),
+  },
+  administration: {
+    light: toPair(corporateGradients.pineTeal.light),
+    dark: toPair(corporateGradients.pineTeal.dark),
+  },
 } as const;
 
 function toPair(tuple: readonly [string, string]) {
