@@ -74,7 +74,7 @@ export function ChatSettings() {
     <>
       <HerocrumbsActions>
         <form.Subscribe selector={(state) => state.canSubmit}>
-          {(canSubmit: boolean) => (
+          {(canSubmit) => (
             <Button
               form={formId}
               isDisabled={!canSubmit}
