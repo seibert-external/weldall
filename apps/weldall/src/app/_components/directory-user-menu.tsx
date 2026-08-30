@@ -9,32 +9,26 @@ import gsap from "gsap";
 import { authClient } from "@/lib/auth-client";
 import { useThemeMode } from "../providers";
 import { DirectoryPrimitiveSearch } from "./directory-primitive-search";
+import { corporateGradients } from "./corporate-palette";
 
 gsap.registerPlugin(useGSAP);
 
 /**
- * Colorful gradient designs for the public directory nav items.
+ * On-brand gradient designs for the public directory nav items.
  * Mirrors the admin sidebar palette (see adminSectionDesigns) so the
- * hover/active treatment stays consistent across the app.
+ * hover/active treatment stays consistent across the app — all drawn from
+ * the corporate identity palette instead of a rainbow.
  */
 const publicSectionDesigns = {
-  resources: {
-    light: { from: "rgb(80, 45, 128)", to: "rgb(112, 70, 169)" },
-    dark: { from: "rgb(40, 22, 66)", to: "rgb(55, 34, 85)" },
-  },
-  skills: {
-    light: { from: "rgb(82, 153, 78)", to: "rgb(151, 132, 48)" },
-    dark: { from: "rgb(38, 75, 37)", to: "rgb(74, 63, 25)" },
-  },
-  scopes: {
-    light: { from: "rgb(112, 70, 169)", to: "rgb(86, 76, 186)" },
-    dark: { from: "rgb(55, 34, 85)", to: "rgb(42, 38, 94)" },
-  },
-  administration: {
-    light: { from: "rgb(181, 111, 45)", to: "rgb(179, 72, 65)" },
-    dark: { from: "rgb(91, 51, 25)", to: "rgb(91, 35, 39)" },
-  },
+  resources: { light: toPair(corporateGradients.darkLilac.light), dark: toPair(corporateGradients.darkLilac.dark) },
+  skills: { light: toPair(corporateGradients.pineApple.light), dark: toPair(corporateGradients.pineApple.dark) },
+  scopes: { light: toPair(corporateGradients.lavender.light), dark: toPair(corporateGradients.lavender.dark) },
+  administration: { light: toPair(corporateGradients.pineTeal.light), dark: toPair(corporateGradients.pineTeal.dark) },
 } as const;
+
+function toPair(tuple: readonly [string, string]) {
+  return { from: tuple[0], to: tuple[1] };
+}
 
 type SectionKey = keyof typeof publicSectionDesigns;
 

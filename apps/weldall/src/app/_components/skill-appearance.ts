@@ -15,40 +15,15 @@ export interface ResolvedSkillAppearance extends SkillGradient {
   fallbackIconNode: SkillAppearanceIconNode;
 }
 
-const skillGradients = [
-  {
-    light: ["rgb(80, 45, 128)", "rgb(112, 70, 169)"],
-    dark: ["rgb(40, 22, 66)", "rgb(55, 34, 85)"],
-  },
-  {
-    light: ["rgb(82, 153, 78)", "rgb(151, 132, 48)"],
-    dark: ["rgb(38, 75, 37)", "rgb(74, 63, 25)"],
-  },
-  {
-    light: ["rgb(112, 70, 169)", "rgb(86, 76, 186)"],
-    dark: ["rgb(55, 34, 85)", "rgb(42, 38, 94)"],
-  },
-  {
-    light: ["rgb(181, 111, 45)", "rgb(179, 72, 65)"],
-    dark: ["rgb(91, 51, 25)", "rgb(91, 35, 39)"],
-  },
-  {
-    light: ["rgb(28, 143, 111)", "rgb(82, 153, 78)"],
-    dark: ["rgb(12, 70, 56)", "rgb(38, 75, 37)"],
-  },
-  {
-    light: ["rgb(57, 99, 184)", "rgb(42, 119, 176)"],
-    dark: ["rgb(27, 49, 92)", "rgb(20, 59, 88)"],
-  },
-  {
-    light: ["rgb(42, 119, 176)", "rgb(22, 139, 155)"],
-    dark: ["rgb(20, 59, 88)", "rgb(10, 69, 77)"],
-  },
-  {
-    light: ["rgb(22, 139, 155)", "rgb(20, 148, 130)"],
-    dark: ["rgb(10, 69, 77)", "rgb(9, 73, 65)"],
-  },
-] as const satisfies readonly SkillGradient[];
+import { corporateGradients } from "./corporate-palette";
+
+// Auto gradients drawn from the Seibert corporate identity palette (pine-green,
+// teal-green, lake-teal, lilac, lavender, apple-green) so every skill resolves to
+// an on-brand accent even without an explicit appearance. Selections are
+// deterministic per slug/tag via stableIndex.
+const skillGradients: readonly SkillGradient[] = Object.values(corporateGradients).map(
+  (gradient) => ({ light: gradient.light, dark: gradient.dark }),
+);
 
 // Lucide 1.25.0 nodes kept client-local so tag and fallback icons do not pull the full catalog.
 const fallbackIconNodes = [
@@ -125,7 +100,7 @@ export function resolveSkillAppearance(
   seed: string,
   appearance?: Readonly<SkillAppearance>,
 ): ResolvedSkillAppearance {
-  const fallback = skillGradients[stableIndex(seed, skillGradients.length)] ?? skillGradients[0];
+  const fallback = skillGradients[stableIndex(seed, skillGradients.length)] ?? skillGradients[0]!;
   const light = resolveGradientPair(
     appearance?.gradientFrom,
     appearance?.gradientTo,

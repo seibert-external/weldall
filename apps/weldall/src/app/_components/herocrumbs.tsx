@@ -18,8 +18,14 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { useThemeMode } from "../providers";
+import { corporateGradients } from "./corporate-palette";
 
 gsap.registerPlugin(useGSAP);
+
+// corporate-palette stores gradients as ordered tuples; nav designs need {from,to}.
+function toPair(tuple: readonly [string, string]) {
+  return { from: tuple[0], to: tuple[1] };
+}
 
 type AdminRoute =
   | "audit"
@@ -35,53 +41,53 @@ type AdminRoute =
 export const adminSectionDesigns = {
   audit: {
     title: "Audit logs",
-    light: { from: "rgb(151, 132, 48)", to: "rgb(181, 111, 45)" },
-    dark: { from: "rgb(74, 63, 25)", to: "rgb(91, 51, 25)" },
+    light: toPair(corporateGradients.pineTeal.light),
+    dark: toPair(corporateGradients.pineTeal.dark),
   },
   cli: {
     title: "CLI",
-    light: { from: "rgb(181, 111, 45)", to: "rgb(179, 72, 65)" },
-    dark: { from: "rgb(91, 51, 25)", to: "rgb(91, 35, 39)" },
+    light: toPair(corporateGradients.pineApple.light),
+    dark: toPair(corporateGradients.pineApple.dark),
   },
   machines: {
     title: "Machine clients",
-    light: { from: "rgb(28, 143, 111)", to: "rgb(82, 153, 78)" },
-    dark: { from: "rgb(12, 70, 56)", to: "rgb(38, 75, 37)" },
+    light: toPair(corporateGradients.teal.light),
+    dark: toPair(corporateGradients.teal.dark),
   },
   resources: {
     title: "Resources",
-    light: { from: "rgb(80, 45, 128)", to: "rgb(112, 70, 169)" },
-    dark: { from: "rgb(40, 22, 66)", to: "rgb(55, 34, 85)" },
+    light: toPair(corporateGradients.darkLilac.light),
+    dark: toPair(corporateGradients.darkLilac.dark),
   },
   scopes: {
     title: "Scopes",
-    light: { from: "rgb(112, 70, 169)", to: "rgb(86, 76, 186)" },
-    dark: { from: "rgb(55, 34, 85)", to: "rgb(42, 38, 94)" },
+    light: toPair(corporateGradients.lavender.light),
+    dark: toPair(corporateGradients.lavender.dark),
   },
   assignments: {
     title: "Email assignments",
-    light: { from: "rgb(86, 76, 186)", to: "rgb(57, 99, 184)" },
-    dark: { from: "rgb(42, 38, 94)", to: "rgb(27, 49, 92)" },
+    light: toPair(corporateGradients.pine.light),
+    dark: toPair(corporateGradients.pine.dark),
   },
   "group-assignments": {
     title: "Group assignments",
-    light: { from: "rgb(42, 119, 176)", to: "rgb(22, 139, 155)" },
-    dark: { from: "rgb(20, 59, 88)", to: "rgb(10, 69, 77)" },
+    light: toPair(corporateGradients.lake.light),
+    dark: toPair(corporateGradients.lake.dark),
   },
   "group-providers": {
     title: "Group providers",
-    light: { from: "rgb(57, 99, 184)", to: "rgb(42, 119, 176)" },
-    dark: { from: "rgb(27, 49, 92)", to: "rgb(20, 59, 88)" },
+    light: toPair(corporateGradients.lavenderLight.light),
+    dark: toPair(corporateGradients.lavenderLight.dark),
   },
   users: {
     title: "Users",
-    light: { from: "rgb(22, 139, 155)", to: "rgb(20, 148, 130)" },
-    dark: { from: "rgb(10, 69, 77)", to: "rgb(9, 73, 65)" },
+    light: toPair(corporateGradients.teal.light),
+    dark: toPair(corporateGradients.teal.dark),
   },
   skills: {
     title: "Skill registry",
-    light: { from: "rgb(82, 153, 78)", to: "rgb(151, 132, 48)" },
-    dark: { from: "rgb(38, 75, 37)", to: "rgb(74, 63, 25)" },
+    light: toPair(corporateGradients.pineApple.light),
+    dark: toPair(corporateGradients.pineApple.dark),
   },
 } as const;
 
