@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect } from "react";
-import { useChat } from "@ai-sdk/react";
-import { AssistantRuntimeProvider, useAui, type ToolCallMessagePartComponent } from "@assistant-ui/react";
+import { useCallback, useEffect, useMemo } from "react";
+import { useParams, useRouter } from "next/navigation";
+import {
+  AssistantRuntimeProvider,
+  useAui,
+  useAuiState,
+  useRemoteThreadListRuntime,
+  type ExternalStoreBranchChange,
+  type ToolCallMessagePartComponent,
+} from "@assistant-ui/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
-import { AssistantChatTransport, useAISDKRuntime } from "@assistant-ui/ai-sdk";
+import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/ai-sdk";
+import { createChatThreadListAdapter, persistChatThreadHead } from "@/app/chat/chat-thread-adapter";
+import { ChatThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import {
   GetSkillToolUI,
@@ -36,21 +45,60 @@ function RegisterToolUIs() {
   return null;
 }
 
-export function Assistant() {
-  const chat = useChat({
+function useWeldallThreadRuntime() {
+  const threadId = useAuiState((state) => state.threadListItem.remoteId);
+  const onBranchChange = useCallback(
+    ({ headId }: ExternalStoreBranchChange) => {
+      if (!threadId) return;
+      void persistChatThreadHead(threadId, headId).catch((error: unknown) => {
+        console.error("Failed to persist the selected chat branch:", error);
+      });
+    },
+    [threadId],
+  );
+  const transport = useMemo(
+    () =>
+      new AssistantChatTransport({
+        api: "/api/chat",
+        headers: { "x-weldall-csrf": "1" },
+      }),
+    [],
+  );
+  return useChatRuntime({
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    transport: new AssistantChatTransport({
-      api: "/api/chat",
-      headers: { "x-weldall-csrf": "1" },
-    }),
+    transport,
+    unstable_onBranchChange: onBranchChange,
   });
-  const runtime = useAISDKRuntime(chat);
+}
+
+export function Assistant() {
+  const params = useParams<{ threadId?: string | string[] }>();
+  const router = useRouter();
+  const threadId = typeof params.threadId === "string" ? params.threadId : undefined;
+  const adapter = useMemo(() => createChatThreadListAdapter(), []);
+  const onThreadIdChange = useCallback(
+    (nextThreadId: string | undefined) => {
+      const path = nextThreadId ? `/chat/${encodeURIComponent(nextThreadId)}` : "/chat";
+      if (!threadId && nextThreadId) router.replace(path);
+      else router.push(path);
+    },
+    [router, threadId],
+  );
+  const runtime = useRemoteThreadListRuntime({
+    runtimeHook: useWeldallThreadRuntime,
+    adapter,
+    threadId,
+    onThreadIdChange,
+  });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <RegisterToolUIs />
-      <main className="chat-page h-dvh overflow-hidden">
-        <Thread />
+      <main className="chat-page flex h-dvh min-w-0 flex-col overflow-hidden md:flex-row">
+        <ChatThreadList />
+        <section className="min-h-0 min-w-0 flex-1">
+          <Thread />
+        </section>
       </main>
     </AssistantRuntimeProvider>
   );
