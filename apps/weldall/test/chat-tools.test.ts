@@ -22,7 +22,7 @@ vi.mock("../src/server/ai/delegated-resource", () => ({
   delegatedResourceRequest: mocks.delegatedResourceRequest,
 }));
 
-import { chatToolApproval, createChatTools } from "../src/server/ai/tools";
+import { createChatTools } from "../src/server/ai/tools";
 
 const principal = { id: "user-1", email: "user@example.com", name: "Example User" };
 const requestIdentifiers = { requestId: "request-1" };
@@ -186,25 +186,5 @@ describe("chat tools", () => {
       ),
     ).rejects.toThrow("does not document this exact request URL");
     expect(mocks.delegatedResourceRequest).not.toHaveBeenCalled();
-  });
-
-  it("requires approval for POST but not GET", () => {
-    const base = {
-      skillSlug: "expenses.review",
-      url: "https://expenses.example/api/expenses",
-      scopes: ["expenses:read"],
-    };
-
-    expect(chatToolApproval.weldallRequest({ ...base, method: "GET" })).toBe("not-applicable");
-    expect(
-      chatToolApproval.weldallRequest({
-        ...base,
-        method: "POST",
-        json: { amount: 24 },
-      }),
-    ).toEqual({
-      type: "user-approval",
-      reason: "Allow POST to https://expenses.example/api/expenses with scopes expenses:read?",
-    });
   });
 });

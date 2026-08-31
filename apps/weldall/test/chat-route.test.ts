@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   resolveChatModelConfig: vi.fn(),
-  resolveChatToolApprovalSecret: vi.fn(() => new Uint8Array(32)),
 }));
 
 vi.mock("../src/server/auth/auth", () => ({
@@ -11,7 +10,6 @@ vi.mock("../src/server/auth/auth", () => ({
 }));
 vi.mock("../src/server/ai/configuration", () => ({
   resolveChatModelConfig: mocks.resolveChatModelConfig,
-  resolveChatToolApprovalSecret: mocks.resolveChatToolApprovalSecret,
 }));
 
 import { POST } from "../src/app/api/chat/route";

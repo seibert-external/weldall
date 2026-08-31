@@ -48,7 +48,11 @@ const MarkdownTextImpl: FC<MarkdownTextProps> = ({ components }) => {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
-      className="aui-md"
+      // The Astryx neutral theme scopes base typography to `:where(p)` only;
+      // without an explicit size here, ul/ol/li inherit a larger default and
+      // render bigger than paragraphs. Anchor the container to the theme's
+      // base size so every markdown element inherits the same value.
+      className="aui-md text-[length:var(--font-size-base)]"
       components={markdownComponents}
       defer
     />
@@ -150,7 +154,7 @@ const defaultComponents = memoizeMarkdownComponents({
   ul: ({ className, ...props }) => (
     <ul
       className={cn(
-        "aui-md-ul marker:text-muted-foreground my-3 ms-5 list-disc [&>li]:mt-1",
+        "aui-md-ul marker:text-muted-foreground my-3 ms-5 list-disc [&>li+li]:mt-1",
         className,
       )}
       {...props}
@@ -159,7 +163,7 @@ const defaultComponents = memoizeMarkdownComponents({
   ol: ({ className, ...props }) => (
     <ol
       className={cn(
-        "aui-md-ol marker:text-muted-foreground my-3 ms-5 list-decimal [&>li]:mt-1",
+        "aui-md-ol marker:text-muted-foreground my-3 ms-5 list-decimal [&>li+li]:mt-1",
         className,
       )}
       {...props}

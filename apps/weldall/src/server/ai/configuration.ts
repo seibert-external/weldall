@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { db } from "@weldall/db";
 import { decryptChatApiKey } from "./credentials";
 
@@ -83,17 +82,3 @@ export function normalizeChatApiKey(value: string): string {
   return apiKey;
 }
 
-export function resolveChatToolApprovalSecret(
-  userId: string,
-  env: NodeJS.ProcessEnv = process.env,
-): Uint8Array {
-  const secret = env.BETTER_AUTH_SECRET?.trim();
-  if (!secret) throw new Error("BETTER_AUTH_SECRET is required");
-  if (!userId) throw new Error("A user ID is required for tool approvals");
-  return createHash("sha256")
-    .update("weldall-chat-tool-approval\0")
-    .update(userId)
-    .update("\0")
-    .update(secret)
-    .digest();
-}

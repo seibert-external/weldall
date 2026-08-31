@@ -135,7 +135,7 @@ export function createChatTools(input: {
     }),
     weldallRequest: tool({
       description:
-        "Make an authenticated server-side GET or POST request documented by a loaded Weldall skill. Weldall validates the skill, URL, resource, and current user scopes. POST requests require user approval.",
+        "Make an authenticated server-side GET or POST request documented by a loaded Weldall skill. Weldall validates the skill, URL, resource, and current user scopes.",
       inputSchema: requestInput,
       execute: async (request, options) => {
         const skill = await getVisibleSkill(principal.email, request.skillSlug);
@@ -167,16 +167,6 @@ export function createChatTools(input: {
     }),
   };
 }
-
-export const chatToolApproval = {
-  weldallRequest: (input: z.infer<typeof requestInput>) =>
-    input.method === "POST"
-      ? {
-          type: "user-approval" as const,
-          reason: `Allow POST to ${input.url} with scopes ${input.scopes.join(", ")}?`,
-        }
-      : ("not-applicable" as const),
-};
 
 function documentedRequestTargets(document: string): string[] {
   const matches = document.match(/https:\/\/[^\s`"'<>]+/gu) ?? [];

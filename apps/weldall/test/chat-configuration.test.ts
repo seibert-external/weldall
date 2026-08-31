@@ -3,7 +3,6 @@ import {
   normalizeChatApiKey,
   normalizeChatBaseUrl,
   normalizeChatModel,
-  resolveChatToolApprovalSecret,
 } from "../src/server/ai/configuration";
 import { decryptChatApiKey, encryptChatApiKey } from "../src/server/ai/credentials";
 
@@ -46,24 +45,5 @@ describe("chat model configuration", () => {
       if (previousEncryptionKey === undefined) delete process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
       else process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = previousEncryptionKey;
     }
-  });
-
-  it("derives a stable, domain-separated tool approval secret", () => {
-    const first = resolveChatToolApprovalSecret("user-1", {
-      BETTER_AUTH_SECRET: "test-secret",
-    });
-    const second = resolveChatToolApprovalSecret("user-1", {
-      BETTER_AUTH_SECRET: "test-secret",
-    });
-    const otherUser = resolveChatToolApprovalSecret("user-2", {
-      BETTER_AUTH_SECRET: "test-secret",
-    });
-
-    expect(first).toEqual(second);
-    expect(first).not.toEqual(otherUser);
-    expect(first).toHaveLength(32);
-    expect(() => resolveChatToolApprovalSecret("user-1", {})).toThrow(
-      "BETTER_AUTH_SECRET is required",
-    );
   });
 });
