@@ -122,15 +122,15 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 ## What's in the box
 
-| Workspace                             | Purpose                                                                                                                |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server and administration UI (users, scopes, assignments, resources, groups, skills, audit). |
-| [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests.                        |
-| [`@weldall/sdk`](packages/sdk/)       | Resource-server SDK for Fetch, Hono, Next.js, and Astro: verifies DPoP-bound requests, publishes skills.               |
-| [`@weldall/dev-idp`](apps/dev-idp/)   | A local-only OpenID Connect provider for development.                                                                  |
-| [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK.                                                                           |
-| [`@weldall/docs`](apps/docs/)         | The documentation site (German and English).                                                                           |
-| [`@weldall/db`](packages/db/)         | The Prisma database package and migrations.                                                                            |
+| Workspace                             | Purpose                                                                                                  |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server, administration UI, and authenticated chat experience.                  |
+| [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests.          |
+| [`@weldall/sdk`](packages/sdk/)       | Resource-server SDK for Fetch, Hono, Next.js, and Astro: verifies DPoP-bound requests, publishes skills. |
+| [`@weldall/dev-idp`](apps/dev-idp/)   | A local-only OpenID Connect provider for development.                                                    |
+| [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK.                                                             |
+| [`@weldall/docs`](apps/docs/)         | The documentation site (German and English).                                                             |
+| [`@weldall/db`](packages/db/)         | The Prisma database package and migrations.                                                              |
 
 ## Documentation
 
