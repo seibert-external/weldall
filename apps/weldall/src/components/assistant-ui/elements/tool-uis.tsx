@@ -290,6 +290,55 @@ type WeldallRequestResult = {
   responseBytes: number;
 };
 
+/** Extract a readable message from a non-2xx response body (field errors, OAuth errors). */
+function requestErrorText(data: unknown): string | undefined {
+  const firstMessage = (value: Record<string, unknown>) => {
+    for (const key of ["error_description", "message", "detail", "title", "reason"]) {
+      if (typeof value[key] === "string" && (value[key] as string).trim() !== "") {
+        return (value[key] as string).trim();
+      }
+    }
+    if (typeof value.error === "string" && value.error.trim() !== "") return value.error.trim();
+    if (value.error !== null && typeof value.error === "object" && !Array.isArray(value.error)) {
+      const nested = value.error as Record<string, unknown>;
+      for (const key of ["message", "detail", "title"]) {
+        if (typeof nested[key] === "string" && (nested[key] as string).trim() !== "") {
+          return (nested[key] as string).trim();
+        }
+      }
+    }
+    return undefined;
+  };
+  if (typeof data === "string") {
+    const text = data.trim();
+    return text === "" ? undefined : text;
+  }
+  if (data === null || typeof data !== "object") return undefined;
+  const value = data as Record<string, unknown>;
+  const direct = firstMessage(value);
+  if (direct !== undefined) return direct;
+  const errors = Array.isArray(value.errors) ? value.errors : Array.isArray(data) ? data : null;
+  if (errors !== null) {
+    const messages: string[] = [];
+    for (const error of errors) {
+      if (typeof error === "string") {
+        const text = error.trim();
+        if (text !== "") messages.push(text);
+        continue;
+      }
+      if (error === null || typeof error !== "object" || Array.isArray(error)) continue;
+      const entry = error as Record<string, unknown>;
+      const message = firstMessage(entry);
+      if (message === undefined) continue;
+      const field =
+        typeof entry.field === "string" && entry.field.trim() !== "" ? entry.field.trim() : undefined;
+      messages.push(field === undefined ? message : `${field}: ${message}`);
+    }
+    if (messages.length > 0) return messages.join("; ");
+  }
+  return undefined;
+}
+
 const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function WeldallRequestToolUI({
   args,
   result,
@@ -307,6 +356,8 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
       : r?.data !== undefined
         ? JSON.stringify(r.data, null, 2)
         : "";
+  const errorMessage =
+    !isRunning && !failed && r != null && r.ok !== true ? requestErrorText(r.data) : undefined;
 
   const summary = isRunning
     ? "requesting…"
@@ -315,6 +366,7 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
       : r
         ? `${r.resource?.name ?? "Unknown resource"} · ${r.status ?? "–"} ${r.ok === true ? "ok" : "failed"}`
         : "requesting…";
+  const openOnError = !isRunning && (failed || (r != null && r.ok !== true));
 
   return (
     <ToolCard
@@ -322,6 +374,7 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
       label={method === "POST" ? "Sent request" : "Fetched data"}
       summary={summary}
       status={status}
+      defaultOpen={openOnError}
     >
       {isRunning ? (
         <p className="text-muted-foreground text-xs">Executing request…</p>
@@ -352,6 +405,12 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
               {r.status ?? "–"}
             </span>
           </div>
+          {errorMessage !== undefined && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2">
+              <XCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <p className="min-w-0 text-xs text-destructive">{errorMessage}</p>
+            </div>
+          )}
           {a?.scopes != null && a.scopes.length > 0 && (
             <p className="text-muted-foreground text-xs">Scopes: {a.scopes.join(", ")}</p>
           )}
