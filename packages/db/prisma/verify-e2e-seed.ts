@@ -33,6 +33,8 @@ const REQUIRED_BUSINESS_SCOPE_KEYS = [
 /** Skill the suite reads back from the public directory: /skill/[slug] renders its title. */
 const REQUIRED_SKILL_SLUG = "demo.finance.budget-variance";
 const REQUIRED_SKILL_TITLE = "Analyze budget variance";
+const REQUIRED_EXPENSE_SKILL_SLUG = "expenses.review";
+const REQUIRED_EXPENSE_SKILL_TITLE = "Review expenses";
 
 const EXPENSES_API_PREFIX = "https://expenses.seibert.localdev/api";
 const WELDALL_API_IDENTIFIER = "https://weldall.seibert.localdev/api";
@@ -59,7 +61,11 @@ const adminAssignment = await db.emailScopeAssignment.findUnique({
 });
 const expensesResource = await db.downstreamResource.findUnique({
   where: { key: "expenses" },
-  select: { enabled: true, requestPrefixes: { select: { urlPrefix: true } } },
+  select: {
+    enabled: true,
+    skillDiscoveryEnabled: true,
+    requestPrefixes: { select: { urlPrefix: true } },
+  },
 });
 const weldallApiResource = await db.oauthResource.findUnique({
   where: { identifier: WELDALL_API_IDENTIFIER },
@@ -73,6 +79,10 @@ const skillCount = await db.skill.count();
 const requiredSkill = await db.skill.findUnique({
   where: { slug: REQUIRED_SKILL_SLUG },
   select: { title: true },
+});
+const requiredExpenseSkill = await db.discoveredSkill.findUnique({
+  where: { canonicalId: REQUIRED_EXPENSE_SKILL_SLUG },
+  select: { title: true, content: true, requiredScopes: true },
 });
 
 await db.$disconnect();
@@ -113,6 +123,10 @@ check(
     `prefixes: ${expensesResource?.requestPrefixes.map((prefix) => prefix.urlPrefix).join(", ") || "none"}`,
 );
 check(
+  "expenses resource must enable skill discovery for chat",
+  expensesResource?.skillDiscoveryEnabled === true,
+);
+check(
   "seed.ts must register the Weldall API resource the CLI calls",
   weldallApiResource?.disabled === false,
   () => `found: ${weldallApiResource ? "disabled" : "missing"}`,
@@ -132,6 +146,13 @@ check(
   `seed.dev must include the skill ${REQUIRED_SKILL_SLUG}`,
   requiredSkill?.title === REQUIRED_SKILL_TITLE,
   () => `found title: ${requiredSkill?.title ?? "missing"}`,
+);
+check(
+  `seed.dev must include the executable skill ${REQUIRED_EXPENSE_SKILL_SLUG}`,
+  requiredExpenseSkill?.title === REQUIRED_EXPENSE_SKILL_TITLE &&
+    requiredExpenseSkill.requiredScopes.includes("expenses:read") &&
+    requiredExpenseSkill.content.includes(`${EXPENSES_API_PREFIX}/expenses`),
+  () => `found: ${JSON.stringify(requiredExpenseSkill ?? null)}`,
 );
 
 if (failures.length > 0) {

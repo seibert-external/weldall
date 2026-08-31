@@ -24,8 +24,7 @@ export const createApp = async () => {
           title: "Review expenses",
           requiredScopes: ["expenses:read"],
           visibility: "DEFAULT",
-          content:
-            "# Review expenses\n\nUse `weldall request --scope expenses:read` with the Expenses API to list expenses.",
+          content: `# Review expenses\n\nUse \`weldall request --scope expenses:read ${env.downstreamIssuer}/api/expenses\` to list expenses.`,
         },
       ],
     },

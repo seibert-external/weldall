@@ -83,6 +83,11 @@ export async function prepareProductionDatabase(prisma: PrismaClient = db): Prom
       create: { id: "default", logoUrl: "", createdBy: actor, updatedBy: actor },
       update: {},
     });
+    await tx.chatSettings.upsert({
+      where: { id: "default" },
+      create: { id: "default", createdBy: actor, updatedBy: actor },
+      update: {},
+    });
     if (WELDALL_RESOURCE !== LOCAL_WELDALL_RESOURCE) {
       await tx.downstreamResource.updateMany({
         where: {

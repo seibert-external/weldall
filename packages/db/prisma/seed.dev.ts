@@ -114,7 +114,7 @@ try {
 
     const origin = `https://${definition.key}.seibert.localdev`;
     const resourceIdentifier = `${origin}/api`;
-    const skillDiscoveryEnabled = definition.key === "contracts";
+    const skillDiscoveryEnabled = definition.key === "contracts" || definition.key === "expenses";
     const resource = await db.downstreamResource.upsert({
       where: { key: definition.key },
       create: {
@@ -169,12 +169,28 @@ try {
   await seedDevelopmentSkills(db, actor);
   const contracts = resources.get("contracts");
   if (!contracts) throw new Error("Development contract resource was not seeded.");
-  await seedDevelopmentResourceSkill(contracts);
-  await seedDevelopmentUsers(db);
-  await seedDevelopmentSkillRetrievals(db);
-
   const expenses = resources.get("expenses");
   if (!expenses) throw new Error("Development expense resource was not seeded.");
+  await seedDevelopmentResourceSkill(contracts, {
+    resourceKey: "contracts",
+    localId: "contract-review",
+    title: "Review a contract",
+    content:
+      "# Review a contract\n\nReview the contract terms, identify material risks, and summarize required follow-up.",
+    requiredScopes: ["contracts:read"],
+    tags: ["contracts", "review"],
+  });
+  await seedDevelopmentResourceSkill(expenses, {
+    resourceKey: "expenses",
+    localId: "review",
+    title: "Review expenses",
+    content:
+      "# Review expenses\n\nUse `weldall request --scope expenses:read https://expenses.seibert.localdev/api/expenses` to list expenses.",
+    requiredScopes: ["expenses:read"],
+    tags: ["expenses", "review"],
+  });
+  await seedDevelopmentUsers(db);
+  await seedDevelopmentSkillRetrievals(db);
 
   const publicJwk = parseDevelopmentMachinePublicJwk(process.env.DEV_M2M_SIGNING_PUBLIC_JWK);
   const kid = parseDevelopmentMachineKid(process.env.DEV_M2M_SIGNING_KID);
@@ -260,13 +276,23 @@ try {
   await db.$disconnect();
 }
 
-async function seedDevelopmentResourceSkill(resource: { id: string; version: number }) {
+async function seedDevelopmentResourceSkill(
+  resource: { id: string; version: number },
+  skill: {
+    resourceKey: string;
+    localId: string;
+    title: string;
+    content: string;
+    requiredScopes: string[];
+    tags: string[];
+  },
+) {
   const validUntil = new Date("2100-01-01T00:00:00.000Z");
   const refreshedAt = new Date();
   const catalog = await db.discoveredSkillCatalog.upsert({
     where: { resourceId: resource.id },
     create: {
-      id: "development-contracts-skill-catalog",
+      id: `development-${skill.resourceKey}-skill-catalog`,
       resourceId: resource.id,
       sourceResourceVersion: resource.version,
       schemaVersion: 1,
@@ -290,30 +316,29 @@ async function seedDevelopmentResourceSkill(resource: { id: string; version: num
     },
   });
 
+  const canonicalId = `${skill.resourceKey}.${skill.localId}`;
   await db.discoveredSkill.upsert({
-    where: { canonicalId: "contracts.contract-review" },
+    where: { canonicalId },
     create: {
-      id: "development-discovered-skill-contracts-contract-review",
+      id: `development-discovered-skill-${skill.resourceKey}-${skill.localId}`,
       catalogId: catalog.id,
-      localId: "contract-review",
-      canonicalId: "contracts.contract-review",
-      title: "Review a contract",
-      content:
-        "# Review a contract\n\nReview the contract terms, identify material risks, and summarize required follow-up.",
-      requiredScopes: ["contracts:read"],
+      localId: skill.localId,
+      canonicalId,
+      title: skill.title,
+      content: skill.content,
+      requiredScopes: skill.requiredScopes,
       visibility: "DEFAULT",
-      meta: { tags: ["contracts", "review"] },
+      meta: { tags: skill.tags },
       lastUpdatedAt: "development-seed",
     },
     update: {
       catalogId: catalog.id,
-      localId: "contract-review",
-      title: "Review a contract",
-      content:
-        "# Review a contract\n\nReview the contract terms, identify material risks, and summarize required follow-up.",
-      requiredScopes: ["contracts:read"],
+      localId: skill.localId,
+      title: skill.title,
+      content: skill.content,
+      requiredScopes: skill.requiredScopes,
       visibility: "DEFAULT",
-      meta: { tags: ["contracts", "review"] },
+      meta: { tags: skill.tags },
       lastUpdatedAt: "development-seed",
     },
   });

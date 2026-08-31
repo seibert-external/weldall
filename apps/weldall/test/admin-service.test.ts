@@ -13,6 +13,7 @@ import {
   deleteScope,
   deleteSkill,
   getAssignmentByEmail,
+  getChatSettings,
   getCliSettings,
   getResource,
   getUser,
@@ -20,11 +21,13 @@ import {
   listUserAuditEvents,
   listUsers,
   replaceAssignment,
+  updateChatSettings,
   updateCliSettings,
   updateResource,
   updateSkill,
   type AdminActor,
 } from "../src/server/admin/service.js";
+import { resolveChatModelConfig } from "../src/server/ai/configuration.js";
 import { exchangePolicyFor, resourceRegistryFor } from "../src/server/policy/resources.js";
 import {
   createMachineClient,
@@ -764,6 +767,69 @@ describe("admin scope service", () => {
     const updates = await Promise.allSettled([update(left), update(right)]);
     expect(updates.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(updates.filter((result) => result.status === "rejected")).toHaveLength(1);
+  });
+
+  it("stores write-only chat settings with optimistic locking and an audit event", async () => {
+    const original = await db.chatSettings.findUniqueOrThrow({ where: { id: "default" } });
+    const previousEncryptionKey = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
+    process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 11).toString("base64");
+    try {
+      const initial = await getChatSettings();
+      const updated = await updateChatSettings(
+        {
+          enabled: true,
+          baseUrl: "https://model.example.com/v1/",
+          model: "test-model",
+          apiKey: "secret-api-key",
+          expectedVersion: initial.version,
+        },
+        primaryActor,
+      );
+      expect(updated).toMatchObject({
+        enabled: true,
+        baseUrl: "https://model.example.com/v1",
+        model: "test-model",
+        hasApiKey: true,
+        version: initial.version + 1,
+      });
+      expect(JSON.stringify(updated)).not.toContain("secret-api-key");
+      await expect(resolveChatModelConfig()).resolves.toEqual({
+        apiKey: "secret-api-key",
+        baseURL: "https://model.example.com/v1",
+        model: "test-model",
+      });
+      await expect(
+        updateChatSettings(
+          {
+            enabled: false,
+            baseUrl: updated.baseUrl,
+            model: updated.model,
+            expectedVersion: initial.version,
+          },
+          primaryActor,
+        ),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      await expect(
+        db.auditEvent.count({
+          where: { actorId: primaryUserId, eventType: "chat_settings.updated" },
+        }),
+      ).resolves.toBeGreaterThanOrEqual(1);
+    } finally {
+      await db.chatSettings.update({
+        where: { id: original.id },
+        data: {
+          enabled: original.enabled,
+          baseUrl: original.baseUrl,
+          model: original.model,
+          encryptedApiKey: original.encryptedApiKey,
+          encryptionKeyVersion: original.encryptionKeyVersion,
+          version: original.version,
+          updatedBy: original.updatedBy,
+        },
+      });
+      if (previousEncryptionKey === undefined) delete process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
+      else process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = previousEncryptionKey;
+    }
   });
 
   it("updates the CLI appendix with optimistic locking and an audit event", async () => {
