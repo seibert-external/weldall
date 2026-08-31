@@ -21,7 +21,7 @@
 
 ## What is Weldall CLI?
 
-Weldall CLI is a central access layer between **employees with their agents (like Claude, Copilot, pi, Open Code, ...)** on one side and **company APIs and services** on the other. It defines, in one place:
+Weldall CLI is a central access layer between **employees with their agents (like Claude, Copilot, pi, Open Code, ...)** on one side and **company APIs and skills** on the other. It defines, in one place:
 
 1. **Which capabilities agents may use** — published as _skills_ in a central catalog.
 2. **Who gets them** — per person, per group, or per machine, configured in the UI or in YAML files.
@@ -30,6 +30,14 @@ Weldall CLI is a central access layer between **employees with their agents (lik
 Capabilities are defined centrally by administrators. Agents discover what they are allowed to do via the Weldall CLI. Each employee's agent gets its own skill set from the catalog, so you steer what your agents can do centrally and roll out the same workflows consistently across the company.
 
 The **agent never sees an access token.** The local CLI keeps credentials in the operating system's secure credential store and sends short-lived, device-bound (DPoP) requests itself. Captured tokens cannot be replayed on another machine, and every granted or denied request is recorded for audit.
+
+## Who is this for?
+
+- **You run a company (or an IT department)** and a couple of vibe coders are building important apps for it. Instead of letting them sprinkle API tokens all over the place, you get one place to see what those apps can touch and to revoke it again.
+- **You serve AI-agent skills centrally** — a federated skill directory, so what your systems can do lives in one catalog. Everyone gets their own directory, based on their permissions.
+- **You connect different services to different groups** — some scopes for one team, other scopes for another, all without editing code.
+- **You run your own identity provider** — users sign in through the SSO they already use; machines authenticate as their own registered identities, and groups can come from LDAP or Active Directory.
+- **You build internal APIs** and don't want to roll your own auth for every one — there's a drop-in resource-server SDK (Fetch, Hono, Next.js, Astro).
 
 ## A reference implementation of modern OAuth
 
@@ -59,14 +67,6 @@ _Grant scopes to people and groups; the resource still enforces its own policy._
 ![Resource registry](https://raw.githubusercontent.com/seibert-external/weldall/main/docs/assets/screenshot-resources.png)
 
 _Register downstream services and control where each scope may be used._
-
-## Who is this for?
-
-- **Platform, security, and identity teams** — need a central, auditable policy layer instead of credentials scattered across agents and integrations.
-- **Companies serving AI-agent skills centrally** — one catalog of what their systems can do, instead of per-agent prompts and custom wiring.
-- **Teams connecting different resources to different groups** — some scopes for one team, other scopes for another.
-- **Organizations running their own identity provider** — users get access through the SSO they already use; machines authenticate as their own registered identities. Group memberships can be sourced from LDAP or Active Directory so existing directory groups grant scopes directly.
-- **Engineering teams building internal APIs** — a drop-in resource-server SDK (Fetch, Hono, Next.js, Astro)
 
 ## How it works
 
