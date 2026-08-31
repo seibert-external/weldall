@@ -100,25 +100,76 @@ export async function responseValue(response: Response): Promise<unknown> {
   }
 }
 
+const MAX_ERROR_DETAIL_CHARS = 400;
+
+const errorBodyText = (value: Record<string, unknown>): string | undefined => {
+  for (const key of ["error_description", "message", "detail", "title", "reason"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim() !== "") return candidate;
+  }
+  if (typeof value.error === "string" && value.error.trim() !== "") return value.error;
+  if (isRecord(value.error)) {
+    const nested = errorBodyText(value.error);
+    if (nested !== undefined) return nested;
+  }
+  const messages = errorListMessages(value.errors);
+  if (messages.length > 0) return messages.join("; ");
+  return undefined;
+};
+
+const errorListMessages = (errors: unknown): string[] => {
+  if (!Array.isArray(errors)) return [];
+  const messages: string[] = [];
+  for (const error of errors) {
+    if (typeof error === "string") {
+      const text = error.trim();
+      if (text !== "") messages.push(text);
+      continue;
+    }
+    if (!isRecord(error)) continue;
+    const message = errorBodyText(error);
+    if (message === undefined) continue;
+    const field =
+      typeof error.field === "string" && error.field.trim() !== "" ? error.field : undefined;
+    messages.push(field === undefined ? message : `${field}: ${message}`);
+  }
+  return messages;
+};
+
+// Surface a readable detail from a failed response body instead of swallowing
+// it. Handles OAuth errors, JSON:API-style field errors, short text, and a
+// small JSON fallback so the response text never disappears entirely.
+const describeResponseError = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text === "" ? undefined : text;
+  }
+  if (isRecord(value)) {
+    const text = errorBodyText(value);
+    if (text !== undefined) return text;
+  } else if (Array.isArray(value)) {
+    const messages = errorListMessages(value);
+    if (messages.length > 0) return messages.join("; ");
+  }
+  const compact = value === null ? undefined : JSON.stringify(value);
+  return compact === undefined ? undefined : compact.slice(0, MAX_ERROR_DETAIL_CHARS);
+};
+
 const throwResponseError = async (
   response: Response,
   label: string,
   configurationHint?: string,
 ): Promise<never> => {
   const value = await responseValue(response);
-  const detail =
-    isRecord(value) && typeof value.error_description === "string"
-      ? value.error_description
-      : isRecord(value) && typeof value.error === "string"
-        ? value.error
-        : typeof value === "string" && value.length <= 300
-          ? value
-          : undefined;
-  throw new CliError(`${label} failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`, {
-    ...(configurationHint !== undefined && (response.status === 404 || response.status === 410)
-      ? { hint: configurationHint }
-      : {}),
-  });
+  const detail = describeResponseError(value);
+  throw new CliError(
+    `${label} failed with HTTP ${response.status}${detail ? `: ${detail.slice(0, MAX_ERROR_DETAIL_CHARS)}` : ""}`,
+    {
+      ...(configurationHint !== undefined && (response.status === 404 || response.status === 410)
+        ? { hint: configurationHint }
+        : {}),
+    },
+  );
 };
 
 export async function successfulResponse(
