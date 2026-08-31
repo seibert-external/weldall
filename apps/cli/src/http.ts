@@ -151,7 +151,7 @@ const describeResponseError = (value: unknown): string | undefined => {
     if (messages.length > 0) return messages.join("; ");
   }
   const compact = value === null ? undefined : JSON.stringify(value);
-  return compact === undefined || compact.length > MAX_ERROR_DETAIL_CHARS ? undefined : compact;
+  return compact === undefined ? undefined : compact.slice(0, MAX_ERROR_DETAIL_CHARS);
 };
 
 const throwResponseError = async (

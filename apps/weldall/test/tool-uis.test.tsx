@@ -50,6 +50,27 @@ describe("weldallRequest tool UI", () => {
     expect(html).toContain("scope not granted");
   });
 
+  it("renders a visible generic banner for unrecognized error bodies", () => {
+    const html = renderToStaticMarkup(
+      <WeldallRequestToolUI
+        args={{ skillSlug: "personio", url, method: "GET", scopes: ["personio:read"] }}
+        result={{
+          resource,
+          url,
+          method: "GET",
+          status: 400,
+          ok: false,
+          data: { code: "E_VALIDATION", invalid: ["sort"] },
+          responseBytes: 48,
+        }}
+        status={complete}
+      />,
+    );
+
+    expect(html).toContain("{&quot;code&quot;:&quot;E_VALIDATION&quot;,&quot;invalid&quot;:[&quot;sort&quot;]}");
+    expect(html).toContain("text-destructive");
+  });
+
   it("renders the payload for successful requests without an error banner", () => {
     const html = renderToStaticMarkup(
       <WeldallRequestToolUI

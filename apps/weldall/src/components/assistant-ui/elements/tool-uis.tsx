@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import {
   AlertTriangleIcon,
   BookOpenIcon,
@@ -65,11 +65,17 @@ function ToolCard({
 }) {
   const isRunning = status == null || status.type === "running";
   const isError = status?.type === "incomplete";
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
 
   return (
     <Collapsible
       data-slot="aui_tool-ui-card"
-      defaultOpen={defaultOpen}
+      open={open}
+      onOpenChange={setOpen}
       className="border-border/60 bg-card my-2 flex flex-col rounded-lg border"
     >
       <CollapsibleTrigger
@@ -336,7 +342,8 @@ function requestErrorText(data: unknown): string | undefined {
     }
     if (messages.length > 0) return messages.join("; ");
   }
-  return undefined;
+  if (data === null || data === undefined) return undefined;
+  return JSON.stringify(data)?.slice(0, 400);
 }
 
 const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function WeldallRequestToolUI({
@@ -357,7 +364,9 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
         ? JSON.stringify(r.data, null, 2)
         : "";
   const errorMessage =
-    !isRunning && !failed && r != null && r.ok !== true ? requestErrorText(r.data) : undefined;
+    !isRunning && !failed && r != null && r.ok !== true
+      ? (requestErrorText(r.data) ?? `Request failed with HTTP ${r.status ?? "unknown status"}`)
+      : undefined;
 
   const summary = isRunning
     ? "requesting…"

@@ -43,16 +43,19 @@ describe("response errors", () => {
     );
   });
 
-  it("keeps a short text body and drops oversized bodies", async () => {
+  it("keeps text bodies and bounds oversized JSON fallbacks", async () => {
     await expect(
       successfulResponse(new Response("rate limited", { status: 429 }), "Weldall endpoint"),
     ).rejects.toThrow("Weldall endpoint failed with HTTP 429: rate limited");
+
+    const longBody = { long: "x".repeat(10_000) };
+    const compactPrefix = JSON.stringify(longBody).slice(0, 400);
     await expect(
       successfulResponse(
-        new Response(JSON.stringify({ long: "x".repeat(10_000) }), { status: 500 }),
+        new Response(JSON.stringify(longBody), { status: 500 }),
         "Weldall endpoint",
       ),
-    ).rejects.toThrow("Weldall endpoint failed with HTTP 500");
+    ).rejects.toThrow(`Weldall endpoint failed with HTTP 500: ${compactPrefix}`);
   });
 });
 
