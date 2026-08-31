@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { db } from "@weldall/db";
 import { decryptChatApiKey } from "./credentials";
 
-export const DEFAULT_CHAT_BASE_URL = "https://vllm.seibert.tools/v1";
-export const DEFAULT_CHAT_MODEL = "deepseek-v4-flash-low";
+export const DEFAULT_CHAT_BASE_URL = "https://provider.example.com/v1";
+export const DEFAULT_CHAT_MODEL = "example-model";
 
 export interface ChatModelConfig {
   apiKey: string;

@@ -165,8 +165,8 @@ model CliSettings {
 model ChatSettings {
   id                   String   @id @default("default")
   enabled              Boolean  @default(false)
-  baseUrl              String   @default("https://vllm.seibert.tools/v1")
-  model                 String   @default("deepseek-v4-flash-low")
+  baseUrl              String   @default("https://provider.example.com/v1")
+  model                 String   @default("example-model")
   encryptedApiKey       String?
   encryptionKeyVersion Int?
   version               Int      @default(1)

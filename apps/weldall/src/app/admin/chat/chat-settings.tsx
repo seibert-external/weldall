@@ -129,7 +129,7 @@ export function ChatSettings() {
                   label="Provider base URL"
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
-                  placeholder="https://vllm.example.com/v1"
+                  placeholder="https://provider.example.com/v1"
                   value={String(field.state.value)}
                   width="100%"
                 />
@@ -149,7 +149,7 @@ export function ChatSettings() {
                   label="Model"
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
-                  placeholder="deepseek-v4-flash-low"
+                  placeholder="example-model"
                   value={String(field.state.value)}
                   width="100%"
                 />

@@ -1,8 +1,8 @@
 CREATE TABLE "ChatSettings" (
   "id" TEXT NOT NULL DEFAULT 'default',
   "enabled" BOOLEAN NOT NULL DEFAULT false,
-  "baseUrl" TEXT NOT NULL DEFAULT 'https://vllm.seibert.tools/v1',
-  "model" TEXT NOT NULL DEFAULT 'deepseek-v4-flash-low',
+  "baseUrl" TEXT NOT NULL DEFAULT 'https://provider.example.com/v1',
+  "model" TEXT NOT NULL DEFAULT 'example-model',
   "encryptedApiKey" TEXT,
   "encryptionKeyVersion" INTEGER,
   "version" INTEGER NOT NULL DEFAULT 1,
