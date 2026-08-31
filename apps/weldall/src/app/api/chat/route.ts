@@ -8,25 +8,19 @@ import {
 } from "ai";
 import { after } from "next/server";
 import { resolveChatModelConfig } from "@/server/ai/configuration";
+import { authenticateChatRequest } from "@/server/ai/chat-http";
+import { isActiveChatThreadOwner } from "@/server/ai/chat-threads";
 import { validateChatMessages } from "@/server/ai/messages";
 import { createChatTools } from "@/server/ai/tools";
-import { auth } from "@/server/auth/auth";
-import { isTrustedBrowserRequest } from "@/server/auth/browser-request";
+import { readJsonBody } from "@/server/http/json-body";
 import { requestIdentifiers, withRequestLogging } from "@/server/observability/http";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
 
 export const maxDuration = 60;
 
-const MAX_REQUEST_SIZE = 1_000_000;
-
 async function post(req: Request) {
-  const session = await auth.api.getSession({ headers: req.headers });
-  if (!session?.user.id || !session.user.email || !session.user.emailVerified) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (!isTrustedBrowserRequest(req)) {
-    return Response.json({ error: "Invalid request origin." }, { status: 403 });
-  }
+  const authentication = await authenticateChatRequest(req);
+  if (!authentication.ok) return authentication.response;
 
   const parsedBody = await readJsonBody(req);
   if (!parsedBody.ok) {
@@ -34,11 +28,7 @@ async function post(req: Request) {
   }
 
   const tools = createChatTools({
-    principal: {
-      id: session.user.id,
-      email: session.user.email,
-      name: session.user.name ?? "",
-    },
+    principal: authentication.user,
     requestIdentifiers: requestIdentifiers(req),
   });
   const messages =
@@ -47,6 +37,16 @@ async function post(req: Request) {
       : undefined;
   if (!messages) {
     return Response.json({ error: "Invalid messages." }, { status: 400 });
+  }
+  const threadId =
+    parsedBody.value && typeof parsedBody.value === "object" && "id" in parsedBody.value
+      ? parsedBody.value.id
+      : undefined;
+  if (
+    typeof threadId !== "string" ||
+    !(await isActiveChatThreadOwner(authentication.user.id, threadId))
+  ) {
+    return Response.json({ error: "Chat thread not found." }, { status: 404 });
   }
 
   let config;
@@ -85,35 +85,3 @@ async function post(req: Request) {
 }
 
 export const POST = withRequestLogging("/api/chat", post);
-
-async function readJsonBody(
-  req: Request,
-): Promise<{ ok: true; value: unknown } | { ok: false; error: string; status: 400 | 413 | 415 }> {
-  if (req.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
-    return { ok: false, error: "Content-Type must be application/json.", status: 415 };
-  }
-  if (!req.body) return { ok: false, error: "Invalid JSON body.", status: 400 };
-
-  const reader = req.body.getReader();
-  const decoder = new TextDecoder();
-  let size = 0;
-  let text = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_REQUEST_SIZE) {
-      await reader.cancel();
-      return { ok: false, error: "Request body is too large.", status: 413 };
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  text += decoder.decode();
-
-  try {
-    return { ok: true, value: JSON.parse(text) };
-  } catch {
-    return { ok: false, error: "Invalid JSON body.", status: 400 };
-  }
-}

@@ -124,9 +124,9 @@ const SearchSkillsToolUI: ToolCallMessagePartComponent = memo(function SearchSki
   const { query } = (args ?? {}) as SearchSkillsArgs;
   const isRunning = status == null || status.type === "running";
   const failed = !isRunning && isErrorResult(result);
-  const { skills = [], warnings = [] } = (failed
-    ? {}
-    : (result ?? {})) as Partial<SearchSkillsResult>;
+  const { skills = [], warnings = [] } = (
+    failed ? {} : (result ?? {})
+  ) as Partial<SearchSkillsResult>;
 
   const summary = isRunning
     ? "searching…"
@@ -335,9 +335,7 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
             <span
               className={cn(
                 "rounded px-1.5 py-0.5 text-xs font-semibold",
-                method === "POST"
-                  ? "bg-amber-500/10 text-amber-600"
-                  : "bg-sky-500/10 text-sky-600",
+                method === "POST" ? "bg-amber-500/10 text-amber-600" : "bg-sky-500/10 text-sky-600",
               )}
             >
               {method}

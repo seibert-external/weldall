@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
+  isActiveChatThreadOwner: vi.fn(),
   resolveChatModelConfig: vi.fn(),
 }));
 
@@ -10,6 +11,9 @@ vi.mock("../src/server/auth/auth", () => ({
 }));
 vi.mock("../src/server/ai/configuration", () => ({
   resolveChatModelConfig: mocks.resolveChatModelConfig,
+}));
+vi.mock("../src/server/ai/chat-threads", () => ({
+  isActiveChatThreadOwner: mocks.isActiveChatThreadOwner,
 }));
 
 import { POST } from "../src/app/api/chat/route";
@@ -41,6 +45,7 @@ const session = {
 describe("chat route", () => {
   beforeEach(() => {
     mocks.getSession.mockReset().mockResolvedValue(null);
+    mocks.isActiveChatThreadOwner.mockReset().mockResolvedValue(true);
     mocks.resolveChatModelConfig.mockReset().mockImplementation(() => {
       throw new Error("not configured");
     });
@@ -108,6 +113,7 @@ describe("chat route", () => {
     const response = await POST(
       request(
         JSON.stringify({
+          id: "thread-1",
           messages: [{ id: "message-1", role: "user", parts: [{ type: "text", text: "Hello" }] }],
         }),
       ),
@@ -115,6 +121,25 @@ describe("chat route", () => {
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: "Chat model is not configured." });
+    expect(mocks.isActiveChatThreadOwner).toHaveBeenCalledWith("user-1", "thread-1");
     expect(mocks.resolveChatModelConfig).toHaveBeenCalledOnce();
+  });
+
+  it("does not run the model for a missing or foreign thread", async () => {
+    mocks.getSession.mockResolvedValue(session);
+    mocks.isActiveChatThreadOwner.mockResolvedValue(false);
+
+    const response = await POST(
+      request(
+        JSON.stringify({
+          id: "foreign-thread",
+          messages: [{ id: "message-1", role: "user", parts: [{ type: "text", text: "Hello" }] }],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Chat thread not found." });
+    expect(mocks.resolveChatModelConfig).not.toHaveBeenCalled();
   });
 });
