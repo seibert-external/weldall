@@ -130,6 +130,8 @@ Use `-o, --output <path>` to stream any successful response body to a file witho
 The destination is replaced atomically only after the complete response has been written. Use
 `--output -` for binary-safe stdout, for example when piping to another process. Binary responses
 without `--output` are rejected instead of being printed to a terminal.
+For non-2xx responses, the error includes the HTTP status and a bounded readable detail from the
+response body when one is available.
 
 Before token exchange, the CLI requires the exact origin and path segments to match one active Resource
 Registry prefix, then checks supported and granted scopes. It never follows redirects. Unregistered or

@@ -129,7 +129,8 @@ const errorListMessages = (errors: unknown): string[] => {
     if (!isRecord(error)) continue;
     const message = errorBodyText(error);
     if (message === undefined) continue;
-    const field = typeof error.field === "string" && error.field.trim() !== "" ? error.field : undefined;
+    const field =
+      typeof error.field === "string" && error.field.trim() !== "" ? error.field : undefined;
     messages.push(field === undefined ? message : `${field}: ${message}`);
   }
   return messages;

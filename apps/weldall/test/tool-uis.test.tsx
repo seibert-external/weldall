@@ -67,7 +67,9 @@ describe("weldallRequest tool UI", () => {
       />,
     );
 
-    expect(html).toContain("{&quot;code&quot;:&quot;E_VALIDATION&quot;,&quot;invalid&quot;:[&quot;sort&quot;]}");
+    expect(html).toContain(
+      "{&quot;code&quot;:&quot;E_VALIDATION&quot;,&quot;invalid&quot;:[&quot;sort&quot;]}",
+    );
     expect(html).toContain("text-destructive");
   });
 

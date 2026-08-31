@@ -29,7 +29,10 @@ describe("response errors", () => {
   it("prefers OAuth error_description and falls back to a compact JSON body", async () => {
     await expect(
       successfulResponse(
-        Response.json({ error: "invalid_scope", error_description: "scope not granted" }, { status: 403 }),
+        Response.json(
+          { error: "invalid_scope", error_description: "scope not granted" },
+          { status: 403 },
+        ),
         "Weldall token endpoint",
       ),
     ).rejects.toThrow("Weldall token endpoint failed with HTTP 403: scope not granted");

@@ -337,7 +337,9 @@ function requestErrorText(data: unknown): string | undefined {
       const message = firstMessage(entry);
       if (message === undefined) continue;
       const field =
-        typeof entry.field === "string" && entry.field.trim() !== "" ? entry.field.trim() : undefined;
+        typeof entry.field === "string" && entry.field.trim() !== ""
+          ? entry.field.trim()
+          : undefined;
       messages.push(field === undefined ? message : `${field}: ${message}`);
     }
     if (messages.length > 0) return messages.join("; ");
