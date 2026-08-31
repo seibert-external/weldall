@@ -313,7 +313,7 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
     : failed
       ? "failed"
       : r
-        ? `${r.status ?? "–"} ${r.ok === true ? "ok" : "failed"}`
+        ? `${r.resource?.name ?? "Unknown resource"} · ${r.status ?? "–"} ${r.ok === true ? "ok" : "failed"}`
         : "requesting…";
 
   return (
@@ -357,9 +357,7 @@ const WeldallRequestToolUI: ToolCallMessagePartComponent = memo(function Weldall
           {a?.scopes != null && a.scopes.length > 0 && (
             <p className="text-muted-foreground text-xs">Scopes: {a.scopes.join(", ")}</p>
           )}
-          <p className="text-muted-foreground text-xs">
-            {r.resource?.name ?? "Unknown resource"} · {r.responseBytes ?? 0} bytes
-          </p>
+          <p className="text-muted-foreground text-xs">{r.responseBytes ?? 0} bytes</p>
           {dataPreview !== "" && (
             <pre className="bg-muted/50 text-foreground/90 max-h-40 overflow-auto rounded-md p-2 text-xs whitespace-pre-wrap">
               {dataPreview.slice(0, 800)}
