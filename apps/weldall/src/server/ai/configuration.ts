@@ -81,4 +81,3 @@ export function normalizeChatApiKey(value: string): string {
   }
   return apiKey;
 }
-
