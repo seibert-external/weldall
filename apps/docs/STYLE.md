@@ -1,10 +1,10 @@
 # Weldall-Schreibstil
 
-Diese Datei beschreibt den verbindlichen Stil für Dokumentation und Produkttexte von Weldall. Sie gilt für deutsche und englische Inhalte und richtet sich an Menschen sowie schreibende Agenten.
+Diese Datei beschreibt den verbindlichen Stil für Dokumentation und Produkttexte von Weldall. Sie gilt für deutsche und englische Inhalte und richtet sich an Menschen sowie schreibende Agenten. Sie liegt im Dokumentations-Workspace (`apps/docs/`).
 
 ## Ziel
 
-Weldall-Texte sind kurz, menschlich und pragmatisch. Leser sollen schnell verstehen:
+Weldall-Texte sind kurz, nüchtern und pragmatisch. Leser sollen schnell verstehen:
 
 1. Welches Problem besteht?
 2. Was übernimmt Weldall?
@@ -15,15 +15,24 @@ Ein Text ist fertig, wenn er diese Fragen beantwortet. Zusätzliche Sätze brauc
 
 ## Ton
 
-Schreibe direkt, ruhig und sachlich. Erkläre das Produkt wie ein erfahrener Kollege, nicht wie eine Marketingbroschüre.
+Schreibe nüchtern, ruhig und sachlich — im Wortfluss eines seriösen Nachrichtenmediums, nicht flapsig und nicht werblich. Erkläre das Produkt wie ein erfahrener Kollege, nicht wie eine Marketingbroschüre.
 
-- Verwende aktive Verben und konkrete Subjekte.
+- Verwende aktive Verben und konkrete Subjekte. Beschreibe Verhalten und Zustände präzise, statt mit Umgangssprache aufzulockern.
 - Sprich über beobachtbares Verhalten statt über abstrakte Vorteile.
 - Schreibe selbstbewusst, aber nicht absolut.
 - Verwende kurze Sätze. Variiere ihre Länge, damit der Text natürlich bleibt.
 - Ein Absatz behandelt einen Gedanken.
 - Beginne mit der relevanten Aussage. Spare Einleitungen und Ankündigungen.
 - Erkläre zuerst das Problem oder ein Beispiel. Technische Details folgen danach.
+- Vermeide untertreibende Floskeln wie „einfacher, als es klingt“ und „das ist die ganze Geschichte“.
+
+## Anrede
+
+Deutsche Texte verwenden die **Du-Form**, niemals das formelle Sie. Die englische Fassung spricht den Leser mit **you** an.
+
+- Imperative in der Du-Form: „Öffne“, „Melde dich an“, „Weise zu“.
+- Formuliere Passiv- und Imperativsätze so, dass kein Sie entsteht.
+- Die Du-Form lockert den Ton nicht auf. Die Fassungen bleiben sachlich.
 
 ## Begriffe
 
@@ -103,6 +112,7 @@ Streiche Formulierungen, die keinen Informationswert haben:
 - „einfach“, „mühelos“ oder „unkompliziert“, wenn der Text es nicht belegt
 - „innovativ“, „nahtlos“, „leistungsstark“, „robust“ oder „ganzheitlich“ als unbelegte Wertung
 - werbliche Superlative und Ausrufezeichen
+- umgangssprachliche und flapsige Formulierungen ohne Informationswert (z. B. „im Handumdrehen“, „läuft wie von selbst“)
 - Wiederholungen der Überschrift im ersten Satz
 - Absätze, die nur ankündigen oder zusammenfassen
 
@@ -177,6 +187,7 @@ Die deutsche Fassung ist keine Vorlage für eine wörtliche Übersetzung. Beide 
 - Übersetze etablierte englische Fachbegriffe nicht wörtlich, wenn das Ergebnis im Deutschen ungebräuchlich oder schwer verständlich ist.
 - Verwende in Englisch **employees**, **agents** und **administrators**.
 - Verwende auch in englischen Texten nicht pauschal **IT** als Akteur.
+- Vermeide auch im Englischen umgangssprachliche Floskeln wie „a handful of“ oder „you're good to go“.
 - Halte Code, Befehle, Scopes und Produktnamen in beiden Sprachen identisch.
 
 ## Prüfung vor Veröffentlichung
