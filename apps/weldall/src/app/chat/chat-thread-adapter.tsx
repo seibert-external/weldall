@@ -20,7 +20,7 @@ export type ChatThreadWireMetadata = {
   lastMessageAt: string;
 };
 
-type ChatThreadWireMessage = {
+export type ChatThreadWireMessage = {
   id: string;
   parentId: string | null;
   role: string;
@@ -28,12 +28,19 @@ type ChatThreadWireMessage = {
   createdAt: string;
 };
 
-type ChatThreadWireDetail = ChatThreadWireMetadata & {
+export type ChatThreadWireDetail = ChatThreadWireMetadata & {
   headMessageId: string | null;
   messages: ChatThreadWireMessage[];
 };
 
 type Fetcher = typeof fetch;
+
+export async function fetchChatThreadDetail(
+  threadId: string,
+  fetcher: Fetcher = fetch,
+): Promise<ChatThreadWireDetail> {
+  return requestJson<ChatThreadWireDetail>(fetcher, threadUrl(threadId));
+}
 
 export function createChatThreadListAdapter(fetcher: Fetcher = fetch): RemoteThreadListAdapter {
   const historyProvider = ({ children }: PropsWithChildren) => {

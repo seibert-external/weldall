@@ -8,6 +8,12 @@ import {
   ToolGroupRoot,
   ToolGroupTrigger,
 } from "@/components/assistant-ui/elements/tool-group.aui";
+import {
+  RawMessageInspectorButton,
+  RawMessageInspectorDialog,
+  ThreadDownloadActions,
+  useRawMessageInspector,
+} from "@/components/assistant-ui/elements/thread-debug.aui";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +36,7 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BracesIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -136,6 +143,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({ isEmpty, aut
         data-slot="aui_thread-viewport"
         className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
       >
+        <ThreadDownloadActions />
         <div
           className={cn(
             "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
@@ -418,48 +426,59 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const { rawJson, open, close } = useRawMessageInspector();
   return (
-    <ActionBarPrimitive.Root
-      hideWhenRunning
-      autohide="not-last"
-      className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
-    >
-      <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip="Copy">
-          <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
-          </AuiIf>
-          <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
-          </AuiIf>
-        </TooltipIconButton>
-      </ActionBarPrimitive.Copy>
-      <ActionBarPrimitive.Reload asChild>
-        <TooltipIconButton tooltip="Refresh">
-          <RefreshCwIcon />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Reload>
-      <ActionBarMorePrimitive.Root>
-        <ActionBarMorePrimitive.Trigger asChild>
-          <TooltipIconButton tooltip="More" className="data-[state=open]:bg-accent">
-            <MoreHorizontalIcon />
+    <>
+      <ActionBarPrimitive.Root
+        hideWhenRunning
+        autohide="not-last"
+        className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
+      >
+        <ActionBarPrimitive.Copy asChild>
+          <TooltipIconButton tooltip="Copy">
+            <AuiIf condition={(s) => s.message.isCopied}>
+              <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
+            </AuiIf>
+            <AuiIf condition={(s) => !s.message.isCopied}>
+              <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
+            </AuiIf>
           </TooltipIconButton>
-        </ActionBarMorePrimitive.Trigger>
-        <ActionBarMorePrimitive.Content
-          side="bottom"
-          align="start"
-          sideOffset={6}
-          className="aui-action-bar-more-content bg-popover text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-xl border p-1.5"
-        >
-          <ActionBarPrimitive.ExportMarkdown asChild>
-            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
-              <DownloadIcon className="size-4" />
-              Export as Markdown
+        </ActionBarPrimitive.Copy>
+        <ActionBarPrimitive.Reload asChild>
+          <TooltipIconButton tooltip="Refresh">
+            <RefreshCwIcon />
+          </TooltipIconButton>
+        </ActionBarPrimitive.Reload>
+        <ActionBarMorePrimitive.Root>
+          <ActionBarMorePrimitive.Trigger asChild>
+            <TooltipIconButton tooltip="More" className="data-[state=open]:bg-accent">
+              <MoreHorizontalIcon />
+            </TooltipIconButton>
+          </ActionBarMorePrimitive.Trigger>
+          <ActionBarMorePrimitive.Content
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            className="aui-action-bar-more-content bg-popover text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-xl border p-1.5"
+          >
+            <ActionBarPrimitive.ExportMarkdown asChild>
+              <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
+                <DownloadIcon className="size-4" />
+                Export as Markdown
+              </ActionBarMorePrimitive.Item>
+            </ActionBarPrimitive.ExportMarkdown>
+            <ActionBarMorePrimitive.Item
+              onSelect={open}
+              className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
+            >
+              <BracesIcon className="size-4" />
+              Inspect raw message
             </ActionBarMorePrimitive.Item>
-          </ActionBarPrimitive.ExportMarkdown>
-        </ActionBarMorePrimitive.Content>
-      </ActionBarMorePrimitive.Root>
-    </ActionBarPrimitive.Root>
+          </ActionBarMorePrimitive.Content>
+        </ActionBarMorePrimitive.Root>
+      </ActionBarPrimitive.Root>
+      <RawMessageInspectorDialog rawJson={rawJson} onClose={close} />
+    </>
   );
 };
 
@@ -499,6 +518,7 @@ const UserActionBar: FC = () => {
           <PencilIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Edit>
+      <RawMessageInspectorButton />
     </ActionBarPrimitive.Root>
   );
 };
