@@ -1,9 +1,9 @@
-<p align="center">
+<div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/seibert-external/weldall/main/apps/docs/src/assets/weldall.png" />
-    <img alt="Weldall CLI" src="https://raw.githubusercontent.com/seibert-external/weldall/main/apps/docs/src/assets/weldall.png" width="364" height="101" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/weldall.png" />
+    <img alt="Weldall CLI" src="docs/assets/weldall.png" width="364" height="101" />
   </picture>
-</p>
+</div>
 
 <p align="center">
   <strong>Serve AI-agent skills centrally and connect company resources to the right people, groups, and machines.</strong>
@@ -31,6 +31,10 @@ Capabilities are defined centrally by administrators. Agents discover what they 
 
 The **agent never sees an access token.** The local CLI keeps credentials in the operating system's secure credential store and sends short-lived, device-bound (DPoP) requests itself. Captured tokens cannot be replayed on another machine, and every granted or denied request is recorded for audit.
 
+<p align="center">
+  <img src="docs/assets/screenshot-skills.png" alt="The central skill catalog shows which capabilities exist" width="720" />
+</p>
+
 ## Who is this for?
 
 - **You run a company (or an IT department)** and a couple of vibe coders are building important apps for it. Instead of letting them sprinkle API tokens all over the place, you get one place to see what those apps can touch and to revoke it again.
@@ -38,6 +42,10 @@ The **agent never sees an access token.** The local CLI keeps credentials in the
 - **You connect different services to different groups** — some scopes for one team, other scopes for another, all without editing code.
 - **You run your own identity provider** — users sign in through the SSO they already use; machines authenticate as their own registered identities, and groups can come from LDAP or Active Directory.
 - **You build internal APIs** and don't want to roll your own auth for every one — there's a drop-in resource-server SDK (Fetch, Hono, Next.js, Astro).
+
+<div align="center">
+  <img src="docs/assets/weldall-chat.gif" alt="Demo: an employee asks their agent to show all company employees via the Weldall CLI" width="480" />
+</div>
 
 ## A reference implementation of modern OAuth
 
@@ -51,22 +59,6 @@ Weldall CLI is a reference implementation of the next generation of OAuth for ag
 | [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                        | Browser-based sign-in for the CLI, with explicit consent.                                                                                                                                |
 | [RFC 7636 — PKCE](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                             | Protects the native authorization code exchange.                                                                                                                                         |
 | [RFC 9700 — OAuth Security Best Current Practice](https://www.rfc-editor.org/rfc/rfc9700.html)                                                             | Applied throughout the authorization server and client.                                                                                                                                  |
-
-## Screenshots
-
-> Placeholder images — replace these with real screenshots from the running app before release.
-
-![Skill catalog](https://raw.githubusercontent.com/seibert-external/weldall/main/docs/assets/screenshot-skills.png)
-
-_Browse the central skill catalog and see which capabilities exist._
-
-![Assignment policy](https://raw.githubusercontent.com/seibert-external/weldall/main/docs/assets/screenshot-assignments.png)
-
-_Grant scopes to people and groups; the resource still enforces its own policy._
-
-![Resource registry](https://raw.githubusercontent.com/seibert-external/weldall/main/docs/assets/screenshot-resources.png)
-
-_Register downstream services and control where each scope may be used._
 
 ## How it works
 
@@ -140,6 +132,20 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 - [Group providers](apps/docs/src/content/docs/en/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
 - [`@weldall/sdk` reference](packages/sdk/README.md) — route protection, skill catalogs, framework adapters.
 - [Local development](apps/docs/) — set up the full stack on your machine.
+
+## Appendix: Screenshots
+
+![Resource registry](docs/assets/screenshot-resources.png)
+
+_Register downstream services and control where each scope may be used._
+
+![Users](docs/assets/screenshot-users.png)
+
+_Manage who can sign in; identities are verified through the company SSO._
+
+![Audit logs](docs/assets/screenshot-audit.png)
+
+_Every granted or denied request is recorded, so administrators can trace who asked for what._
 
 ## License
 
