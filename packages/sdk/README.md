@@ -267,4 +267,4 @@ The handler is available as `weldall.handlers.<name>`. The resource-specific pro
 
 ## License
 
-Apache-2.0
+FSL-1.1-ALv2 (Functional Source License), converting to Apache-2.0 two years after each release.

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/seibert-external/weldall/blob/main/LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" /></a>
+  <a href="https://github.com/seibert-external/weldall/blob/main/LICENSE"><img alt="License: FSL-1.1-ALv2" src="https://img.shields.io/badge/license-FSL-1.1-ALv2-blue.svg" /></a>
   <a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04"><img alt="ID-JAG Draft-04" src="https://img.shields.io/badge/OAuth-ID--JAG%20Draft--04-8b5cf6" /></a>
   <a href="https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01"><img alt="JWT DPoP Grant Draft-01" src="https://img.shields.io/badge/OAuth-JWT%20DPoP%20Grant%20Draft--01-8b5cf6" /></a>
   <a href="https://www.rfc-editor.org/rfc/rfc9449.html"><img alt="RFC 9449 DPoP" src="https://img.shields.io/badge/RFC-9449%20DPoP-2563eb" /></a>
@@ -136,4 +136,4 @@ _Every granted or denied request is recorded, so administrators can trace who as
 
 ## License
 
-Apache-2.0, as declared in the published `@weldall/cli` and `@weldall/sdk` packages.
+FSL-1.1-ALv2 (Functional Source License). Source-available and free to use, modify, and distribute for any purpose other than offering it as a competing commercial service. Each released version converts to Apache-2.0 on its second anniversary.

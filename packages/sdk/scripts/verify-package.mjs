@@ -23,7 +23,7 @@ try {
   assert.equal(packageJson.name, "@weldall/sdk");
   assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
   assert.equal(packageJson.private, undefined);
-  assert.equal(packageJson.license, "Apache-2.0");
+  assert.equal(packageJson.license, "FSL-1.1-ALv2");
   assert.equal(packageJson.publishConfig?.registry, "https://registry.npmjs.org/");
   assert.deepEqual(Object.keys(packageJson.exports).sort(), [".", "./astro", "./hono", "./next"]);
   assert.equal(packageJson.engines.node, ">=22.15.0");

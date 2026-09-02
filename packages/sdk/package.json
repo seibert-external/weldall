@@ -2,7 +2,7 @@
   "name": "@weldall/sdk",
   "version": "0.6.0",
   "description": "Weldall resource-server SDK for Fetch, Hono, Next.js, and Astro",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/seibert-external/weldall.git",
