@@ -1,63 +1,63 @@
 ---
-title: "How to: Weldall aufsetzen"
-description: Eine Weldall-Instanz bereitstellen und für die erste Nutzung konfigurieren.
+title: "How to: Set up Weldall"
+description: Deploy a Weldall instance and configure it for first use.
 sidebar:
-  label: "How to: Weldall aufsetzen"
+  label: "How to: Set up Weldall"
 ---
 
-Eine Weldall-Instanz wird als einzelner Container betrieben. Das Repository enthält eine [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile), die den Authorization Server und die Administrationsoberfläche zu einem Image baut. Das Image benötigt eine PostgreSQL-Datenbank, eine definierte Menge an Umgebungsvariablen und eine öffentlich erreichbare HTTPS-URL. Sind diese Voraussetzungen erfüllt, ist die Instanz betriebsbereit: Administrationsoberfläche, OAuth-Endpunkte und das erste Administratorkonto entstehen beim Start automatisch.
+Running Weldall yourself means operating a single container. The repository contains a [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) that builds the authorization server and the administration interface into one image. The image requires a PostgreSQL database, a defined set of environment variables, and a publicly reachable HTTPS URL. Once these requirements are met, the instance is operational: the administration interface, the OAuth endpoints, and the first administrator account are set up automatically on startup.
 
-Diese Seite setzt Grundkenntnisse über Weldall voraus. Das Produkt beschreibt die [Einführung](../).
+This page assumes basic knowledge of Weldall. The [introduction](../) describes the product.
 
-## Was der Container enthält
+## What the container contains
 
-Das Image startet den Weldall-Server als eigenständige Next.js-Anwendung. Beim Start werden folgende Schritte ausgeführt:
+The image runs the Weldall server as a standalone Next.js application. Startup performs the following steps:
 
-1. Die Datenbank-Migrationen laufen mit Prisma.
-2. Die Produktionsdatenbank wird initialisiert, veröffentlichte Skill-Kataloge werden aktualisiert.
-3. Ist eine E-Mail-Adresse konfiguriert, wird das erste Administratorkonto angelegt.
-4. Der Server startet auf Port 3000.
+1. The database migrations run with Prisma.
+2. The production database is initialized, and published skill catalogs are refreshed.
+3. If an email address is configured, the first administrator account is created.
+4. The server starts on port 3000.
 
-Der Container läuft als Nicht-Root-Benutzer und bietet einen Health-Check auf `/.well-known/openid-configuration` an. Damit lässt er sich unmittelbar an die Readiness-Prüfung der Container-Plattform anschließen.
+The container runs as a non-root user and exposes a health check on `/.well-known/openid-configuration`. It can therefore be connected directly to the readiness checks of your container platform.
 
-## Voraussetzungen
+## Prerequisites
 
-Vor dem Bau und Start des Images müssen folgende Voraussetzungen erfüllt sein:
+Before building and starting the image, the following requirements must be met:
 
-- **Eine PostgreSQL-Datenbank** – Weldall speichert Konfiguration und Audit-Einträge in PostgreSQL.
-- **Eine öffentliche HTTPS-URL** – Mitarbeitende melden sich über diese URL an; sie muss erreichbar sein und HTTPS verwenden. Dieselbe URL wird für `WELDALL_ISSUER` und für die Login-Weiterleitung verwendet.
-- **Ein Google-OAuth-Client** – Die Anmeldung nutzt Google als SSO-Provider. Der Client wird in der Google Cloud Console angelegt; als Redirect-URL wird `<WELDALL_ISSUER>/api/auth/callback/google` eingetragen.
-- **Ein Schlüsselpaar zum Signieren** – Weldall signiert seine JWTs (ID-JAGs) mit einem ES256-Schlüsselpaar (P-256).
+- **A PostgreSQL database** – Weldall stores configuration and audit records in PostgreSQL.
+- **A public HTTPS URL** – Employees sign in through this URL; it must be reachable and use HTTPS. The same URL is used for `WELDALL_ISSUER` and for the login redirect.
+- **A Google OAuth client** – Sign-in uses Google as the SSO provider. The client is created in the Google Cloud Console; `<WELDALL_ISSUER>/api/auth/callback/google` is registered as the redirect URL.
+- **A signing key pair** – Weldall signs its JWTs (ID-JAGs) with an ES256 (P-256) key pair.
 
-## Umgebungsvariablen
+## Environment variables
 
-Fehlt eine Pflichtvariable, bricht der Container den Start ab. Dieses Verhalten ist beabsichtigt: Eine unvollständig konfigurierte Instanz ist nicht betriebsfähig und soll gar nicht erst starten.
+If a required variable is missing, the container aborts startup. This behavior is intentional: a partially configured instance is not operational and should not start in the first place.
 
-| Variable                                                    | Zweck                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------------ |
-| `POSTGRES_URL`                                              | Verbindungszeichenfolge für PostgreSQL.                |
-| `WELDALL_ISSUER`                                            | Öffentliche HTTPS-URL der Instanz.                     |
-| `BETTER_AUTH_SECRET`                                        | Geheimnis zum Signieren der Browser-Session-Cookies.   |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                  | Der Google-OAuth-Client für die SSO-Anmeldung.         |
-| `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK` | Das ES256-Signaturschlüsselpaar als JWK.               |
-| `WELDALL_SIGNING_KID`                                       | Schlüssel-ID, die den Signaturschlüssel identifiziert. |
+| Variable                                                    | Purpose                                      |
+| ----------------------------------------------------------- | -------------------------------------------- |
+| `POSTGRES_URL`                                              | Connection string for PostgreSQL.            |
+| `WELDALL_ISSUER`                                            | Public HTTPS URL of the instance.            |
+| `BETTER_AUTH_SECRET`                                        | Secret used to sign browser session cookies. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                  | The Google OAuth client for SSO sign-in.     |
+| `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK` | The ES256 signing key pair as JWK.           |
+| `WELDALL_SIGNING_KID`                                       | Key ID that identifies the signing key.      |
 
-:::note[Signaturschlüssel]
-Das ES256-Schlüsselpaar wird einmalig erzeugt und im Secret Manager aufbewahrt. JWKs und Schlüssel-ID müssen stabil bleiben: Ein rotierter Schlüssel würde bereits ausgestellte Identitäts-Assertions entwerten.
+:::note[Signing keys]
+The ES256 key pair is generated once and kept in your secret manager. The JWKs and the key ID must remain stable: rotating the key would invalidate already-issued identity assertions.
 :::
 
-Optionale Variablen:
+Optional variables:
 
-| Variable                            | Zweck                                                                            |
-| ----------------------------------- | -------------------------------------------------------------------------------- |
-| `WELDALL_BOOTSTRAP_ADMIN_EMAIL`     | E-Mail-Adresse des ersten Administrators, angelegt beim ersten Start.            |
-| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | AES-Schlüssel zum Speichern schreibgeschützter Group-Provider-Zugangsdaten.      |
-| `OAUTH_PROXY_SECRET`                | Gemeinsames Geheimnis für den optionalen [Discovery-Proxy](../discovery-proxy/). |
-| `LOG_LEVEL`                         | Detailgrad der Logs, Standard ist `INFO`.                                        |
+| Variable                            | Purpose                                                                |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| `WELDALL_BOOTSTRAP_ADMIN_EMAIL`     | Email of the first administrator, created on first start.              |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | AES key for storing write-only group-provider credentials.             |
+| `OAUTH_PROXY_SECRET`                | Shared secret for the optional [discovery proxy](../discovery-proxy/). |
+| `LOG_LEVEL`                         | Log verbosity, defaults to `INFO`.                                     |
 
-## Bauen und starten
+## Build and run
 
-Das Image wird aus der [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) im Repository-Stamm gebaut und anschließend mit der jeweiligen Konfiguration gestartet:
+The image is built from the [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) in the repository root and started with the respective configuration:
 
 ```sh
 docker build -t weldall .
@@ -76,13 +76,13 @@ docker run -d --name weldall \
   weldall
 ```
 
-Der Container lauscht auf Port 3000. Alternativ kann eine Container-Plattform die Dockerfile direkt aus dem Repository bauen; auf diesem Weg wird auch die Produktionsinstanz bereitgestellt.
+The container listens on port 3000. Alternatively, a container platform can build the Dockerfile directly from the repository; the production instance is deployed this way.
 
-## Nach dem ersten Start
+## After first start
 
-1. Öffne `https://weldall.example.com` und melde dich mit dem Google-Konto an, das zu `WELDALL_BOOTSTRAP_ADMIN_EMAIL` passt. Der Bootstrap-Schritt vergibt diesem Konto die Administrator-Rolle und den Scope `weldall:login`.
-2. In der Administrationsoberfläche werden Scopes angelegt, Ressourcen registriert und Berechtigungen vergeben. Die Vorgehensweise beschreibt [How to: Service integrieren](../service-configuration/).
-3. Auf einem Mitarbeiter-Gerät wird die CLI auf die Instanz ausgerichtet und angemeldet:
+1. Open `https://weldall.example.com` and sign in with the Google account that matches `WELDALL_BOOTSTRAP_ADMIN_EMAIL`. The bootstrap step grants this account the administrator role and the `weldall:login` scope.
+2. In the administration interface, scopes are created, resources are registered, and permissions are assigned. [How to: Integrate a service](../service-configuration/) describes the procedure.
+3. On an employee device, the CLI is pointed at the instance and signed in:
 
 ```sh
 weldall config set-issuer https://weldall.example.com
@@ -90,11 +90,11 @@ weldall login
 ```
 
 :::note
-Weldall vergibt `weldall:login` niemals automatisch vom Identity Provider. Der Scope wird Benutzern vor der ersten CLI-Anmeldung zugewiesen.
+Weldall never grants `weldall:login` automatically from the identity provider. Assign the scope to users before their first CLI login.
 :::
 
-## Nächste Schritte
+## Next steps
 
-- Eigene Services mit dem SDK absichern: [How to: Service integrieren](../service-configuration/).
-- Einstellungen, Scopes, Ressourcen und Zuweisungen als Code verwalten: [Infrastructure as Code](../infrastructure-as-code/).
-- Den Sicherheitsablauf der Instanz nachvollziehen: [Sicherheit](../oauth-security/).
+- Secure your own services with the SDK: [How to: Integrate a service](../service-configuration/).
+- Manage settings, scopes, resources, and assignments as code: [Infrastructure as code](../infrastructure-as-code/).
+- Understand the security flow implemented by this instance: [Security](../oauth-security/).

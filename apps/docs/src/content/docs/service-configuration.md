@@ -1,33 +1,33 @@
 ---
-title: "How to: Unternehmensservice integrieren"
-description: Einen Web-Service entwickeln, in Weldall registrieren und als Skill für Mitarbeitende bereitstellen.
+title: "How to: Integrate a service"
+description: Build a web service, register it in Weldall, and publish it to employees as a skill.
 sidebar:
-  label: "How to: Service integrieren"
+  label: "How to: Integrate a service"
 ---
 
-In diesem Walkthrough entsteht ein kleiner Web-Service, der Verträge auflistet. Das Beispiel verwendet Hono, eine moderne und leichtgewichtige Alternative zu Express. Das Weldall SDK stellt dafür eine Hono-Middleware bereit. Für Fetch, Next.js und Astro gibt es weitere Schnittstellen und Adapter auf der Seite [SDKs](../sdks/).
+This walkthrough builds a small web service that lists contracts. The example uses Hono, a modern and lightweight alternative to Express. The Weldall SDK provides Hono middleware for securing its routes. Interfaces and adapters for Fetch, Next.js, and Astro are listed on the [SDKs](../sdks/) page.
 
-Die Arbeit verteilt sich auf zwei Rollen: Applikationsentwickler sichern den eingehenden Request ab und veröffentlichen die Anleitung für Agenten. Weldall-Administratoren registrieren den Service, aktivieren die Skill Discovery und vergeben Berechtigungen.
+The work is split between two roles: application developers secure incoming requests and publish the agent instructions. Weldall administrators register the service, enable skill discovery, and assign permissions.
 
-## Voraussetzungen
+## Prerequisites
 
-Du benötigst eine laufende Weldall-Instanz und einen Administratorzugang. Falls Weldall noch nicht läuft, beginne mit [How to: Weldall aufsetzen](../weldall-setup/).
+You need a running Weldall instance and administrator access. If Weldall is not running yet, start with [How to: Set up Weldall](../weldall-setup/).
 
-Für den Beispielservice benötigst du außerdem:
+The example service also requires:
 
-- Node.js 22.15 oder neuer
+- Node.js 22.15 or newer
 - pnpm
-- eine HTTPS-URL für den bereitgestellten Service
+- an HTTPS URL for the deployed service
 
-:::note[Ergebnis]
-Am Ende kann ein berechtigter Agent `weldall request --scope contracts:read https://contracts.example.com/api/contracts` ausführen.
+:::note[Result]
+At the end, an authorized agent can run `weldall request --scope contracts:read https://contracts.example.com/api/contracts`.
 :::
 
-## Für Applikationsentwickler
+## For application developers
 
-### 1. Hono-Projekt anlegen
+### 1. Create the Hono project
 
-Erstelle ein neues Projekt und installiere Hono sowie das Weldall SDK:
+Create a new project and install Hono and the Weldall SDK:
 
 ```sh
 mkdir weldall-contracts
@@ -39,9 +39,9 @@ pnpm add --save-dev @types/node tsx typescript
 mkdir src
 ```
 
-### 2. Vertragsservice implementieren
+### 2. Implement the contract service
 
-Lege `src/index.ts` an:
+Create `src/index.ts`:
 
 ```ts
 import { serve } from "@hono/node-server";
@@ -68,18 +68,18 @@ const weldall = initWeldall(weldallIssuer, {
     items: [
       {
         id: "list",
-        title: "Verträge auflisten",
+        title: "List contracts",
         requiredScopes: ["contracts:read"],
         visibility: "HIDDEN_IF_UNALLOWED",
         content:
-          "# Verträge auflisten\n\nFühre `weldall request --scope contracts:read https://contracts.example.com/api/contracts` aus.",
+          "# List contracts\n\nRun `weldall request --scope contracts:read https://contracts.example.com/api/contracts`.",
       },
     ],
   },
   allowInsecureLoopback: publicOrigin.startsWith("http://localhost"),
 });
 
-await weldall.ready(); // optional: prüft die Weldall-Konfiguration beim Start
+await weldall.ready(); // optional: validate the Weldall configuration at startup
 
 const app = new Hono<{ Variables: WeldallVariables }>();
 weldall.registerRoutes(app);
@@ -99,19 +99,19 @@ app.get("/api/contracts", weldall.protect({ scopes: ["contracts:read"] }), (cont
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8787) });
 ```
 
-Das `skills`-Attribut veröffentlicht die Agentenanweisung zusammen mit dem Service. Weitere Optionen und Framework-Beispiele stehen unter [SDKs](../sdks/).
+The `skills` attribute publishes the agent instructions with the service. See [SDKs](../sdks/) for the other options and framework examples.
 
-`weldall.protect` prüft jeden eingehenden Request, bevor der Handler die Vertragsdaten liest. Der Handler läuft nur, wenn der Request den Scope `contracts:read` erfüllt. Die Identität enthält das stabile Weldall-Subject und die verifizierte E-Mail, die Weldall in den ID-JAG signiert und das SDK in das Downstream-Access-Token übernommen hat. Wie der Service diese Identität mit seiner eigenen User-Datenbank verwendet, bleibt anwendungsspezifisch.
+`weldall.protect` checks every incoming request before the handler reads contract data. The handler runs only when the request satisfies the `contracts:read` scope. The identity contains the stable Weldall subject and the verified email that Weldall signed into the ID-JAG and the SDK copied into the downstream access token. How the service uses that identity with its own user database remains application-specific.
 
-:::note[Replay-Schutz bei horizontaler Skalierung]
-`inMemory()` speichert verwendete ID-JAGs und DPoP-Proofs nur im aktuellen Prozess. Bei mehreren Service-Instanzen kennt eine Instanz die Replays nicht, die eine andere bereits gesehen hat. Der Replay-Store verhindert die mehrfache Einlösung eines ID-JAGs und die erneute Verwendung eines DPoP-Proofs; das Access Token selbst wird nicht als einmalig verbraucht markiert.
+:::note[Replay protection with horizontal scaling]
+`inMemory()` stores used ID-JAGs and DPoP proofs only in the current process. With multiple service instances, one instance does not know which replays another instance has already seen. The replay store prevents an ID-JAG from being exchanged more than once and a DPoP proof from being reused; it does not mark the access token itself as consumed after one use.
 
-Weldall stellt ID-JAGs für fünf Minuten und Access Tokens für zehn Minuten aus. Ein DPoP-Proof wird höchstens 60 Sekunden akzeptiert. Entscheide für deinen Anwendungsfall, ob diese begrenzten Zeitfenster ausreichen. Falls nicht, verwende einen gemeinsam genutzten, atomaren Replay-Store. Weitere Hintergründe stehen unter [Sicherheit](../oauth-security/).
+Weldall issues ID-JAGs for five minutes and access tokens for ten minutes. A DPoP proof is accepted for at most 60 seconds. Decide whether these bounded windows are sufficient for your use case. If they are not, use a shared atomic replay store. See [Security](../oauth-security/) for more context.
 :::
 
-### 3. Service lokal starten
+### 3. Start the service locally
 
-Setze die URL deiner Weldall-Instanz und starte den Service:
+Set the URL of your Weldall instance and start the service:
 
 ```sh
 WELDALL_ISSUER=https://weldall.example.com \
@@ -119,36 +119,36 @@ PUBLIC_ORIGIN=http://localhost:8787 \
 pnpm exec tsx src/index.ts
 ```
 
-Ein Request ohne Weldall-Autorisierung auf `http://localhost:8787/api/contracts` wird abgelehnt. Damit ist der Endpunkt abgesichert.
+A request without Weldall authorization to `http://localhost:8787/api/contracts` is rejected. The endpoint is now protected.
 
-### 4. Service unter HTTPS bereitstellen
+### 4. Deploy the service over HTTPS
 
-Stelle den Service unter einer öffentlichen HTTPS-URL bereit. Für den restlichen Walkthrough verwenden wir:
+Deploy the service at a public HTTPS URL. The rest of this walkthrough uses:
 
 ```text
 https://contracts.example.com
 ```
 
-Setze `PUBLIC_ORIGIN` in dieser Umgebung auf genau diese URL. Resource Identifier, Endpunkte und die spätere Weldall-Konfiguration müssen denselben Origin verwenden.
+Set `PUBLIC_ORIGIN` to this exact URL in the deployed environment. The resource identifier, endpoints, and later Weldall configuration must use the same origin.
 
-## Für Weldall-Administratoren
+## For Weldall administrators
 
-Öffne die Administrationsoberfläche der Weldall-Instanz.
+Open the administration interface of the Weldall instance.
 
-### 1. Scope anlegen
+### 1. Create the scope
 
-Öffne **Scopes**, wähle **Create scope** und trage ein:
+Open **Scopes**, select **Create scope**, and enter:
 
-| Feld        | Wert             |
+| Field       | Value            |
 | ----------- | ---------------- |
 | Scope key   | `contracts:read` |
-| Description | `Verträge lesen` |
+| Description | `Read contracts` |
 
-### 2. Resource registrieren
+### 2. Register the resource
 
-Öffne **Resources**, wähle **Create resource** und verwende diese Werte:
+Open **Resources**, select **Create resource**, and use these values:
 
-| Feld                 | Wert                                |
+| Field                | Value                               |
 | -------------------- | ----------------------------------- |
 | Resource key         | `contracts`                         |
 | Name                 | `Contracts`                         |
@@ -157,22 +157,22 @@ Setze `PUBLIC_ORIGIN` in dieser Umgebung auf genau diese URL. Resource Identifie
 | Downstream client ID | `weldall-cli-at-contracts`          |
 | Request prefixes     | `https://contracts.example.com/api` |
 | Scopes               | `contracts:read`                    |
-| Enabled              | aktiviert                           |
-| Discover skills      | aktiviert                           |
+| Enabled              | on                                  |
+| Discover skills      | on                                  |
 
-Die Werte müssen zur Konfiguration im Hono-Service passen. Weldall gibt keine Zugangsdaten oder Request-Daten an URLs außerhalb der registrierten Präfixe weiter.
+The values must match the configuration in the Hono service. Weldall does not send credentials or request data to URLs outside the registered prefixes.
 
-### 3. Skill Discovery prüfen
+### 3. Check skill discovery
 
-Öffne **Skills** und prüfe, ob `contracts.list` aus der Resource `contracts` angezeigt wird. Der lokale Skill-Identifier `list` aus der SDK-Konfiguration erhält in Weldall automatisch den Resource-Key als Präfix.
+Open **Skills** and check that `contracts.list` is shown from the `contracts` resource. Weldall automatically prefixes the local skill ID `list` from the SDK configuration with the resource key.
 
-### 4. Berechtigung zuweisen
+### 4. Assign permission
 
-Weise dem Testnutzer `weldall:login` und `contracts:read` zu: entweder unter **Assignments** direkt für seine E-Mail-Adresse oder unter **Group assignments** für eine passende Provider-Gruppe. Weldall vergibt `weldall:login` nie automatisch über den Identity Provider; der Scope muss vor der ersten CLI-Anmeldung zugewiesen sein. Gruppenbasierte Scopes werden live aufgelöst und bei Provider-Ausfall oder entfernter Mitgliedschaft fail-closed entzogen. Fehlt der effektive Login-Scope, sind neue CLI-Anmeldungen, Token-Refreshes und weitere Downstream-Token-Ausstellungen gesperrt; bereits ausgestellte CLI-Access-Tokens laufen regulär ab. Browser-UI-Anmeldung und Browser-Sessions bleiben davon unberührt.
+Assign `weldall:login` and `contracts:read` to the test user, either under **Assignments** for the user's email address or under **Group assignments** for a matching provider group. Weldall never grants `weldall:login` automatically from the identity provider; assign it before the user's first CLI login. Group-derived scopes are resolved live and fail closed when the provider is unavailable or no longer reports the membership. Removing the effective login scope blocks new CLI login, token refresh, and further downstream token issuance, while already-issued CLI access tokens expire normally. Browser UI login and browser sessions are unaffected.
 
-### 5. Integration testen
+### 5. Test the integration
 
-Melde dich auf dem Gerät des Testnutzers an und prüfe den veröffentlichten Skill:
+Sign in on the test user's device and inspect the published skill:
 
 ```sh
 weldall login
@@ -180,7 +180,7 @@ weldall skills
 weldall skills show contracts.list
 ```
 
-Anschließend kann der Agent den im Skill beschriebenen Request ausführen:
+The agent can then run the request described by the skill:
 
 ```sh
 weldall request \
@@ -188,4 +188,4 @@ weldall request \
   https://contracts.example.com/api/contracts
 ```
 
-Der Service liefert die Vertragsliste zusammen mit der Identität, für die Weldall den Request autorisiert hat. Entfernst du die Zuweisung, wird der gleiche Request abgelehnt; ein als **Hidden if unallowed** konfigurierter Skill wird außerdem nicht mehr angezeigt.
+The service returns the contract list together with the identity for which Weldall authorized the request. Remove the assignment and the same request is rejected; a skill configured as **Hidden if unallowed** also disappears.

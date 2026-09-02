@@ -1,69 +1,69 @@
 ---
-title: Infrastructure as Code
-description: Weldall-CLI-Einstellungen, Scopes, Ressourcen, Machines, Skills und Zuweisungen mit YAML verwalten.
+title: Infrastructure as code
+description: Manage Weldall CLI settings, scopes, resources, machines, skills, and assignments from YAML.
 sidebar:
-  label: Infrastructure as Code
+  label: Infrastructure as code
   order: 8
 ---
 
 import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
 
-Alle administrativen Funktionen des Weldall-Servers lassen sich über die Benutzeroberfläche verwalten. Die wichtigsten Bausteine – Scopes, Ressourcen, Machine Clients, administrativ verwaltete Skills und Zuweisungen – können zusätzlich in YAML-Dateien beschrieben werden. So wird aus der Konfiguration Infrastructure as Code (IaC).
+All administrative features of the Weldall server can be managed through its user interface. The most important building blocks – scopes, resources, machine clients, administrator-managed skills, and assignments – can also be described in YAML files. This turns the configuration into infrastructure as code (IaC).
 
-<Aside type="tip" title="Warum IaC?">
-  In einem versionierten Git-Repository bleibt jede Änderung nachvollziehbar. Pull Requests bieten
-  Raum für Diskussionen und Freigaben, und Kommentare im YAML dokumentieren direkt, warum eine
-  bestimmte Berechtigung existiert.
+<Aside type="tip" title="Why IaC?">
+  Every change remains traceable in a version-controlled Git repository. Pull requests provide a
+  place to discuss and approve changes, while comments in the YAML document why a particular
+  permission exists.
 </Aside>
 
-<Aside title="Atomare Änderungen">
-  Weldall fasst die YAML-Dateien in einem Workspace zusammen und wendet den gewünschten Zustand
-  atomar an: Entweder werden alle geplanten Änderungen durchgeführt oder keine.
+<Aside title="Atomic changes">
+  Weldall groups the YAML files into a workspace and applies the desired state atomically: Either
+  every planned change is applied or none of them are.
 </Aside>
 
-Auch bei der Nutzung von IaC können Personen mit den entsprechenden Rechten weiterhin die Benutzeroberfläche verwenden, um Änderungen vorzunehmen oder neue Scopes, Ressourcen und andere Elemente anzulegen. Manuelle Änderungen an verwalteten Elementen erscheinen im nächsten Plan als Drift und werden beim Anwenden auf den in der YAML-Konfiguration beschriebenen Zustand zurückgesetzt. Wird ein verwaltetes Element manuell gelöscht, plant Weldall seine Wiederherstellung. Das betrifft nur Elemente, die über IaC angelegt oder importiert wurden. Alle anderen Elemente bleiben unberührt.
+Even when using IaC, people with the appropriate permissions can continue to use the user interface to make changes or create new scopes, resources, and other objects. Manual changes to managed objects appear as drift in the next plan and are reset to the state described in YAML when the configuration is applied. If a managed object is manually deleted, Weldall plans to recreate it. This only affects objects created or imported through IaC. Everything else remains untouched.
 
-## Workspace anlegen
+## Start a workspace
 
 <Steps>
-1. **Machine Client vorbereiten**
+1. **Prepare a machine client**
 
-Für IaC-Befehle wird die Weldall CLI verwendet. Sie authentifiziert sich mit einem zuvor in Weldall angelegten Machine Client, dem der Scope `weldall:iac` zugewiesen wurde. Die CLI liest Client-ID und Schlüssel aus Umgebungsvariablen:
+Use the Weldall CLI to run IaC commands. It authenticates with a machine client that was created in Weldall and granted the `weldall:iac` scope. Give the CLI its client ID and key through environment variables:
 
 ```sh
 export WELDALL_M2M_CLIENT_ID=platform-ci
 export WELDALL_M2M_KID=ci-2026
-export WELDALL_M2M_PRIVATE_JWK='<privater P-256-JWK als JSON>'
-export WELDALL_M2M_PUBLIC_JWK='<öffentlicher P-256-JWK als JSON>'
+export WELDALL_M2M_PRIVATE_JWK='<private P-256 JWK JSON>'
+export WELDALL_M2M_PUBLIC_JWK='<public P-256 JWK JSON>'
 ```
 
-<Aside type="caution" title="Privaten Schlüssel schützen">
-  Der private Schlüssel gehört weder in die YAML-Konfiguration noch ins Git-Repository.
+<Aside type="caution" title="Protect the private key">
+  Never put the private key in the YAML configuration or commit it to Git.
 </Aside>
 
-2. **Workspace initialisieren**
+2. **Initialize the workspace**
 
    ```sh
    mkdir platform-access && cd platform-access
    weldall init --name platform-access --issuer https://weldall.example.com
    ```
 
-   Der Befehl erzeugt `weldall.yml`, `weldall.lock.yml` und das Verzeichnis `weldall/`. Manifest und Lockdatei werden gemeinsam versioniert.
+   This creates `weldall.yml`, `weldall.lock.yml`, and a `weldall/` directory. Commit the manifest and lockfile together.
 
    </Steps>
 
-### Workspace in Fragmente aufteilen
+### Split the workspace into fragments
 
-Ein Workspace kann zum Beispiel so aufgebaut sein:
+A workspace might look like this:
 
 <FileTree>
-  - platform-access/ - **weldall.yml** Root-Manifest - weldall.lock.yml Versionierter Serverzustand
-  und Objektzuordnungen - weldall/ - access.yml Scopes und Zuweisungen - runtime.yml Ressourcen und
-  Machine Clients - imports/ Optional, wird von `weldall import` verwendet -
-  emailAssignment-alice.yml Erzeugtes Importfragment
+  - platform-access/ - **weldall.yml** Root manifest - weldall.lock.yml Versioned server state and
+  object mappings - weldall/ - access.yml Scopes and assignments - runtime.yml Resources and machine
+  clients - imports/ Optional, used by `weldall import` - emailAssignment-alice.yml Generated import
+  fragment
 </FileTree>
 
-Das von `init` erzeugte Root-Manifest enthält die Metadaten des Workspaces und bindet alle YAML-Dateien unter `weldall/` ein:
+The root manifest generated by `init` contains the workspace metadata and includes every YAML file below `weldall/`:
 
 ```yaml
 # weldall.yml
@@ -75,16 +75,16 @@ include:
   - weldall/**/*.yml
 ```
 
-Die eingebundenen Dateien sind Fragmente. Sie wiederholen weder `apiVersion` noch `workspace`, sondern enthalten nur eine oder mehrere Objektgruppen wie `scopes`, `resources` oder `emailAssignments`. Die CLI führt alle Fragmente zu einer vollständigen Konfiguration zusammen. Wie die Dateien aufgeteilt werden, kann das Team selbst entscheiden – zum Beispiel nach Anwendung, Zuständigkeit oder Umgebung.
+The included files are fragments. They do not repeat `apiVersion` or `workspace`; they contain only one or more object sections such as `scopes`, `resources`, or `emailAssignments`. The CLI merges all fragments into one complete configuration. Your team can organize the files by application, ownership, environment, or any other structure that works for you.
 
-## Zugriffe deklarieren
+## Declare access
 
 ```yaml
 # weldall/access.yml
 scopes:
   expenses_read:
     key: expenses:read
-    description: Ausgaben lesen
+    description: Read expenses
 
 emailAssignments:
   alice:
@@ -100,11 +100,11 @@ groupAssignments:
       - expenses:read
 ```
 
-`scope.expenses_read`, `emailAssignment.alice` und `groupAssignment.finance` sind Namen, die IaC nur innerhalb dieses Workspaces verwendet. Der Teil hinter dem Punkt stammt jeweils aus dem Map-Key im YAML. Diese IaC-internen Namen ändern nichts am eigentlichen Objekt in Weldall: Dort wird ein Scope zum Beispiel weiterhin durch `expenses:read` und eine Person durch `alice@example.com` identifiziert.
+`scope.expenses_read`, `emailAssignment.alice`, and `groupAssignment.finance` are names that IaC uses only inside this workspace. The part after the dot comes from the corresponding YAML map key. These IaC-only names do not change the actual objects in Weldall: A scope is still identified there by values such as `expenses:read`, and a person by an email address such as `alice@example.com`.
 
-Der Group Provider muss zuvor in Weldall konfiguriert sein. Ob die angegebene Gruppen-ID tatsächlich existiert, prüft die CLI nicht.
+The group provider must be configured in Weldall first. The CLI does not check whether the specified group ID actually exists.
 
-Ressourcen und Machine Clients verwenden dasselbe Format:
+Resources and machine clients use the same file format:
 
 ```yaml
 # weldall/runtime.yml
@@ -139,34 +139,34 @@ machines:
       - expenses:read
 ```
 
-Ins Manifest gehören nur öffentliche Machine-Schlüssel.
+Only public machine keys belong in the manifest.
 
-Das Logo auf der CLI-Willkommensseite lässt sich als Singleton-Einstellung verwalten. Eine leere URL entfernt das Unternehmenslogo:
+The CLI welcome page logo can be managed as a singleton setting. An empty URL removes the company logo:
 
 ```yaml
 cli:
   logoUrl: https://example.com/brand-logo.svg
 ```
 
-Administrativ verwaltete Skills enthalten das Markdown direkt und geben alle konfigurierbaren Felder explizit an:
+Administrator-managed skills use inline Markdown and explicitly declare every configurable field:
 
 ```yaml
 skills:
   review_expenses:
     slug: expenses.review
-    title: Ausgaben prüfen
+    title: Review expenses
     content: |
-      # Ausgaben prüfen
+      # Review expenses
 
-      Prüfe jede Ausgabe anhand der Richtlinie.
+      Check each expense against the policy.
     requiredScopes:
       - expenses:read
     visibility: HIDDEN_IF_UNALLOWED
     meta:
       tags:
-        - finanzen
-        - prüfung
-      owner: Finanzbetrieb
+        - finance
+        - review
+      owner: Finance Operations
       appearance:
         icon: file-text
         gradientFrom: "#555BD6"
@@ -176,29 +176,29 @@ skills:
     lastUpdatedAt: "2026-08-20"
 ```
 
-`meta.appearance.icon` akzeptiert kanonische Namen in Kebab-Case aus dem [Lucide-Icon-Katalog](https://lucide.dev/icons/). Gradient-Overrides werden nur verwendet, wenn beide Farben eines hellen oder dunklen Paars sechsstellige Hex-Farben sind; andernfalls verwendet Weldall den deterministischen Slug-basierten Fallback.
+`meta.appearance.icon` accepts canonical kebab-case names from the [Lucide icon catalog](https://lucide.dev/icons/). Gradient overrides are applied only when both colors in a light or dark pair are six-digit hex colors; otherwise Weldall uses the deterministic slug-based fallback.
 
-Der Slug ist die Identität des Skills; eine Änderung ersetzt den Skill. Ein über IaC verwalteter Skill bleibt in der Admin-Oberfläche bearbeitbar. Solche Änderungen gelten als Drift und werden beim nächsten Apply auf den YAML-Zustand zurückgesetzt. Administrativ verwaltete Skills dürfen einen von einer Ressource veröffentlichten Skill mit derselben kanonischen ID überschreiben. Entdeckte Skills und Kataloge können weder importiert noch verwaltet werden.
+The slug is the skill identity, so changing it replaces the skill. An IaC-managed skill remains editable in the admin UI; such edits are drift and the next apply restores the YAML state. Administrator-managed skills may override resource-published skills with the same canonical ID. Discovered skills and catalogs cannot be imported or managed.
 
-## Die wichtigsten CLI-Befehle
+## Essential CLI commands
 
-| Befehl                                             | Zweck                                                                                          |
+| Command                                            | Purpose                                                                                        |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `weldall init --name … --issuer …`                 | Legt einen neuen Workspace mit Root-Manifest, Lockdatei und Fragmentverzeichnis an.            |
-| `weldall validate`                                 | Liest und prüft das Root-Manifest sowie alle Fragmente lokal, ohne den Server zu kontaktieren. |
-| `weldall plan`                                     | Vergleicht die YAML-Konfiguration mit dem aktuellen Serverzustand, ohne etwas zu ändern.       |
-| `weldall up`                                       | Zeigt einen aktuellen Plan, fragt nach Bestätigung und wendet ihn anschließend an.             |
-| `weldall up --yes`                                 | Wendet den Plan ohne Rückfrage an, zum Beispiel in der CI.                                     |
-| `weldall import <kind> <identity> --as <iac-name>` | Übernimmt ein vorhandenes Objekt und gibt ihm einen Namen für diesen IaC-Workspace.            |
-| `weldall unmanage <iac-name> --yes`                | Beendet die Verwaltung eines Objekts, ohne das Objekt selbst zu löschen.                       |
-| `weldall state mv <old> <new>`                     | Ändert den Namen, unter dem IaC das Objekt verwaltet; das Weldall-Objekt bleibt unverändert.   |
-| `weldall state pull`                               | Stellt die Zuordnungen in der Lockdatei aus dem Serverzustand wieder her.                      |
+| `weldall init --name … --issuer …`                 | Creates a workspace with a root manifest, lockfile, and fragment directory.                    |
+| `weldall validate`                                 | Reads and validates the root manifest and all fragments locally without contacting the server. |
+| `weldall plan`                                     | Compares the YAML configuration with the current server state without changing anything.       |
+| `weldall up`                                       | Shows a fresh plan, asks for confirmation, and then applies it.                                |
+| `weldall up --yes`                                 | Applies the plan without prompting, for example in CI.                                         |
+| `weldall import <kind> <identity> --as <iac-name>` | Claims an existing object and gives it a name for this IaC workspace.                          |
+| `weldall unmanage <iac-name> --yes`                | Stops managing an object without deleting the object itself.                                   |
+| `weldall state mv <old> <new>`                     | Changes the name IaC uses to manage the object; the Weldall object remains unchanged.          |
+| `weldall state pull`                               | Rebuilds the lockfile mappings from the server state.                                          |
 
-`weldall plan --json` gibt den Plan als maschinenlesbares JSON aus. Mit `weldall plan --detailed-exit-code` signalisiert Exit-Code `2`, dass Änderungen anstehen.
+`weldall plan --json` prints the plan as machine-readable JSON. With `weldall plan --detailed-exit-code`, exit code `2` signals that changes are pending.
 
-## Vorhandenes Objekt importieren
+## Import an existing object
 
-Ein passendes manuelles Objekt wird nie automatisch übernommen. Der Import ist immer explizit:
+A matching manual object is never claimed automatically. Import it explicitly:
 
 ```sh
 weldall import emailAssignment alice@example.com --as emailAssignment.alice
@@ -206,24 +206,24 @@ weldall import scope expenses:read --as scope.expenses_read
 weldall import skill expenses.review --as skill.review_expenses
 ```
 
-Der Import erhält das Objekt, schreibt seine aktuelle Konfiguration nach `weldall/imports/` und aktualisiert die Lockdatei.
+Import preserves the object, writes its current configuration to `weldall/imports/`, and updates the lockfile.
 
-Wird eine verwaltete Deklaration entfernt, löscht das nächste Apply das Objekt. Soll das Objekt erhalten bleiben, wird zuerst die Deklaration entfernt und anschließend die Verwaltung beendet:
+Removing a managed declaration makes the next apply delete that object. To keep the object but stop managing it, remove the declaration and run:
 
 ```sh
 weldall unmanage scope.expenses_read --yes
 ```
 
-Der nur innerhalb von IaC verwendete Name lässt sich ändern, ohne das eigentliche Weldall-Objekt umzubenennen oder neu anzulegen. Zum Beispiel benennt dieser Befehl `scope.expenses_read` innerhalb von IaC in `scope.expenses_view` um; der Scope `expenses:read` in Weldall bleibt derselbe:
+You can change the name used only inside IaC without renaming or recreating the actual Weldall object. For example, this command renames `scope.expenses_read` to `scope.expenses_view` inside IaC; the `expenses:read` scope in Weldall remains the same:
 
 ```sh
 weldall state mv scope.expenses_read scope.expenses_view
 ```
 
-Die Lockdatei kann außerdem aus dem Serverzustand wiederhergestellt werden:
+You can also recover the lockfile from the server state:
 
 ```sh
 weldall state pull
 ```
 
-Alle Felder beschreibt das [JSON-Schema des Manifests](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1.schema.json).
+The complete field reference is the [manifest JSON Schema](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1.schema.json).

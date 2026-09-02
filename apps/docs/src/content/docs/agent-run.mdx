@@ -1,78 +1,78 @@
 ---
-title: Ein vollständiger Agentenlauf
-description: So verwenden ein Mitarbeiter und sein Agent Weldall CLI, um sicher auf eine Unternehmensanwendung zuzugreifen.
+title: A complete agent run
+description: How an employee and their agent use Weldall CLI to access a company application securely.
 sidebar:
   label: Walktrough
   order: 1
 ---
 
-Diese Seite zeigt einen vollständigen Ablauf aus Sicht eines Mitarbeiters und seines Agenten. Als Beispiel dient eine Anwendung, in der das Unternehmen seine Verträge verwaltet.
+This page follows a complete run from the perspective of an employee and their agent. The example uses an application that manages the company's contracts.
 
-## 1. Der Mitarbeiter meldet sich an
+## 1. The employee signs in
 
-Der Mitarbeiter meldet sich einmal selbst über die CLI an:
+The employee signs in once through the CLI:
 
 ```sh
 weldall login
 ```
 
-Die CLI öffnet die Anmeldung des Unternehmens im Browser. Nach erfolgreichem Login speichert sie die Sitzung und den Geräteschlüssel im geschützten Betriebssystemspeicher.
+The CLI opens the company's sign-in page in the browser. After a successful login, it stores the session and device key in the operating system's secure credential store.
 
-Für diese CLI-Anmeldung benötigt der Mitarbeiter vorher einen effektiven `weldall:login`-Scope, der direkt per E-Mail oder über eine passende Provider-Gruppe zugewiesen wurde. Die Browser-Anmeldung an der Weldall-Administrationsoberfläche ist davon getrennt.
+The employee needs an effective `weldall:login` scope, assigned directly by email or through a matching provider group, before this CLI sign-in can complete. Browser sign-in to the Weldall administration UI is separate.
 
-:::note[Automatische Anmeldung]
-Wenn das Unternehmen ein Mobile Device Management (MDM) einsetzt, kann dieser Schritt auch automatisiert ablaufen.
+:::note[Automated sign-in]
+If the company uses mobile device management (MDM), this step can also run automatically.
 :::
 
-## 2. Der Mitarbeiter beauftragt seinen Agenten
+## 2. The employee gives the agent a task
 
-Weldall ist nicht an einen bestimmten Agenten gebunden. Es funktioniert mit Pi, Claude und jedem anderen Agenten, der die CLI aufrufen kann. Der Agent muss zunächst nur eine Regel kennen:
+Weldall is not tied to a specific agent. It works with Pi, Claude, and any other agent that can invoke the CLI. The agent initially needs to know only one rule:
 
-> Verwende Weldall für Aufgaben in meinem Unternehmen.
+> Use Weldall for tasks in my company.
 
-Weitere unternehmensspezifische Hinweise können Administratoren zentral im [CLI-Appendix](../features/#cli-appendix) hinterlegen. Wenn der Agent `weldall` ohne Unterbefehl aufruft, zeigt die Hilfe das lokal zwischengespeicherte Appendix ohne Netzwerkanfrage an. Anmeldung, Status-, Scope- und Skill-Befehle aktualisieren den Cache für spätere Aufrufe.
+Administrators can add further company-specific guidance to the centrally managed [CLI appendix](../features/#cli-appendix). When the agent invokes `weldall` without a subcommand, the help output includes the locally cached appendix without making a network request. Login, status, scope, and skill commands refresh the cache for later invocations.
 
-Danach gibt der Mitarbeiter seinem Agenten den fachlichen Auftrag:
+The employee then gives the agent the business task:
 
-> Suche den Vertrag mit der Nordstern GmbH und ändere das nächste Prüfdatum auf den 30. September 2026.
+> Find the contract with Nordstern GmbH and change its next review date to September 30, 2026.
 
-Der Mitarbeiter muss weder wissen, welcher Service die Verträge verwaltet, noch wie dessen API aufgerufen wird.
+The employee does not need to know which service manages contracts or how to call its API.
 
-## 3. Der Agent sucht nach verfügbaren Skills
+## 3. The agent discovers available skills
 
-Der Agent beginnt mit den Funktionen, die Weldall für diesen Mitarbeiter veröffentlicht:
+The agent starts with the capabilities that Weldall publishes for this employee:
 
 ```sh
 weldall skills
 ```
 
-`weldall skills` ist die Kurzform von `weldall skills list`. Eine mögliche Ausgabe ist:
+`weldall skills` is shorthand for `weldall skills list`. A possible response is:
 
 ```text
-contracts.manage  Verträge verwalten  available
+contracts.manage  Manage contracts  available
 ```
 
-Die Liste enthält nur Skills, die für diesen Mitarbeiter sichtbar sind. Ein sichtbarer Skill kann je nach Konfiguration verfügbar sein oder auf fehlende Berechtigungen hinweisen.
+The list contains only skills that are visible to this employee. Depending on its configuration, a visible skill can either be available or indicate missing permissions.
 
-## 4. Der Agent liest die Anleitung
+## 4. The agent reads the instructions
 
-Der Agent lädt den vollständigen Skill:
+The agent loads the complete skill:
 
 ```sh
 weldall skills show contracts.manage
 ```
 
-Das Skill-Dokument weist den Agenten an, wie er die CLI für die richtigen HTTP-Requests verwendet. Es enthält die vollständigen `weldall request`-Befehle mit Ziel-URLs, Scopes und benötigten Daten:
+The skill document tells the agent how to use the CLI for the correct HTTP requests. It contains complete `weldall request` commands with target URLs, scopes, and required data:
 
 ````md
 ---
-title: "Verträge verwalten"
+title: "Manage contracts"
 requiredScopes:
   - "contracts:read"
   - "contracts:update"
 ---
 
-Suche einen Vertrag:
+Search for a contract:
 
 ```sh
 weldall request \
@@ -80,7 +80,7 @@ weldall request \
   "https://contracts.example.com/api/contracts?customer=<url-encoded-name>"
 ```
 
-Frage den Nutzer vor einer Änderung nach einer Bestätigung. Ändere danach das Prüfdatum:
+Ask the user for confirmation before making a change. Then update the review date:
 
 ```sh
 weldall request \
@@ -91,11 +91,11 @@ weldall request \
 ```
 ````
 
-Die Bestätigung ist in diesem Beispiel eine Regel des Skills. Weldall erzwingt sie nicht selbst. Weldall erzwingt, dass der Agent nur die freigegebenen Ziele und Scopes verwenden kann.
+In this example, confirmation is a rule defined by the skill. Weldall does not enforce the confirmation itself. Weldall enforces that the agent can use only approved targets and scopes.
 
-## 5. Der Agent liest den Vertrag
+## 5. The agent reads the contract
 
-Der Agent folgt der Anleitung und sucht den Vertrag:
+The agent follows the instructions and searches for the contract:
 
 ```sh
 weldall request \
@@ -103,7 +103,7 @@ weldall request \
   "https://contracts.example.com/api/contracts?customer=Nordstern%20GmbH"
 ```
 
-Der Vertragsservice antwortet beispielsweise:
+The contract service might respond with:
 
 ```json
 {
@@ -114,11 +114,11 @@ Der Vertragsservice antwortet beispielsweise:
 }
 ```
 
-Der Agent kennt nun den aktuellen Wert und bittet den Mitarbeiter um die im Skill verlangte Bestätigung.
+The agent now knows the current value and asks the employee for the confirmation required by the skill.
 
-## 6. Der Agent ändert den Vertrag
+## 6. The agent updates the contract
 
-Nach der Bestätigung sendet der Agent die Änderung:
+After confirmation, the agent sends the change:
 
 ```sh
 weldall request \
@@ -128,26 +128,26 @@ weldall request \
   https://contracts.example.com/api/contracts/contract-4711
 ```
 
-Die CLI gibt die Antwort des Vertragsservice aus. Der Agent fasst das Ergebnis für den Mitarbeiter zusammen.
+The CLI prints the contract service's response. The agent summarizes the result for the employee.
 
-## Was Weldall dabei übernimmt
+## What Weldall handles
 
-Bei jedem `weldall request` führt die CLI die sicherheitsrelevanten Schritte selbst aus:
+For every `weldall request`, the CLI performs the security-sensitive steps itself:
 
-1. Sie prüft, ob die Ziel-URL zu einem registrierten Unternehmensservice gehört.
-2. Sie prüft, ob der angeforderte Scope für diesen Service unterstützt und dem Mitarbeiter zugewiesen ist.
-3. Sie beschafft kurzlebige, DPoP-gebundene Zugangsdaten für genau diesen Service.
-4. Sie sendet den API-Request direkt an den Vertragsservice.
-5. Sie gibt nur die fachliche Antwort an den Agenten zurück.
+1. It verifies that the target URL belongs to a registered company service.
+2. It verifies that the requested scope is supported by the service and assigned to the employee.
+3. It obtains short-lived, DPoP-bound credentials for that specific service.
+4. It sends the API request directly to the contract service.
+5. It returns only the business response to the agent.
 
-Der Agent sieht kein Access Token und muss keine Zugangsdaten speichern. Administratoren kontrollieren zentral, welche Skills sichtbar sind und welche Scopes ein Mitarbeiter verwenden darf. Weldall protokolliert, ob die angeforderte Autorisierung erteilt oder abgelehnt wurde.
+The agent never sees an access token and does not need to store credentials. Administrators centrally control which skills are visible and which scopes an employee may use. Weldall records whether the requested authorization was granted or denied.
 
-:::note[Sicherheit nach offenen Standards]
-Weldall folgt bei der Autorisierung den aktuellen OAuth-Entwürfen für Identity Chaining und DPoP-gebundene Grants sowie etablierten OAuth-Standards. Mehr dazu steht unter [Sicherheitsmodell und OAuth-Standards](../oauth-security/).
+:::note[Security through open standards]
+Weldall follows the current OAuth drafts for identity chaining and DPoP-bound grants, together with established OAuth standards. See [Security model and OAuth standards](../oauth-security/) for details.
 :::
 
-## Eigene Services mit Weldall verbinden
+## Connect your own services to Weldall
 
-Damit ein Agent auf einen Unternehmensservice zugreifen kann, verbinden Administratoren den Service einmal mit Weldall. Sie legen die Berechtigungen fest und veröffentlichen einen passenden Skill. Danach können Mitarbeitende den Service verwenden, ohne seine API, URLs oder sein Berechtigungsmodell kennen zu müssen.
+Before an agent can access a company service, administrators connect that service to Weldall once. They define the permissions and publish a matching skill. Employees can then use the service without needing to understand its API, URLs, or authorization model.
 
-Die einzelnen Schritte stehen unter [How to: Service integrieren](../service-configuration/).
+See [How to: Integrate a service](../service-configuration/) for the individual steps.

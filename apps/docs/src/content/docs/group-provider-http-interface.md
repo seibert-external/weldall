@@ -1,30 +1,30 @@
 ---
-title: HTTP-Schnittstelle für Group Provider
-description: Der HTTP-Vertrag für Gruppen- und Mitgliedschaftsdaten aus einem Group Provider.
+title: Group provider HTTP interface
+description: The HTTP contract for group and membership data from a group provider.
 sidebar:
-  label: Group Provider API
+  label: Group provider API
 ---
 
-Um unterschiedliche Active-Directory- und LDAP-Umgebungen anbinden zu können, liest Weldall Gruppen und aktuelle Mitgliedschaften über eine kleine HTTP-Schnittstelle. Der dafür eingesetzte Webservice implementiert die unten beschriebenen REST-Pfade und liefert die gezeigten JSON-Antworten.
+To support a broad range of Active Directory and LDAP environments, Weldall reads groups and current memberships through a small HTTP interface. The supporting web service implements the REST paths described below and returns the shown JSON responses.
 
-Administratoren hinterlegen den HTTPS-Origin und ein Token unter **Group providers**.
+Administrators configure the HTTPS origin and a token under **Group providers**.
 
-:::note[Active Directory und LDAP]
-Die HTTP-Schnittstelle ist bewusst klein gehalten, damit unterschiedliche Active-Directory- und LDAP-Varianten angebunden werden können. Bietet das Verzeichnis diese REST-Pfade nicht selbst an, übersetzt ein zusätzlicher Proxy zwischen der Schnittstelle und LDAP.
+:::note[Active Directory and LDAP]
+The HTTP interface is intentionally small so it can sit in front of different Active Directory and LDAP variants. If the directory does not expose these REST paths itself, an additional proxy translates between the interface and LDAP.
 :::
 
-## Authentifizierung
+## Authentication
 
-Weldall sendet jeden Request mit diesen Headern:
+Weldall sends every request with these headers:
 
 ```http
-Authorization: Token <konfiguriertes Token>
+Authorization: Token <configured token>
 Accept: application/json
 ```
 
-Die Basis-URL muss ein HTTPS-Origin ohne Zugangsdaten, Pfad, Query oder Fragment sein, zum Beispiel `https://groups.example.com`. Weldall hängt die folgenden Pfade an diesen Origin an.
+The base URL must be an HTTPS origin without credentials, a path, query parameters, or a fragment, such as `https://groups.example.com`. Weldall appends the following paths to this origin.
 
-## Gruppen auflisten
+## List groups
 
 ```http
 GET <baseUrl>/api/management/groups/
@@ -40,29 +40,29 @@ GET <baseUrl>/api/management/groups/
 ]
 ```
 
-| Feld          | Bedeutung                                                                          |
-| ------------- | ---------------------------------------------------------------------------------- |
-| `ou`          | Erforderliche, stabile Gruppen-ID. Groß- und Kleinschreibung werden unterschieden. |
-| `cn`          | Optionaler Anzeigename. Fehlt er oder ist er leer, verwendet Weldall `ou`.         |
-| `description` | Optionale Beschreibung. `null` ist zulässig.                                       |
+| Field         | Meaning                                                               |
+| ------------- | --------------------------------------------------------------------- |
+| `ou`          | Required, stable, case-sensitive group ID.                            |
+| `cn`          | Optional display name. Weldall uses `ou` when it is missing or empty. |
+| `description` | Optional description. `null` is accepted.                             |
 
-Weldall verwendet diese Liste für Verbindungstests und optionale Gruppensuchen. Beim Erstellen von Zuweisungen behandelt Weldall Gruppen-IDs als opak und ruft den Provider nicht auf. Die Suche erfolgt lokal über ID, Name und Beschreibung. Die Antwort darf höchstens 10.000 Gruppen enthalten.
+Weldall uses this list for connection tests and optional group searches. Assignment creation treats group IDs as opaque and does not call the provider. Search runs locally across the ID, name, and description. The response may contain at most 10,000 groups.
 
-## Eine Gruppe lesen
-
-```http
-GET <baseUrl>/api/management/groups/<url-kodierte-gruppen-id>/
-```
-
-Die Antwort enthält dasselbe Objektformat wie ein Eintrag der Gruppenliste. `ou` muss genau der angefragten Gruppen-ID entsprechen.
-
-## Nutzer über die E-Mail-Adresse finden
+## Get one group
 
 ```http
-GET <baseUrl>/api/management/users/?mail=<url-kodierte-normalisierte-email>
+GET <baseUrl>/api/management/groups/<url-encoded-group-id>/
 ```
 
-Weldall entfernt Leerzeichen am Rand, schreibt die E-Mail-Adresse klein und verwendet den Query-Parameter `mail`.
+The response uses the same object shape as an entry in the group list. `ou` must exactly match the requested group ID.
+
+## Find a user by email
+
+```http
+GET <baseUrl>/api/management/users/?mail=<url-encoded-normalized-email>
+```
+
+Weldall trims and lowercases the email address and uses the `mail` query parameter.
 
 ```json
 [
@@ -74,18 +74,18 @@ Weldall entfernt Leerzeichen am Rand, schreibt die E-Mail-Adresse klein und verw
 ]
 ```
 
-Die Antwort muss ein Array mit keinem oder genau einem Treffer sein. Ohne Treffer vergibt der Provider keine gruppenbasierten Scopes. Mehrere Treffer oder eine abweichende E-Mail-Adresse werden abgelehnt.
+The response must be an array with zero or exactly one result. With no result, the provider contributes no group-based scopes. Multiple results or an email mismatch are rejected.
 
-| Feld        | Bedeutung                                                 |
-| ----------- | --------------------------------------------------------- |
-| `username`  | Erforderliche, stabile ID des Nutzers beim Provider.      |
-| `email`     | Erforderliche E-Mail-Adresse des Nutzers.                 |
-| `is_active` | Nur aktive Nutzer können gruppenbasierte Scopes erhalten. |
+| Field       | Meaning                                           |
+| ----------- | ------------------------------------------------- |
+| `username`  | Required, stable user ID at the provider.         |
+| `email`     | Required user email address.                      |
+| `is_active` | Only active users can receive group-based scopes. |
 
-## Nutzer mit Gruppen lesen
+## Get a user with groups
 
 ```http
-GET <baseUrl>/api/management/users/<url-kodierte-nutzer-id>/
+GET <baseUrl>/api/management/users/<url-encoded-user-id>/
 ```
 
 ```json
@@ -97,20 +97,20 @@ GET <baseUrl>/api/management/users/<url-kodierte-nutzer-id>/
 }
 ```
 
-`username` und die normalisierte `email` müssen dem vorherigen Suchtreffer entsprechen. Der Nutzer muss weiterhin aktiv sein. `groups` enthält die effektiven Gruppen-IDs des Nutzers und darf höchstens 10.000 Einträge enthalten. Weldall löst verschachtelte Gruppen nicht selbst auf.
+`username` and the normalized `email` must match the earlier search result. The user must still be active. `groups` contains the user's effective group IDs and may have at most 10,000 entries. Weldall does not resolve nested groups itself.
 
-## Antwortregeln und Grenzen
+## Response rules and limits
 
-Alle Endpunkte müssen mit einem erfolgreichen HTTP-Status und `Content-Type: application/json` antworten. Zusätzliche Objektfelder sind erlaubt, werden aber verworfen.
+Every endpoint must return a successful HTTP status with `Content-Type: application/json`. Additional object fields are accepted and discarded.
 
-- Gruppen-IDs, Nutzernamen und Einträge in `groups` enthalten nach dem Trimmen 1 bis 191 Zeichen.
-- Gruppennamen enthalten höchstens 191 Zeichen, Beschreibungen höchstens 2.000 Zeichen.
-- E-Mail-Adressen müssen gültig sein und dürfen höchstens 320 Zeichen enthalten.
-- Eine Antwort darf höchstens 5 MiB groß sein und muss innerhalb von 5 Sekunden eintreffen.
-- Weldall folgt keinen Redirects, wiederholt fehlgeschlagene Requests nicht und speichert Antworten des Providers nicht serverseitig zwischen.
+- Group IDs, usernames, and entries in `groups` contain 1 to 191 characters after trimming.
+- Group names contain at most 191 characters. Descriptions contain at most 2,000 characters.
+- Email addresses must be valid and contain at most 320 characters.
+- A response may be at most 5 MiB and must arrive within 5 seconds.
+- Weldall does not follow redirects, retry failed requests, or cache provider responses on the server.
 
-Bei jeder neuen Autorisierungsentscheidung fragt Weldall die Mitgliedschaft erneut ab. Fehlerhafte Antworten, inaktive Nutzer, Timeouts und Fehler des Providers erzeugen keine gruppenbasierten Scopes.
+Weldall fetches membership again for every new authorization decision. Invalid responses, inactive users, timeouts, and provider failures do not create group-based scopes.
 
-:::note[Effektive Scopes]
-Die effektiven Scopes eines Mitarbeiters sind die Vereinigung aus Gruppen-Scopes und direkt seiner E-Mail-Adresse zugewiesenen Scopes. Ist der Provider vorübergehend nicht erreichbar, bleiben die E-Mail-Scopes verfügbar.
+:::note[Effective scopes]
+An employee's effective scopes are the union of group scopes and scopes assigned directly to their email address. If the provider is temporarily unavailable, the email scopes remain available.
 :::

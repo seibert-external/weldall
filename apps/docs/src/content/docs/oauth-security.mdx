@@ -1,8 +1,8 @@
 ---
-title: Sicherheitsmodell und OAuth-Standards
-description: Die Sicherheitsgarantien und verwendeten OAuth-Standards von Weldall.
+title: Security model and OAuth standards
+description: Weldall's security guarantees and the OAuth standards it uses.
 sidebar:
-  label: Sicherheit
+  label: Security
 ---
 
 import { Image } from "astro:assets";
@@ -14,72 +14,72 @@ import securityFlowDark from "../../assets/security-flow-dark.svg";
 <div class="dark:sl-hidden">
   <Image
     src={securityFlowLight}
-    alt="Sicherheitsablauf zwischen Agent, Weldall CLI und Service"
+    alt="Security flow between the agent, Weldall CLI, and service"
     data-zoom
   />
 </div>
 <div class="light:sl-hidden">
   <Image
     src={securityFlowDark}
-    alt="Sicherheitsablauf zwischen Agent, Weldall CLI und Service"
+    alt="Security flow between the agent, Weldall CLI, and service"
     data-zoom
   />
 </div>
 
-Dieser Abschnitt erklärt, wie Weldall Zugriffe auf Unternehmenssysteme absichert. Im Kern gilt dabei eine einfache Regel: **Der Agent bekommt niemals Zugangsdaten zu sehen.** Alle Tokens werden in der CLI verwaltet, sind kurzlebig und an ein Gerät gebunden.
+This section explains how Weldall secures access to company systems. At its core is one simple rule: **The agent never gets to see any credentials.** All tokens are managed inside the CLI, are short-lived, and are bound to a device.
 
-Das Sicherheitsmodell haben wir nicht selbst ausgedacht, sondern baut auf etablierten und aktuellen OAuth-Standards auf. Konkret kombiniert es einen **Identity Assertion JWT Authorization Grant (ID-JAG)** mit einem **DPoP-gebundenen JWT Authorization Grant**.
+We did not invent this security model ourselves. It builds on established and current OAuth standards. Specifically, it combines an **Identity Assertion JWT Authorization Grant (ID-JAG)** with a **DPoP-bound JWT Authorization Grant**. Because we follow a standard, the flow is openly documented and can be reviewed by independent parties.
 
-## Das Problem: langlebige Zugangsdaten
+## The problem: long-lived credentials
 
-Wer ohne besondere Vorgaben eine Applikation baut, der für Agenten verfügbar sein soll, könnte darauf kommen, API-Tokens oder vergleichbare Passwörter zu vergeben. Wer solche Zugangsdaten einmal besitzt, kann sie beliebig oft verwenden – auch von einem anderen Gerät aus. Verlorene oder kompromittierte Schlüssel müssen zurückgerufen werden, und Berechtigungen lassen sich kaum nachvollziehen, weil sie nicht nutzergebunden sind.
+Anyone building an application to be used by agents might, without special guidance, hand out API tokens or comparable passwords. Whoever holds such credentials once can use them over and over, even from another device. Lost or compromised keys must be revoked, and permissions are hard to trace because they are not tied to a user.
 
-Weldall vermeidet das, indem es Zugriffe nach dem Prinzip **kurzlebig, sendergebunden und zentral steuerbar** gestaltet.
+Weldall avoids this by designing access as **short-lived, sender-bound, and centrally controlled**.
 
-## Die Vertrauenskette im Überblick
+## The trust chain at a glance
 
-Das Diagramm oben zeigt den vollständigen Ablauf zwischen Mitarbeiter, Weldall CLI, Weldall Authorization Server (AS), dem Unternehmens-IdP und dem Downstream-Service. Im Detail:
+The diagram above shows the full flow between the employee, the Weldall CLI, the Weldall Authorization Server (AS), the company IdP, and the downstream service. In detail:
 
-1. **Geräteschlüssel erzeugen** – Beim ersten Start erzeugt die CLI ein Schlüsselpaar und speichert es im geschützten Betriebssystemspeicher.
-2. **Anmeldung über das Unternehmens-SSO** – Die CLI öffnet die Anmeldung im Browser. Der Mitarbeiter meldet sich mit seiner bestehenden Unternehmensidentität an.
-3. **Autorisierungscode austauschen** – Die CLI tauscht den Code per **PKCE** und **DPoP** gegen Access-, ID- und Refresh-Token ein. Die Tokens sind an den Geräteschlüssel gebunden.
-4. **Refresh-Token rotieren** – Bei jeder Verlängerung sendet die CLI den Refresh-Token zusammen mit einem **DPoP-Proof** und erhält einen neuen Access-Token sowie einen rotierten Refresh-Token. Ein bereits verwendeter Refresh-Token wird damit wertlos.
-5. **Service ermitteln** – Die CLI fragt beim AS die Resource Registry ab und erfährt, welche Ressourcen und Scopes für diesen Mitarbeiter freigegeben sind.
-6. **Identität weiterreichen (ID-JAG)** – Für den gewünschten Service tauscht die CLI den Refresh-Token in einen signierten ID-JAG um.
-7. **Downstream-Token beschaffen** – Der Downstream AS tauscht den ID-JAG per **DPoP** gegen einen Access-Token für genau diesen Service.
-8. **Request senden** – Die CLI sendet den Request mit Token und DPoP-Proof direkt an den Service und gibt nur die fachliche Antwort an den Agenten zurück.
+1. **Generate a device key** – On first start, the CLI generates a key pair and stores it in the protected operating system storage.
+2. **Sign in through the company SSO** – The CLI opens the sign-in in the browser. The employee authenticates with their existing company identity.
+3. **Exchange the authorization code** – The CLI exchanges the code for access, ID, and refresh tokens using **PKCE** and **DPoP**. The tokens are bound to the device key.
+4. **Rotate the refresh token** – On every renewal, the CLI sends the refresh token together with a **DPoP proof** and receives a new access token plus a rotated refresh token. A refresh token that has already been used becomes worthless.
+5. **Resolve the service** – The CLI queries the AS resource registry to learn which resources and scopes are granted for this employee.
+6. **Chain the identity (ID-JAG)** – For the requested service, the CLI exchanges the refresh token for a signed ID-JAG.
+7. **Obtain a downstream token** – The downstream AS exchanges the ID-JAG via **DPoP** for an access token for exactly this service.
+8. **Send the request** – The CLI sends the request with the token and DPoP proof directly to the service and returns only the business response to the agent.
 
-## Warum der Agent kein Token sieht
+## Why the agent never sees a token
 
-Der Agent ruft `weldall request` auf und erhält ausschließlich die Antwort des Services. Er kennt weder die verwendeten Tokens noch den Geräteschlüssel. Das schließt zwei Wege aus, auf denen Zugangsdaten sonst verloren gehen:
+The agent runs `weldall request` and receives only the service's response. It knows neither the tokens in use nor the device key. This rules out two ways in which credentials could otherwise leak:
 
-- **Kein Leak über den Kontext.** Käme ein Token in den Kontext des Agenten, könnte es dort durch Logs, Übertragung oder einen Prompt-Token-Dump nach außen gelangen. Weil der Agent das Token nie sieht, kann es auch nicht in seinen Kontext geraten.
-- **Kein Weiterreichen über den Chat.** Ein Agent kann ein Token nicht in einer Chat-Antwort versenden, weil er es gar nicht besitzt. Selbst ein anderweitig abgegriffenes Access-Token wäre wertlos: Es ist per DPoP an den Geräteschlüssel der CLI gebunden und lässt sich auf einem anderen Gerät nicht verwenden.
+- **No leak through the context.** If a token entered the agent's context, it could escape through logs, transmission, or a prompt token dump. Because the agent never sees the token, it cannot enter its context in the first place.
+- **No forwarding through the chat.** An agent cannot send a token in a chat response because it does not hold it at all. Even an otherwise intercepted access token would be worthless: it is bound to the CLI's device key via DPoP and cannot be used on another device.
 
-Selbst wenn doch etwas verloren ginge, hielte es nicht lange: Tokens sind **kurzlebig**, und DPoP-**Replay-Schutz** macht sie nur für genau einen Request gültig. Ein abgefangenes Token verliert damit rasch jeden Wert.
+Even if something did leak, it would not last long: tokens are **short-lived**, and DPoP **replay protection** makes them valid for exactly one request. An intercepted token therefore loses its value quickly.
 
-## Zugriff zentral kontrollieren
+## Central access control
 
-Ob und wofür ein Mitarbeiter berechtigt ist, entscheidet der Authorization Server. Die CLI prüft vor jedem Request:
+Whether and for what an employee is authorized is decided by the authorization server. Before each request, the CLI checks:
 
-1. ob die Ziel-URL zu einem **registrierten Service** gehört,
-2. ob der angeforderte **Scope** für diesen Service unterstützt und dem Mitarbeiter zugewiesen ist.
+1. whether the target URL belongs to a **registered service**,
+2. whether the requested **scope** is supported for this service and granted to the employee.
 
-Weldall protokolliert **erteilte und abgelehnte Zugriffe**. Administratoren können nachvollziehen, wer welchen Zugriff auf welche Ressource angefordert hat – und können Berechtigungen zentral anpassen.
+Weldall logs **granted and denied access**. Administrators can trace who requested access to which resource and can adjust permissions centrally.
 
-## Verwendete OAuth-Standards
+## OAuth standards in use
 
-| Standard                                                                                                                                                  | Zweck                                                                       |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Identity Assertion JWT Authorization Grant (ID-JAG, Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | Identität über die Vertrauenskette bis zum Downstream-Service weiterreichen |
-| [JWT Authorization Grant mit DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                                | Refresh-Token sicher gegen einen Access-Token eintauschen                   |
-| [Native OAuth-Clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                            | Anmeldung über den Browser mit Loopback-Rückruf                             |
-| [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                            | Autorisierungscode gegen einen Client-seitig verifizierten Code tauschen    |
-| [OAuth-Sicherheitsempfehlungen (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)                                                                   | Aktuelle Best Practices für sichere OAuth-Flows                             |
-| [Sendergebundene Tokens mit DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                                 | Access- und Refresh-Tokens an den Geräteschlüssel binden                    |
+| Standard                                                                                                                                                  | Purpose                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [Identity Assertion JWT Authorization Grant (ID-JAG, Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | Chain the identity through the trust chain down to the downstream service |
+| [JWT Authorization Grant with DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                               | Securely exchange a refresh token for an access token                     |
+| [Native OAuth clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                            | Sign in through the browser with a loopback callback                      |
+| [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                            | Exchange an authorization code for a client-verified code                 |
+| [OAuth security best practices (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)                                                                   | Current best practices for secure OAuth flows                             |
+| [Sender-constrained tokens with DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                             | Bind access and refresh tokens to the device key                          |
 
-## Weitere Themen
+## Further reading
 
-- Wie die Komponenten zusammenarbeiten, zeigt [Ein vollständiger Agentenlauf](../agent-run/).
-- Backend-Services mit eigenen Identitäten sichern Sie unter [Machine-to-Machine-Authentifizierung](../machine-authentication/).
-- Metadaten und Signaturschlüssel über einen vertrauenswürdigen Proxy abrufen: [Discovery-Proxy](../discovery-proxy/).
+- How the components work together is shown in [A complete agent run](../agent-run/).
+- Secure backend services with their own identities under [Machine-to-machine authentication](../machine-authentication/).
+- Fetch metadata and signing keys through a trusted proxy: [Discovery proxy](../discovery-proxy/).

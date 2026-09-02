@@ -1,0 +1,110 @@
+---
+title: SDKs
+sidebar:
+  label: SDKs
+description: Die npm-Pakete für die Weldall CLI und angebundene Unternehmensservices.
+---
+
+Weldall veröffentlicht zwei npm-Pakete. Die CLI läuft auf dem Gerät eines Mitarbeiters. Das SDK läuft im angebundenen Service.
+
+## `@weldall/cli`
+
+[`@weldall/cli`](https://www.npmjs.com/package/@weldall/cli) installiert den Befehl `weldall`. Node.js 22.15 oder neuer ist erforderlich.
+
+### npm (empfohlen)
+
+```sh
+npm install --global @weldall/cli@latest
+weldall --version
+```
+
+### Experimentelle Standalone-Binaries
+
+Standalone-Binaries benötigen kein Node.js, npm oder Bun. Unterstützt werden zunächst Linux x64, Windows x64 und macOS ARM64/x64. Sie sind derzeit nicht signiert. Lade das passende Archiv aus den [GitHub Releases](https://github.com/seibert-external/weldall/releases).
+
+```sh
+# macOS, nach dem Download der vertrauenswürdigen Datei
+xattr -d com.apple.quarantine ./weldall
+chmod +x ./weldall
+
+# Linux
+chmod +x ./weldall
+```
+
+Windows PowerShell: `Unblock-File .\weldall.exe`.
+
+## `@weldall/sdk`
+
+[`@weldall/sdk`](https://www.npmjs.com/package/@weldall/sdk) prüft Requests, bevor ein Service Daten liest oder Änderungen ausführt. Es stellt eine Fetch-API und Adapter für Hono, Next.js und Astro bereit.
+
+```sh
+pnpm add @weldall/sdk
+```
+
+Erzeuge beim Start des Services eine Weldall-Instanz:
+
+```ts
+import { initWeldall } from "@weldall/sdk";
+
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://contracts.example.com/api",
+  publicOrigin: "https://contracts.example.com",
+  clientId: "weldall-cli-at-contracts",
+  supportedScopes: ["contracts:read", "contracts:update"],
+  signingKey,
+  replayStore,
+});
+```
+
+In einem Fetch-Handler prüft `weldall.verify(request, { scopes: [...] })` den Request vor der Geschäftslogik. Die Framework-Adapter stellen dafür Middleware oder Handler-Wrapper bereit:
+
+- `@weldall/sdk/hono`
+- `@weldall/sdk/next`
+- `@weldall/sdk/astro`
+
+Das SDK benötigt Node.js 22.15 oder neuer. Next.js-Routen müssen die Node.js-Runtime verwenden.
+
+## Skills aus einem Service veröffentlichen
+
+Eine Resource kann ihre Agentenanweisungen selbst veröffentlichen. Ergänze dazu einen `skills`-Provider in derselben SDK-Konfiguration:
+
+```ts
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://contracts.example.com/api",
+  publicOrigin: "https://contracts.example.com",
+  clientId: "weldall-cli-at-contracts",
+  supportedScopes: ["contracts:read"],
+  signingKey,
+  replayStore,
+  skills: {
+    items: [
+      {
+        id: "list",
+        title: "Verträge auflisten",
+        requiredScopes: ["contracts:read"],
+        visibility: "HIDDEN_IF_UNALLOWED",
+        content:
+          "# Verträge auflisten\n\nFühre `weldall request --scope contracts:read https://contracts.example.com/api/contracts` aus.",
+      },
+    ],
+  },
+});
+```
+
+Skill-IDs gelten lokal für die Resource. Hat die registrierte Resource den Key `contracts`, stellt Weldall diesen Skill als `contracts.list` bereit.
+
+Wenn der Katalog aus einer Datenbank oder einer anderen lokalen Quelle kommt, verwende `skills.load` statt `skills.items`:
+
+```ts
+skills: {
+  load: async () => loadPublishedSkills(),
+}
+```
+
+Der Provider erhält keine Identität eines Mitarbeiters. Er muss für alle Aufrufer denselben Katalog liefern.
+
+`DEFAULT` lässt einen Skill sichtbar und weist auf fehlende Scopes hin. `HIDDEN_IF_UNALLOWED` blendet ihn aus, solange dem Mitarbeiter ein benötigter Scope fehlt. Die Sichtbarkeit steuert nur die Discovery, nicht die Autorisierung: Die API-Route benötigt weiterhin eine eigene Schutzregel, und Skill-Anweisungen gewähren keinen Zugriff. Die Scopes müssen bereits in Weldall existieren; das gilt auch für geschützte System-Scopes. Unbekannte Scopes werden Nutzern nicht angezeigt und erscheinen als Warnung für Administratoren.
+
+Der Hono-Adapter registriert die Katalogroute mit `weldall.registerRoutes(app)`. Bei Fetch, Next.js und Astro muss `weldall.handlers.skills` unter `/.well-known/weldall-skills` erreichbar sein – neben den Handlern für OAuth-Metadaten, Token und JWKS.
+
+Eine vollständige Hono-Einrichtung zeigt [How to: Service integrieren](../service-configuration/). Hintergründe zu Schlüsseln, Replay-Schutz und Protokollen stehen unter [Sicherheit](../oauth-security/).

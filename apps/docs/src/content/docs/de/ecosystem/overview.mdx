@@ -1,0 +1,90 @@
+---
+title: Überblick
+description: Überblick über das Weldall Ecosystem.
+sidebar:
+  label: Überblick
+---
+
+import { Image } from "astro:assets";
+import { AstroZoomInit } from "astro-zoom";
+import productsLight from "../../../../assets/weldall-products.svg";
+import productsDark from "../../../../assets/weldall-products-dark.svg";
+import cliLight from "../../../../assets/cli.svg";
+import cliDark from "../../../../assets/cli-dark.svg";
+import walkthroughLight from "../../../../assets/walkthrough.svg";
+import walkthroughDark from "../../../../assets/walkthrough-dark.svg";
+import seibertGroupTeam from "../../../../assets/seibert-group-team.png";
+
+<AstroZoomInit background="var(--sl-color-bg)" />
+<div class="dark:sl-hidden">
+  <Image src={productsLight} alt="Produkte des Weldall Ecosystems" data-zoom />
+</div>
+<div class="light:sl-hidden">
+  <Image src={productsDark} alt="Produkte des Weldall Ecosystems" data-zoom />
+</div>
+
+Wir glauben, dass Mitarbeitende Aufgaben künftig zunehmend in **natürlicher Sprache** steuern. Agenten beantworten dann nicht nur Fragen, sie **führen Aufgaben aus**. Dafür brauchen sie Zugriff auf **geschützte Unternehmenssysteme**, ohne dass Zugangsdaten in Agenten und Konfigurationen liegen.
+
+Das Weldall Ecosystem verbindet **drei Bausteine**. Sie lösen zusammen, wie Mitarbeitende Unternehmensfunktionen sicher über Agenten nutzen, wie diese Funktionen überhaupt als Service bereitstehen und wie Verbindungen zu bestehenden Systemen geschützt werden. Das Ecosystem ist **self-hostable**, in großen Teilen **Open Source** und folgt aktuellen **OAuth-Standards**. Weitere Details zum Sicherheitsmodell, Schlüsselverwaltung und Betrieb stehen unter [Sicherheit](../../oauth-security/).
+
+## Weldall CLI
+
+**Weldall CLI** ist das Tool für den Zugriff über Agenten. Die CLI läuft auf dem Gerät des Mitarbeiters und wird zur **zentralen Skill-Bibliothek** des Unternehmens. Jeder Mitarbeiter sieht nur die Skills, für die er berechtigt ist. Administratoren steuern zentral, wer welche **Scopes** nutzen darf. **Skills** beschreiben dem Agenten in natürlicher Sprache, wie er bestimmte Aufgaben im jeweiligen Unternehmen erledigen muss. Die CLI wird in aller Regel nicht von Mitarbeitenden benutzt, sondern von einem Agenten wie Copilot, Claude Code, Pi oder OpenCode. Ein Skill ist dabei ein Handbuch dafür, wie der Agent Befehle wie `weldall scopes list` oder `weldall request` aufruft.
+
+<div class="dark:sl-hidden">
+  <Image src={walkthroughLight} alt="Nutzung der Weldall CLI durch einen Agenten" data-zoom />
+</div>
+<div class="light:sl-hidden">
+  <Image src={walkthroughDark} alt="Nutzung der Weldall CLI durch einen Agenten" data-zoom />
+</div>
+
+Weldall CLI ist **Open Source**, **self-hostable** und eines der ersten Repositories auf GitHub, das den **Identity Assertion JWT Authorization Grant** umsetzt. Es folgt aktuellen OAuth-Standards: ID-JAG, JWT Authorization Grant mit DPoP, RFC 8252, RFC 7636, RFC 9700 und RFC 9449.
+
+Dadurch können weder **Secrets noch Passwörter** verloren gehen. Der Agent erhält **kein Access Token**. Kurzlebige, **DPoP-gebundene Tokens** lassen sich auf einem anderen System nicht wiederverwenden. Administratoren behalten die Kontrolle über Tokens, Schlüssel und Audit-Logs.
+
+Details:
+
+- [Warum Weldall CLI?](../../)
+- [Ein vollständiger Agentenlauf](../../agent-run/)
+- [SDKs](../../sdks/)
+- [Service integrieren](../../service-configuration/)
+- [Sicherheit](../../oauth-security/)
+
+## Weldall Stack
+
+**Weldall Stack** ist das Bundle, mit dem Unternehmen **Services für Agenten** bereitstellen können. Es basiert auf einer Kombination aus Open-Source-Projekten und Betrieb durch Seibert Group. Der Stack wird für Kunden bei Seibert oder beim Kunden selbst deployed.
+
+Damit lassen sich interne Anwendungen wie Vertragsmanagement als Web Service verfügbar machen, ohne dass Mitarbeitende API-Details kennen müssen. Wir glauben, dass sich der Kreis derer, die Software entwickeln können, bedeutend geweitet hat. Mit _Vibe Coding_ können Teams schneller Services aufsetzen. Weldall Stack hilft dabei, dass das sicher vonstatten geht.
+
+Mehr dazu auf der Übersicht von Seibert Group: [weldall.seibert.group](https://weldall.seibert.group/).
+
+## Weldall Gateway
+
+**Weldall Gateway** sitzt zwischen Weldall und proprietären externen Diensten wie HubSpot oder Personio. Es tunnelt Anfragen, wenn nur **ein API-Token pro Unternehmen** existiert oder die Rechte-Granularität im externen System nicht ausreicht.
+
+Das Gateway filtert nach **REST-Endpoints**, zieht zusätzliche Policies ein und überwacht die Nutzung.
+
+## Beispiel: Neuer Mitarbeiter
+
+Ein neuer Mitarbeiter tritt ins Unternehmen ein. Der Agent muss mehrere Systeme bedienen:
+
+- Arbeitsvertrag im Vertragsmanagement hinterlegen.
+- Eintrag im HR-Tool anlegen (z. B. Personio).
+- Willkommensnachricht in MS Teams senden.
+
+Das genaue Vorgehen ist in einem **Skill** beschrieben. Die Zugriffe auf die verschiedenen Systeme sind mit **Scopes** geschützt. Administratoren legen zentral fest, welche Scopes der Mitarbeiter hat. Der Agent sieht keine Zugangsdaten. Weldall protokolliert erteilte und abgelehnte Zugriffe.
+
+<div class="dark:sl-hidden">
+  <Image src={cliLight} alt="Verbindungen zwischen Weldall und Unternehmenssystemen" data-zoom />
+</div>
+<div class="light:sl-hidden">
+  <Image src={cliDark} alt="Verbindungen zwischen Weldall und Unternehmenssystemen" data-zoom />
+</div>
+
+Ähnliche Abläufe gelten für Aufgaben wie _Reisekosten erfassen_ oder _Vertrag prüfen_. Die konkreten Schritte sind branchenspezifisch und individuell. In allen Fällen findet der Agent den passenden Skill, prüft die Berechtigungen über die CLI und ruft den Service auf, ohne Tokens zu verwalten.
+
+## Weldall Consultancy
+
+<Image src={seibertGroupTeam} alt="Das Team der Seibert Group" data-zoom />
+
+Bei Seibert Group arbeiten Expertinnen und Experten für **Web Security**, **Software Development** und **Unternehmensberatung**. Wir kennen die Praxis und sind jederzeit für ein Gespräch verfügbar. Im Rahmen der **Weldall Consultancy** helfen wir Unternehmen dabei, Prozesse zu erkennen und zu technisieren, damit sie durch KI optimierbar werden. Wir analysieren bestehende Abläufe, identifizieren agententaugliche Schritte und begleiten die Umsetzung mit Weldall CLI, Stack und Gateway. Ziel ist eine **sichere, messbare Automatisierung ohne Lock-in**.

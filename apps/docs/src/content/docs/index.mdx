@@ -1,8 +1,8 @@
 ---
-title: Warum Weldall CLI?
-description: Weldall CLI ermöglicht Agenten einen sicheren und zentral gesteuerten Zugriff auf Unternehmensfunktionen.
+title: Why Weldall CLI?
+description: Weldall CLI gives agents secure, centrally controlled access to company capabilities.
 sidebar:
-  label: Einführung
+  label: Introduction
   order: 0
 ---
 
@@ -14,30 +14,30 @@ import componentsDark from "../../assets/weldall-components-dark.svg";
 
 <AstroZoomInit background="var(--sl-color-bg)" />
 <div class="dark:sl-hidden">
-  <Image src={componentsLight} alt="Komponenten des Weldall Ecosystems" data-zoom />
+  <Image src={componentsLight} alt="Weldall Ecosystem components" data-zoom />
 </div>
 <div class="light:sl-hidden">
-  <Image src={componentsDark} alt="Komponenten des Weldall Ecosystems" data-zoom />
+  <Image src={componentsDark} alt="Weldall Ecosystem components" data-zoom />
 </div>
 
-**Weldall CLI** ist eine Referenzimplementierung dafür, wie sich die **nächste Generation von OAuth für agentische Anwendungen** praktisch umsetzen lässt. Der durchgängige Flow verbindet den [Identity Assertion JWT Authorization Grant (ID-JAG, Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) mit dem [JWT Authorization Grant mit DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01). Er baut dabei auf etablierten Standards für [native OAuth-Clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html), [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html), [aktuelle OAuth-Sicherheitsempfehlungen (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html) und [sendergebundene Tokens mit DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html) auf.
+**Weldall CLI** is a reference implementation of how the **next generation of OAuth for agentic applications** can be put into practice. The end-to-end flow combines the [Identity Assertion JWT Authorization Grant (ID-JAG, Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) with the [JWT Authorization Grant with DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01). It builds on established standards for [native OAuth clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html), [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html), [current OAuth security best practices (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html), and [sender-constrained tokens with DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html).
 
-Mitarbeitende werden Unternehmenssoftware künftig zunehmend über **natürliche Sprache** bedienen. Agenten beantworten dann nicht nur Fragen. **Sie führen Aufgaben aus.**
+Employees will increasingly use **natural language** to interact with business software. Agents will do more than answer questions. **They will carry out tasks.**
 
-<TerminalDemo locale="de" client:visible />
+<TerminalDemo locale="en" client:visible />
 
-Dafür brauchen sie Zugriff auf **geschützte Unternehmenssysteme**. Heute bedeutet das häufig, API-Schlüssel oder andere Zugangsdaten in Agenten und Konfigurationen zu hinterlegen. Administratoren verlieren den Überblick, Berechtigungen verteilen sich auf einzelne Integrationen und aus Sicherheitsgründen bleiben viele sinnvolle Aktionen ganz gesperrt.
+To do that, they need access to **protected company systems**. Today, this often means storing API keys or other credentials in agents and configuration files. Administrators lose oversight, permissions become scattered across individual integrations, and security concerns prevent many useful actions altogether.
 
-Ein Beispiel: Ein Mitarbeiter bittet seinen Agenten, _Reisekosten zu erfassen_. Der Agent benötigt eine Anleitung für diesen Vorgang und die Berechtigung, den entsprechenden Service aufzurufen. Er sollte dafür aber **weder Zugangsdaten sehen noch verwalten müssen**.
+For example, an employee asks their agent to _submit an expense_. The agent needs instructions for the task and permission to call the relevant service. It should **not need to see or manage credentials**.
 
-Weldall CLI schafft eine **zentrale Zugriffsschicht** zwischen Agenten und Unternehmensfunktionen. Mitarbeitende melden sich über das bestehende **Unternehmens-SSO** an. Administratoren legen fest, wer welche Funktionen nutzen darf. Jeder Agent, der die CLI aufrufen kann, arbeitet innerhalb dieser Vorgaben.
+Weldall CLI provides a **central access layer** between agents and company capabilities. Employees sign in through the company's existing **SSO**. Administrators determine who may use each capability. Any agent that can invoke the CLI operates within these rules.
 
-**Skills** beschreiben dem Agenten, wie er eine Funktion nutzt und welche Berechtigungen dafür erforderlich sind. Abhängig von der Konfiguration sehen Mitarbeitende nur freigegebene Skills oder erkennen, welche weiteren Funktionen existieren. Ausführen können sie **ausschließlich das, wofür sie berechtigt sind**.
+**Skills** tell the agent how to use a capability and which permissions it requires. Depending on the configuration, employees either see only approved skills or can discover which additional capabilities exist. They can **only execute actions they are authorized to perform**.
 
-Der Agent erhält **zu keinem Zeitpunkt ein Access Token**. Die CLI verwaltet die erforderlichen Zugangsdaten im geschützten Betriebssystemspeicher und sendet den Request selbst. Access Tokens sind kurzlebig und per **DPoP an den Geräteschlüssel gebunden**. Ein abgegriffenes Token lässt sich deshalb auf einem anderen System nicht wiederverwenden.
+The agent **never receives an access token**. The CLI manages the required credentials in the operating system's secure credential store and sends the request itself. Access tokens are short-lived and **bound to the device key with DPoP**. A captured token therefore cannot be reused on another system.
 
-Weldall protokolliert **erteilte und abgelehnte Zugriffe**. Administratoren können nachvollziehen, wer Zugriff auf welche Ressource und welche Berechtigungen angefordert hat. Änderungen an Policies, Ressourcen und Skills bleiben ebenfalls nachvollziehbar.
+Weldall records **granted and denied access requests**. Administrators can see who requested access to which resource and with which permissions. Changes to policies, resources, and skills are also traceable.
 
-Die Sicherheitsarchitektur folgt offenen OAuth-Standards. Unternehmensservices lassen sich über die mitgelieferten SDKs anbinden. Der verwendete Agent bleibt austauschbar.
+The security architecture follows open OAuth standards. Company services can integrate through the provided SDKs, while the choice of agent remains flexible.
 
-„Weldall CLI“ bezeichnet dabei das gesamte Produkt: die lokale CLI, den Weldall Authorization Server und die SDKs für angebundene Services. Wie diese Komponenten zusammenspielen, zeigt [ein vollständiger Agentenlauf](./agent-run/).
+“Weldall CLI” refers to the complete product: the local CLI, the Weldall Authorization Server, and the SDKs for connected services. [A complete agent run](./agent-run/) shows how these components work together.

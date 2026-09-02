@@ -1,26 +1,26 @@
 ---
-title: Discovery-Proxy
+title: Discovery proxy
 sidebar:
-  label: Discovery-Proxy
-description: Weldall-Metadaten und JWKS über einen vertrauenswürdigen Proxy abrufen.
+  label: Discovery proxy
+description: Retrieve Weldall metadata and JWKS through a trusted proxy.
 ---
 
-Eine Resource muss nicht dauerhaft mit dem Weldall-Server verbunden sein. Sie benötigt ihn nur, um die Server-Metadaten und Signaturschlüssel abzurufen; das SDK hält die Schlüssel kurzzeitig im Cache.
+A resource does not need a continuous connection to the Weldall server. It only needs to retrieve the server metadata and signing keys; the SDK keeps the keys in a short-lived cache.
 
-Wenn ein Service den Weldall-Issuer nicht direkt erreichen kann, kann das SDK diese Anfragen über einen vertrauenswürdigen HTTPS-Proxy senden.
+When a service cannot reach the Weldall issuer directly, the SDK can send those requests through a trusted HTTPS proxy.
 
 ```ts
 const weldall = initWeldall("https://weldall.example.com", {
-  // weitere Resource-Optionen
+  // remaining resource options
   discoveryProxyOrigin: "https://weldall-discovery-proxy.example.com",
 });
 ```
 
-Die Weldall-URL im ersten Argument bleibt die Identität, die das SDK erwartet. Der Proxy leitet nur Discovery-Anfragen weiter; das SDK prüft weiterhin, dass Metadaten und Signaturen von dieser Weldall-Instanz stammen.
+The Weldall URL in the first argument remains the identity the SDK expects. The proxy only forwards discovery requests; the SDK still checks that metadata and signatures come from that Weldall instance.
 
-Für die meisten Deployments empfehlen wir den mitgelieferten [Nginx-Discovery-Proxy](https://github.com/seibert-external/weldall/tree/main/apps/discovery-proxy). Seine [Nginx-Konfiguration](https://github.com/seibert-external/weldall/blob/main/apps/discovery-proxy/default.conf.template) lässt nur diese `GET`-Endpunkte zu und leitet ihre JSON-Antworten unverändert weiter:
+For most deployments, we recommend the included [Nginx discovery proxy](https://github.com/seibert-external/weldall/tree/main/apps/discovery-proxy). Its [Nginx configuration](https://github.com/seibert-external/weldall/blob/main/apps/discovery-proxy/default.conf.template) allows only these `GET` endpoints and forwards their JSON responses unchanged:
 
 - `/.well-known/oauth-authorization-server`
-- den in den Metadaten angegebenen JWKS-Pfad, derzeit `/api/oauth/jwks`
+- the JWKS path advertised in the metadata, currently `/api/oauth/jwks`
 
-Setze den Proxy nur ein, wenn der Service den Issuer nicht direkt erreichen kann. Er muss per HTTPS erreichbar und vertrauenswürdig sein.
+Use a proxy only when the service cannot reach the issuer directly. It must be reachable over HTTPS and trusted.

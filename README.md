@@ -15,9 +15,12 @@
   <a href="https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01"><img alt="JWT DPoP Grant Draft-01" src="https://img.shields.io/badge/OAuth-JWT%20DPoP%20Grant%20Draft--01-8b5cf6" /></a>
   <a href="https://www.rfc-editor.org/rfc/rfc9449.html"><img alt="RFC 9449 DPoP" src="https://img.shields.io/badge/RFC-9449%20DPoP-2563eb" /></a>
   <a href="https://www.rfc-editor.org/rfc/rfc8252.html"><img alt="RFC 8252" src="https://img.shields.io/badge/RFC-8252%20Native%20Apps-2563eb" /></a>
+  <a href="https://docs.weldall.ai"><img alt="Docs" src="https://img.shields.io/badge/docs-docs.weldall.ai-6366f1" /></a>
 </p>
 
 ---
+
+<img src="docs/assets/seibert-group-team-overlay.png" alt="The Seibert/Media group team" width="1280" />
 
 ## What is Weldall CLI?
 
@@ -59,25 +62,6 @@ Weldall CLI is a reference implementation of the next generation of OAuth for ag
 | [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                        | Browser-based sign-in for the CLI, with explicit consent.                                                                                                                                |
 | [RFC 7636 — PKCE](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                             | Protects the native authorization code exchange.                                                                                                                                         |
 | [RFC 9700 — OAuth Security Best Current Practice](https://www.rfc-editor.org/rfc/rfc9700.html)                                                             | Applied throughout the authorization server and client.                                                                                                                                  |
-
-## How it works
-
-```text
-user + browser ──sign-in──> Weldall authorization server
-administrator ──policy/admin──> Weldall web app ──> PostgreSQL
-agent ──commands──> local CLI ──grants / ID-JAG──> Weldall
-                              └──token exchange + API request──> resource server + @weldall/sdk
-machine ──private_key_jwt + DPoP──> Weldall ──machine JWT──> resource server
-```
-
-## Core concepts
-
-- **Skill** — human-readable, centrally published instructions that tell an agent _how_ to use a capability and _which_ permissions it needs. Skills that require scopes you don't have can be hidden, or shown so you can see what else exists.
-- **Scope** — a global permission key like `expenses:read`. A scope does nothing on its own; it matters only once it's assigned to an identity _and_ supported by a resource.
-- **Assignment** — the scopes attached to a person (by email) or a group. Groups and their current memberships are read from an external provider through a small HTTP interface, so scopes can also come from LDAP or Active Directory group membership. The effective set is the union of direct and group grants.
-- **Resource** — a registered downstream service contract: its identifier, its supported scopes, and the URL prefixes where they may be used. The service still independently enforces its own routes.
-- **Machine client** — a registered machine identity that uses `private_key_jwt` (RFC 7523) and DPoP to obtain short-lived tokens for specific resources.
-- **Audit** — granted and denied access requests are recorded, so administrators can see who asked for what, and trace every policy, resource, and skill change.
 
 ## Quick start
 
@@ -126,14 +110,17 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 ## Documentation
 
-- [A complete agent run](apps/docs/src/content/docs/en/agent-run.mdx) — the protocol walkthrough.
-- [How to integrate a service](apps/docs/src/content/docs/en/service-configuration.md) — protect your API with the SDK.
-- [Machine authentication](apps/docs/src/content/docs/en/machine-authentication.mdx) — machines as first-class identities.
-- [Group providers](apps/docs/src/content/docs/en/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
+Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
+
+- [A complete agent run](apps/docs/src/content/docs/agent-run.mdx) — the protocol walkthrough.
+- [Security model and OAuth standards](apps/docs/src/content/docs/oauth-security.mdx) — DPoP, ID-JAG, and the protocol's security guarantees.
+- [How to integrate a service](apps/docs/src/content/docs/service-configuration.md) — protect your API with the SDK.
+- [Machine authentication](apps/docs/src/content/docs/machine-authentication.mdx) — machines as first-class identities.
+- [Group providers](apps/docs/src/content/docs/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
 - [`@weldall/sdk` reference](packages/sdk/README.md) — route protection, skill catalogs, framework adapters.
 - [Local development](apps/docs/) — set up the full stack on your machine.
 
-## Appendix: Screenshots
+## Screenshots
 
 ![Resource registry](docs/assets/screenshot-resources.png)
 

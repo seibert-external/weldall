@@ -11,6 +11,6 @@ pnpm --filter @weldall/docs build
 pnpm --filter @weldall/docs preview
 ```
 
-Documentation pages belong in `src/content/docs/`. German is served from the site root and English translations live under `src/content/docs/en/`.
+Documentation pages belong in `src/content/docs/`. English is served from the site root and German translations live under `src/content/docs/de/`.
 
 The binding writing style lives in [`STYLE.md`](./STYLE.md) (tone, terminology, security claims, Deutsch/Englisch pairing). Read it before writing or editing any page.

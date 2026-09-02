@@ -1,8 +1,8 @@
 ---
-title: Machine-to-Machine-Authentifizierung
-description: Backend-Services mit eigenen Weldall-Identitäten authentifizieren.
+title: Machine authentication
+description: Authenticate calls between backend services with a dedicated Weldall identity.
 sidebar:
-  label: Machine-to-Machine
+  label: Machine authentication
 ---
 
 import { Image } from "astro:assets";
@@ -16,34 +16,34 @@ import flowDark from "../../assets/machine-authentication-flow-dark.svg";
 <div class="dark:sl-hidden">
   <Image
     src={overviewLight}
-    alt="Übersicht der Benutzer- und Machine-to-Machine-Zugriffe über Weldall"
+    alt="Overview of interactive and machine-to-machine access through Weldall"
     data-zoom
   />
 </div>
 <div class="light:sl-hidden">
   <Image
     src={overviewDark}
-    alt="Übersicht der Benutzer- und Machine-to-Machine-Zugriffe über Weldall"
+    alt="Overview of interactive and machine-to-machine access through Weldall"
     data-zoom
   />
 </div>
 
-Mit Machine-to-Machine-Authentifizierung können Backend-Services direkt miteinander kommunizieren, ohne dass sich dafür ein Benutzer anmelden muss. Der aufrufende Service wird in Weldall als Machine Client registriert und erhält eine eigene Client-ID und ein Schlüsselpaar. Zur Authentifizierung nutzt er OAuth 2.0 Client Credentials mit RFC 7523 `private_key_jwt`. Weldall stellt anschließend ein Access Token aus, das fünf Minuten lang für genau eine registrierte Ressource gilt.
+Use machine authentication when one backend needs to call another without a person signing in. Each machine has its own client ID and key pair. It authenticates with OAuth 2.0 client credentials and RFC 7523 `private_key_jwt`, and Weldall returns a five-minute token for one resource.
 
-## Aufrufenden Service registrieren
+## Register the calling service
 
-In diesem Beispiel soll Expenses A Daten von Expenses B lesen:
+The following example lets Expenses A read data from Expenses B:
 
-1. Die benötigten Scopes anlegen und Expenses B unter **Resources** registrieren.
-2. Ein ES256-P-256-Schlüsselpaar erzeugen. Der private Schlüssel bleibt bei Expenses A.
-3. Unter **Machine clients** auf **Register machine** klicken und `expenses-a`, den öffentlichen JWK sowie eine eindeutige `kid` eintragen.
-4. Unter **Machine access** Expenses B bei **Resources** und die benötigten Scopes freigeben.
+1. Create the required scopes and register Expenses B under **Resources**.
+2. Generate an ES256 P-256 key pair. Keep the private key with Expenses A.
+3. Open **Machine clients**, select **Register machine**, and enter `expenses-a`, the public JWK, and a unique `kid`.
+4. Under **Machine access**, select Expenses B under **Resources** and the required entries under **Scopes**.
 
-Für jeden Machine Client werden Ressourcen und Scopes separat freigegeben. Eine Token-Anfrage ist nur erfolgreich, wenn die Zielressource und alle angeforderten Scopes freigegeben sind. Außerdem müssen die Scopes der Zielressource zugeordnet sein. Die Registrierung allein gewährt noch keinen Zugriff.
+Machine access is mainly controlled by two allowlists: the resources a machine may call and the scopes it may request. A token request must match both lists, and the target resource must support every requested scope. Registering a machine or resource by itself does not grant access.
 
-## Token anfordern
+## Request a token
 
-Für einen einfachen Einstieg kann das Schlüsselpaar über geschützte Umgebungsvariablen bereitgestellt werden. `loadEs256KeyPairFromEnv` validiert beide Werte. Anschließend erstellt das SDK die kurzlebige Assertion und den passenden DPoP-Proof:
+The easiest setup is to provide the key pair through secret-backed environment variables. `loadEs256KeyPairFromEnv` validates them before the SDK creates the short-lived assertion and matching DPoP proof:
 
 ```ts
 import { loadEs256KeyPairFromEnv, requestMachineToken } from "@weldall/sdk";
@@ -65,15 +65,15 @@ const token = await requestMachineToken({
 });
 ```
 
-Die Umgebungsvariablen sollten als Secrets in der Deployment-Plattform hinterlegt werden. Alternativ kann der Schlüssel aus KMS, Vault oder einem anderen Secret Store geladen werden. Der private JWK darf weder in Weldall noch in Deployment-Manifeste, Quellcode oder Logs gelangen.
+Configure these environment variables through your deployment platform's secret management. A KMS, Vault, or another credential provider is a good fit when you already use one. Never put the private JWK in Weldall, application manifests, source control, or logs.
 
-Nach Ablauf des DPoP-gebundenen Access Tokens fordert der Service ein neues Token an.
+The response contains a DPoP-bound access token and no refresh token. Request a new token when the current one expires.
 
-## Aktuelle Benutzer-Scopes prüfen
+## Check a user's current scopes
 
-Ein Backend, das eine langlebige lokale Berechtigung erneut prüfen muss, kann für die Weldall API den Machine-only-Scope `weldall:subject-scopes-check` anfordern. Dafür werden dem Machine Client dieser System-Scope und die eigene Ressource des Backends zugewiesen. Weldall erlaubt nur Abfragen für Scopes, die mindestens einer freigegebenen Ressource des Machine Clients zugeordnet sind.
+A backend that must re-evaluate a persistent local credential can request the machine-only `weldall:subject-scopes-check` scope for the Weldall API. Assign that system scope and the backend's own resource to its machine client. Weldall only permits checks for scopes supported by one of the machine's allowed resources.
 
-Als Benutzerkennung wird ausschließlich der opake `sub` aus einem zuvor verifizierten Weldall-Benutzertoken verwendet, niemals eine E-Mail-Adresse:
+Use the opaque `sub` captured from a previously verified Weldall user token, never an email address:
 
 ```ts
 import { createDpopProof, requestMachineToken } from "@weldall/sdk";
@@ -105,11 +105,11 @@ const response = await fetch(endpoint, {
 });
 ```
 
-Eine erfolgreiche Antwort enthält sortierte Arrays `granted` und `missing` sowie `evaluatedAt`. Die Antwort ist mit `no-store` markiert; der Aufrufer kann selbst kurzzeitig cachen. Wenn ein relevanter Gruppen-Provider nicht ausgewertet werden kann, liefert Weldall `503 temporarily_unavailable`, statt einen Scope fälschlich als sicher fehlend zu melden.
+A successful response contains sorted `granted` and `missing` arrays plus `evaluatedAt`. Responses are marked `no-store`; a caller may apply its own short cache. Weldall returns `503 temporarily_unavailable` rather than reporting an authoritative missing scope when a relevant group provider cannot be evaluated.
 
-## Ziel-API absichern
+## Protect the receiving service
 
-Expenses B bindet Weldall genauso ein wie eine API, die von Benutzern aufgerufen wird:
+Expenses B uses the same `initWeldall` setup as an API that serves employees:
 
 ```ts
 import { inMemory } from "@weldall/sdk";
@@ -138,33 +138,33 @@ app.get("/api/expenses", weldall.protect({ scopes: ["expenses-b:read"] }), (cont
 });
 ```
 
-`protect` prüft das Token und die benötigten Scopes, bevor der Handler ausgeführt wird. Mit `getAuth` lässt sich anschließend erkennen, ob ein Benutzer oder ein Machine Client aufruft. Für die meisten Routen reicht die Scope-Prüfung aus. `auth.identity.type` wird nur benötigt, wenn die Geschäftslogik Angaben wie die E-Mail-Adresse oder Client-ID des Aufrufers verwendet.
+`protect` checks the token and required scopes before the handler runs. `getAuth` tells the handler whether the caller is a user or a machine. Most routes only need their scope policy; check `auth.identity.type` when the response or business logic needs caller details such as an email address or machine client ID.
 
-Machine Clients treten nicht im Namen eines Benutzers auf. Ihre Tokens enthalten deshalb keine E-Mail-Adresse.
+Machine tokens never contain a user's email address and cannot impersonate a user.
 
-## Schlüssel rotieren oder Zugriff entziehen
+## Rotate or revoke a key
 
-Zuerst wird der neue öffentliche Schlüssel in Weldall registriert. Während des Rollouts bleiben beide Schlüssel aktiv. Sobald der Machine Client die neue `kid` verwendet, kann der alte Schlüssel widerrufen werden.
+Register the new public key before deploying its private counterpart. Keep both keys active during the rollout, switch the machine to the new `kid`, and then revoke the old key.
 
-Alternativ lässt sich der Machine Client vollständig deaktivieren oder seine Freigabe für einzelne Ressourcen und Scopes entfernen. Weldall stellt dann keine neuen Tokens mehr für diesen Zugriff aus. Bereits ausgestellte Tokens laufen innerhalb von fünf Minuten ab.
+You can also deactivate the machine client or remove entries from either access allowlist. These changes stop new token issuance immediately. Tokens already issued expire within five minutes.
 
-Registrierungen, ausgestellte Tokens und abgelehnte Anfragen sind unter **Audit logs** sichtbar. Assertions, Tokens, Proofs und Schlüsselmaterial werden dort nicht gespeichert.
+Machine registration, token issuance, and rejected requests appear under **Audit logs**. Assertions, tokens, proofs, and key material are not written to the audit log.
 
-## Sicherheitsablauf
+## Security flow
 
-Der Ablauf enthält zwei unabhängige Prüfungen. Zuerst authentifiziert Weldall den Machine Client und prüft Schlüssel, Zielressource und Scopes. Die Ziel-API prüft anschließend das kurzlebige Access Token und den neuen DPoP-Proof der Anfrage.
+The complete request flow has two verification points: Weldall checks the machine, its key, and its access policy before issuing a short-lived token; the receiving API then verifies that token and the fresh DPoP proof attached to the request.
 
 <div class="dark:sl-hidden">
   <Image
     src={flowLight}
-    alt="Sicherheitsablauf für Machine Token und geschützten API-Aufruf"
+    alt="Machine token issuance and protected API request security flow"
     data-zoom
   />
 </div>
 <div class="light:sl-hidden">
   <Image
     src={flowDark}
-    alt="Sicherheitsablauf für Machine Token und geschützten API-Aufruf"
+    alt="Machine token issuance and protected API request security flow"
     data-zoom
   />
 </div>

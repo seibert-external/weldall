@@ -1,0 +1,170 @@
+---
+title: Machine-to-Machine-Authentifizierung
+description: Backend-Services mit eigenen Weldall-Identitäten authentifizieren.
+sidebar:
+  label: Machine-to-Machine
+---
+
+import { Image } from "astro:assets";
+import { AstroZoomInit } from "astro-zoom";
+import overviewLight from "../../../assets/machine-authentication-overview.svg";
+import overviewDark from "../../../assets/machine-authentication-overview-dark.png";
+import flowLight from "../../../assets/machine-authentication-flow.svg";
+import flowDark from "../../../assets/machine-authentication-flow-dark.svg";
+
+<AstroZoomInit background="var(--sl-color-bg)" />
+<div class="dark:sl-hidden">
+  <Image
+    src={overviewLight}
+    alt="Übersicht der Benutzer- und Machine-to-Machine-Zugriffe über Weldall"
+    data-zoom
+  />
+</div>
+<div class="light:sl-hidden">
+  <Image
+    src={overviewDark}
+    alt="Übersicht der Benutzer- und Machine-to-Machine-Zugriffe über Weldall"
+    data-zoom
+  />
+</div>
+
+Mit Machine-to-Machine-Authentifizierung können Backend-Services direkt miteinander kommunizieren, ohne dass sich dafür ein Benutzer anmelden muss. Der aufrufende Service wird in Weldall als Machine Client registriert und erhält eine eigene Client-ID und ein Schlüsselpaar. Zur Authentifizierung nutzt er OAuth 2.0 Client Credentials mit RFC 7523 `private_key_jwt`. Weldall stellt anschließend ein Access Token aus, das fünf Minuten lang für genau eine registrierte Ressource gilt.
+
+## Aufrufenden Service registrieren
+
+In diesem Beispiel soll Expenses A Daten von Expenses B lesen:
+
+1. Die benötigten Scopes anlegen und Expenses B unter **Resources** registrieren.
+2. Ein ES256-P-256-Schlüsselpaar erzeugen. Der private Schlüssel bleibt bei Expenses A.
+3. Unter **Machine clients** auf **Register machine** klicken und `expenses-a`, den öffentlichen JWK sowie eine eindeutige `kid` eintragen.
+4. Unter **Machine access** Expenses B bei **Resources** und die benötigten Scopes freigeben.
+
+Für jeden Machine Client werden Ressourcen und Scopes separat freigegeben. Eine Token-Anfrage ist nur erfolgreich, wenn die Zielressource und alle angeforderten Scopes freigegeben sind. Außerdem müssen die Scopes der Zielressource zugeordnet sein. Die Registrierung allein gewährt noch keinen Zugriff.
+
+## Token anfordern
+
+Für einen einfachen Einstieg kann das Schlüsselpaar über geschützte Umgebungsvariablen bereitgestellt werden. `loadEs256KeyPairFromEnv` validiert beide Werte. Anschließend erstellt das SDK die kurzlebige Assertion und den passenden DPoP-Proof:
+
+```ts
+import { loadEs256KeyPairFromEnv, requestMachineToken } from "@weldall/sdk";
+
+const key = await loadEs256KeyPairFromEnv({
+  privateName: "MACHINE_SIGNING_PRIVATE_JWK",
+  privateValue: process.env.MACHINE_SIGNING_PRIVATE_JWK!,
+  publicName: "MACHINE_SIGNING_PUBLIC_JWK",
+  publicValue: process.env.MACHINE_SIGNING_PUBLIC_JWK!,
+});
+
+const token = await requestMachineToken({
+  issuer: "https://weldall.example.com",
+  clientId: "expenses-a",
+  resource: "https://expenses-b.example.com/api",
+  scopes: ["expenses-b:read"],
+  kid: process.env.MACHINE_SIGNING_KID!,
+  key,
+});
+```
+
+Die Umgebungsvariablen sollten als Secrets in der Deployment-Plattform hinterlegt werden. Alternativ kann der Schlüssel aus KMS, Vault oder einem anderen Secret Store geladen werden. Der private JWK darf weder in Weldall noch in Deployment-Manifeste, Quellcode oder Logs gelangen.
+
+Nach Ablauf des DPoP-gebundenen Access Tokens fordert der Service ein neues Token an.
+
+## Aktuelle Benutzer-Scopes prüfen
+
+Ein Backend, das eine langlebige lokale Berechtigung erneut prüfen muss, kann für die Weldall API den Machine-only-Scope `weldall:subject-scopes-check` anfordern. Dafür werden dem Machine Client dieser System-Scope und die eigene Ressource des Backends zugewiesen. Weldall erlaubt nur Abfragen für Scopes, die mindestens einer freigegebenen Ressource des Machine Clients zugeordnet sind.
+
+Als Benutzerkennung wird ausschließlich der opake `sub` aus einem zuvor verifizierten Weldall-Benutzertoken verwendet, niemals eine E-Mail-Adresse:
+
+```ts
+import { createDpopProof, requestMachineToken } from "@weldall/sdk";
+
+const issuer = "https://weldall.example.com";
+const token = await requestMachineToken({
+  issuer,
+  clientId: "randomapp",
+  resource: `${issuer}/api`,
+  scopes: ["weldall:subject-scopes-check"],
+  kid: process.env.MACHINE_SIGNING_KID!,
+  key,
+});
+const endpoint = `${issuer}/api/authorization/v1/check-scopes`;
+const proof = await createDpopProof({
+  ...key,
+  method: "POST",
+  url: endpoint,
+  accessToken: token.accessToken,
+});
+const response = await fetch(endpoint, {
+  method: "POST",
+  headers: {
+    authorization: `DPoP ${token.accessToken}`,
+    dpop: proof,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ subject, scopes: ["randomapp:mint-key"] }),
+});
+```
+
+Eine erfolgreiche Antwort enthält sortierte Arrays `granted` und `missing` sowie `evaluatedAt`. Die Antwort ist mit `no-store` markiert; der Aufrufer kann selbst kurzzeitig cachen. Wenn ein relevanter Gruppen-Provider nicht ausgewertet werden kann, liefert Weldall `503 temporarily_unavailable`, statt einen Scope fälschlich als sicher fehlend zu melden.
+
+## Ziel-API absichern
+
+Expenses B bindet Weldall genauso ein wie eine API, die von Benutzern aufgerufen wird:
+
+```ts
+import { inMemory } from "@weldall/sdk";
+import { initWeldall, type WeldallVariables } from "@weldall/sdk/hono";
+import { Hono } from "hono";
+
+const weldall = initWeldall("https://weldall.example.com", {
+  resource: "https://expenses-b.example.com/api",
+  publicOrigin: "https://expenses-b.example.com",
+  clientId: "expenses-b",
+  supportedScopes: ["expenses-b:read"],
+  signingKey: loadExpensesBSigningKey(),
+  replayStore: inMemory(),
+});
+
+const app = new Hono<{ Variables: WeldallVariables }>();
+app.get("/api/expenses", weldall.protect({ scopes: ["expenses-b:read"] }), (context) => {
+  const auth = weldall.getAuth(context);
+  return context.json({
+    subject: auth.subject,
+    requestedBy: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
+    identityType: auth.identityType,
+    ...(auth.identityType === "user" ? { email: auth.email } : {}),
+    expenses: [],
+  });
+});
+```
+
+`protect` prüft das Token und die benötigten Scopes, bevor der Handler ausgeführt wird. Mit `getAuth` lässt sich anschließend erkennen, ob ein Benutzer oder ein Machine Client aufruft. Für die meisten Routen reicht die Scope-Prüfung aus. `auth.identity.type` wird nur benötigt, wenn die Geschäftslogik Angaben wie die E-Mail-Adresse oder Client-ID des Aufrufers verwendet.
+
+Machine Clients treten nicht im Namen eines Benutzers auf. Ihre Tokens enthalten deshalb keine E-Mail-Adresse.
+
+## Schlüssel rotieren oder Zugriff entziehen
+
+Zuerst wird der neue öffentliche Schlüssel in Weldall registriert. Während des Rollouts bleiben beide Schlüssel aktiv. Sobald der Machine Client die neue `kid` verwendet, kann der alte Schlüssel widerrufen werden.
+
+Alternativ lässt sich der Machine Client vollständig deaktivieren oder seine Freigabe für einzelne Ressourcen und Scopes entfernen. Weldall stellt dann keine neuen Tokens mehr für diesen Zugriff aus. Bereits ausgestellte Tokens laufen innerhalb von fünf Minuten ab.
+
+Registrierungen, ausgestellte Tokens und abgelehnte Anfragen sind unter **Audit logs** sichtbar. Assertions, Tokens, Proofs und Schlüsselmaterial werden dort nicht gespeichert.
+
+## Sicherheitsablauf
+
+Der Ablauf enthält zwei unabhängige Prüfungen. Zuerst authentifiziert Weldall den Machine Client und prüft Schlüssel, Zielressource und Scopes. Die Ziel-API prüft anschließend das kurzlebige Access Token und den neuen DPoP-Proof der Anfrage.
+
+<div class="dark:sl-hidden">
+  <Image
+    src={flowLight}
+    alt="Sicherheitsablauf für Machine Token und geschützten API-Aufruf"
+    data-zoom
+  />
+</div>
+<div class="light:sl-hidden">
+  <Image
+    src={flowDark}
+    alt="Sicherheitsablauf für Machine Token und geschützten API-Aufruf"
+    data-zoom
+  />
+</div>

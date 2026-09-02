@@ -31,29 +31,29 @@ export default defineConfig({
             { slug: "oauth-security" },
             { label: "SDKs", link: "/sdks/" },
             {
-              label: "Discovery-Proxy",
-              translations: { en: "Discovery proxy" },
+              label: "Discovery proxy",
+              translations: { de: "Discovery-Proxy" },
               link: "/discovery-proxy/",
             },
             {
-              label: "How to: Weldall aufsetzen",
-              translations: { en: "How to: Set up Weldall" },
+              label: "How to: Set up Weldall",
+              translations: { de: "How to: Weldall aufsetzen" },
               link: "/weldall-setup/",
             },
             { slug: "service-configuration" },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {
-              label: "Infrastructure as Code",
-              translations: { en: "Infrastructure as code" },
+              label: "Infrastructure as code",
+              translations: { de: "Infrastructure as Code" },
               link: "/infrastructure-as-code/",
             },
           ],
         },
       ],
       locales: {
-        root: { label: "Deutsch", lang: "de" },
-        en: { label: "English", lang: "en" },
+        root: { label: "English", lang: "en" },
+        de: { label: "Deutsch", lang: "de" },
       },
       social: [
         {
