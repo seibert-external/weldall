@@ -2,15 +2,26 @@ import { inMemory } from "../index.js";
 import { initWeldall, type AstroWeldall } from "../astro.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { readIndexFile, runSearch } from "./indexing.js";
+import {
+  readDocumentsFile,
+  readIndexFile,
+  runSearch,
+  type PageRecord,
+} from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, type PersistedConfig } from "./options.js";
 import { buildSearchSkill } from "./skill.js";
 import type { SearchLanguage } from "./languages.js";
 import type { DirectSigningKey, ReplayStore } from "../types.js";
-import type { SearchHit, WeldallSearchRuntimeOptions } from "./types.js";
+import type {
+  PageContent,
+  SearchHit,
+  SearchSkillOverride,
+  WeldallSearchRuntimeOptions,
+} from "./types.js";
 
 const CONFIG_FILE = "config.json";
 const INDEX_FILE = "index.json";
+const DOCUMENTS_FILE = "documents.json";
 
 /**
  * Fully resolved runtime configuration, read from the persisted
@@ -29,6 +40,8 @@ export interface RuntimeConfig {
   requiredScopes: readonly string[];
   /** Search endpoint path. */
   searchPath: string;
+  /** Content endpoint path. */
+  contentPath: string;
   /** Search language used for stemming and stop-word removal. */
   language: SearchLanguage;
   /** Default maximum results per query. */
@@ -100,6 +113,7 @@ export function loadRuntimeConfig(): {
   config: RuntimeConfig;
   indexDir: string | undefined;
   skillsItems: PersistedConfig["skillsItems"];
+  skillsSearch: PersistedConfig["skillsSearch"];
 } {
   const indexDir = findIndexDir(process.cwd());
   let persisted: PersistedConfig = {};
@@ -114,6 +128,7 @@ export function loadRuntimeConfig(): {
   const publicOrigin = persisted.publicOrigin;
   const clientId = persisted.clientId;
   const searchPath = normalizeSearchPath(persisted.searchPath ?? DEFAULTS.searchPath);
+  const contentPath = normalizeSearchPath(persisted.contentPath ?? DEFAULTS.contentPath);
   const language = persisted.language ?? DEFAULTS.language;
   const defaultLimitRaw = persisted.defaultLimit ?? DEFAULTS.defaultLimit;
   const defaultLimit =
@@ -151,6 +166,7 @@ export function loadRuntimeConfig(): {
     clientId,
     requiredScopes,
     searchPath,
+    contentPath,
     language,
     defaultLimit,
     allowInsecureLoopback: explicitLoopback || isLoopbackOrigin(publicOrigin),
@@ -162,6 +178,7 @@ export function loadRuntimeConfig(): {
     config,
     indexDir,
     skillsItems: persisted.skillsItems,
+    skillsSearch: persisted.skillsSearch,
   };
 }
 
@@ -197,7 +214,8 @@ function siteLabelFor(publicOrigin: string): string {
 }
 
 /**
- * The lazily-created runtime: the Weldall resource instance plus search.
+ * The lazily-created runtime: the Weldall resource instance plus search and
+ * full-page reads over the loaded documents.
  */
 export interface SearchRuntime {
   /** The resolved runtime configuration. */
@@ -206,6 +224,8 @@ export interface SearchRuntime {
   weldall: AstroWeldall;
   /** Runs a full-text search over the loaded index. */
   search(term: string, limit: number): Promise<SearchHit[]>;
+  /** Reads a full page by its route path, or `undefined` when unknown. */
+  content(path: string): PageContent | undefined;
 }
 
 let runtimePromise: Promise<SearchRuntime> | undefined;
@@ -225,16 +245,20 @@ export function getRuntime(): Promise<SearchRuntime> {
  * Weldall resource via the Astro adapter, and loads the search index.
  */
 async function createRuntime(): Promise<SearchRuntime> {
-  const { config, indexDir, skillsItems } = loadRuntimeConfig();
+  const { config, indexDir, skillsItems, skillsSearch } = loadRuntimeConfig();
   const signingKey = await resolveSigningKey();
   const replayStore = runtimeOnlyOptions.replayStore ?? inMemory();
-  const generated = buildSearchSkill({
-    publicOrigin: config.publicOrigin,
-    resource: config.resource,
-    searchPath: config.searchPath,
-    requiredScopes: config.requiredScopes,
-    siteLabel: siteLabelFor(config.publicOrigin),
-  });
+  const generated = buildSearchSkill(
+    {
+      publicOrigin: config.publicOrigin,
+      resource: config.resource,
+      searchPath: config.searchPath,
+      contentPath: config.contentPath,
+      requiredScopes: config.requiredScopes,
+      siteLabel: siteLabelFor(config.publicOrigin),
+    },
+    skillsSearch as SearchSkillOverride | undefined,
+  );
   const weldall = initWeldall(config.issuer, {
     resource: config.resource,
     publicOrigin: config.publicOrigin,
@@ -271,12 +295,32 @@ async function createRuntime(): Promise<SearchRuntime> {
       })
     : undefined;
 
+  const documents = indexDir
+    ? await readDocumentsFile(path.join(indexDir, DOCUMENTS_FILE)).catch((error: unknown) => {
+        console.error(`[@weldall/sdk/starlight] failed to load page documents: ${String(error)}`);
+        return undefined;
+      })
+    : undefined;
+  const documentsByPath = new Map<string, PageRecord>(
+    (documents ?? []).map((document) => [document.path, document]),
+  );
+
   return {
     config,
     weldall,
     search: async (term, limit) => {
       if (!db) throw new Error("search index is not available (build the site to generate it)");
       return runSearch(db, term, limit);
+    },
+    content: (path) => {
+      const document = documentsByPath.get(path);
+      if (!document) return undefined;
+      return {
+        path: document.path,
+        title: document.title,
+        description: document.description,
+        content: document.markdown,
+      };
     },
   };
 }

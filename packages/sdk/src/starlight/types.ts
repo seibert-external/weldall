@@ -3,6 +3,30 @@ import type { PublishedSkill } from "../skills.js";
 import type { SearchLanguage } from "./languages.js";
 
 /**
+ * Customization of the auto-generated `search` skill published by the
+ * integration. Any provided value overrides the corresponding generated part;
+ * fields left empty keep the generated default.
+ */
+export interface SearchSkillOverride {
+  /**
+   * Custom skill title. Defaults to an origin-derived title, e.g.
+   * `Search the docs knowledge base`.
+   */
+  title?: string;
+  /**
+   * Full custom skill body. When provided it replaces the entire generated
+   * content, including the search and page-read command blocks.
+   */
+  content?: string;
+  /**
+   * Extra operating rules appended after the generated rules. Use this to add
+   * site-specific guidance (e.g. "pages under /office describe teams") while
+   * keeping the generated commands.
+   */
+  extraRules?: string;
+}
+
+/**
  * Integration options for `weldallSearch(host, options)`.
  *
  * The Weldall identity fields mirror `initWeldall(host, options)` from this
@@ -51,8 +75,16 @@ export interface WeldallSearchOptions {
    */
   allowInsecureLoopback?: boolean;
 
-  /** Additional skills to publish next to the auto-generated search skill. */
-  skills?: { items: readonly PublishedSkill[] };
+  /**
+   * Skill publishing: additional skills to publish next to the auto-generated
+   * search skill, plus an optional override of that generated search skill.
+   */
+  skills?: {
+    /** Additional skills to publish next to the auto-generated search skill. */
+    items?: readonly PublishedSkill[];
+    /** Customize the auto-generated `search` skill. */
+    search?: SearchSkillOverride;
+  };
 
   // --- site-specific ---
 
@@ -61,6 +93,12 @@ export interface WeldallSearchOptions {
 
   /** Search endpoint path. Defaults to `"/api/search"`. */
   searchPath?: string;
+
+  /**
+   * Content endpoint path used to read full pages by path. Defaults to
+   * `"/api/content"`.
+   */
+  contentPath?: string;
 
   /** Search language used for stemming and stop-word removal. Defaults to `"english"`. */
   language?: SearchLanguage;
@@ -100,4 +138,16 @@ export interface SearchHit {
   excerpt: string;
   /** Orama relevance score. */
   score: number;
+}
+
+/** A full page returned by the `/api/content` endpoint. */
+export interface PageContent {
+  /** Page route on the site, e.g. `/team/overview/`. */
+  path: string;
+  /** Page title from the frontmatter. */
+  title: string;
+  /** Page description from the frontmatter (may be empty). */
+  description: string;
+  /** Full page body as markdown. */
+  content: string;
 }

@@ -2,7 +2,7 @@ import type { AstroIntegration } from "astro";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildIndexFromDir, writeIndexFile } from "./indexing.js";
+import { buildIndexFromDir, writeDocumentsFile, writeIndexFile } from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, toPersistedConfig } from "./options.js";
 import type { WeldallSearchOptions } from "./types.js";
 
@@ -44,6 +44,7 @@ function protectedResourceMetadataPattern(resource?: string): string {
  * `.weldall-search/index.json` and injects the Weldall protocol routes:
  *
  * - `GET /api/search?q=…` — the protected search endpoint
+ * - `GET /api/content?path=…` — the protected full-page read endpoint
  * - `GET /.well-known/oauth-authorization-server` — local AS metadata
  * - `GET /.well-known/jwks.json` — local AS JWKS
  * - `GET /.well-known/oauth-protected-resource` — resource metadata
@@ -69,6 +70,11 @@ function protectedResourceMetadataPattern(resource?: string): string {
  *   clientId: "weldall-cli-at-docs",
  *   requiredScopes: ["search:read"],
  *   language: "english",
+ *   skills: {
+ *     search: {
+ *       extraRules: "Pages under /office describe internal support teams.",
+ *     },
+ *   },
  * })
  * ```
  *
@@ -81,6 +87,7 @@ function protectedResourceMetadataPattern(resource?: string): string {
  */
 export function weldallSearch(host: string, options: WeldallSearchOptions = {}): AstroIntegration {
   const searchPath = normalizeSearchPath(options.searchPath ?? DEFAULTS.searchPath);
+  const contentPath = normalizeSearchPath(options.contentPath ?? DEFAULTS.contentPath);
   const language = options.language ?? DEFAULTS.language;
   const contentDir = options.contentDir ?? DEFAULTS.contentDir;
   const persisted = toPersistedConfig(options, host);
@@ -114,6 +121,7 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
         const content = path.join(projectRoot, contentDir);
         const built = await buildIndexFromDir(content, language);
         await writeIndexFile(indexFile, { language, raw: built.raw });
+        await writeDocumentsFile(path.join(indexDir, "documents.json"), built.documents);
         await mkdir(indexDir, { recursive: true });
         await writeFile(path.join(indexDir, "config.json"), JSON.stringify(persisted, null, 2));
         logger.info(
@@ -121,6 +129,7 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
         );
 
         injectRoute({ pattern: searchPath, entrypoint: routeEntrypoint("search") });
+        injectRoute({ pattern: contentPath, entrypoint: routeEntrypoint("content") });
         injectRoute({
           pattern: "/.well-known/oauth-authorization-server",
           entrypoint: routeEntrypoint("oauth-authorization-server"),
@@ -154,7 +163,7 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
         const sourceDir = path.join(projectRoot, ".weldall-search");
         const targetDir = fileURLToPath(new URL(".weldall-search/", dir));
         await mkdir(targetDir, { recursive: true });
-        for (const name of ["index.json", "config.json"] as const) {
+        for (const name of ["index.json", "documents.json", "config.json"] as const) {
           const source = path.join(sourceDir, name);
           await copyFile(source, path.join(targetDir, name));
         }

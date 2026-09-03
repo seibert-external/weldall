@@ -59,6 +59,7 @@ describe("loadRuntimeConfig", () => {
     expect(config.clientId).toBe("starlight-docs");
     expect(config.requiredScopes).toEqual(["search:read"]);
     expect(config.searchPath).toBe("/api/search");
+    expect(config.contentPath).toBe("/api/content");
     expect(config.language).toBe("english");
     expect(config.defaultLimit).toBe(10);
     expect(config.allowInsecureLoopback).toBe(false);
@@ -89,6 +90,22 @@ describe("loadRuntimeConfig", () => {
     expect(config.defaultLimit).toBe(5);
   });
 
+  it("honors a custom content path and search skill override", async () => {
+    const root = await withIndexDir({
+      ".weldall-search/config.json": JSON.stringify({
+        ...identity,
+        contentPath: "/read",
+        skillsSearch: { title: "Find it", extraRules: "Pages under /office are teams." },
+      }),
+      ".weldall-search/index.json": "{}",
+    });
+    cwdSpy.mockReturnValue(root);
+
+    const { config, skillsSearch } = loadRuntimeConfig();
+    expect(config.contentPath).toBe("/read");
+    expect(skillsSearch).toEqual({ title: "Find it", extraRules: "Pages under /office are teams." });
+  });
+
   it("passes the environment signing key and runtime replay store into Weldall", async () => {
     vi.resetModules();
     const initWeldall = vi.fn(() => ({
@@ -98,6 +115,7 @@ describe("loadRuntimeConfig", () => {
     vi.doMock("../src/astro.js", () => ({ initWeldall }));
     vi.doMock("../src/starlight/indexing.js", () => ({
       readIndexFile: vi.fn(async () => ({})),
+      readDocumentsFile: vi.fn(async () => []),
       runSearch: vi.fn(async () => []),
     }));
     try {
@@ -131,6 +149,7 @@ describe("loadRuntimeConfig", () => {
     vi.doMock("../src/astro.js", () => ({ initWeldall: vi.fn() }));
     vi.doMock("../src/starlight/indexing.js", () => ({
       readIndexFile: vi.fn(async () => ({})),
+      readDocumentsFile: vi.fn(async () => []),
       runSearch: vi.fn(async () => []),
     }));
     try {
@@ -153,14 +172,17 @@ describe("loadRuntimeConfig", () => {
 });
 
 describe("buildSearchSkill", () => {
+  const baseContext = {
+    publicOrigin: "https://docs.example.com",
+    resource: "https://docs.example.com/api",
+    searchPath: "/api/search",
+    contentPath: "/api/content",
+    requiredScopes: ["search:read"],
+    siteLabel: "docs",
+  };
+
   it("documents the exact search URL and scope", () => {
-    const { id, title, content } = buildSearchSkill({
-      publicOrigin: "https://docs.example.com",
-      resource: "https://docs.example.com/api",
-      searchPath: "/api/search",
-      requiredScopes: ["search:read"],
-      siteLabel: "docs",
-    });
+    const { id, title, content } = buildSearchSkill(baseContext);
     expect(id).toBe("search");
     expect(title).toBe("Search the docs knowledge base");
     expect(content).toContain(
@@ -172,14 +194,45 @@ describe("buildSearchSkill", () => {
     );
   });
 
+  it("documents the full-page read endpoint and its response shape", () => {
+    const { content } = buildSearchSkill(baseContext);
+    expect(content).toContain(
+      [
+        "weldall request \\",
+        "  --scope search:read \\",
+        '  "https://docs.example.com/api/content?path=<path>"',
+      ].join("\n"),
+    );
+    expect(content).toContain('"content": "# Team\\n\\nThe employee directory explains the team structure ..."');
+  });
+
   it("falls back to a generic title without a site label", () => {
     const { title } = buildSearchSkill({
+      ...baseContext,
       publicOrigin: "http://localhost:4321",
       resource: "http://localhost:4321/api",
-      searchPath: "/api/search",
-      requiredScopes: ["search:read"],
       siteLabel: "",
     });
     expect(title).toBe("Search the knowledge base");
+  });
+
+  it("applies a custom title and appended operating rules", () => {
+    const { title, content } = buildSearchSkill(baseContext, {
+      title: "Find company info",
+      extraRules: "Pages under /office describe internal support teams.",
+    });
+    expect(title).toBe("Find company info");
+    expect(content).toContain("# Find company info");
+    expect(content).toContain("Pages under /office describe internal support teams.");
+    expect(content).toContain("weldall request");
+  });
+
+  it("replaces the generated content entirely when a content override is given", () => {
+    const { title, content } = buildSearchSkill(baseContext, {
+      title: "Custom",
+      content: "# Custom\n\nDo exactly this.\n",
+    });
+    expect(title).toBe("Custom");
+    expect(content).toBe("# Custom\n\nDo exactly this.\n");
   });
 });

@@ -132,6 +132,10 @@ try {
           if (response.status !== 401) {
             throw new Error(`starlight unauthenticated search returned ${response.status}`);
           }
+          const content = await fetch("http://127.0.0.1:39004/api/content?path=/team/overview/");
+          if (content.status !== 401) {
+            throw new Error(`starlight unauthenticated content returned ${content.status}`);
+          }
         },
       );
     }
