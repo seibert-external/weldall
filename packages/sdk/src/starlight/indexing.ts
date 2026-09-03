@@ -15,10 +15,19 @@ export interface SearchDocument {
   content: string;
 }
 
+/**
+ * A page record persisted for the content endpoint: the searchable document
+ * plus its original markdown body for full-page reads.
+ */
+export interface PageRecord extends SearchDocument {
+  /** Original markdown page body (frontmatter removed). */
+  markdown: string;
+}
+
 /** The result of indexing a content directory. */
 export interface BuiltIndex {
   /** The parsed documents that were inserted. */
-  documents: SearchDocument[];
+  documents: PageRecord[];
   /** The serialized Orama index. */
   raw: unknown;
 }
@@ -176,7 +185,7 @@ export async function buildIndexFromDir(
   const orama = await loadOrama();
   const matter = await loadMatter();
   const files = await collectFiles(contentDir);
-  const documents: SearchDocument[] = [];
+  const documents: PageRecord[] = [];
   for (const file of files) {
     const raw = await readFile(file, "utf8");
     const { data, content } = matter(raw);
@@ -185,11 +194,13 @@ export async function buildIndexFromDir(
       (typeof data.title === "string" && data.title.trim()) ||
       path.basename(file).replace(/\.(md|mdx)$/u, "");
     const description = (typeof data.description === "string" && data.description.trim()) || "";
+    const body = content.trim();
     documents.push({
       path: routeFor(relative),
       title,
       description,
-      content: stripMarkdown(content),
+      content: stripMarkdown(body),
+      markdown: body,
     });
   }
 
@@ -197,7 +208,17 @@ export async function buildIndexFromDir(
     schema: SCHEMA,
     components: { tokenizer: await tokenizerFor(language) },
   });
-  if (documents.length > 0) await orama.insertMultiple(db, documents);
+  if (documents.length > 0) {
+    // Only the schema fields go into the Orama index; the raw markdown body is
+    // persisted separately for the content endpoint.
+    const searchable = documents.map(({ path, title, description, content }) => ({
+      path,
+      title,
+      description,
+      content,
+    }));
+    await orama.insertMultiple(db, searchable);
+  }
   const raw = await orama.save(db);
   return { documents, raw };
 }
@@ -212,6 +233,31 @@ export async function buildIndexFromDir(
 export async function writeIndexFile(indexFile: string, index: IndexFile): Promise<void> {
   await mkdir(path.dirname(indexFile), { recursive: true });
   await writeFile(indexFile, JSON.stringify(index), "utf8");
+}
+
+/**
+ * Serializes a full-page document list to disk as JSON
+ * (`.weldall-search/documents.json`), creating parent directories as needed.
+ *
+ * @param documentsFile - Destination file path.
+ * @param documents - The page records to write.
+ */
+export async function writeDocumentsFile(
+  documentsFile: string,
+  documents: readonly PageRecord[],
+): Promise<void> {
+  await mkdir(path.dirname(documentsFile), { recursive: true });
+  await writeFile(documentsFile, JSON.stringify(documents), "utf8");
+}
+
+/**
+ * Loads the persisted full-page document list.
+ *
+ * @param documentsFile - Path to the serialized documents.
+ * @returns The page records.
+ */
+export async function readDocumentsFile(documentsFile: string): Promise<PageRecord[]> {
+  return JSON.parse(await readFile(documentsFile, "utf8")) as PageRecord[];
 }
 
 /**

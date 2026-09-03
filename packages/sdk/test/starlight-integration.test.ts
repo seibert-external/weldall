@@ -66,6 +66,7 @@ describe("weldallSearch integration", () => {
 
     expect(patterns).toEqual([
       "/api/search",
+      "/api/content",
       "/.well-known/oauth-authorization-server",
       "/.well-known/jwks.json",
       "/.well-known/oauth-protected-resource",
@@ -133,6 +134,32 @@ describe("weldallSearch integration", () => {
     ).toHaveLength(1);
   });
 
+  it("injects a configurable content endpoint path", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sws-content-route-"));
+    tempDirs.push(root);
+    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Welcome\n---\nHello.\n");
+    const integration = weldallSearch("https://weldall.example.com", {
+      contentDir: "src/content/docs",
+      contentPath: "/read",
+    });
+    const patterns: string[] = [];
+
+    await integration.hooks?.["astro:config:setup"]?.({
+      config: {
+        output: "server",
+        root: pathToFileURL(`${root}/`),
+        srcDir: pathToFileURL(`${root}/src/`),
+      },
+      injectRoute: (route: { pattern: string }) => patterns.push(route.pattern),
+      logger: { info: () => undefined } as never,
+      updateConfig: () => ({}) as never,
+      command: "build",
+      isRestart: false,
+    } as never);
+
+    expect(patterns).toContain("/read");
+  });
+
   it("normalizes routes and persists only deployable config values", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-root with spaces-"));
     tempDirs.push(root);
@@ -145,6 +172,8 @@ describe("weldallSearch integration", () => {
       clientId: "starlight-docs",
       requiredScopes: ["search:read"],
       searchPath: "api/search/",
+      contentPath: "read/",
+      skills: { search: { title: "Find it", extraRules: "Pages under /office are teams." } },
       signingKey,
       replayStore,
     } as never);
@@ -164,11 +193,17 @@ describe("weldallSearch integration", () => {
     } as never);
 
     expect(patterns[0]).toBe("/api/search");
+    expect(patterns[1]).toBe("/read");
     const { readFile } = await import("node:fs/promises");
     const config = JSON.parse(
       await readFile(path.join(root, ".weldall-search/config.json"), "utf8"),
     );
     expect(config.searchPath).toBe("/api/search");
+    expect(config.contentPath).toBe("/read");
+    expect(config.skillsSearch).toEqual({
+      title: "Find it",
+      extraRules: "Pages under /office are teams.",
+    });
     expect(config.signingKey).toBeUndefined();
     expect(config.replayStore).toBeUndefined();
   });
@@ -236,6 +271,18 @@ describe("weldallSearch integration", () => {
       await readFile(path.join(fileURLToPath(dist), ".weldall-search/index.json"), "utf8"),
     );
     expect(copied.language).toBe("english");
+    const copiedDocuments = JSON.parse(
+      await readFile(path.join(fileURLToPath(dist), ".weldall-search/documents.json"), "utf8"),
+    );
+    expect(copiedDocuments).toEqual([
+      {
+        path: "/",
+        title: "Welcome",
+        description: "",
+        content: "Hello world.",
+        markdown: "Hello world.",
+      },
+    ]);
   });
 
   it("fails the build when generated artifacts cannot be copied", async () => {
@@ -329,6 +376,18 @@ describe("Starlight protocol routes", () => {
       language: "english",
       raw: built.raw,
     });
+    await write(
+      path.join(root, ".weldall-search/documents.json"),
+      JSON.stringify([
+        {
+          path: "/",
+          title: "Welcome",
+          description: "",
+          content: "Hello world.",
+          markdown: "Hello world.",
+        },
+      ]),
+    );
     await write(
       path.join(root, ".weldall-search/config.json"),
       JSON.stringify({
@@ -428,6 +487,46 @@ describe("Starlight protocol routes", () => {
         results: [{ path: "/", title: "Welcome" }],
         subject: "user-1",
       });
+
+      const content = await import("../src/starlight/routes/content.js");
+      const contentProof = await createDpopProof({
+        ...deviceKey,
+        method: "GET",
+        url: "http://localhost:4321/api/content?path=/",
+        accessToken: tokenBody.access_token,
+      });
+      const contentResponse = await content.GET({
+        request: new Request("http://localhost:4321/api/content?path=/", {
+          headers: {
+            authorization: `DPoP ${tokenBody.access_token}`,
+            dpop: contentProof,
+          },
+        }),
+      } as never);
+      expect(contentResponse.status).toBe(200);
+      await expect(contentResponse.json()).resolves.toMatchObject({
+        path: "/",
+        title: "Welcome",
+        content: "Hello world.",
+        subject: "user-1",
+      });
+
+      const missingProof = await createDpopProof({
+        ...deviceKey,
+        method: "GET",
+        url: "http://localhost:4321/api/content?path=/nope",
+        accessToken: tokenBody.access_token,
+      });
+      const missingResponse = await content.GET({
+        request: new Request("http://localhost:4321/api/content?path=/nope", {
+          headers: {
+            authorization: `DPoP ${tokenBody.access_token}`,
+            dpop: missingProof,
+          },
+        }),
+      } as never);
+      expect(missingResponse.status).toBe(404);
+      await expect(missingResponse.json()).resolves.toMatchObject({ error: "not_found" });
     } finally {
       if (originalSigningKey === undefined) {
         delete process.env.WELDALL_SIGNING_KEY;

@@ -29,6 +29,10 @@ curl -s http://localhost:4321/.well-known/oauth-protected-resource
 curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:4321/api/search?q=revenue"
 # -> 401
 
+# full-page read without a token -> 401
+curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:4321/api/content?path=/team/overview/"
+# -> 401
+
 # skill catalog requires a skill assertion -> 401 without one
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4321/.well-known/weldall-skills
 # -> 401

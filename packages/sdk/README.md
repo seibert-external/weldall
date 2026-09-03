@@ -247,7 +247,8 @@ Create `GET` endpoints for metadata, JWKS, and the optional skill catalog. Set `
 `@weldall/sdk/starlight` turns a [Starlight](https://starlight.astro.build)
 site into a Weldall resource with an agent-facing full-text search endpoint.
 The site's MDX content is indexed at build time with language-specific Orama
-stemming and stop-word removal. Agents query `GET /api/search` through
+stemming and stop-word removal. Agents query `GET /api/search` and read full
+pages from `GET /api/content?path=…` through
 `weldall request` — no browser. It also
 publishes the skill catalog so Weldall auto-discovers the `search` skill.
 
@@ -268,6 +269,34 @@ export default defineConfig({
       language: "english",
     }),
   ],
+});
+```
+
+The search endpoint returns ranked hits with a short excerpt; agents that need
+the full body of a page request it by path from the content endpoint (also
+protected by the same scopes):
+
+```sh
+weldall request --scope search:read \
+  "https://docs.example.com/api/content?path=/team/overview/"
+```
+
+Both endpoints require **all** of the configured `requiredScopes`. The
+auto-discovered `search` skill documents both commands so agents can search
+and then read a result end to end.
+
+The generated `search` skill is customizable by the site owner through the
+`skills.search` option — a custom `title`, a full `content` replacement, or
+`extraRules` appended to the generated operating rules:
+
+```js
+weldallSearch("https://weldall.example.com", {
+  // ...
+  skills: {
+    search: {
+      extraRules: "Pages under /office describe internal support teams.",
+    },
+  },
 });
 ```
 

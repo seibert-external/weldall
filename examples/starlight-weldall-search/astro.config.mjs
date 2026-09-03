@@ -16,6 +16,11 @@ export default defineConfig({
       clientId: "starlight-demo",
       requiredScopes: ["search:read"],
       language: "english",
+      skills: {
+        search: {
+          extraRules: "Pages under /team describe the internal team structure and contacts.",
+        },
+      },
     }),
   ],
 });

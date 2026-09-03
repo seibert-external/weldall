@@ -1,6 +1,6 @@
 import type { PublishedSkill } from "../skills.js";
 import type { SearchLanguage } from "./languages.js";
-import type { WeldallSearchOptions } from "./types.js";
+import type { SearchSkillOverride, WeldallSearchOptions } from "./types.js";
 
 /** Defaults for the site-specific configuration surface. */
 export const DEFAULTS = {
@@ -10,6 +10,8 @@ export const DEFAULTS = {
   contentDir: "src/content/docs",
   /** Default search endpoint path. */
   searchPath: "/api/search",
+  /** Default content endpoint path. */
+  contentPath: "/api/content",
   /** Default maximum results per query. */
   defaultLimit: 10,
 } as const;
@@ -38,10 +40,14 @@ export interface PersistedConfig {
   allowInsecureLoopback?: boolean;
   /** User-provided skills (items) merged into the published catalog. */
   skillsItems?: readonly PublishedSkill[];
+  /** Customization of the auto-generated search skill. */
+  skillsSearch?: SearchSkillOverride;
   /** Search language used for stemming and stop-word removal. */
   language?: SearchLanguage;
   /** Search endpoint path. */
   searchPath?: string;
+  /** Content endpoint path. */
+  contentPath?: string;
   /** Default maximum results per query. */
   defaultLimit?: number;
 }
@@ -72,12 +78,16 @@ export function toPersistedConfig(options: WeldallSearchOptions, host?: string):
   if (options.allowInsecureLoopback !== undefined) {
     persisted.allowInsecureLoopback = options.allowInsecureLoopback;
   }
-  if (options.skills && "items" in options.skills) {
+  if (options.skills && options.skills.items !== undefined) {
     persisted.skillsItems = [...options.skills.items];
   }
+  if (options.skills?.search !== undefined) persisted.skillsSearch = options.skills.search;
   if (options.language !== undefined) persisted.language = options.language;
   if (options.searchPath !== undefined) {
     persisted.searchPath = normalizeSearchPath(options.searchPath);
+  }
+  if (options.contentPath !== undefined) {
+    persisted.contentPath = normalizeSearchPath(options.contentPath);
   }
   if (options.defaultLimit !== undefined) persisted.defaultLimit = options.defaultLimit;
   return persisted;
