@@ -26,7 +26,7 @@ URL = "https://INTEROP.example:443/api/a//../items?ignored=yes"
 
 def node(mode: str, data: dict | None = None) -> dict:
     result = subprocess.run(
-        ["pnpm", "exec", "tsx", SCRIPT, mode],
+        ["pnpm", "--silent", "exec", "tsx", SCRIPT, mode],
         cwd=ROOT,
         input=json.dumps(data) if data is not None else None,
         text=True,
