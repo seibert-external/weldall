@@ -41,7 +41,6 @@ afterEach(async () => {
     process.env.WELDALL_SIGNING_KEY = originalSigningKey;
   }
   cwdSpy.mockRestore();
-  const { rm } = await import("node:fs/promises");
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 

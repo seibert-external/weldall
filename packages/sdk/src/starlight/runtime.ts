@@ -46,9 +46,7 @@ type RuntimeOnlyOptions = {
 
 let runtimeOnlyOptions: RuntimeOnlyOptions = {};
 
-export function configureRuntimeOptions(
-  options: WeldallSearchRuntimeOptions,
-): void {
+export function configureRuntimeOptions(options: WeldallSearchRuntimeOptions): void {
   runtimeOnlyOptions = {
     ...(options.replayStore !== undefined ? { replayStore: options.replayStore } : {}),
   };

@@ -235,7 +235,10 @@ describe("weldallSearch integration", () => {
   it("fails the build when generated artifacts cannot be copied", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-root3-"));
     tempDirs.push(root);
-    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Start\n---\nHallo Welt.\n");
+    await write(
+      path.join(root, "src/content/docs/index.md"),
+      "---\ntitle: Start\n---\nHallo Welt.\n",
+    );
 
     const integration = weldallSearch("https://weldall.example.com", {
       contentDir: "src/content/docs",
