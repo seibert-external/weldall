@@ -64,9 +64,11 @@ In a Fetch handler, `weldall.verify(request, { scopes: [...] })` checks the requ
 
 The SDK requires Node.js 22.15 or newer. Next.js routes must use the Node.js runtime.
 
-## `weldall-sdk` for Python
+## Protect a Python service
 
-[`weldall-sdk`](https://pypi.org/project/weldall-sdk/) provides the same resource-server protocol surface for Python 3.11 or newer. Install the framework-neutral core or a framework extra:
+Use [`weldall-sdk`](https://pypi.org/project/weldall-sdk/) when the receiving service runs on Python 3.11 or newer. The SDK checks user and machine requests before application code runs. It also serves the protocol routes that Weldall needs.
+
+Install the core package on its own, or add the extra for your framework:
 
 ```sh
 pip install weldall-sdk
@@ -92,7 +94,9 @@ weldall = init_weldall(
 weldall.register_routes(app)
 ```
 
-FastAPI exposes `require_auth()` and request-state auth; Django exposes middleware, views, and URL patterns. The framework-neutral synchronous core also includes discovery, ID-JAG exchange, user and machine token verification, the machine client, replay protection, skills, and resource registry helpers. See the [Python SDK reference](https://github.com/seibert-external/weldall/tree/main/packages/python-sdk) for the full API and production checklist.
+`register_routes()` adds the Weldall protocol routes to this FastAPI application. Protect application routes with `require_auth()` and read the verified identity from the request state. Django projects use the supplied middleware, views, and URL patterns instead.
+
+The [Python SDK reference](https://github.com/seibert-external/weldall/tree/main/packages/python-sdk) covers machine calls, published skills, signing keys, replay protection, and the production checklist.
 
 ## Publish skills from a service
 

@@ -1,13 +1,16 @@
 # weldall-sdk
 
-`weldall-sdk` adds Weldall authentication to Python resource servers. It verifies
-DPoP-bound user and machine requests, provides Weldall's OAuth protocol endpoints,
-publishes resource skills, and includes FastAPI and Django adapters. The protocol
-behavior is kept interoperable with the authoritative TypeScript `@weldall/sdk`.
+A Python service should not read data merely because an agent can reach its API.
+`weldall-sdk` checks the employee or machine behind each request before application
+code runs. It also serves the OAuth routes that connect the service to Weldall and
+can publish instructions for agents.
 
-## Installation
+The package follows the same protocol as the TypeScript `@weldall/sdk`. It includes
+a framework-neutral core and adapters for FastAPI and Django.
 
-Python 3.11 or newer is required.
+## Install the SDK
+
+The SDK requires Python 3.11 or newer.
 
 ```sh
 pip install weldall-sdk                    # framework-neutral core
@@ -15,10 +18,10 @@ pip install 'weldall-sdk[fastapi]'         # FastAPI adapter
 pip install 'weldall-sdk[django]'          # Django adapter
 ```
 
-## Framework-neutral core
+## Protect requests without a framework
 
-Create one SDK instance when the service starts. The generated key and in-memory
-replay store below are development-only.
+Create one SDK instance when the service starts. The example generates a temporary
+key and keeps replay data in memory. Use both choices only during development.
 
 ```python
 from weldall import Request, generate_es256_key_pair, in_memory, init_weldall
@@ -66,7 +69,7 @@ The handlers are:
 | `GET /.well-known/weldall-skills`             | `handlers.skills` (when configured)      |
 | `POST /oauth/token`                           | `handlers.token`                         |
 
-## FastAPI
+## Protect FastAPI routes
 
 ```python
 from fastapi import Depends, FastAPI, Request
@@ -92,10 +95,10 @@ handler that preserves the core OAuth body. If an application uses
 `require_auth()` without registering protocol routes, call
 `weldall.install_exception_handler(app)` once.
 
-## Django
+## Protect Django paths
 
-The adapter exposes protocol views/URL patterns and middleware for selected paths.
-A project can include `weldall.urls()` in its root URL configuration.
+The adapter provides protocol views, URL patterns, and middleware for selected
+paths. Include `weldall.urls()` in the root URL configuration.
 
 ```python
 from django.urls import include, path
@@ -124,7 +127,7 @@ The constructor form is
 This explicit instance injection avoids global SDK state and lets Django projects
 choose one SDK instance per resource configuration.
 
-## Machine-to-machine calls
+## Call another service as a machine
 
 ```python
 import os
@@ -161,9 +164,10 @@ The result uses OAuth/Python snake-case keys: `access_token`, `token_type`,
 `at+jwt` tokens and `weldall-machine+jwt` tokens and returns a discriminated
 `auth.identity.type`.
 
-## Publishing skills
+## Publish instructions for agents
 
-Configure exactly one static `items` list or synchronous `load` callable:
+A service can publish the commands that an agent needs for its API. Configure
+exactly one static `items` list or synchronous `load` callable:
 
 ```python
 "skills": {
@@ -183,16 +187,17 @@ Configure exactly one static `items` list or synchronous `load` callable:
 Catalogs are strictly validated, limited to 100 skills and 1 MiB, and require
 replay protection because Weldall fetches them with one-use signed assertions.
 
-## Signing providers
+## Use managed signing keys
 
-A direct `signing_key` contains `kid`, `private_jwk`, and `public_jwk`. KMS/Vault
-integrations can instead provide synchronous `current()` and `jwks()` methods.
+A direct `signing_key` contains `kid`, `private_jwk`, and `public_jwk`. A service
+that keeps keys in a KMS or Vault can instead provide synchronous `current()` and
+`jwks()` methods.
 `current()` returns a key with `kid`, `public_jwk`, and
 `sign(payload, protected_header)`. Before returning any token, the SDK verifies
 that the active key is published, verifies the returned ES256 signature and exact
 header, and deep-compares the returned claims to the requested claims.
 
-## Intentional Python API deviations
+## Where the Python API differs
 
 Protocol values, validation order, claims, errors, cache behavior, and replay
 behavior match `@weldall/sdk`. The language/framework-only differences are:
@@ -213,7 +218,7 @@ behavior match `@weldall/sdk`. The language/framework-only differences are:
 - Framework registration APIs naturally follow FastAPI/Django routing conventions;
   JavaScript-only Hono, Next.js, and Astro adapters are not reproduced.
 
-## Production checklist
+## Prepare a production service
 
 - Load a stable ES256 signing key; generating one at startup invalidates tokens.
 - Keep `resource`, `public_origin`, protocol routes, and Weldall registration exact.
@@ -236,10 +241,11 @@ uv run pytest
 uv build
 ```
 
-The wheel and sdist include `LICENSE` and `py.typed`. Publishing is intentionally
-not part of local development. The manual trusted-publishing workflow requires an
-explicitly authorized `weldall-sdk-vX.Y.Z` tag and a protected environment; publish
-to TestPyPI first, then separately authorize PyPI.
+The wheel and sdist include `LICENSE` and `py.typed`. Local development never
+publishes a package. The manual release workflow accepts only an explicitly
+authorized `weldall-sdk-vX.Y.Z` tag and runs through a protected environment.
+Publish to TestPyPI first. Authorize PyPI in a separate run after checking the
+result.
 
 ## License
 
