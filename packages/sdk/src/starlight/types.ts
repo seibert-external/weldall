@@ -1,22 +1,13 @@
-import type { DirectSigningKey } from "../types.js";
 import type { ReplayStore } from "../types.js";
-import type { SkillProvider } from "../skills.js";
+import type { PublishedSkill } from "../skills.js";
 
 /**
  * Integration options for `weldallSearch(host, options)`.
  *
  * The Weldall identity fields mirror `initWeldall(host, options)` from this
- * SDK — same names, same shapes. Configuration is **prop-driven**: the
- * consuming site passes values in `astro.config.mjs` and may read them from
- * its own environment variables however it likes (e.g.
- * `signingKey: JSON.parse(process.env.MY_KEY)`). The library accepts values,
- * never environment-variable names; the only environment read it keeps as a
- * convenience default is `process.env.WELDALL_SIGNING_KEY` for the signing
- * key. Only the site-specific fields (`contentDir`, `searchPath`, `language`,
- * `defaultLimit`) are unique to this integration.
- *
- * `replayStore` is optional for local development: a process-local store is
- * used when omitted. Production deployments should use a shared replay store.
+ * SDK where the values are deployable build/runtime config. The signing key is
+ * read from `process.env.WELDALL_SIGNING_KEY` in the server process. Configure
+ * replay protection in server startup with `configureWeldallSearchRuntime`.
  */
 export interface WeldallSearchOptions {
   // --- Weldall resource identity (mirrors WeldallOptions) ---
@@ -59,22 +50,8 @@ export interface WeldallSearchOptions {
    */
   allowInsecureLoopback?: boolean;
 
-  /**
-   * ES256 signing key, passed as the actual value — e.g.
-   * `signingKey: JSON.parse(process.env.MY_KEY)` — so the consuming site
-   * decides how to source it (its own environment variables, a secret store,
-   * a file, ...). The library accepts a value, not an environment-variable
-   * name. When omitted, it falls back to `process.env.WELDALL_SIGNING_KEY` at
-   * runtime and, if that is absent too, an ephemeral key (local development
-   * only).
-   */
-  signingKey?: DirectSigningKey;
-
-  /** DPoP replay-protection store. Defaults to a process-local store. */
-  replayStore?: ReplayStore | "disabled";
-
   /** Additional skills to publish next to the auto-generated search skill. */
-  skills?: SkillProvider;
+  skills?: { items: readonly PublishedSkill[] };
 
   // --- site-specific ---
 
@@ -89,6 +66,12 @@ export interface WeldallSearchOptions {
 
   /** Maximum results per query. Defaults to 10. */
   defaultLimit?: number;
+}
+
+/** Server-runtime options for the injected Starlight search routes. */
+export interface WeldallSearchRuntimeOptions {
+  /** DPoP replay-protection store. Defaults to a process-local store. */
+  replayStore?: ReplayStore | "disabled";
 }
 
 /**

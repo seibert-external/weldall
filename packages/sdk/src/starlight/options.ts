@@ -75,7 +75,9 @@ export function toPersistedConfig(options: WeldallSearchOptions, host?: string):
     persisted.skillsItems = [...options.skills.items];
   }
   if (options.language !== undefined) persisted.language = options.language;
-  if (options.searchPath !== undefined) persisted.searchPath = normalizeSearchPath(options.searchPath);
+  if (options.searchPath !== undefined) {
+    persisted.searchPath = normalizeSearchPath(options.searchPath);
+  }
   if (options.defaultLimit !== undefined) persisted.defaultLimit = options.defaultLimit;
   return persisted;
 }

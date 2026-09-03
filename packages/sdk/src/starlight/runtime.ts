@@ -1,4 +1,4 @@
-import { generateEs256KeyPair, inMemory } from "../index.js";
+import { inMemory } from "../index.js";
 import { initWeldall, type AstroWeldall } from "../astro.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -6,7 +6,7 @@ import { readIndexFile, runSearch } from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, type PersistedConfig } from "./options.js";
 import { buildSearchSkill } from "./skill.js";
 import type { DirectSigningKey, ReplayStore } from "../types.js";
-import type { SearchHit, WeldallSearchOptions } from "./types.js";
+import type { SearchHit, WeldallSearchRuntimeOptions } from "./types.js";
 
 const CONFIG_FILE = "config.json";
 const INDEX_FILE = "index.json";
@@ -41,17 +41,15 @@ export interface RuntimeConfig {
 }
 
 type RuntimeOnlyOptions = {
-  signingKey?: DirectSigningKey;
   replayStore?: ReplayStore | "disabled";
 };
 
 let runtimeOnlyOptions: RuntimeOnlyOptions = {};
 
 export function configureRuntimeOptions(
-  options: Pick<WeldallSearchOptions, "signingKey" | "replayStore">,
+  options: WeldallSearchRuntimeOptions,
 ): void {
   runtimeOnlyOptions = {
-    ...(options.signingKey !== undefined ? { signingKey: options.signingKey } : {}),
     ...(options.replayStore !== undefined ? { replayStore: options.replayStore } : {}),
   };
 }
@@ -93,10 +91,8 @@ function isLoopbackOrigin(value: string): boolean {
  * Resolves the runtime configuration from the persisted
  * `.weldall-search/config.json` (written at build time from the integration
  * props). This module does **not** read a fixed `WELDALL_*` environment
- * contract — the consuming site injects its own environment variables into
- * `astro.config.mjs` and passes them as props. Runtime-only values are supplied
- * by the integration module, falling back to `process.env.WELDALL_SIGNING_KEY`
- * for the signing key.
+ * contract — the consuming site passes deployable values in `astro.config.mjs`.
+ * Runtime-only values stay in the server process.
  *
  * @returns The resolved config, the index directory, and any user-provided
  *   skill items to merge into the catalog.
@@ -171,26 +167,20 @@ export function loadRuntimeConfig(): {
 }
 
 /**
- * Resolves the resource signing key. Precedence: the runtime-only `signingKey`
- * value, then the `process.env.WELDALL_SIGNING_KEY` default, then an ephemeral
- * generated key (local development only).
+ * Resolves the resource signing key from the server environment.
  *
- * @param persistedKey - Signing key from the persisted config, if any.
  * @returns An ES256 signing key.
  */
-async function resolveSigningKey(persistedKey?: DirectSigningKey): Promise<DirectSigningKey> {
-  if (persistedKey) return persistedKey;
+async function resolveSigningKey(): Promise<DirectSigningKey> {
   const encoded = process.env.WELDALL_SIGNING_KEY;
-  if (encoded) {
-    const parsed = JSON.parse(encoded) as DirectSigningKey;
-    if (!parsed.kid || !parsed.privateJwk || !parsed.publicJwk) {
-      throw new Error("WELDALL_SIGNING_KEY must be JSON with kid, privateJwk, and publicJwk");
-    }
-    return parsed;
+  if (!encoded) {
+    throw new Error("@weldall/sdk/starlight: WELDALL_SIGNING_KEY is required at runtime");
   }
-  const key = await generateEs256KeyPair();
-  const [privateJwk, publicJwk] = await Promise.all([key.privateJwk, key.publicJwk]);
-  return { kid: "ephemeral", privateJwk, publicJwk };
+  const parsed = JSON.parse(encoded) as DirectSigningKey;
+  if (!parsed.kid || !parsed.privateJwk || !parsed.publicJwk) {
+    throw new Error("WELDALL_SIGNING_KEY must be JSON with kid, privateJwk, and publicJwk");
+  }
+  return parsed;
 }
 
 /**
@@ -237,7 +227,7 @@ export function getRuntime(): Promise<SearchRuntime> {
  */
 async function createRuntime(): Promise<SearchRuntime> {
   const { config, indexDir, skillsItems } = loadRuntimeConfig();
-  const signingKey = await resolveSigningKey(runtimeOnlyOptions.signingKey);
+  const signingKey = await resolveSigningKey();
   const replayStore = runtimeOnlyOptions.replayStore ?? inMemory();
   const generated = buildSearchSkill({
     publicOrigin: config.publicOrigin,

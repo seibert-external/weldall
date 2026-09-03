@@ -4,10 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildIndexFromDir, writeIndexFile } from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, toPersistedConfig } from "./options.js";
-import { configureRuntimeOptions } from "./runtime.js";
 import type { WeldallSearchOptions } from "./types.js";
 
 export { configureRuntimeOptions as configureWeldallSearchRuntime } from "./runtime.js";
+export type { SearchHit, WeldallSearchOptions, WeldallSearchRuntimeOptions } from "./types.js";
 
 /**
  * Resolves the file path of one of this package's injected route entrypoints.
@@ -26,8 +26,8 @@ const routeEntrypoint = (name: string): string =>
  *
  * The interface mirrors `initWeldall(host, options)` from `@weldall/sdk`:
  * `host` is the Weldall authorization-server origin and `options` use the same
- * names and shapes as the SDK (`resource`, `publicOrigin`, `clientId`,
- * `signingKey`, `replayStore`, ...). The search endpoint requires all of the
+ * names and shapes as the SDK for deployable config (`resource`,
+ * `publicOrigin`, `clientId`, ...). The search endpoint requires all of the
  * configured `requiredScopes`. The auto-discovered `search` skill title is
  * derived from the site origin.
  *
@@ -70,7 +70,6 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
   const language = options.language ?? DEFAULTS.language;
   const contentDir = options.contentDir ?? DEFAULTS.contentDir;
   const persisted = toPersistedConfig(options, host);
-  configureRuntimeOptions(options);
   let projectRoot = "";
 
   return {
@@ -88,7 +87,11 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
               'Set `output: "server"` and a server adapter (e.g. @astrojs/node) in astro.config.mjs.',
           );
         }
-        configureRuntimeOptions(options);
+        if (options.skills && "load" in options.skills) {
+          throw new Error(
+            "@weldall/sdk/starlight does not support dynamic skill loaders; pass skills.items instead.",
+          );
+        }
         projectRoot = fileURLToPath(config.root);
 
         const indexDir = path.join(projectRoot, ".weldall-search");
@@ -127,7 +130,7 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
         await mkdir(targetDir, { recursive: true });
         for (const name of ["index.json", "config.json"] as const) {
           const source = path.join(sourceDir, name);
-          await copyFile(source, path.join(targetDir, name)).catch(() => undefined);
+          await copyFile(source, path.join(targetDir, name));
         }
         logger.info("@weldall/sdk/starlight: copied search index into build output");
       },

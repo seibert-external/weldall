@@ -27,12 +27,19 @@ const identity = {
 };
 
 let cwdSpy: ReturnType<typeof vi.spyOn>;
+let originalSigningKey: string | undefined;
 
 beforeEach(() => {
+  originalSigningKey = process.env.WELDALL_SIGNING_KEY;
   cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(process.cwd());
 });
 
 afterEach(async () => {
+  if (originalSigningKey === undefined) {
+    delete process.env.WELDALL_SIGNING_KEY;
+  } else {
+    process.env.WELDALL_SIGNING_KEY = originalSigningKey;
+  }
   cwdSpy.mockRestore();
   const { rm } = await import("node:fs/promises");
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
@@ -83,7 +90,7 @@ describe("loadRuntimeConfig", () => {
     expect(config.defaultLimit).toBe(5);
   });
 
-  it("passes runtime-only signing key and replay store into Weldall", async () => {
+  it("passes the environment signing key and runtime replay store into Weldall", async () => {
     vi.resetModules();
     const initWeldall = vi.fn(() => ({
       handlers: {},
@@ -103,14 +110,40 @@ describe("loadRuntimeConfig", () => {
       cwdSpy.mockReturnValue(root);
       const signingKey = { kid: "k1", privateJwk: { kty: "EC" }, publicJwk: { kty: "EC" } };
       const replayStore = { consume: vi.fn(async () => true) };
+      process.env.WELDALL_SIGNING_KEY = JSON.stringify(signingKey);
 
-      runtimeModule.configureRuntimeOptions({ signingKey, replayStore });
+      runtimeModule.configureRuntimeOptions({ replayStore });
       await runtimeModule.getRuntime();
 
       expect(initWeldall).toHaveBeenCalledWith(
         "https://weldall.example.com",
         expect.objectContaining({ signingKey, replayStore }),
       );
+      runtimeModule.resetRuntimeForTests();
+    } finally {
+      vi.doUnmock("../src/astro.js");
+      vi.doUnmock("../src/starlight/indexing.js");
+      vi.resetModules();
+    }
+  });
+
+  it("fails runtime creation when the signing key is absent from the environment", async () => {
+    vi.resetModules();
+    vi.doMock("../src/astro.js", () => ({ initWeldall: vi.fn() }));
+    vi.doMock("../src/starlight/indexing.js", () => ({
+      readIndexFile: vi.fn(async () => ({})),
+      runSearch: vi.fn(async () => []),
+    }));
+    try {
+      const runtimeModule = await import("../src/starlight/runtime.js");
+      const root = await withIndexDir({
+        ".weldall-search/config.json": JSON.stringify(identity),
+        ".weldall-search/index.json": "{}",
+      });
+      cwdSpy.mockReturnValue(root);
+      delete process.env.WELDALL_SIGNING_KEY;
+
+      await expect(runtimeModule.getRuntime()).rejects.toThrow(/WELDALL_SIGNING_KEY/);
       runtimeModule.resetRuntimeForTests();
     } finally {
       vi.doUnmock("../src/astro.js");
@@ -131,9 +164,13 @@ describe("buildSearchSkill", () => {
     });
     expect(id).toBe("search");
     expect(title).toBe("Search the basics knowledge base");
-    expect(content).toContain('"https://basics.seibert.tools/api/search?q=<query>"');
-    expect(content).toContain("--scope search:read");
-    expect(content).toContain("weldall request");
+    expect(content).toContain(
+      [
+        "weldall request \\",
+        "  --scope search:read \\",
+        '  "https://basics.seibert.tools/api/search?q=<query>"',
+      ].join("\n"),
+    );
   });
 
   it("falls back to a generic title without a site label", () => {

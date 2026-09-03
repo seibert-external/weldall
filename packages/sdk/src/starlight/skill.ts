@@ -57,7 +57,8 @@ Run:
 
 \`\`\`sh
 weldall request \\
-${scopeArgs}  "${url}?q=<query>"
+${scopeArgs}
+  "${url}?q=<query>"
 \`\`\`
 
 The response has this shape:

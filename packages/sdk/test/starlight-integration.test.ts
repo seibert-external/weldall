@@ -79,7 +79,7 @@ describe("weldallSearch integration", () => {
       searchPath: "api/search/",
       signingKey,
       replayStore,
-    });
+    } as never);
     const patterns: string[] = [];
 
     await integration.hooks?.["astro:config:setup"]?.({
@@ -103,6 +103,25 @@ describe("weldallSearch integration", () => {
     expect(config.searchPath).toBe("/api/search");
     expect(config.signingKey).toBeUndefined();
     expect(config.replayStore).toBeUndefined();
+  });
+
+  it("rejects dynamic skill loaders during setup", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sws-loader-"));
+    tempDirs.push(root);
+    const integration = weldallSearch("https://weldall.example.com", {
+      skills: { load: async () => [] },
+    } as never);
+
+    await expect(
+      integration.hooks?.["astro:config:setup"]?.({
+        config: {
+          output: "server",
+          root: pathToFileURL(`${root}/`),
+        },
+        injectRoute: () => undefined,
+        logger: { info: () => undefined } as never,
+      } as never),
+    ).rejects.toThrow(/dynamic skill loaders/);
   });
 
   it("throws when the site is not configured for SSR", async () => {
@@ -149,5 +168,35 @@ describe("weldallSearch integration", () => {
       await readFile(path.join(fileURLToPath(dist), ".weldall-search/index.json"), "utf8"),
     );
     expect(copied.language).toBe("german");
+  });
+
+  it("fails the build when generated artifacts cannot be copied", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sws-root3-"));
+    tempDirs.push(root);
+    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Start\n---\nHallo Welt.\n");
+
+    const integration = weldallSearch("https://weldall.example.com", {
+      contentDir: "src/content/docs",
+    });
+    await integration.hooks?.["astro:config:setup"]?.({
+      config: {
+        output: "server",
+        root: pathToFileURL(`${root}/`),
+        srcDir: pathToFileURL(`${root}/src/`),
+      },
+      injectRoute: () => undefined,
+      logger: { info: () => undefined } as never,
+      updateConfig: () => ({}) as never,
+      command: "build",
+      isRestart: false,
+    } as never);
+    await rm(path.join(root, ".weldall-search/config.json"));
+
+    await expect(
+      integration.hooks?.["astro:build:done"]?.({
+        dir: pathToFileURL(`${root}/dist/`),
+        logger: { info: () => undefined } as never,
+      } as never),
+    ).rejects.toThrow(/config\.json/);
   });
 });
