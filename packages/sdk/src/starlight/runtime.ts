@@ -5,8 +5,8 @@ import path from "node:path";
 import { readIndexFile, runSearch } from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, type PersistedConfig } from "./options.js";
 import { buildSearchSkill } from "./skill.js";
-import type { DirectSigningKey } from "../types.js";
-import type { SearchHit } from "./types.js";
+import type { DirectSigningKey, ReplayStore } from "../types.js";
+import type { SearchHit, WeldallSearchOptions } from "./types.js";
 
 const CONFIG_FILE = "config.json";
 const INDEX_FILE = "index.json";
@@ -38,8 +38,22 @@ export interface RuntimeConfig {
   discoveryProxyOrigin?: string;
   /** Whether `http://` loopback origins are allowed. */
   allowInsecureLoopback: boolean;
-  /** ES256 signing key from the persisted config (user-provided value). */
+}
+
+type RuntimeOnlyOptions = {
   signingKey?: DirectSigningKey;
+  replayStore?: ReplayStore | "disabled";
+};
+
+let runtimeOnlyOptions: RuntimeOnlyOptions = {};
+
+export function configureRuntimeOptions(
+  options: Pick<WeldallSearchOptions, "signingKey" | "replayStore">,
+): void {
+  runtimeOnlyOptions = {
+    ...(options.signingKey !== undefined ? { signingKey: options.signingKey } : {}),
+    ...(options.replayStore !== undefined ? { replayStore: options.replayStore } : {}),
+  };
 }
 
 /**
@@ -80,8 +94,9 @@ function isLoopbackOrigin(value: string): boolean {
  * `.weldall-search/config.json` (written at build time from the integration
  * props). This module does **not** read a fixed `WELDALL_*` environment
  * contract — the consuming site injects its own environment variables into
- * `astro.config.mjs` and passes them as props. The signing key is a value prop
- * (`signingKey`), falling back to `process.env.WELDALL_SIGNING_KEY`.
+ * `astro.config.mjs` and passes them as props. Runtime-only values are supplied
+ * by the integration module, falling back to `process.env.WELDALL_SIGNING_KEY`
+ * for the signing key.
  *
  * @returns The resolved config, the index directory, and any user-provided
  *   skill items to merge into the catalog.
@@ -110,7 +125,6 @@ export function loadRuntimeConfig(): {
     Number.isFinite(defaultLimitRaw) && defaultLimitRaw >= 1 ? Math.floor(defaultLimitRaw) : 10;
   const discoveryTimeoutMs = persisted.discoveryTimeoutMs;
   const discoveryProxyOrigin = persisted.discoveryProxyOrigin;
-  const signingKey = persisted.signingKey;
   const requiredScopes = persisted.requiredScopes as readonly string[] | undefined;
 
   if (
@@ -148,7 +162,6 @@ export function loadRuntimeConfig(): {
   };
   if (discoveryTimeoutMs !== undefined) config.discoveryTimeoutMs = discoveryTimeoutMs;
   if (discoveryProxyOrigin !== undefined) config.discoveryProxyOrigin = discoveryProxyOrigin;
-  if (signingKey !== undefined) config.signingKey = signingKey;
 
   return {
     config,
@@ -158,10 +171,9 @@ export function loadRuntimeConfig(): {
 }
 
 /**
- * Resolves the resource signing key. Precedence: the persisted `signingKey`
- * value (the user passes their own expression, e.g. `JSON.parse(process.env.foo)`
- * in `astro.config.mjs`), then the `process.env.WELDALL_SIGNING_KEY` default,
- * then an ephemeral generated key (local development only).
+ * Resolves the resource signing key. Precedence: the runtime-only `signingKey`
+ * value, then the `process.env.WELDALL_SIGNING_KEY` default, then an ephemeral
+ * generated key (local development only).
  *
  * @param persistedKey - Signing key from the persisted config, if any.
  * @returns An ES256 signing key.
@@ -225,7 +237,8 @@ export function getRuntime(): Promise<SearchRuntime> {
  */
 async function createRuntime(): Promise<SearchRuntime> {
   const { config, indexDir, skillsItems } = loadRuntimeConfig();
-  const signingKey = await resolveSigningKey(config.signingKey);
+  const signingKey = await resolveSigningKey(runtimeOnlyOptions.signingKey);
+  const replayStore = runtimeOnlyOptions.replayStore ?? inMemory();
   const generated = buildSearchSkill({
     publicOrigin: config.publicOrigin,
     resource: config.resource,
@@ -239,7 +252,7 @@ async function createRuntime(): Promise<SearchRuntime> {
     clientId: config.clientId,
     supportedScopes: config.requiredScopes,
     signingKey,
-    replayStore: inMemory(),
+    replayStore,
     allowInsecureLoopback: config.allowInsecureLoopback,
     ...(config.discoveryTimeoutMs !== undefined
       ? { discoveryTimeoutMs: config.discoveryTimeoutMs }
@@ -277,4 +290,9 @@ async function createRuntime(): Promise<SearchRuntime> {
       return runSearch(db, term, limit);
     },
   };
+}
+
+export function resetRuntimeForTests(): void {
+  runtimePromise = undefined;
+  runtimeOnlyOptions = {};
 }

@@ -56,8 +56,6 @@ describe("loadRuntimeConfig", () => {
     expect(config.language).toBe("german");
     expect(config.defaultLimit).toBe(10);
     expect(config.allowInsecureLoopback).toBe(false);
-    // no persisted signing key; the runtime falls back to env/default
-    expect(config.signingKey).toBeUndefined();
   });
 
   it("throws a helpful error when the Weldall config is missing", async () => {
@@ -67,15 +65,13 @@ describe("loadRuntimeConfig", () => {
     expect(() => loadRuntimeConfig()).toThrow(/astro\.config\.mjs/);
   });
 
-  it("honors overridable site settings and a user-provided signing key", async () => {
-    const key = { kid: "k1", privateJwk: { kty: "EC" }, publicJwk: { kty: "EC" } };
+  it("honors overridable site settings without requiring secret config", async () => {
     const root = await withIndexDir({
       ".weldall-search/config.json": JSON.stringify({
         ...identity,
         requiredScopes: ["search:read", "staging:read"],
         searchPath: "/suchen",
         defaultLimit: 5,
-        signingKey: key,
       }),
       ".weldall-search/index.json": "{}",
     });
@@ -85,7 +81,42 @@ describe("loadRuntimeConfig", () => {
     expect(config.requiredScopes).toEqual(["search:read", "staging:read"]);
     expect(config.searchPath).toBe("/suchen");
     expect(config.defaultLimit).toBe(5);
-    expect(config.signingKey).toEqual(key);
+  });
+
+  it("passes runtime-only signing key and replay store into Weldall", async () => {
+    vi.resetModules();
+    const initWeldall = vi.fn(() => ({
+      handlers: {},
+      verifyNoThrow: vi.fn(),
+    }));
+    vi.doMock("../src/astro.js", () => ({ initWeldall }));
+    vi.doMock("../src/starlight/indexing.js", () => ({
+      readIndexFile: vi.fn(async () => ({})),
+      runSearch: vi.fn(async () => []),
+    }));
+    try {
+      const runtimeModule = await import("../src/starlight/runtime.js");
+      const root = await withIndexDir({
+        ".weldall-search/config.json": JSON.stringify(identity),
+        ".weldall-search/index.json": "{}",
+      });
+      cwdSpy.mockReturnValue(root);
+      const signingKey = { kid: "k1", privateJwk: { kty: "EC" }, publicJwk: { kty: "EC" } };
+      const replayStore = { consume: vi.fn(async () => true) };
+
+      runtimeModule.configureRuntimeOptions({ signingKey, replayStore });
+      await runtimeModule.getRuntime();
+
+      expect(initWeldall).toHaveBeenCalledWith(
+        "https://weldall.example.com",
+        expect.objectContaining({ signingKey, replayStore }),
+      );
+      runtimeModule.resetRuntimeForTests();
+    } finally {
+      vi.doUnmock("../src/astro.js");
+      vi.doUnmock("../src/starlight/indexing.js");
+      vi.resetModules();
+    }
   });
 });
 

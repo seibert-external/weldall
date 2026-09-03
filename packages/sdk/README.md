@@ -274,11 +274,12 @@ requires **all** of the configured `requiredScopes`, which are also the skill's
 `requiredScopes` and the resource's supported scopes. Configuration is
 **prop-driven**: the consuming site passes values in `astro.config.mjs` and may
 read them from its own environment variables however it likes — the library
-accepts values, never environment-variable names. The signing key is passed as
-a value too, e.g.
-`signingKey: JSON.parse(process.env.MY_KEY)`; when omitted it falls back to
-`process.env.WELDALL_SIGNING_KEY` at runtime and otherwise to an ephemeral key
-(local development only).
+accepts values, never environment-variable names. Runtime-only values such as
+`signingKey` and `replayStore` are not written into `.weldall-search/config.json`.
+When `signingKey` is omitted it falls back to `process.env.WELDALL_SIGNING_KEY`
+at runtime and otherwise to an ephemeral key (local development only).
+Server startup code can also call `configureWeldallSearchRuntime({ signingKey,
+replayStore })` before serving the injected routes.
 
 Orama and gray-matter are optional peer dependencies and must be installed in
 the consuming site:

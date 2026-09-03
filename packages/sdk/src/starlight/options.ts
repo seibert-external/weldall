@@ -1,4 +1,3 @@
-import type { DirectSigningKey } from "../types.js";
 import type { PublishedSkill } from "../skills.js";
 import type { WeldallSearchOptions } from "./types.js";
 
@@ -17,8 +16,7 @@ export const DEFAULTS = {
 /**
  * Non-secret configuration written next to the search index at build time and
  * read back by the runtime. Secrets and runtime-only values (the signing key,
- * `replayStore`) are deliberately not persisted; only the signing key's
- * environment-variable *name* is stored.
+ * `replayStore`) are deliberately not persisted.
  */
 export interface PersistedConfig {
   /** Weldall authorization-server origin (the `host` argument). */
@@ -37,8 +35,6 @@ export interface PersistedConfig {
   discoveryProxyOrigin?: string;
   /** Whether `http://` loopback origins are allowed. */
   allowInsecureLoopback?: boolean;
-  /** ES256 signing key, persisted so the runtime can use it. */
-  signingKey?: DirectSigningKey;
   /** User-provided skills (items) merged into the published catalog. */
   skillsItems?: readonly PublishedSkill[];
   /** Orama index language. */
@@ -75,14 +71,11 @@ export function toPersistedConfig(options: WeldallSearchOptions, host?: string):
   if (options.allowInsecureLoopback !== undefined) {
     persisted.allowInsecureLoopback = options.allowInsecureLoopback;
   }
-  if (options.signingKey !== undefined) {
-    persisted.signingKey = options.signingKey;
-  }
   if (options.skills && "items" in options.skills) {
     persisted.skillsItems = [...options.skills.items];
   }
   if (options.language !== undefined) persisted.language = options.language;
-  if (options.searchPath !== undefined) persisted.searchPath = options.searchPath;
+  if (options.searchPath !== undefined) persisted.searchPath = normalizeSearchPath(options.searchPath);
   if (options.defaultLimit !== undefined) persisted.defaultLimit = options.defaultLimit;
   return persisted;
 }

@@ -1,9 +1,13 @@
 import type { AstroIntegration } from "astro";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildIndexFromDir, writeIndexFile } from "./indexing.js";
-import { DEFAULTS, toPersistedConfig } from "./options.js";
+import { DEFAULTS, normalizeSearchPath, toPersistedConfig } from "./options.js";
+import { configureRuntimeOptions } from "./runtime.js";
 import type { WeldallSearchOptions } from "./types.js";
+
+export { configureRuntimeOptions as configureWeldallSearchRuntime } from "./runtime.js";
 
 /**
  * Resolves the file path of one of this package's injected route entrypoints.
@@ -14,7 +18,7 @@ import type { WeldallSearchOptions } from "./types.js";
  * @returns Absolute file path to the built route module.
  */
 const routeEntrypoint = (name: string): string =>
-  new URL(`./routes/${name}.js`, import.meta.url).pathname;
+  fileURLToPath(new URL(`./routes/${name}.js`, import.meta.url));
 
 /**
  * Starlight integration that exposes a Weldall-SDK-authenticated full-text
@@ -62,10 +66,11 @@ const routeEntrypoint = (name: string): string =>
  * @returns An Astro integration ready for the `integrations` array.
  */
 export function weldallSearch(host: string, options: WeldallSearchOptions = {}): AstroIntegration {
-  const searchPath = options.searchPath ?? DEFAULTS.searchPath;
+  const searchPath = normalizeSearchPath(options.searchPath ?? DEFAULTS.searchPath);
   const language = options.language ?? DEFAULTS.language;
   const contentDir = options.contentDir ?? DEFAULTS.contentDir;
   const persisted = toPersistedConfig(options, host);
+  configureRuntimeOptions(options);
   let projectRoot = "";
 
   return {
@@ -83,7 +88,8 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
               'Set `output: "server"` and a server adapter (e.g. @astrojs/node) in astro.config.mjs.',
           );
         }
-        projectRoot = config.root.pathname;
+        configureRuntimeOptions(options);
+        projectRoot = fileURLToPath(config.root);
 
         const indexDir = path.join(projectRoot, ".weldall-search");
         const indexFile = path.join(indexDir, "index.json");
@@ -117,11 +123,11 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
       "astro:build:done": async ({ dir, logger }) => {
         if (!projectRoot) return;
         const sourceDir = path.join(projectRoot, ".weldall-search");
-        const targetDir = new URL(".weldall-search/", dir);
-        await mkdir(targetDir.pathname, { recursive: true });
+        const targetDir = fileURLToPath(new URL(".weldall-search/", dir));
+        await mkdir(targetDir, { recursive: true });
         for (const name of ["index.json", "config.json"] as const) {
           const source = path.join(sourceDir, name);
-          await copyFile(source, path.join(targetDir.pathname, name)).catch(() => undefined);
+          await copyFile(source, path.join(targetDir, name)).catch(() => undefined);
         }
         logger.info("@weldall/sdk/starlight: copied search index into build output");
       },
