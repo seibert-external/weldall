@@ -26,6 +26,7 @@ export default defineConfig({
           label: "Weldall CLI",
           items: [
             { slug: "index" },
+            { slug: "skill-classification" },
             { slug: "agent-run" },
             { label: "Features", link: "/features/" },
             { slug: "oauth-security" },
