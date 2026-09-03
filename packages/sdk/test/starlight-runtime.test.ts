@@ -103,7 +103,10 @@ describe("loadRuntimeConfig", () => {
 
     const { config, skillsSearch } = loadRuntimeConfig();
     expect(config.contentPath).toBe("/read");
-    expect(skillsSearch).toEqual({ title: "Find it", extraRules: "Pages under /office are teams." });
+    expect(skillsSearch).toEqual({
+      title: "Find it",
+      extraRules: "Pages under /office are teams.",
+    });
   });
 
   it("passes the environment signing key and runtime replay store into Weldall", async () => {
@@ -203,7 +206,9 @@ describe("buildSearchSkill", () => {
         '  "https://docs.example.com/api/content?path=<path>"',
       ].join("\n"),
     );
-    expect(content).toContain('"content": "# Team\\n\\nThe employee directory explains the team structure ..."');
+    expect(content).toContain(
+      '"content": "# Team\\n\\nThe employee directory explains the team structure ..."',
+    );
   });
 
   it("falls back to a generic title without a site label", () => {

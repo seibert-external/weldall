@@ -2,12 +2,7 @@ import { inMemory } from "../index.js";
 import { initWeldall, type AstroWeldall } from "../astro.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import {
-  readDocumentsFile,
-  readIndexFile,
-  runSearch,
-  type PageRecord,
-} from "./indexing.js";
+import { readDocumentsFile, readIndexFile, runSearch, type PageRecord } from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, type PersistedConfig } from "./options.js";
 import { buildSearchSkill } from "./skill.js";
 import type { SearchLanguage } from "./languages.js";

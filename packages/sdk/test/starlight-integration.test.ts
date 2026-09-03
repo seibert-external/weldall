@@ -275,7 +275,13 @@ describe("weldallSearch integration", () => {
       await readFile(path.join(fileURLToPath(dist), ".weldall-search/documents.json"), "utf8"),
     );
     expect(copiedDocuments).toEqual([
-      { path: "/", title: "Welcome", description: "", content: "Hello world.", markdown: "Hello world." },
+      {
+        path: "/",
+        title: "Welcome",
+        description: "",
+        content: "Hello world.",
+        markdown: "Hello world.",
+      },
     ]);
   });
 

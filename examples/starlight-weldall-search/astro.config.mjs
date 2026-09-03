@@ -18,8 +18,7 @@ export default defineConfig({
       language: "english",
       skills: {
         search: {
-          extraRules:
-            "Pages under /team describe the internal team structure and contacts.",
+          extraRules: "Pages under /team describe the internal team structure and contacts.",
         },
       },
     }),
