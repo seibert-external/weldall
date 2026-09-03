@@ -53,7 +53,7 @@ describe("buildIndexFromDir", () => {
 title: Team
 description: Mitarbeiterverzeichnis und Teamstruktur.
 ---
-Wir beschreiben das **Mitarbeiterverzeichnis** und die Teamstruktur der Seibert Group.
+Wir beschreiben den Aufbau des **Mitarbeiterverzeichnisses** und die Teamstruktur der Seibert Group.
 `,
       "finance/reports-and-numbers.md": `---
 title: Umsatzzahlen
@@ -82,6 +82,7 @@ Die Grundlagen der Seibert Group.
     // German stemming: different inflections resolve to the same stem.
     expect(await byTerm("Mitarbeiter")).toContain("/team/overview/");
     expect(await byTerm("Mitarbeiterverzeichnis")).toContain("/team/overview/");
+    expect(await byTerm("und")).toEqual([]);
     expect(await byTerm("umsatz")).toContain("/finance/reports-and-numbers/");
     expect(await byTerm("bwa")).toContain("/finance/reports-and-numbers/");
     expect(await byTerm("dashboards")).toContain("/finance/reports-and-numbers/");

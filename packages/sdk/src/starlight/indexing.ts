@@ -46,6 +46,13 @@ interface OramaModule {
   ): Promise<{ hits: Array<{ document: SearchDocument; score?: number }> }>;
 }
 
+type TokenizerConfig = {
+  language: string;
+  stemming?: boolean;
+  stemmer?: (word: string) => string;
+  stopWords?: string[];
+};
+
 let oramaPromise: Promise<OramaModule> | undefined;
 
 /**
@@ -63,6 +70,20 @@ function loadOrama(): Promise<OramaModule> {
     },
   );
   return oramaPromise;
+}
+
+async function tokenizerFor(language: string): Promise<TokenizerConfig> {
+  if (language !== "german") return { language };
+  const [{ stemmer }, { stopwords }] = await Promise.all([
+    import("@orama/stemmers/german"),
+    import("@orama/stopwords/german"),
+  ]);
+  return {
+    language,
+    stemming: true,
+    stemmer,
+    stopWords: stopwords,
+  };
 }
 
 interface MatterFile {
@@ -175,7 +196,10 @@ export async function buildIndexFromDir(
     });
   }
 
-  const db = await orama.create({ schema: SCHEMA, language });
+  const db = await orama.create({
+    schema: SCHEMA,
+    components: { tokenizer: await tokenizerFor(language) },
+  });
   if (documents.length > 0) await orama.insertMultiple(db, documents);
   const raw = await orama.save(db);
   return { documents, raw };
@@ -202,7 +226,10 @@ export async function writeIndexFile(indexFile: string, index: IndexFile): Promi
 export async function readIndexFile(indexFile: string): Promise<unknown> {
   const orama = await loadOrama();
   const index = JSON.parse(await readFile(indexFile, "utf8")) as IndexFile;
-  const db = await orama.create({ schema: SCHEMA, language: index.language ?? "german" });
+  const db = await orama.create({
+    schema: SCHEMA,
+    components: { tokenizer: await tokenizerFor(index.language ?? "german") },
+  });
   await orama.load(db, index.raw);
   return db;
 }

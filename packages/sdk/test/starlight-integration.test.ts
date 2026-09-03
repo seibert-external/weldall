@@ -65,6 +65,60 @@ describe("weldallSearch integration", () => {
     expect(index.raw).toBeTruthy();
   });
 
+  it("derives the resource metadata route from the configured resource path", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sws-resource-"));
+    tempDirs.push(root);
+    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Start\n---\nHallo.\n");
+    const integration = weldallSearch("https://weldall.example.com", {
+      contentDir: "src/content/docs",
+      resource: "https://docs.example.com/search",
+    });
+    const patterns: string[] = [];
+
+    await integration.hooks?.["astro:config:setup"]?.({
+      config: {
+        output: "server",
+        root: pathToFileURL(`${root}/`),
+        srcDir: pathToFileURL(`${root}/src/`),
+      },
+      injectRoute: (route: { pattern: string }) => patterns.push(route.pattern),
+      logger: { info: () => undefined } as never,
+      updateConfig: () => ({}) as never,
+      command: "build",
+      isRestart: false,
+    } as never);
+
+    expect(patterns).toContain("/.well-known/oauth-protected-resource/search");
+  });
+
+  it("uses only the generic resource metadata route for origin resources", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sws-origin-resource-"));
+    tempDirs.push(root);
+    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Start\n---\nHallo.\n");
+    const integration = weldallSearch("https://weldall.example.com", {
+      contentDir: "src/content/docs",
+      resource: "https://docs.example.com/",
+    });
+    const patterns: string[] = [];
+
+    await integration.hooks?.["astro:config:setup"]?.({
+      config: {
+        output: "server",
+        root: pathToFileURL(`${root}/`),
+        srcDir: pathToFileURL(`${root}/src/`),
+      },
+      injectRoute: (route: { pattern: string }) => patterns.push(route.pattern),
+      logger: { info: () => undefined } as never,
+      updateConfig: () => ({}) as never,
+      command: "build",
+      isRestart: false,
+    } as never);
+
+    expect(
+      patterns.filter((pattern) => pattern === "/.well-known/oauth-protected-resource"),
+    ).toHaveLength(1);
+  });
+
   it("normalizes routes and persists only deployable config values", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-root with spaces-"));
     tempDirs.push(root);

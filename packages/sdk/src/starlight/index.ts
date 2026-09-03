@@ -20,6 +20,13 @@ export type { SearchHit, WeldallSearchOptions, WeldallSearchRuntimeOptions } fro
 const routeEntrypoint = (name: string): string =>
   fileURLToPath(new URL(`./routes/${name}.js`, import.meta.url));
 
+function protectedResourceMetadataPattern(resource?: string): string {
+  if (!resource) return "/.well-known/oauth-protected-resource/api";
+  const pathname = normalizeSearchPath(new URL(resource).pathname);
+  if (pathname === "/") return "/.well-known/oauth-protected-resource";
+  return `/.well-known/oauth-protected-resource${pathname}`;
+}
+
 /**
  * Starlight integration that exposes a Weldall-SDK-authenticated full-text
  * search endpoint (`/api/search` by default) over the site's own MDX content.
@@ -36,7 +43,7 @@ const routeEntrypoint = (name: string): string =>
  *
  * - `GET /api/search?q=…` — the protected search endpoint
  * - `GET /.well-known/oauth-protected-resource` — resource metadata
- * - `GET /.well-known/oauth-protected-resource/api` — per-path metadata
+ * - `GET /.well-known/oauth-protected-resource/<resource-path>` — per-path metadata
  * - `GET /.well-known/weldall-skills` — skill catalog (auto-discovery)
  *
  * **Requires SSR.** Set `output: "server"` and a server adapter (e.g.
@@ -70,6 +77,7 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
   const language = options.language ?? DEFAULTS.language;
   const contentDir = options.contentDir ?? DEFAULTS.contentDir;
   const persisted = toPersistedConfig(options, host);
+  const resourceMetadataPattern = protectedResourceMetadataPattern(options.resource);
   let projectRoot = "";
 
   return {
@@ -110,10 +118,12 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
           pattern: "/.well-known/oauth-protected-resource",
           entrypoint: routeEntrypoint("oauth-protected-resource"),
         });
-        injectRoute({
-          pattern: "/.well-known/oauth-protected-resource/api",
-          entrypoint: routeEntrypoint("oauth-protected-resource-api"),
-        });
+        if (resourceMetadataPattern !== "/.well-known/oauth-protected-resource") {
+          injectRoute({
+            pattern: resourceMetadataPattern,
+            entrypoint: routeEntrypoint("oauth-protected-resource-api"),
+          });
+        }
         injectRoute({
           pattern: "/.well-known/weldall-skills",
           entrypoint: routeEntrypoint("skills"),
