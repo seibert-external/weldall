@@ -10,6 +10,66 @@ permissions:
   contents: read
 
 jobs:
+  python-sdk:
+    name: Python SDK (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: packages/python-sdk
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm for interoperability tests
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Set up Node.js for interoperability tests
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install Node.js interoperability dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: packages/python-sdk/uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras
+      - name: Lint, typecheck, and test
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy src tests/typing
+          uv run pytest
+      - name: Build and inspect distributions
+        run: |
+          cmp LICENSE ../../LICENSE
+          rm -rf "$RUNNER_TEMP/python-sdk-dist"
+          uv build --out-dir "$RUNNER_TEMP/python-sdk-dist"
+          uv run twine check "$RUNNER_TEMP/python-sdk-dist"/*
+          uv run python scripts/verify-package.py "$RUNNER_TEMP/python-sdk-dist"/*
+          WHEEL="$(find "$RUNNER_TEMP/python-sdk-dist" -maxdepth 1 -name '*.whl' -print -quit)"
+          uv venv "$RUNNER_TEMP/python-sdk-smoke"
+          uv pip install --python "$RUNNER_TEMP/python-sdk-smoke/bin/python" "${WHEEL}[fastapi,django]"
+          (cd "$RUNNER_TEMP" && PYTHONPATH= "$RUNNER_TEMP/python-sdk-smoke/bin/python" -c 'from importlib.metadata import version; from weldall import __version__, init_weldall; from weldall.adapters.fastapi import FastAPIWeldall; from weldall.adapters.django import DjangoWeldall; assert __version__ == version("weldall-sdk"); print(init_weldall, FastAPIWeldall, DjangoWeldall)')
+      - name: Assert validation left no repository debris
+        working-directory: .
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+
   verify:
     runs-on: weldall
     timeout-minutes: 20
@@ -362,6 +422,7 @@ jobs:
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
+      - python-sdk
       - verify
       - package-compat
       - cli-source-native

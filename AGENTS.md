@@ -2,7 +2,7 @@
 
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
-- Treat `pnpm-workspace.yaml` and each workspace's `package.json` as the authoritative package inventory; root setup, build, and validation commands live in `package.json` and `.github/workflows/ci.yml`.
+- Treat `pnpm-workspace.yaml` and each workspace's `package.json` as the authoritative JavaScript package inventory; root setup, build, and validation commands live in `package.json` and `.github/workflows/ci.yml`. The uv-managed `packages/python-sdk/` intentionally has no `package.json` and stays outside pnpm/turbo; its parity authority is `packages/sdk/`, and its local gates are documented in `packages/python-sdk/README.md`.
 - For CLI syntax, read `apps/cli/src/commands.tsx` and validate the built interface with `./apps/cli/dist/index.js <command> --help`; request payload behavior is covered in `apps/cli/test/transfers.test.ts`.
 - The product model is defined by `packages/db/prisma/schema.prisma`, with scope/resource policy in `apps/weldall/src/server/policy/` and local demonstration records in `packages/db/prisma/seed.dev.ts`.
 - The E2E stack must run the **production** Next build: `Dockerfile.e2e` compiles `apps/weldall` into `.next/standalone` and `docker-compose.e2e.yml` starts `server.js`. Running `next dev --webpack` there instead compiles each route on first hit (measured 35-75s on CI runners), which overruns the CLI's OAuth discovery deadline, the DPoP `iat` skew window, and Playwright's 30s assertion timeouts.
@@ -13,7 +13,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - After bumping any CLI dependency, regenerate the committed `apps/cli/THIRD_PARTY_NOTICES` (`pnpm --filter @weldall/cli exec tsx scripts/generate-third-party-notices.mjs`); `apps/cli/test/standalone-scripts.test.ts` asserts it matches. Bumping `lucide-react` also grows the icon catalog count asserted in `apps/weldall/test/skill-appearance.test.ts`.
 - Do not bump `chalk` in `apps/cli` past 5.x: the CLI forces per-stream colors via `chalk.level` on its own instance, while `ink` still depends on `chalk ^5.6.2`, so a chalk 6 upgrade splits the instances and silently breaks "color stderr when only stderr is a TTY" (`test/commands.test.ts`).
 - CLI build-time constants (package version, npm-vs-standalone install mode) are baked via `apps/cli/scripts/package-inputs-plugin.mjs`.
-- Production deploys come from the hosting platform auto-fetching this repo, so the repo intentionally has **no** deployment workflow: `.github/workflows/` holds only `ci.yml` and `release-cli-assets.yml`. Public docs and examples use `https://weldall.example.com` as the site origin convention.
+- Production deploys come from the hosting platform auto-fetching this repo, so the repo intentionally has **no** deployment workflow. `.github/workflows/release-cli-assets.yml` handles CLI release assets, while `release-python-sdk.yml` is the manually authorized trusted-publishing path for Python distributions. Public docs and examples use `https://weldall.example.com` as the site origin convention.
 - The diagrams in `apps/docs/src/assets/*.svg` are Excalidraw **exports** and no `.excalidraw` source is committed, so each light/`-dark` pair can only be changed by editing the exported XML in place (one long line, one `<g>` per element) — any re-layout should come from a re-export.
 
 ## Maintaining this file

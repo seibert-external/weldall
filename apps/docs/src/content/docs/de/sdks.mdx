@@ -2,10 +2,10 @@
 title: SDKs
 sidebar:
   label: SDKs
-description: Die npm-Pakete für die Weldall CLI und angebundene Unternehmensservices.
+description: Die CLI- und SDK-Pakete für angebundene Unternehmensservices.
 ---
 
-Weldall veröffentlicht zwei npm-Pakete. Die CLI läuft auf dem Gerät eines Mitarbeiters. Das SDK läuft im angebundenen Service.
+Weldall veröffentlicht die npm-CLI sowie SDKs für TypeScript und Python. Die CLI läuft auf dem Gerät eines Mitarbeiters. Ein SDK läuft im angebundenen Service.
 
 ## `@weldall/cli`
 
@@ -63,6 +63,36 @@ In einem Fetch-Handler prüft `weldall.verify(request, { scopes: [...] })` den R
 - `@weldall/sdk/astro`
 
 Das SDK benötigt Node.js 22.15 oder neuer. Next.js-Routen müssen die Node.js-Runtime verwenden.
+
+## `weldall-sdk` für Python
+
+[`weldall-sdk`](https://pypi.org/project/weldall-sdk/) bietet dieselbe Resource-Server-Protokolloberfläche für Python 3.11 oder neuer. Installiere den Framework-neutralen Kern oder ein Framework-Extra:
+
+```sh
+pip install weldall-sdk
+pip install 'weldall-sdk[fastapi]'
+pip install 'weldall-sdk[django]'
+```
+
+```python
+from weldall import in_memory
+from weldall.adapters.fastapi import init_weldall
+
+weldall = init_weldall(
+    "https://weldall.example.com",
+    {
+        "resource": "https://contracts.example.com/api",
+        "public_origin": "https://contracts.example.com",
+        "client_id": "weldall-cli-at-contracts",
+        "supported_scopes": ["contracts:read"],
+        "signing_key": signing_key,
+        "replay_store": in_memory(),
+    },
+)
+weldall.register_routes(app)
+```
+
+FastAPI stellt `require_auth()` und Request-State-Auth bereit; Django bietet Middleware, Views und URL-Patterns. Der synchrone, Framework-neutrale Kern umfasst außerdem Discovery, ID-JAG-Austausch, User- und Machine-Token-Prüfung, den Machine Client, Replay-Schutz, Skills und Resource-Registry-Helfer. Die vollständige API und Produktionscheckliste stehen in der [Python-SDK-Referenz](https://github.com/seibert-external/weldall/tree/main/packages/python-sdk).
 
 ## Skills aus einem Service veröffentlichen
 

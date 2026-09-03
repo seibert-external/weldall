@@ -2,10 +2,10 @@
 title: SDKs
 sidebar:
   label: SDKs
-description: The npm packages for the Weldall CLI and connected company services.
+description: The CLI and SDK packages for connected company services.
 ---
 
-Weldall publishes two npm packages. The CLI runs on an employee's device. The SDK runs inside a connected service.
+Weldall publishes the npm CLI plus TypeScript and Python SDKs. The CLI runs on an employee's device. An SDK runs inside a connected service.
 
 ## `@weldall/cli`
 
@@ -63,6 +63,36 @@ In a Fetch handler, `weldall.verify(request, { scopes: [...] })` checks the requ
 - `@weldall/sdk/astro`
 
 The SDK requires Node.js 22.15 or newer. Next.js routes must use the Node.js runtime.
+
+## `weldall-sdk` for Python
+
+[`weldall-sdk`](https://pypi.org/project/weldall-sdk/) provides the same resource-server protocol surface for Python 3.11 or newer. Install the framework-neutral core or a framework extra:
+
+```sh
+pip install weldall-sdk
+pip install 'weldall-sdk[fastapi]'
+pip install 'weldall-sdk[django]'
+```
+
+```python
+from weldall import in_memory
+from weldall.adapters.fastapi import init_weldall
+
+weldall = init_weldall(
+    "https://weldall.example.com",
+    {
+        "resource": "https://contracts.example.com/api",
+        "public_origin": "https://contracts.example.com",
+        "client_id": "weldall-cli-at-contracts",
+        "supported_scopes": ["contracts:read"],
+        "signing_key": signing_key,
+        "replay_store": in_memory(),
+    },
+)
+weldall.register_routes(app)
+```
+
+FastAPI exposes `require_auth()` and request-state auth; Django exposes middleware, views, and URL patterns. The framework-neutral synchronous core also includes discovery, ID-JAG exchange, user and machine token verification, the machine client, replay protection, skills, and resource registry helpers. See the [Python SDK reference](https://github.com/seibert-external/weldall/tree/main/packages/python-sdk) for the full API and production checklist.
 
 ## Publish skills from a service
 

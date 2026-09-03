@@ -2,7 +2,7 @@
 
 ## Status
 
-Not started. This is the execution plan for a port of `@weldall/sdk` (TypeScript) to Python. The TypeScript package is the authoritative behavior reference; every Python module in this plan maps 1:1 to a TypeScript source file. **Read the authoritative files listed in [Current state and authoritative files](#current-state-and-authoritative-files) before writing any code** — where this plan and the TypeScript source disagree, the TypeScript source wins.
+Implemented in `packages/python-sdk/`. The TypeScript package remains the authoritative behavior reference; every Python module in this plan maps 1:1 to a TypeScript source file. Where this plan and the TypeScript source disagree, the TypeScript source wins.
 
 The repository license was changed to FSL-1.1-ALv2 (commit `b11c870` on `main`). The Python package must carry the same FSL-1.1-ALv2 license.
 
@@ -10,7 +10,7 @@ The repository license was changed to FSL-1.1-ALv2 (commit `b11c870` on `main`).
 
 Port `@weldall/sdk` to Python with feature parity on the resource-server and machine-client protocol surface, using the modern Python packaging stack. Specific decisions (all already discussed and accepted):
 
-1. **JOSE/crypto:** build on **`joserfc`** (the actively-maintained JOSE library: JWS/JWK/JWKS/ES256/RFC 7638 thumbprints) + **`cryptography`** underneath. Use joserfc for *crypto primitives only* — replicate all claim validation explicitly (see below), mirroring how the TS SDK hand-checks claims instead of relying on library claim features.
+1. **JOSE/crypto:** build on **`joserfc`** (the actively-maintained JOSE library: JWS/JWK/JWKS/ES256/RFC 7638 thumbprints) + **`cryptography`** underneath. Use joserfc for _crypto primitives only_ — replicate all claim validation explicitly (see below), mirroring how the TS SDK hand-checks claims instead of relying on library claim features.
 2. **DPoP is hand-rolled.** No mainstream Python library implements RFC 9449 DPoP proofs end-to-end (Authlib issue #315 still open). Port `dpop.ts` faithfully — it is already hand-rolled on top of `jose`.
 3. **HTTP client:** `httpx` for the machine-client token request and discovery/JWKS fetches.
 4. **Sync-first core.** The core (`init`, `verify`, `verifyNoThrow`, DPoP sign/verify, token issuance) is implemented as **plain synchronous functions**. ES256 verify is ~50µs of CPU — async adds nothing to the hot path and would break Django. Network I/O (discovery, machine token) is isolated in a small `httpx.Client`-backed layer guarded by `threading.Lock` single-flight. FastAPI adapters may call the sync core directly (sync endpoints run in a threadpool) or wrap in `asyncio.to_thread`.
@@ -44,6 +44,7 @@ Port `@weldall/sdk` to Python with feature parity on the resource-server and mac
 The implementation must start by reading these files rather than relying only on this plan:
 
 **TS SDK (behavior source of truth):**
+
 - `packages/sdk/src/core.ts` — `initWeldall`, token endpoint, `verify`/`verifyNoThrow`, metadata handlers, skills handler (540 lines — read fully)
 - `packages/sdk/src/dpop.ts` — `createDpopProof`, `verifyStrictDpop`, `normalizeHtu`
 - `packages/sdk/src/crypto.ts` — `base64urlSha256`, `safeEqual`, `isSha256JwkThumbprint`, `publicJwk`, `generateEs256KeyPair`, `assertPublicP256`, `validateEs256KeyPair`
@@ -60,27 +61,28 @@ The implementation must start by reading these files rather than relying only on
 - `packages/sdk/README.md` — API surface, protocol routes, production checklist
 
 **Usage references:**
+
 - `apps/weldall/src/server/oauth/facade.ts`, `apps/weldall/src/server/oauth/machine-api.ts`, `apps/weldall/src/server/oauth/cli-api.ts`, `apps/weldall/src/server/oauth/jwt.ts` — how the issuer actually signs (`getWeldallSigningKey`) and verifies machine tokens
 - `examples/next`, `examples/hono`, `examples/basic` — consumer expectations
 - `LICENSE` (root) — FSL-1.1-ALv2 text to reproduce verbatim in the package
 
 ## Protocol pins (from `constants.ts` / `machine.ts` — do not change)
 
-| Constant | Value |
-|---|---|
-| `JWT_DPOP_GRANT` | `urn:ietf:params:oauth:grant-type:jwt-dpop` |
-| `ID_JAG_DRAFT` claim `urn:weldall:id-jag-draft` | `draft-ietf-oauth-identity-assertion-authz-grant-04` |
-| `JWT_DPOP_DRAFT` (metadata) | `draft-parecki-oauth-jwt-dpop-grant-01` |
-| `PRIVATE_KEY_JWT_ASSERTION_TYPE` | `urn:ietf:params:oauth:client-assertion-type:jwt-bearer` |
-| `MACHINE_TOKEN_TYP` | `weldall-machine+jwt` |
-| `MACHINE_TOKEN_LIFETIME_SECONDS` | 300 |
-| `DPOP_MAX_AGE_SECONDS` | 60 |
-| `DPOP_FUTURE_SKEW_SECONDS` | 5 |
-| Token typ headers | `at+jwt`, `dpop+jwt`, `oauth-id-jag+jwt`, `weldall-skills+jwt` |
-| `SKILL_CATALOG_PATH` | `/.well-known/weldall-skills` |
-| Access token lifetime / ID-JAG lifetime | 600s / 300s |
-| JWKS cache TTL / unknown-kid refresh throttle | 60s / 5s |
-| Discovery timeout | default 5000ms, allowed 100–30000 |
+| Constant                                        | Value                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------- |
+| `JWT_DPOP_GRANT`                                | `urn:ietf:params:oauth:grant-type:jwt-dpop`                    |
+| `ID_JAG_DRAFT` claim `urn:weldall:id-jag-draft` | `draft-ietf-oauth-identity-assertion-authz-grant-04`           |
+| `JWT_DPOP_DRAFT` (metadata)                     | `draft-parecki-oauth-jwt-dpop-grant-01`                        |
+| `PRIVATE_KEY_JWT_ASSERTION_TYPE`                | `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`       |
+| `MACHINE_TOKEN_TYP`                             | `weldall-machine+jwt`                                          |
+| `MACHINE_TOKEN_LIFETIME_SECONDS`                | 300                                                            |
+| `DPOP_MAX_AGE_SECONDS`                          | 60                                                             |
+| `DPOP_FUTURE_SKEW_SECONDS`                      | 5                                                              |
+| Token typ headers                               | `at+jwt`, `dpop+jwt`, `oauth-id-jag+jwt`, `weldall-skills+jwt` |
+| `SKILL_CATALOG_PATH`                            | `/.well-known/weldall-skills`                                  |
+| Access token lifetime / ID-JAG lifetime         | 600s / 300s                                                    |
+| JWKS cache TTL / unknown-kid refresh throttle   | 60s / 5s                                                       |
+| Discovery timeout                               | default 5000ms, allowed 100–30000                              |
 
 ## Repository layout
 
@@ -129,14 +131,17 @@ packages/python-sdk/
 ## Module-by-module specification
 
 ### `errors.py` (port `errors.ts`)
+
 - `WeldallAuthError(code: str, message: str = code, status: int = 400, required_scopes: list[str] = [], reason: str | None = None)` — dataclass/class mirroring the TS class exactly (including `reason="replay_detected"` marker).
 - `oauth_error_response(error) -> (status, headers, body)` builder — JSON `{"error": code, "error_description": message}`; headers `cache-control: no-store`, `pragma: no-cache`; on 401/403 add `WWW-Authenticate: DPoP error="<code>"` plus `, scope="<scopes joined by space>"` when `required_scopes` is non-empty. Unknown errors map to `server_error` / 500.
 
 ### `scope.py` + `identity.py` (ports of the same)
+
 - `parse_scope(value) -> list[str] | None`: split on single space; each token must match `^[\x21\x23-\x5b\x5d-\x7e]+$`; tokens must be unique; empty/non-string → `None`.
 - `has_verified_email(claims) -> bool`: `email` is a non-empty string ≤320 chars, equals its trimmed value, matches `^[^\s@]+@[^\s@]+$`, and `email_verified is True`.
 
 ### `crypto.py` (port `crypto.ts`)
+
 - `base64url_sha256(value: bytes|str) -> str` (URL-safe, no padding).
 - `safe_equal(a, b) -> bool` via `hmac.compare_digest` after length check (must return `False` on length mismatch, never raise).
 - `is_sha256_jwk_thumbprint(value) -> bool`: `^[A-Za-z0-9_-]{43}$`.
@@ -146,11 +151,13 @@ packages/python-sdk/
 - `validate_es256_key_pair(private_jwk, configured_public_jwk)`: private must be P-256 with `d`; derive public from private; RFC 7638 thumbprint of derived public must equal thumbprint of configured public (timing-safe).
 
 ### `jwt.py` (port `jwt.ts`)
+
 - `sign_es256(payload, key: {kid, private_jwk, typ="JWT"})`: ES256, header `alg=ES256, kid, typ`.
 - `verify_es256(token, {kid, public_jwk, issuer, audience, max_token_age_s?, typ, error_code, error_status})`: verify signature + header (`kid`, `typ` must match) + `iss`/`aud`/`exp`/`iat` (required), clock tolerance 5s, max age when provided → wrap all failures in `WeldallAuthError`.
 - `load_es256_key_pair_from_env(private_name, private_value, public_name, public_value)`: JSON JWK parsing + `validate_es256_key_pair`.
 
 ### `dpop.py` (port `dpop.ts`) — **the risk center**
+
 - `normalize_htu(input)`: only `https:` (or `http:` for `127.0.0.1`/`localhost`/`::1`); reject credentials; drop query + hash; lowercase hostname; drop default ports (443/80); produce canonical string.
 - `create_dpop_proof({private_jwk, public_jwk, method, url, access_token?, now?, jti?})`: JWT with header `{typ:"dpop+jwt", alg:"ES256", jwk: public_jwk}`, claims `htm` (uppercased method), `htu` (normalized), `iat`, `jti` (uuid4); `ath` = `base64url_sha256(access_token)` only when binding a token.
 - `verify_strict_dpop(proof, {method, url, replay, access_token?, expected_jkt?, now?}) -> VerifiedDpop`:
@@ -164,11 +171,13 @@ packages/python-sdk/
   - Return `{payload, public_jwk, jkt}`.
 
 ### `replay.py` (port `replay.ts`)
+
 - `ReplayStore` protocol: `consume(key: str, expires_at: datetime) -> bool` (atomic; `True` = first use).
 - `in_memory(max_entries=10000, suppress_warning=False)`: process-local map with expiry sweep; capacity → raise (must fail closed in callers).
 - `consume_replay(store, namespace, key, expires_at, replay_error)`: prefix `"{namespace}:{key}"`; store failure → `temporarily_unavailable` (503); not-first → the configured replay error with `reason="replay_detected"`; `None`/"disabled" → no-op. One-time warning for `in_memory` unless suppressed (mirror TS `console.warn` behavior).
 
 ### `discovery.py` (port `discovery.ts`)
+
 - `WeldallDiscovery(issuer, fetch_origin, timeout_ms)`.
 - Discover `/.well-known/oauth-authorization-server` (fetched via `fetch_origin`): require `issuer` == canonical issuer; `jwks_uri` same-origin (no creds/query/hash). Fetch JWKS at `fetch_origin + jwks_uri.pathname` (proxy path-rewrite support): `application/json` or `application/jwk-set+json`, body ≤256KB, 1–20 keys, unique `kid`, each `assert_public_p256` and loadable as ES256.
 - Caching: JWKS TTL 60s; **single-flight** (shared promise/lock) for metadata and JWKS; unknown-`kid` → force refresh, throttled to once per 5s; refresh-on-verification-failure path; revalidate after `jwks_uri` metadata re-fetch if cache expired.
@@ -177,33 +186,40 @@ packages/python-sdk/
 - Sync implementation with `threading.Lock` single-flight; `httpx.Client(timeout=...)`, `follow_redirects=False`.
 
 ### `signing.py` (port `signing.ts`)
+
 - `DirectSigningKey = {kid, private_jwk, public_jwk}`; `SigningKeyProvider = {current() -> {kid, public_jwk, sign(payload, header)}, jwks() -> list[JWK]}`.
 - `assert_signing_config(signing)`: direct key shape validation (private P-256 with `d`, public P-256 without `d`, derived public x/y match configured timing-safe) or provider with callables.
 - `validated_jwks(provider) -> list[JWK]`: 1–20 keys, unique kids, `assert_public_p256`, tag `alg=ES256, use=sig`; any failure → `server_error` 500.
 - `sign_with_provider(provider, payload, typ)`: `current()` → assert public P-256 → confirm the key's thumbprint is present in `provider.jwks()` (active-key-in-JWKS check) → sign → **re-verify** the returned token (signature, `typ`, header `kid/alg/typ`, payload deep-equals the input payload). Any mismatch → `server_error` 500 ("signing provider returned an invalid signature"). This is the KMS-safety check — port it exactly.
 
 ### `id_jag.py` (port `id-jag.ts`)
+
 - `issue_id_jag(...)` and `verify_id_jag(token, {issuer, audience, resource, client_id, kid, public_jwk, allowed_scopes})`.
 - Verify: ES256 + `typ=oauth-id-jag+jwt`, max age 5m, clock tolerance 5s; then explicit claims: `aud`==audience, `resource`==resource, `client_id`==client_id, `sub` non-empty string, `has_verified_email`, `jti` 1–128, integer `iat`/`exp`, `exp>iat`, `exp-iat<=300`, `cnf` object with `jkt` matching `^[A-Za-z0-9_-]{43}$`, `urn:weldall:id-jag-draft` == `draft-ietf-oauth-identity-assertion-authz-grant-04`, `parse_scope(scope)` truthy; unsupported scope → `invalid_scope`.
 
 ### `resource_as.py` (port `resource-as.ts`)
+
 - `issue_access_token(...)` (issuer, sub, email, resource, client_id, scopes, jkt, kid, private_jwk, now): `at+jwt`, exp `now+600`.
 - `verify_access_token(token, {issuer, resource, kid, public_jwk, client_id, required_scopes?})`: `typ=at+jwt`, max age 10m; explicit claims: `aud`==resource, `cnf.jkt` 43-char, `sub` non-empty, `has_verified_email`, `client_id` match, `jti` 1–128, integer times, `exp-iat<=600`, valid scope; missing required scope → `insufficient_scope` / 403 with `required_scopes`.
 
 ### `machine.py` (port `machine.ts`)
+
 - `create_machine_client_assertion({client_id, token_endpoint, kid, private_jwk, now?, jti?})`: RFC 7523 JWT, header `{alg ES256, typ JWT, kid}`, claims `iss=sub=client_id`, `aud=token_endpoint` (normalized HTTPS, no query/fragment), `iat`, `exp=iat+60`, `jti`. Client ID / kid must match `^[A-Za-z0-9._:-]{1,128}$`.
 - `request_machine_token({issuer, client_id, resource, scopes, kid, key, token_endpoint?, http_client?})`: POST form to token endpoint (`grant_type=client_credentials`, `client_id`, `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`, `client_assertion`, `resource`, `scope` joined by space) with a fresh DPoP proof (no `ath`). Response must be `{access_token: str, token_type: "DPoP", expires_in: 300, scope: str}` exactly — else `server_error` 500. Non-2xx → `WeldallAuthError(body.error, …, status)`.
 - Default token endpoint `"{issuer}/api/auth/oauth2/token"` (note: **not** `/oauth/token` — this is the issuer's machine-token endpoint).
 
 ### `skills.py` (port `skills.ts`)
+
 - Constants: `SKILL_CATALOG_SCHEMA_VERSION=1`, `SKILL_CATALOG_PATH="/.well-known/weldall-skills"`, `SKILL_ASSERTION_TYPE="weldall-skills+jwt"`, `SKILL_TAG_LIMIT=20`, `SKILL_TAG_LENGTH_LIMIT=40`.
 - `parse_skill_catalog(value, expected_resource?)`: strict key-set validation (catalog/skill/meta keys), `schemaVersion==1`, `resource` match, ≤100 skills, unique `id` matching `^[a-z0-9]+(?:[_-][a-z0-9]+)*$` (≤120), title 1–200, content 1–100000, requiredScopes ≤100 each matching `^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$` and unique, visibility ∈ `{DEFAULT, HIDDEN_IF_UNALLOWED}`, meta rules (tags ≤20 non-empty ≤40-char; owner str; appearance string→string). Port every check verbatim.
 - `load_skill_catalog(provider, resource)`: provider is `{items:[...]}` or `{load: callable}`; JSON-encode → ≤1 MiB → `parse_skill_catalog(parsed, resource)`.
 
 ### `resource_registry.py` (port `resource-registry.ts`)
+
 - `normalize_resource_identifier`, `normalize_authorization_server`, `normalize_request_prefix` (reject percent-encoding, strip trailing slashes), `normalize_request_target`, `request_prefix_accepts`, `request_prefixes_overlap`, `resolve_resource_for_target`. All HTTPS-only, no credentials.
 
 ### `core.py` (port `core.ts`) — the orchestrator
+
 - `init_weldall(host, options)` — a class (or closure) holding validated config:
   - Validation (all synchronous, `TypeError` on bad config, mirroring TS): `host` required absolute HTTPS URL (origin only, no creds/query/hash/fragment); `allow_insecure_loopback` permits `http://` only for `localhost`/`127.0.0.1`/`::1`; `discovery_proxy_origin` (origin only, defaults to host); `public_origin` (origin only); `resource` absolute HTTPS URL, path allowed, **no query**; `client_id` non-empty string; `supported_scopes` unique valid scope tokens; `discovery_timeout_ms` int 100–30000 (default 5000); `replay_store` required unless `"disabled"`; `skills` configures exactly one of `items`/`load`, and requires replay protection; `signing_key` via `assert_signing_config`.
   - Derived: `issuer = public_origin.origin`, `resource = resource_url`, `client_id`, `token_endpoint = "{issuer}/oauth/token"`, `skills_endpoint = "{issuer}/.well-known/weldall-skills"`.
@@ -222,6 +238,7 @@ packages/python-sdk/
   - `skills(request)`: GET only (405 with `Allow: GET`); exactly one `Bearer` assertion (no comma) → `verify_skill_assertion` (typ `weldall-skills+jwt`, `iss==sub==host origin`, `aud==skills_endpoint`, `resource==resource`, `purpose=="skills:read"`, `jti` 1–128, integer times, `exp-iat<=60`, replay consume `"skills:{jti}"` expiry `exp+6`), then `load_skill_catalog` and return JSON `{schemaVersion, resource, skills}` with `cache-control: private, no-store`. No `skills` configured → 404.
 
 ### `adapters/fastapi.py` (port `hono.ts` semantics)
+
 - `init_weldall(host, options)` returns a wrapper around `core` exposing:
   - `require_auth(policy=None)` → a FastAPI dependency that runs `verify_no_throw` against `fastapi.Request` (method, URL, headers), returns `AuthContext` or raises a `HTTPException` built from `oauth_error_response` (status, headers incl. `WWW-Authenticate`, body as `JSONResponse`).
   - `get_auth(...)` — reads the value the dependency stored in `request.state`.
@@ -229,23 +246,25 @@ packages/python-sdk/
 - Port the `adapters.test.ts` behaviors.
 
 ### `adapters/django.py`
+
 - `WeldallMiddleware` — runs `verify_no_throw` (sync) on incoming requests for protected paths; sets `request.weldall_auth` or returns the error response (401/403 with `WWW-Authenticate`) before the view runs.
 - Views for the six protocol endpoints + a `urls` helper mirroring `register_routes`.
 
 ### Machine client / HTTP
+
 - `request_machine_token` uses `httpx.Client`. Keep the `http_client` injectable for tests (port `machine.test.ts` which fakes the HTTP layer).
 
 ## Test strategy
 
 Port the TS suites behavior-for-behavior as `pytest`:
 
-| TS suite | Python suite | Must cover |
-|---|---|---|
-| `core.test.ts` | `test_core.py` | config validation, discovery-proxy retrieval, skills publication + replay-safe assertion, RFC 7638 thumbprint vector, ID-JAG exchange + local token verify without network, wrong issuer/audience rejection, 401/403 + proof replay, no network-path escape, ID-JAG audience/client/resource/scope pinning, atomic ID-JAG consumption, JWKS rotation (unknown kid, reused kid, same-kid concurrent, removed key after TTL), fail-closed replay, KMS-style async signer |
-| `machine.test.ts` | `test_machine.py` | strict RFC 7523 assertion (no private material in claims), DPoP-bound client-credentials token request, OAuth error + malformed response + resource-query rejection, machine principal discrimination + replay rejection, disabled replay validity, capacity fail-closed, exact-typ dispatch (no token confusion), wrong method/URL/ath rejection, wrong audience + foreign-machine-key proof rejection |
-| `adapters.test.ts` | `test_adapters.py` | FastAPI dependency behavior + route registration; Django middleware/views |
-| `resource-registry.test.ts` | `test_resource_registry.py` | normalization + prefix acceptance/overlap/resolve |
-| — | `test_crypto.py`, `test_dpop.py`, `test_skills.py` | ES256 keygen/round-trip; DPoP sign/verify incl. skew bounds, `ath`, jkt mismatch, replay; skill catalog caps |
+| TS suite                    | Python suite                                       | Must cover                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core.test.ts`              | `test_core.py`                                     | config validation, discovery-proxy retrieval, skills publication + replay-safe assertion, RFC 7638 thumbprint vector, ID-JAG exchange + local token verify without network, wrong issuer/audience rejection, 401/403 + proof replay, no network-path escape, ID-JAG audience/client/resource/scope pinning, atomic ID-JAG consumption, JWKS rotation (unknown kid, reused kid, same-kid concurrent, removed key after TTL), fail-closed replay, KMS-style async signer |
+| `machine.test.ts`           | `test_machine.py`                                  | strict RFC 7523 assertion (no private material in claims), DPoP-bound client-credentials token request, OAuth error + malformed response + resource-query rejection, machine principal discrimination + replay rejection, disabled replay validity, capacity fail-closed, exact-typ dispatch (no token confusion), wrong method/URL/ath rejection, wrong audience + foreign-machine-key proof rejection                                                                |
+| `adapters.test.ts`          | `test_adapters.py`                                 | FastAPI dependency behavior + route registration; Django middleware/views                                                                                                                                                                                                                                                                                                                                                                                              |
+| `resource-registry.test.ts` | `test_resource_registry.py`                        | normalization + prefix acceptance/overlap/resolve                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| —                           | `test_crypto.py`, `test_dpop.py`, `test_skills.py` | ES256 keygen/round-trip; DPoP sign/verify incl. skew bounds, `ath`, jkt mismatch, replay; skill catalog caps                                                                                                                                                                                                                                                                                                                                                           |
 
 **Cross-validation requirement:** generate a DPoP proof + access token with the TS SDK (a small Node fixture in `tests/fixtures/` generated by a committed script) and verify it with the Python SDK, and vice versa — proving interop at the bytes level (ES256 JWK thumbprints, DPoP `ath`/`htu` normalization, claim encoding). Add this as `test_interop.py` and keep the fixture-generating script committed.
 
@@ -285,10 +304,11 @@ include = ["src", "LICENSE", "README.md", "py.typed"]
 ```
 
 Notes for the executor:
+
 - **`license = "FSL-1.1-ALv2"` is a deliberate choice** consistent with the monorepo — PEP 639 accepts arbitrary SPDX expressions but FSL isn't in the SPDX list, so PyPI displays "Other". Ship the `LICENSE` file (byte-identical to repo root) via `license-files` so the text is in the wheel.
 - Ship **sdist + wheel**; pure Python, so no platform wheels.
 - **`uv` workflow:** `uv sync` (dev), `uv build` → `dist/`, `uv publish --publish-url https://test.pypi.org/legacy/` for dry runs, `uv publish` for real.
-- **Trusted publishing:** add a `publish` job to `.github/workflows/ci.yml` using `pypa/gh-action-pypi-publish@release/v1` with `attestations: true`, triggered on the Changesets release event / tag (align with `release-cli-assets.yml` conventions). No API token secrets.
+- **Trusted publishing:** `.github/workflows/release-python-sdk.yml` validates an explicitly authorized `weldall-sdk-vX.Y.Z` tag, builds without OIDC permission, and gives `id-token: write` only to the artifact-only publish job. TestPyPI and PyPI each use a protected environment; no API token secrets.
 - **Version sync:** decide between static version vs `dynamic = ["version"]` from a `__version__` attribute. Keep it simple (static 0.1.x) and revisit when a release flow lands; do not invent a Python-specific release automation in this task.
 - Add the package to the root `README.md` and `apps/docs` (small section) only after it is publishable.
 - Do not add `packages/python-sdk` to `pnpm-workspace.yaml`, `turbo.json`, or the root `pnpm` scripts.
@@ -317,9 +337,9 @@ Notes for the executor:
 - **PyPI name availability** must be checked before committing to `weldall` as the import name.
 - **FSL license on PyPI** displays as "Other" (not SPDX-listed) — benign, but document it in the README to avoid surprise.
 
-## Open questions for the executor
+## Resolved implementation questions
 
-- Confirm PyPI availability of `weldall-sdk` / import name `weldall`.
-- Confirm whether `packages/python-sdk/` is tolerated by the root pnpm/turbo/CI tooling (no `package.json`); if not, relocate to a top-level `python-sdk/` and update this plan's layout section.
-- Decide static vs dynamic version and whether to sync with the Changesets release flow now or later.
-- Confirm the Django adapter is in scope for this first port or should be cut to a FastAPI-only milestone 6.
+- Read-only PyPI JSON lookups returned 404 for both `weldall-sdk` and `weldall`; the distribution/import names remain as planned. Nothing was published.
+- `packages/python-sdk/` is tolerated by root pnpm/turbo tooling and remains outside the JavaScript workspace graph because it has no `package.json`.
+- Versioning is static at `0.1.0`; no Python-specific automatic versioning was added.
+- Both FastAPI and Django adapters are included in the initial release.
