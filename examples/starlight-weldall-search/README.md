@@ -10,11 +10,14 @@ Minimal Starlight site (SSR, `@astrojs/node`) that demonstrates
 # the SDK must be built first (turbo does this automatically)
 pnpm --filter @weldall/sdk build
 pnpm --filter @weldall/example-starlight-weldall-search build
+export WELDALL_SIGNING_KEY="$(pnpm --silent --filter @weldall/example-starlight-weldall-search print-dev-key)"
 pnpm --filter @weldall/example-starlight-weldall-search start
 ```
 
 The integration options in `astro.config.mjs` use a loopback origin, so
 `allowInsecureLoopback` is enabled automatically for local dev.
+The generated `WELDALL_SIGNING_KEY` is only in your current shell and should be
+replaced with a stable secret-managed key for production.
 
 ## Verify
 
