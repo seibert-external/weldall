@@ -39,36 +39,36 @@ describe("routeFor", () => {
 
 describe("stripMarkdown", () => {
   it("removes markdown and keeps plain words", () => {
-    expect(stripMarkdown("# Team\n\nWir **zählen** [Mitarbeiter](https://x.dev).")).toBe(
-      "Team Wir zählen Mitarbeiter.",
+    expect(stripMarkdown("# Team\n\nWe **list** [employees](https://x.dev).")).toBe(
+      "Team We list employees.",
     );
     expect(stripMarkdown("```\nweldall request x\n```\ntext")).toBe("text");
   });
 });
 
 describe("buildIndexFromDir", () => {
-  it("indexes frontmatter title/description and German-stemmed content", async () => {
+  it("indexes frontmatter title/description and English-stemmed content", async () => {
     const dir = await fixtureDocs({
       "team/overview.md": `---
 title: Team
-description: Mitarbeiterverzeichnis und Teamstruktur.
+description: Employee directory and team structure.
 ---
-Wir beschreiben den Aufbau des **Mitarbeiterverzeichnisses** und die Teamstruktur der Seibert Group.
+The directory lists employees and explains the team structure.
 `,
       "finance/reports-and-numbers.md": `---
-title: Umsatzzahlen
-description: BWA und Google Dashboards.
+title: Revenue reports
+description: Revenue figures and internal dashboards.
 ---
-BWA, Umsatzzahlen und Google Dashboards.
+Revenue figures and financial reports are available in internal dashboards.
 `,
       "index.md": `---
-title: Start
+title: Welcome
 ---
-Die Grundlagen der Seibert Group.
+The Example Company knowledge base.
 `,
     });
 
-    const built = await buildIndexFromDir(dir, "german");
+    const built = await buildIndexFromDir(dir, "english");
     expect(built.documents).toHaveLength(3);
     expect(built.documents.map((d) => d.path).sort()).toEqual([
       "/",
@@ -79,34 +79,48 @@ Die Grundlagen der Seibert Group.
     const db = await readIndexFile(await persist(built));
     const byTerm = async (term: string) => (await runSearch(db, term, 10)).map((hit) => hit.path);
 
-    // German stemming: different inflections resolve to the same stem.
-    expect(await byTerm("Mitarbeiter")).toContain("/team/overview/");
-    expect(await byTerm("Mitarbeiterverzeichnis")).toContain("/team/overview/");
-    expect(await byTerm("und")).toEqual([]);
-    expect(await byTerm("umsatz")).toContain("/finance/reports-and-numbers/");
-    expect(await byTerm("bwa")).toContain("/finance/reports-and-numbers/");
+    // English stemming: singular queries match plural document terms.
+    expect(await byTerm("employee")).toContain("/team/overview/");
+    expect(await byTerm("employees")).toContain("/team/overview/");
+    expect(await byTerm("the")).toEqual([]);
+    expect(await byTerm("revenue")).toContain("/finance/reports-and-numbers/");
+    expect(await byTerm("report")).toContain("/finance/reports-and-numbers/");
     expect(await byTerm("dashboards")).toContain("/finance/reports-and-numbers/");
 
-    const hits = await runSearch(db, "umsatz", 10);
+    const hits = await runSearch(db, "revenue", 10);
     expect(hits[0]).toMatchObject({
       path: "/finance/reports-and-numbers/",
-      title: "Umsatzzahlen",
-      description: "BWA und Google Dashboards.",
+      title: "Revenue reports",
+      description: "Revenue figures and internal dashboards.",
     });
     expect(typeof hits[0]!.score).toBe("number");
-    expect(hits[0]!.excerpt).toContain("Umsatzzahlen");
+    expect(hits[0]!.excerpt).toContain("Revenue figures");
+  });
+
+  it("uses the configured language analyzer", async () => {
+    const dir = await fixtureDocs({
+      "team.md":
+        "---\ntitle: Team\n---\nDas Mitarbeiterverzeichnis beschreibt alle Mitarbeitenden.\n",
+    });
+    const built = await buildIndexFromDir(dir, "german");
+    const db = await readIndexFile(await persist(built, "german"));
+
+    expect((await runSearch(db, "Mitarbeiterverzeichnis", 10))[0]?.path).toBe("/team/");
   });
 
   it("handles a missing content directory as an empty index", async () => {
-    const built = await buildIndexFromDir(path.join(tmpdir(), "does-not-exist-xyz"), "german");
+    const built = await buildIndexFromDir(path.join(tmpdir(), "does-not-exist-xyz"));
     expect(built.documents).toHaveLength(0);
   });
 });
 
-async function persist(built: { raw: unknown; documents: unknown[] }): Promise<string> {
+async function persist(
+  built: { raw: unknown; documents: unknown[] },
+  language: "english" | "german" = "english",
+): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "sws-index-"));
   tempDirs.push(dir);
   const file = path.join(dir, "index.json");
-  await writeIndexFile(file, { language: "german", raw: built.raw });
+  await writeIndexFile(file, { language, raw: built.raw });
   return file;
 }

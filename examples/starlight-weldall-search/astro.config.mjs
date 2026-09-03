@@ -8,13 +8,14 @@ export default defineConfig({
   adapter: node({ mode: "standalone" }),
   integrations: [
     starlight({
-      title: "Basics Demo",
+      title: "Knowledge Base Demo",
     }),
     weldallSearch("https://weldall.example.com", {
       publicOrigin: "http://localhost:4321",
       resource: "http://localhost:4321/api",
       clientId: "starlight-demo",
       requiredScopes: ["search:read"],
+      language: "english",
     }),
   ],
 });

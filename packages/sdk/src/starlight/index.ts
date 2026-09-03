@@ -6,6 +6,8 @@ import { buildIndexFromDir, writeIndexFile } from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, toPersistedConfig } from "./options.js";
 import type { WeldallSearchOptions } from "./types.js";
 
+export { SUPPORTED_SEARCH_LANGUAGES } from "./languages.js";
+export type { SearchLanguage } from "./languages.js";
 export { configureRuntimeOptions as configureWeldallSearchRuntime } from "./runtime.js";
 export type { SearchHit, WeldallSearchOptions, WeldallSearchRuntimeOptions } from "./types.js";
 
@@ -62,10 +64,11 @@ function protectedResourceMetadataPattern(resource?: string): string {
  * @example
  * ```js
  * weldallSearch("https://weldall.example.com", {
- *   publicOrigin: "https://basics.seibert.tools",
- *   resource: "https://basics.seibert.tools/api",
- *   clientId: "weldall-cli-at-basics",
+ *   publicOrigin: "https://docs.example.com",
+ *   resource: "https://docs.example.com/api",
+ *   clientId: "weldall-cli-at-docs",
  *   requiredScopes: ["search:read"],
+ *   language: "english",
  * })
  * ```
  *

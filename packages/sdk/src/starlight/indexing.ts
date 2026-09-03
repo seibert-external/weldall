@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loadLanguageAnalysis, type SearchLanguage } from "./languages.js";
 import type { SearchHit } from "./types.js";
 
 /** A single page from the content collection, as stored in the index. */
@@ -24,8 +25,8 @@ export interface BuiltIndex {
 
 /** The on-disk shape of `.weldall-search/index.json`. */
 export interface IndexFile {
-  /** The Orama language used to build the index. */
-  language: string;
+  /** The language used to build the index. */
+  language: SearchLanguage;
   /** The serialized Orama index. */
   raw: unknown;
 }
@@ -72,17 +73,13 @@ function loadOrama(): Promise<OramaModule> {
   return oramaPromise;
 }
 
-async function tokenizerFor(language: string): Promise<TokenizerConfig> {
-  if (language !== "german") return { language };
-  const [{ stemmer }, { stopwords }] = await Promise.all([
-    import("@orama/stemmers/german"),
-    import("@orama/stopwords/german"),
-  ]);
+async function tokenizerFor(language: SearchLanguage): Promise<TokenizerConfig> {
+  const analysis = await loadLanguageAnalysis(language);
   return {
-    language,
+    language: analysis.language,
     stemming: true,
-    stemmer,
-    stopWords: stopwords,
+    stemmer: analysis.stemmer,
+    stopWords: analysis.stopWords,
   };
 }
 
@@ -169,12 +166,12 @@ export function routeFor(relative: string): string {
  * plain text. A missing or empty directory yields an empty index.
  *
  * @param contentDir - Directory containing `**\/*.{md,mdx}` files.
- * @param language - Orama language (stemming/stopwords), e.g. `"german"`.
+ * @param language - Search language used for stemming and stop-word removal.
  * @returns The parsed documents and the serialized index.
  */
 export async function buildIndexFromDir(
   contentDir: string,
-  language = "german",
+  language: SearchLanguage = "english",
 ): Promise<BuiltIndex> {
   const orama = await loadOrama();
   const matter = await loadMatter();
@@ -228,7 +225,7 @@ export async function readIndexFile(indexFile: string): Promise<unknown> {
   const index = JSON.parse(await readFile(indexFile, "utf8")) as IndexFile;
   const db = await orama.create({
     schema: SCHEMA,
-    components: { tokenizer: await tokenizerFor(index.language ?? "german") },
+    components: { tokenizer: await tokenizerFor(index.language ?? "english") },
   });
   await orama.load(db, index.raw);
   return db;

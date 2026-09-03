@@ -15,7 +15,7 @@ export interface SkillContext {
   siteLabel: string;
 }
 
-/** Absolute search URL, e.g. `https://basics.seibert.tools/api/search`. */
+/** Absolute search URL, e.g. `https://docs.example.com/api/search`. */
 const searchUrl = (context: SkillContext): string =>
   `${context.publicOrigin.replace(/\/$/u, "")}${context.searchPath}`;
 
@@ -70,8 +70,8 @@ The response has this shape:
     {
       "path": "/team/overview/",
       "title": "Team",
-      "description": "Mitarbeiterverzeichnis und Teamstruktur.",
-      "excerpt": "Wir beschreiben das Mitarbeiterverzeichnis und die Teamstruktur ...",
+      "description": "Employee directory and team structure.",
+      "excerpt": "The employee directory explains the team structure ...",
       "score": 0.42
     }
   ],

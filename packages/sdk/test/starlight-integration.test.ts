@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { configureWeldallSearchRuntime, weldallSearch } from "../src/starlight/index.js";
+import {
+  configureWeldallSearchRuntime,
+  SUPPORTED_SEARCH_LANGUAGES,
+  weldallSearch,
+} from "../src/starlight/index.js";
 import { createDpopProof, generateEs256KeyPair, issueIdJag } from "../src/index.js";
 import { resetRuntimeForTests } from "../src/starlight/runtime.js";
 import { buildIndexFromDir, writeIndexFile } from "../src/starlight/indexing.js";
@@ -28,6 +32,8 @@ describe("weldallSearch integration", () => {
     expect(integration.hooks?.["astro:config:setup"]).toBeTypeOf("function");
     expect(integration.hooks?.["astro:build:done"]).toBeTypeOf("function");
     expect(configureWeldallSearchRuntime).toBeTypeOf("function");
+    expect(SUPPORTED_SEARCH_LANGUAGES).toContain("english");
+    expect(SUPPORTED_SEARCH_LANGUAGES).toContain("german");
   });
 
   it("injects the search, metadata, and skills routes and writes the index", async () => {
@@ -35,12 +41,12 @@ describe("weldallSearch integration", () => {
     tempDirs.push(root);
     await write(
       path.join(root, "src/content/docs/index.md"),
-      "---\ntitle: Start\n---\nDie Grundlagen der Seibert Group.\n",
+      "---\ntitle: Welcome\n---\nThe Example Company knowledge base.\n",
     );
 
     const integration = weldallSearch("https://weldall.example.com", {
       contentDir: "src/content/docs",
-      language: "german",
+      language: "english",
     });
     const patterns: string[] = [];
     const logger = { info: () => undefined, warn: () => undefined };
@@ -69,14 +75,14 @@ describe("weldallSearch integration", () => {
     ]);
     const { readFile } = await import("node:fs/promises");
     const index = JSON.parse(await readFile(path.join(root, ".weldall-search/index.json"), "utf8"));
-    expect(index.language).toBe("german");
+    expect(index.language).toBe("english");
     expect(index.raw).toBeTruthy();
   });
 
   it("derives the resource metadata route from the configured resource path", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-resource-"));
     tempDirs.push(root);
-    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Start\n---\nHallo.\n");
+    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Welcome\n---\nHello.\n");
     const integration = weldallSearch("https://weldall.example.com", {
       contentDir: "src/content/docs",
       resource: "https://docs.example.com/search",
@@ -102,7 +108,7 @@ describe("weldallSearch integration", () => {
   it("uses only the generic resource metadata route for origin resources", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-origin-resource-"));
     tempDirs.push(root);
-    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Start\n---\nHallo.\n");
+    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Welcome\n---\nHello.\n");
     const integration = weldallSearch("https://weldall.example.com", {
       contentDir: "src/content/docs",
       resource: "https://docs.example.com/",
@@ -130,13 +136,13 @@ describe("weldallSearch integration", () => {
   it("normalizes routes and persists only deployable config values", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-root with spaces-"));
     tempDirs.push(root);
-    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Start\n---\nHallo.\n");
+    await write(path.join(root, "src/content/docs/index.md"), "---\ntitle: Welcome\n---\nHello.\n");
     const replayStore = { consume: async () => true };
     const signingKey = { kid: "secret", privateJwk: { kty: "EC" }, publicJwk: { kty: "EC" } };
     const integration = weldallSearch("https://weldall.example.com", {
-      publicOrigin: "https://basics.seibert.tools",
-      resource: "https://basics.seibert.tools/api",
-      clientId: "starlight-basics",
+      publicOrigin: "https://docs.example.com",
+      resource: "https://docs.example.com/api",
+      clientId: "starlight-docs",
       requiredScopes: ["search:read"],
       searchPath: "api/search/",
       signingKey,
@@ -201,7 +207,7 @@ describe("weldallSearch integration", () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-root2-"));
     tempDirs.push(root);
     const contentDir = path.join(root, "src/content/docs");
-    await write(path.join(contentDir, "index.md"), "---\ntitle: Start\n---\nHallo Welt.\n");
+    await write(path.join(contentDir, "index.md"), "---\ntitle: Welcome\n---\nHello world.\n");
 
     const integration = weldallSearch("https://weldall.example.com", {
       contentDir: "src/content/docs",
@@ -229,7 +235,7 @@ describe("weldallSearch integration", () => {
     const copied = JSON.parse(
       await readFile(path.join(fileURLToPath(dist), ".weldall-search/index.json"), "utf8"),
     );
-    expect(copied.language).toBe("german");
+    expect(copied.language).toBe("english");
   });
 
   it("fails the build when generated artifacts cannot be copied", async () => {
@@ -237,7 +243,7 @@ describe("weldallSearch integration", () => {
     tempDirs.push(root);
     await write(
       path.join(root, "src/content/docs/index.md"),
-      "---\ntitle: Start\n---\nHallo Welt.\n",
+      "---\ntitle: Welcome\n---\nHello world.\n",
     );
 
     const integration = weldallSearch("https://weldall.example.com", {
@@ -317,10 +323,10 @@ describe("Starlight protocol routes", () => {
     const root = await mkdtemp(path.join(tmpdir(), "sws-flow-"));
     tempDirs.push(root);
     const contentDir = path.join(root, "src/content/docs");
-    await write(path.join(contentDir, "index.md"), "---\ntitle: Start\n---\nHallo Welt.\n");
-    const built = await buildIndexFromDir(contentDir, "german");
+    await write(path.join(contentDir, "index.md"), "---\ntitle: Welcome\n---\nHello world.\n");
+    const built = await buildIndexFromDir(contentDir, "english");
     await writeIndexFile(path.join(root, ".weldall-search/index.json"), {
-      language: "german",
+      language: "english",
       raw: built.raw,
     });
     await write(
@@ -404,11 +410,11 @@ describe("Starlight protocol routes", () => {
       const searchProof = await createDpopProof({
         ...deviceKey,
         method: "GET",
-        url: "http://localhost:4321/api/search?q=hallo",
+        url: "http://localhost:4321/api/search?q=hello",
         accessToken: tokenBody.access_token,
       });
       const searchResponse = await search.GET({
-        request: new Request("http://localhost:4321/api/search?q=hallo", {
+        request: new Request("http://localhost:4321/api/search?q=hello", {
           headers: {
             authorization: `DPoP ${tokenBody.access_token}`,
             dpop: searchProof,
@@ -418,8 +424,8 @@ describe("Starlight protocol routes", () => {
 
       expect(searchResponse.status).toBe(200);
       await expect(searchResponse.json()).resolves.toMatchObject({
-        query: "hallo",
-        results: [{ path: "/", title: "Start" }],
+        query: "hello",
+        results: [{ path: "/", title: "Welcome" }],
         subject: "user-1",
       });
     } finally {

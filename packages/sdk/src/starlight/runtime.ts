@@ -5,6 +5,7 @@ import path from "node:path";
 import { readIndexFile, runSearch } from "./indexing.js";
 import { DEFAULTS, normalizeSearchPath, type PersistedConfig } from "./options.js";
 import { buildSearchSkill } from "./skill.js";
+import type { SearchLanguage } from "./languages.js";
 import type { DirectSigningKey, ReplayStore } from "../types.js";
 import type { SearchHit, WeldallSearchRuntimeOptions } from "./types.js";
 
@@ -28,8 +29,8 @@ export interface RuntimeConfig {
   requiredScopes: readonly string[];
   /** Search endpoint path. */
   searchPath: string;
-  /** Orama index language. */
-  language: string;
+  /** Search language used for stemming and stop-word removal. */
+  language: SearchLanguage;
   /** Default maximum results per query. */
   defaultLimit: number;
   /** Authorization-server discovery timeout in milliseconds. */

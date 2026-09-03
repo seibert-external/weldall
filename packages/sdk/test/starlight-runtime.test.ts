@@ -20,9 +20,9 @@ async function withIndexDir(files: Record<string, string>): Promise<string> {
 
 const identity = {
   issuer: "https://weldall.example.com",
-  resource: "https://basics.seibert.tools/api",
-  publicOrigin: "https://basics.seibert.tools",
-  clientId: "starlight-basics",
+  resource: "https://docs.example.com/api",
+  publicOrigin: "https://docs.example.com",
+  clientId: "starlight-docs",
   requiredScopes: ["search:read"],
 };
 
@@ -54,12 +54,12 @@ describe("loadRuntimeConfig", () => {
 
     const { config } = loadRuntimeConfig();
     expect(config.issuer).toBe("https://weldall.example.com");
-    expect(config.resource).toBe("https://basics.seibert.tools/api");
-    expect(config.publicOrigin).toBe("https://basics.seibert.tools");
-    expect(config.clientId).toBe("starlight-basics");
+    expect(config.resource).toBe("https://docs.example.com/api");
+    expect(config.publicOrigin).toBe("https://docs.example.com");
+    expect(config.clientId).toBe("starlight-docs");
     expect(config.requiredScopes).toEqual(["search:read"]);
     expect(config.searchPath).toBe("/api/search");
-    expect(config.language).toBe("german");
+    expect(config.language).toBe("english");
     expect(config.defaultLimit).toBe(10);
     expect(config.allowInsecureLoopback).toBe(false);
   });
@@ -76,7 +76,7 @@ describe("loadRuntimeConfig", () => {
       ".weldall-search/config.json": JSON.stringify({
         ...identity,
         requiredScopes: ["search:read", "staging:read"],
-        searchPath: "/suchen",
+        searchPath: "/search",
         defaultLimit: 5,
       }),
       ".weldall-search/index.json": "{}",
@@ -85,7 +85,7 @@ describe("loadRuntimeConfig", () => {
 
     const { config } = loadRuntimeConfig();
     expect(config.requiredScopes).toEqual(["search:read", "staging:read"]);
-    expect(config.searchPath).toBe("/suchen");
+    expect(config.searchPath).toBe("/search");
     expect(config.defaultLimit).toBe(5);
   });
 
@@ -155,19 +155,19 @@ describe("loadRuntimeConfig", () => {
 describe("buildSearchSkill", () => {
   it("documents the exact search URL and scope", () => {
     const { id, title, content } = buildSearchSkill({
-      publicOrigin: "https://basics.seibert.tools",
-      resource: "https://basics.seibert.tools/api",
+      publicOrigin: "https://docs.example.com",
+      resource: "https://docs.example.com/api",
       searchPath: "/api/search",
       requiredScopes: ["search:read"],
-      siteLabel: "basics",
+      siteLabel: "docs",
     });
     expect(id).toBe("search");
-    expect(title).toBe("Search the basics knowledge base");
+    expect(title).toBe("Search the docs knowledge base");
     expect(content).toContain(
       [
         "weldall request \\",
         "  --scope search:read \\",
-        '  "https://basics.seibert.tools/api/search?q=<query>"',
+        '  "https://docs.example.com/api/search?q=<query>"',
       ].join("\n"),
     );
   });

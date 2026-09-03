@@ -246,8 +246,9 @@ Create `GET` endpoints for metadata, JWKS, and the optional skill catalog. Set `
 
 `@weldall/sdk/starlight` turns a [Starlight](https://starlight.astro.build)
 site into a Weldall resource with an agent-facing full-text search endpoint.
-The site's MDX content is indexed at build time (Orama, German stemming) and
-agents query `GET /api/search` through `weldall request` — no browser. It also
+The site's MDX content is indexed at build time with language-specific Orama
+stemming and stop-word removal. Agents query `GET /api/search` through
+`weldall request` — no browser. It also
 publishes the skill catalog so Weldall auto-discovers the `search` skill.
 
 ```js
@@ -258,12 +259,13 @@ export default defineConfig({
   output: "server",
   adapter: node({ mode: "standalone" }),
   integrations: [
-    starlight({ title: "Basics" }),
+    starlight({ title: "Documentation" }),
     weldallSearch("https://weldall.example.com", {
-      publicOrigin: "https://basics.seibert.tools",
-      resource: "https://basics.seibert.tools/api",
-      clientId: "weldall-cli-at-basics",
+      publicOrigin: "https://docs.example.com",
+      resource: "https://docs.example.com/api",
+      clientId: "weldall-cli-at-docs",
       requiredScopes: ["search:read"],
+      language: "english",
     }),
   ],
 });
@@ -278,6 +280,10 @@ accepts values, never environment-variable names. Runtime-only values are not
 written into `.weldall-search/config.json`: set `WELDALL_SIGNING_KEY` in the
 server environment, and call `configureWeldallSearchRuntime({ replayStore })`
 from server startup code before serving the injected routes.
+
+`language` defaults to `"english"`. It enables the matching stemmer and
+stop-word list; import `SUPPORTED_SEARCH_LANGUAGES` from
+`@weldall/sdk/starlight` to inspect the accepted values.
 
 Orama and gray-matter are optional peer dependencies and must be installed in
 the consuming site:

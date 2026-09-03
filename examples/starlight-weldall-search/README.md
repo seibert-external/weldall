@@ -1,8 +1,8 @@
 # @weldall/example-starlight-weldall-search
 
 Minimal Starlight site (SSR, `@astrojs/node`) that demonstrates
-`@weldall/sdk/starlight`. Content lives in
-`src/content/docs/` with German text so stemming is visible.
+`@weldall/sdk/starlight`. English example content lives in
+`src/content/docs/`; the integration enables English stemming and stop-word removal.
 
 ## Run
 
@@ -26,7 +26,7 @@ replaced with a stable secret-managed key for production.
 curl -s http://localhost:4321/.well-known/oauth-protected-resource
 
 # search without a token -> 401
-curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:4321/api/search?q=umsatz"
+curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:4321/api/search?q=revenue"
 # -> 401
 
 # skill catalog requires a skill assertion -> 401 without one

@@ -1,10 +1,11 @@
 import type { PublishedSkill } from "../skills.js";
+import type { SearchLanguage } from "./languages.js";
 import type { WeldallSearchOptions } from "./types.js";
 
 /** Defaults for the site-specific configuration surface. */
 export const DEFAULTS = {
   /** Default Orama index language. */
-  language: "german",
+  language: "english",
   /** Default Starlight content directory. */
   contentDir: "src/content/docs",
   /** Default search endpoint path. */
@@ -37,8 +38,8 @@ export interface PersistedConfig {
   allowInsecureLoopback?: boolean;
   /** User-provided skills (items) merged into the published catalog. */
   skillsItems?: readonly PublishedSkill[];
-  /** Orama index language. */
-  language?: string;
+  /** Search language used for stemming and stop-word removal. */
+  language?: SearchLanguage;
   /** Search endpoint path. */
   searchPath?: string;
   /** Default maximum results per query. */

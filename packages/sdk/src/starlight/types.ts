@@ -1,5 +1,6 @@
 import type { ReplayStore } from "../types.js";
 import type { PublishedSkill } from "../skills.js";
+import type { SearchLanguage } from "./languages.js";
 
 /**
  * Integration options for `weldallSearch(host, options)`.
@@ -19,7 +20,7 @@ export interface WeldallSearchOptions {
   resource?: string;
 
   /**
-   * The public origin of this site, e.g. `https://basics.seibert.tools`.
+   * The public origin of this site, e.g. `https://docs.example.com`.
    */
   publicOrigin?: string;
 
@@ -61,8 +62,8 @@ export interface WeldallSearchOptions {
   /** Search endpoint path. Defaults to `"/api/search"`. */
   searchPath?: string;
 
-  /** Orama index language (stemming/stopwords). Defaults to `"german"`. */
-  language?: string;
+  /** Search language used for stemming and stop-word removal. Defaults to `"english"`. */
+  language?: SearchLanguage;
 
   /** Maximum results per query. Defaults to 10. */
   defaultLimit?: number;
