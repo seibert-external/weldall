@@ -39,12 +39,15 @@ function protectedResourceMetadataPattern(resource?: string): string {
  * derived from the site origin.
  *
  * At build time the integration indexes `src/content/docs` with Orama into
- * `.weldall-search/index.json` and injects four routes:
+ * `.weldall-search/index.json` and injects the Weldall protocol routes:
  *
  * - `GET /api/search?q=…` — the protected search endpoint
+ * - `GET /.well-known/oauth-authorization-server` — local AS metadata
+ * - `GET /.well-known/jwks.json` — local AS JWKS
  * - `GET /.well-known/oauth-protected-resource` — resource metadata
  * - `GET /.well-known/oauth-protected-resource/<resource-path>` — per-path metadata
  * - `GET /.well-known/weldall-skills` — skill catalog (auto-discovery)
+ * - `POST /oauth/token` — ID-JAG token exchange
  *
  * **Requires SSR.** Set `output: "server"` and a server adapter (e.g.
  * `@astrojs/node`) in `astro.config.mjs`, or the integration throws.
@@ -115,6 +118,14 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
 
         injectRoute({ pattern: searchPath, entrypoint: routeEntrypoint("search") });
         injectRoute({
+          pattern: "/.well-known/oauth-authorization-server",
+          entrypoint: routeEntrypoint("oauth-authorization-server"),
+        });
+        injectRoute({
+          pattern: "/.well-known/jwks.json",
+          entrypoint: routeEntrypoint("jwks"),
+        });
+        injectRoute({
           pattern: "/.well-known/oauth-protected-resource",
           entrypoint: routeEntrypoint("oauth-protected-resource"),
         });
@@ -128,6 +139,7 @@ export function weldallSearch(host: string, options: WeldallSearchOptions = {}):
           pattern: "/.well-known/weldall-skills",
           entrypoint: routeEntrypoint("skills"),
         });
+        injectRoute({ pattern: "/oauth/token", entrypoint: routeEntrypoint("token") });
       },
       /**
        * Copies the generated index and configuration into the build output so

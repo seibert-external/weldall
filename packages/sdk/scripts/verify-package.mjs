@@ -64,8 +64,11 @@ try {
     "package/dist/astro.js",
     "package/dist/starlight/index.js",
     "package/dist/starlight/index.d.ts",
+    "package/dist/starlight/routes/jwks.js",
+    "package/dist/starlight/routes/oauth-authorization-server.js",
     "package/dist/starlight/routes/search.js",
     "package/dist/starlight/routes/search.d.ts",
+    "package/dist/starlight/routes/token.js",
   ])
     assert(listing.includes(required), `${required} is missing`);
   assert(
