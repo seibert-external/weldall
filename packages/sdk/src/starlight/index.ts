@@ -70,9 +70,10 @@ function protectedResourceMetadataPattern(resource?: string): string {
  * ```
  *
  * @param host - The Weldall platform authorization-server origin (the SDK's
- *   `host` argument). Also readable from `WELDALL_ISSUER` at runtime.
- * @param options - Weldall SDK options plus site-specific keys; all optional
- *   because they can come from `WELDALL_*` environment variables at runtime.
+ *   `host` argument), persisted from this prop at build time.
+ * @param options - Weldall SDK identity values plus site-specific keys,
+ *   persisted from these props at build time. The only supported runtime
+ *   environment value is `WELDALL_SIGNING_KEY` for private signing material.
  * @returns An Astro integration ready for the `integrations` array.
  */
 export function weldallSearch(host: string, options: WeldallSearchOptions = {}): AstroIntegration {
