@@ -1,0 +1,36 @@
+---
+title: Was ist ein Skill?
+description: Entscheide, ob Inhalt in einen Skill, einen Browser-Verweis oder das Wissensarchiv gehört.
+sidebar:
+  label: Skills einordnen
+---
+
+import { Image } from "astro:assets";
+import { AstroZoomInit } from "astro-zoom";
+import skillClassificationLight from "../../../assets/skill-classification.svg";
+import skillClassificationDark from "../../../assets/skill-classification-dark.svg";
+
+<AstroZoomInit background="var(--sl-color-bg)" />
+<div class="dark:sl-hidden">
+  <Image
+    src={skillClassificationLight}
+    alt="Entscheidungsdiagramm zur Einordnung von Wissen: Skill, Resource oder Wissensarchiv"
+    data-zoom
+  />
+</div>
+<div class="light:sl-hidden">
+  <Image
+    src={skillClassificationDark}
+    alt="Entscheidungsdiagramm zur Einordnung von Wissen: Skill, Resource oder Wissensarchiv"
+    data-zoom
+  />
+</div>
+
+Ein Skill in Weldall sollte in aller Regel eine **Handlungsanweisung für einen Agenten** sein. Er beschreibt einen konkreten Vorgang, den der Agent entweder:
+
+1. über eine geschützte Unternehmensschnittstelle, also eine Weldall Resource, ausführt oder
+2. bei fehlender Schnittstelle den Mitarbeitenden in den Browser führt oder einen Ansprechpartner nennt.
+
+Wird der zweite Fall häufig genutzt, kann es sich lohnen, daraus eine Weldall Resource zu machen.
+
+Ein Skill ist kein statisches Wissen, also Unternehmensinformationen, die sich selten ändern. Diese können in einer externen Dokumentation leben, zum Beispiel in Confluence oder einer statischen Wissenssammlung wie Starlight.

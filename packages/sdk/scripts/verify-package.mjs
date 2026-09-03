@@ -25,13 +25,32 @@ try {
   assert.equal(packageJson.private, undefined);
   assert.equal(packageJson.license, "FSL-1.1-ALv2");
   assert.equal(packageJson.publishConfig?.registry, "https://registry.npmjs.org/");
-  assert.deepEqual(Object.keys(packageJson.exports).sort(), [".", "./astro", "./hono", "./next"]);
+  assert.deepEqual(Object.keys(packageJson.exports).sort(), [
+    ".",
+    "./astro",
+    "./hono",
+    "./next",
+    "./starlight",
+  ]);
   assert.equal(packageJson.engines.node, ">=22.15.0");
   assert.equal(JSON.stringify(packageJson).includes("workspace:"), false);
   assert.deepEqual(packageJson.peerDependencies, {
+    "@orama/orama": "^3.1.6",
+    "@orama/stemmers": "^3.0.3",
+    "@orama/stopwords": "^3.0.0",
     astro: ">=7 <8",
+    "gray-matter": "^4.0.3",
     hono: ">=4 <5",
     next: ">=16 <17",
+  });
+  assert.deepEqual(packageJson.peerDependenciesMeta, {
+    "@orama/orama": { optional: true },
+    "@orama/stemmers": { optional: true },
+    "@orama/stopwords": { optional: true },
+    astro: { optional: true },
+    "gray-matter": { optional: true },
+    hono: { optional: true },
+    next: { optional: true },
   });
   for (const required of [
     "package/README.md",
@@ -43,6 +62,13 @@ try {
     "package/dist/hono.js",
     "package/dist/next.js",
     "package/dist/astro.js",
+    "package/dist/starlight/index.js",
+    "package/dist/starlight/index.d.ts",
+    "package/dist/starlight/routes/jwks.js",
+    "package/dist/starlight/routes/oauth-authorization-server.js",
+    "package/dist/starlight/routes/search.js",
+    "package/dist/starlight/routes/search.d.ts",
+    "package/dist/starlight/routes/token.js",
   ])
     assert(listing.includes(required), `${required} is missing`);
   assert(

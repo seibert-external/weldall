@@ -1,0 +1,36 @@
+---
+title: What is a skill?
+description: Learn what belongs in a skill and what belongs in external documentation.
+sidebar:
+  label: What is a skill?
+---
+
+import { Image } from "astro:assets";
+import { AstroZoomInit } from "astro-zoom";
+import skillClassificationLight from "../../assets/skill-classification.svg";
+import skillClassificationDark from "../../assets/skill-classification-dark.svg";
+
+<AstroZoomInit background="var(--sl-color-bg)" />
+<div class="dark:sl-hidden">
+  <Image
+    src={skillClassificationLight}
+    alt="Decision flowchart for classifying knowledge: skill, resource, or knowledge base"
+    data-zoom
+  />
+</div>
+<div class="light:sl-hidden">
+  <Image
+    src={skillClassificationDark}
+    alt="Decision flowchart for classifying knowledge: skill, resource, or knowledge base"
+    data-zoom
+  />
+</div>
+
+A Weldall skill should generally be an **operational instruction for an agent**. It describes a specific task that the agent either:
+
+1. performs through a protected company interface — a Weldall resource — or
+2. when no interface exists, directs the employee to the browser or names a contact person.
+
+If the second case is used frequently, it can be worthwhile to turn it into a Weldall resource.
+
+A skill is not static knowledge, meaning company information that rarely changes. That information can live in external documentation, for example in Confluence or a static knowledge base such as Starlight.

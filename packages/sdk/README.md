@@ -242,6 +242,56 @@ export const POST = weldall.handlers.token;
 
 Create `GET` endpoints for metadata, JWKS, and the optional skill catalog. Set `prerender = false` in every endpoint file.
 
+### Starlight search integration
+
+`@weldall/sdk/starlight` turns a [Starlight](https://starlight.astro.build)
+site into a Weldall resource with an agent-facing full-text search endpoint.
+The site's MDX content is indexed at build time with language-specific Orama
+stemming and stop-word removal. Agents query `GET /api/search` through
+`weldall request` — no browser. It also
+publishes the skill catalog so Weldall auto-discovers the `search` skill.
+
+```js
+// astro.config.mjs — requires SSR (`output: "server"` + a server adapter)
+import { weldallSearch } from "@weldall/sdk/starlight";
+
+export default defineConfig({
+  output: "server",
+  adapter: node({ mode: "standalone" }),
+  integrations: [
+    starlight({ title: "Documentation" }),
+    weldallSearch("https://weldall.example.com", {
+      publicOrigin: "https://docs.example.com",
+      resource: "https://docs.example.com/api",
+      clientId: "weldall-cli-at-docs",
+      requiredScopes: ["search:read"],
+      language: "english",
+    }),
+  ],
+});
+```
+
+The interface mirrors `initWeldall(host, options)`. The search endpoint
+requires **all** of the configured `requiredScopes`, which are also the skill's
+`requiredScopes` and the resource's supported scopes. Configuration is
+**prop-driven**: the consuming site passes values in `astro.config.mjs` and may
+read them from its own environment variables however it likes — the library
+accepts values, never environment-variable names. Runtime-only values are not
+written into `.weldall-search/config.json`: set `WELDALL_SIGNING_KEY` in the
+server environment, and call `configureWeldallSearchRuntime({ replayStore })`
+from server startup code before serving the injected routes.
+
+`language` defaults to `"english"`. It enables the matching stemmer and
+stop-word list; import `SUPPORTED_SEARCH_LANGUAGES` from
+`@weldall/sdk/starlight` to inspect the accepted values.
+
+Orama and gray-matter are optional peer dependencies and must be installed in
+the consuming site:
+
+```sh
+pnpm add @orama/orama @orama/stemmers @orama/stopwords gray-matter
+```
+
 ## Protocol routes
 
 Hono's `registerRoutes` mounts all required handlers. Fetch, Next.js, and Astro integrations mount the same handlers explicitly:

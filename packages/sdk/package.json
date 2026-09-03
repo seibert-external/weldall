@@ -33,6 +33,10 @@
     "./astro": {
       "types": "./dist/astro.d.ts",
       "default": "./dist/astro.js"
+    },
+    "./starlight": {
+      "types": "./dist/starlight/index.d.ts",
+      "default": "./dist/starlight/index.js"
     }
   },
   "publishConfig": {
@@ -53,7 +57,11 @@
   "peerDependencies": {
     "astro": ">=7 <8",
     "hono": ">=4 <5",
-    "next": ">=16 <17"
+    "next": ">=16 <17",
+    "@orama/orama": "^3.1.6",
+    "@orama/stemmers": "^3.0.3",
+    "@orama/stopwords": "^3.0.0",
+    "gray-matter": "^4.0.3"
   },
   "peerDependenciesMeta": {
     "astro": {
@@ -64,12 +72,28 @@
     },
     "next": {
       "optional": true
+    },
+    "@orama/orama": {
+      "optional": true
+    },
+    "@orama/stemmers": {
+      "optional": true
+    },
+    "@orama/stopwords": {
+      "optional": true
+    },
+    "gray-matter": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@orama/orama": "^3.1.6",
+    "@orama/stemmers": "^3.0.3",
+    "@orama/stopwords": "^3.0.0",
     "@types/node": "catalog:",
     "@weldall/tsconfig": "workspace:*",
     "astro": "^7.2.7",
+    "gray-matter": "^4.0.3",
     "hono": "^4.13.5",
     "next": "^16.3.3",
     "typescript": "catalog:",

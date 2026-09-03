@@ -26,7 +26,7 @@ const waitForUrl = async (url, child) => {
   throw new Error(`example server did not become ready: ${url}`);
 };
 
-const smokeServer = async (target, command, args, url, env = {}) => {
+const smokeServer = async (target, command, args, url, env = {}, verify) => {
   const child = spawn(command, args, {
     cwd: target,
     env: { ...process.env, ...env },
@@ -34,6 +34,7 @@ const smokeServer = async (target, command, args, url, env = {}) => {
   });
   try {
     await waitForUrl(url, child);
+    await verify?.();
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolveExit) => {
@@ -52,7 +53,7 @@ try {
     temp,
     readdirSync(temp).find((name) => name.endsWith(".tgz")),
   );
-  for (const name of ["basic", "hono", "next", "astro"]) {
+  for (const name of ["basic", "hono", "next", "astro", "starlight-weldall-search"]) {
     const target = join(temp, name);
     cpSync(join(root, "examples", name), target, {
       recursive: true,
@@ -103,12 +104,36 @@ try {
         "http://127.0.0.1:39002/",
         { NEXT_TELEMETRY_DISABLED: "1" },
       );
-    } else {
+    } else if (name === "astro") {
       await smokeServer(target, "node", ["dist/server/entry.mjs"], "http://127.0.0.1:39003/", {
         HOST: "127.0.0.1",
         PORT: "39003",
         ASTRO_TELEMETRY_DISABLED: "1",
       });
+    } else {
+      const signingKey = execFileSync("pnpm", ["--silent", "print-dev-key"], {
+        cwd: target,
+        encoding: "utf8",
+      });
+      JSON.parse(signingKey);
+      await smokeServer(
+        target,
+        "node",
+        ["dist/server/entry.mjs"],
+        "http://127.0.0.1:39004/",
+        {
+          HOST: "127.0.0.1",
+          PORT: "39004",
+          ASTRO_TELEMETRY_DISABLED: "1",
+          WELDALL_SIGNING_KEY: signingKey,
+        },
+        async () => {
+          const response = await fetch("http://127.0.0.1:39004/api/search?q=umsatz");
+          if (response.status !== 401) {
+            throw new Error(`starlight unauthenticated search returned ${response.status}`);
+          }
+        },
+      );
     }
     console.log(`fresh tarball build and runtime smoke passed: ${name} (${basename(tarball)})`);
   }
