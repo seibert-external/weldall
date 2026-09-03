@@ -2,6 +2,7 @@ node_modules/
 dist/
 .next/
 .astro/
+.weldall-search/
 .turbo/
 coverage/
 apps/e2e/test-results/

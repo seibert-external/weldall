@@ -242,6 +242,51 @@ export const POST = weldall.handlers.token;
 
 Create `GET` endpoints for metadata, JWKS, and the optional skill catalog. Set `prerender = false` in every endpoint file.
 
+### Starlight search integration
+
+`@weldall/sdk/starlight` turns a [Starlight](https://starlight.astro.build)
+site into a Weldall resource with an agent-facing full-text search endpoint.
+The site's MDX content is indexed at build time (Orama, German stemming) and
+agents query `GET /api/search` through `weldall request` — no browser. It also
+publishes the skill catalog so Weldall auto-discovers the `search` skill.
+
+```js
+// astro.config.mjs — requires SSR (`output: "server"` + a server adapter)
+import { weldallSearch } from "@weldall/sdk/starlight";
+
+export default defineConfig({
+  output: "server",
+  adapter: node({ mode: "standalone" }),
+  integrations: [
+    starlight({ title: "Basics" }),
+    weldallSearch("https://weldall.example.com", {
+      publicOrigin: "https://basics.seibert.tools",
+      resource: "https://basics.seibert.tools/api",
+      clientId: "weldall-cli-at-basics",
+      requiredScopes: ["search:read"],
+    }),
+  ],
+});
+```
+
+The interface mirrors `initWeldall(host, options)`. The search endpoint
+requires **all** of the configured `requiredScopes`, which are also the skill's
+`requiredScopes` and the resource's supported scopes. Configuration is
+**prop-driven**: the consuming site passes values in `astro.config.mjs` and may
+read them from its own environment variables however it likes — the library
+accepts values, never environment-variable names. The signing key is passed as
+a value too, e.g.
+`signingKey: JSON.parse(process.env.MY_KEY)`; when omitted it falls back to
+`process.env.WELDALL_SIGNING_KEY` at runtime and otherwise to an ephemeral key
+(local development only).
+
+Orama and gray-matter are optional peer dependencies and must be installed in
+the consuming site:
+
+```sh
+pnpm add @orama/orama @orama/stemmers @orama/stopwords gray-matter
+```
+
 ## Protocol routes
 
 Hono's `registerRoutes` mounts all required handlers. Fetch, Next.js, and Astro integrations mount the same handlers explicitly:

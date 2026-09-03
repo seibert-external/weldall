@@ -1,0 +1,26 @@
+{
+  "name": "@weldall/example-starlight-weldall-search",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "start": "node dist/server/entry.mjs",
+    "dev": "astro dev",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/node": "^11.1.4",
+    "@astrojs/starlight": "^0.41.9",
+    "@orama/orama": "^3.1.6",
+    "@orama/stemmers": "^3.0.3",
+    "@orama/stopwords": "^3.0.0",
+    "@weldall/sdk": "workspace:*",
+    "astro": "^7.2.7",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  }
+}
