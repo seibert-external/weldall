@@ -627,14 +627,15 @@ const skillsFindCommand = define({
   name: "find",
   description: "Search the locally cached skill catalog",
   args: {
-    keyword: {
+    keywords: {
       type: "positional",
       required: true,
-      description: "Text to match in skill names, tags, owners, or resources",
+      description: "Text to match in skill IDs, titles, previews, tags, owners, or resources",
     },
     json: jsonArgument,
   },
-  examples: "weldall skills find employee\nweldall skills find personio --json",
+  examples:
+    'weldall skills find employee\nweldall skills find "contract review date"\nweldall skills find personio --json',
   run: async (context) => {
     const selection = await selectIssuer({ allowPrompt: false });
     if (!selection)
@@ -651,14 +652,14 @@ const skillsFindCommand = define({
       const { result, subject: authenticatedSubject } = await listSkillsWithSubject(config);
       snapshot = await cacheSkills(config.issuer, result.items, authenticatedSubject);
     }
-    const keyword = context.values.keyword.trim().toLocaleLowerCase();
+    const keyword = context.values.keywords.trim().toLocaleLowerCase();
     if (!keyword) throw new CliError("Skill search keyword must not be empty");
     const matches = findCachedSkills(snapshot.skills, keyword);
     if (context.values.json) {
       jsonOutput(matches);
       if (matches.length === 0) {
         printWarning(
-          `No cached skills match ${JSON.stringify(context.values.keyword)}.`,
+          `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
           "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
         );
       }
@@ -666,7 +667,7 @@ const skillsFindCommand = define({
     }
     if (matches.length === 0) {
       warning(
-        `No cached skills match ${JSON.stringify(context.values.keyword)}.`,
+        `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
         "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
       );
       return;
