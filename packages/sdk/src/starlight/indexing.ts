@@ -286,13 +286,55 @@ export const SCHEMA = {
 } as const;
 
 /**
- * Cuts a long body to a bounded excerpt at a word boundary.
+ * Finds the most useful literal query match for an excerpt. Prefer the full
+ * query, then its longest individual terms so multi-word searches still show
+ * why a result matched.
  */
-const excerpt = (content: string, length = 260): string => {
+const queryMatch = (
+  content: string,
+  term: string,
+): { index: number; length: number } | undefined => {
+  const lowerContent = content.toLocaleLowerCase();
+  const candidates = [
+    term.trim(),
+    ...(term.match(/[\p{L}\p{N}]+/gu) ?? []).sort((left, right) => right.length - left.length),
+  ];
+  for (const candidate of new Set(candidates.map((value) => value.toLocaleLowerCase()))) {
+    if (!candidate) continue;
+    const index = lowerContent.indexOf(candidate);
+    if (index >= 0) return { index, length: candidate.length };
+  }
+  return undefined;
+};
+
+/**
+ * Cuts a long body to a bounded, word-aligned excerpt centered on the query.
+ * Falls back to the beginning when stemming found a result without a literal
+ * occurrence of the submitted query or one of its terms.
+ */
+const excerpt = (content: string, term: string, length = 260): string => {
   if (content.length <= length) return content;
-  const cut = content.slice(0, length);
-  const lastSpace = cut.lastIndexOf(" ");
-  return `${lastSpace > 0 ? cut.slice(0, lastSpace) : cut}…`;
+  const match = queryMatch(content, term);
+  if (!match) {
+    const cut = content.slice(0, length);
+    const lastSpace = cut.lastIndexOf(" ");
+    return `${lastSpace > 0 ? cut.slice(0, lastSpace) : cut}…`;
+  }
+
+  let start = Math.max(0, match.index - Math.floor((length - match.length) / 2));
+  let end = Math.min(content.length, start + length);
+  if (end - start < length) start = Math.max(0, end - length);
+
+  if (start > 0) {
+    const nextSpace = content.indexOf(" ", start);
+    if (nextSpace >= 0 && nextSpace < match.index) start = nextSpace + 1;
+  }
+  if (end < content.length) {
+    const lastSpace = content.lastIndexOf(" ", end);
+    if (lastSpace > match.index + match.length) end = lastSpace;
+  }
+
+  return `${start > 0 ? "…" : ""}${content.slice(start, end).trim()}${end < content.length ? "…" : ""}`;
 };
 
 /**
@@ -313,7 +355,7 @@ export async function runSearch(db: unknown, term: string, limit: number): Promi
       path: doc.path,
       title: doc.title,
       description: doc.description,
-      excerpt: excerpt(doc.content),
+      excerpt: excerpt(doc.content, term),
       score: typeof hit.score === "number" ? hit.score : 0,
     };
   });

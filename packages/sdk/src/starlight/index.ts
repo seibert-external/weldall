@@ -72,6 +72,7 @@ function protectedResourceMetadataPattern(resource?: string): string {
  *   language: "english",
  *   skills: {
  *     search: {
+ *       description: "Use this for office support, vehicle booking, and company facts.",
  *       extraRules: "Pages under /office describe internal support teams.",
  *     },
  *   },

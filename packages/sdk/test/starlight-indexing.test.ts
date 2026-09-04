@@ -97,6 +97,25 @@ The Example Company knowledge base.
     expect(hits[0]!.excerpt).toContain("Revenue figures");
   });
 
+  it("centers excerpts on a literal query match", async () => {
+    const dir = await fixtureDocs({
+      "office/support.md": `---
+title: Office support
+---
+${"General office guidance. ".repeat(20)}Use the Poolwagen booking calendar for company vehicles. ${"Return the vehicle clean. ".repeat(20)}
+`,
+    });
+    const built = await buildIndexFromDir(dir, "german");
+    const db = await readIndexFile(await persist(built, "german"));
+
+    const [hit] = await runSearch(db, "poolwagen", 10);
+    expect(hit?.excerpt).toContain("Poolwagen");
+    expect(hit?.excerpt.indexOf("Poolwagen")).toBeGreaterThan(80);
+    expect(hit?.excerpt.indexOf("Poolwagen")).toBeLessThan(180);
+    expect(hit?.excerpt.startsWith("…")).toBe(true);
+    expect(hit?.excerpt.endsWith("…")).toBe(true);
+  });
+
   it("uses the configured language analyzer", async () => {
     const dir = await fixtureDocs({
       "team.md":

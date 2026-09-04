@@ -56,6 +56,7 @@ describe("skill cache identity binding", () => {
             {
               slug: "expenses.review",
               title: "Review expenses",
+              preview: "Review submitted company expenses.",
               requiredScopes: ["expenses:read"],
               visibility: "DEFAULT",
               available: true,

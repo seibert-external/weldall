@@ -18,6 +18,7 @@ export default defineConfig({
       language: "english",
       skills: {
         search: {
+          description: "Use this for employee contacts, team structure, and company facts.",
           extraRules: "Pages under /team describe the internal team structure and contacts.",
         },
       },
