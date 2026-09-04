@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.9.0
+
+### Minor Changes
+
+- f5fb616: Improve agent skill discovery and knowledge-base search steering. The CLI now caches and searches skill catalog previews, handles multi-word queries by ranking term overlap, and gives actionable fallback guidance when no cached skill matches. The Starlight integration now centers excerpts on literal query matches and lets site owners customize the generated search skill's opening discovery description.
+
 ## 0.8.0
 
 ### Minor Changes
