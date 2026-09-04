@@ -338,6 +338,7 @@ export async function startControlledMockServer() {
             {
               slug: "files.transfer",
               title: "Transfer artifact files",
+              preview: "Transfer artifact files safely.",
               requiredScopes: ["files:read"],
               visibility: "DEFAULT",
               available: true,
@@ -359,6 +360,7 @@ export async function startControlledMockServer() {
         return json(response, {
           slug: "files.transfer",
           title: "Transfer artifact files",
+          preview: "Transfer artifact files safely.",
           requiredScopes: ["files:read"],
           visibility: "DEFAULT",
           available: true,
