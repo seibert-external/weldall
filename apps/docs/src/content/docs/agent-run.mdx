@@ -40,19 +40,19 @@ The employee does not need to know which service manages contracts or how to cal
 
 ## 3. The agent discovers available skills
 
-The agent starts with the capabilities that Weldall publishes for this employee:
+The agent first searches the locally cached catalog using concrete nouns and actions from the task:
 
 ```sh
-weldall skills
+weldall skills find "contract review date"
 ```
 
-`weldall skills` is shorthand for `weldall skills list`. A possible response is:
+The search considers skill identifiers, titles, catalog previews, tags, owners, and resources. Multi-word searches rank skills matching more of the words first. A possible response is:
 
 ```text
 contracts.manage  Manage contracts  available
 ```
 
-The list contains only skills that are visible to this employee. Depending on its configuration, a visible skill can either be available or indicate missing permissions.
+If no result matches, the agent should try fewer or broader words, such as the system, resource, or action. `weldall skills` is shorthand for `weldall skills list` and browses the complete visible catalog. Depending on its configuration, a visible skill can either be available or indicate missing permissions.
 
 ## 4. The agent reads the instructions
 

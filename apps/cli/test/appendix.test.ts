@@ -14,7 +14,14 @@ describe("CLI appendix cache", () => {
       await cache.writeSnapshot(issuer, {
         appendix: "# Organization instructions",
         scopes: ["expenses:read"],
-        skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+        skills: [
+          {
+            slug: "expenses.review",
+            title: "Review expenses",
+            preview: "Review submitted company expenses.",
+            available: true,
+          },
+        ],
         skillsInitialized: true,
         subject: "account-a",
       });
@@ -23,7 +30,14 @@ describe("CLI appendix cache", () => {
       await expect(cache.readSnapshot(issuer)).resolves.toEqual({
         appendix: "# Organization instructions",
         scopes: ["expenses:read"],
-        skills: [{ slug: "expenses.review", title: "Review expenses", available: true }],
+        skills: [
+          {
+            slug: "expenses.review",
+            title: "Review expenses",
+            preview: "Review submitted company expenses.",
+            available: true,
+          },
+        ],
         skillsInitialized: true,
         subject: "account-a",
       });

@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
-import { formatSkillWarning, printPermissions } from "../src/commands.js";
+import { findCachedSkills, formatSkillWarning, printPermissions } from "../src/commands.js";
 import {
   appendixFrame,
   brandHeading,
@@ -165,6 +165,42 @@ describe("CLI brand", () => {
     expect(heading).toContain("Run `weldall skills list` for the complete list.");
     expect(heading).not.toContain("Five (five)");
     vi.unstubAllEnvs();
+  });
+});
+
+describe("cached skill search", () => {
+  const skills = [
+    {
+      slug: "basics.search",
+      title: "Search Seibert Group Basics",
+      preview: "Find company facts and operational guidance such as Poolwagen booking.",
+      available: true,
+      tags: ["search"],
+      sourceKey: "basics",
+      sourceName: "Seibert Basics",
+    },
+    {
+      slug: "templates.create_draft",
+      title: "Create a contract draft",
+      preview: "Start a new customer contract.",
+      available: true,
+      tags: ["contracts"],
+      sourceKey: "templates",
+      sourceName: "Contract Templates",
+    },
+  ];
+
+  it("matches natural-language terms found only in the catalog preview", () => {
+    expect(findCachedSkills(skills, "poolwagen").map((skill) => skill.slug)).toEqual([
+      "basics.search",
+    ]);
+  });
+
+  it("matches multi-word queries by individual terms and ranks broader overlap first", () => {
+    expect(findCachedSkills(skills, "company contract draft").map((skill) => skill.slug)).toEqual([
+      "templates.create_draft",
+      "basics.search",
+    ]);
   });
 });
 

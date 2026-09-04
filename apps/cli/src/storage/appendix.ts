@@ -8,11 +8,13 @@ import { atomicWriteFile } from "./atomic-write.js";
 const CACHE_VERSION = 1;
 const MAX_APPENDIX_LENGTH = 100_000;
 const MAX_PREVIEW_ITEMS = 10_000;
+const MAX_SKILL_PREVIEW_LENGTH = 1_000;
 
 export interface CachedSkillPreview {
   slug: string;
   title: string;
   available: boolean;
+  preview?: string;
   tags?: string[];
   owner?: string;
   sourceKey?: string;
@@ -50,6 +52,9 @@ const validSkills = (value: unknown): value is CachedSkillPreview[] =>
       typeof (item as Partial<CachedSkillPreview>).slug === "string" &&
       typeof (item as Partial<CachedSkillPreview>).title === "string" &&
       typeof (item as Partial<CachedSkillPreview>).available === "boolean" &&
+      ((item as Partial<CachedSkillPreview>).preview === undefined ||
+        (typeof (item as Partial<CachedSkillPreview>).preview === "string" &&
+          (item as Partial<CachedSkillPreview>).preview!.length <= MAX_SKILL_PREVIEW_LENGTH)) &&
       ((item as Partial<CachedSkillPreview>).tags === undefined ||
         validStrings((item as Partial<CachedSkillPreview>).tags)) &&
       ((item as Partial<CachedSkillPreview>).owner === undefined ||

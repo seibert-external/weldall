@@ -272,9 +272,10 @@ export default defineConfig({
 });
 ```
 
-The search endpoint returns ranked hits with a short excerpt; agents that need
-the full body of a page request it by path from the content endpoint (also
-protected by the same scopes):
+The search endpoint returns ranked hits with a short excerpt centered on a
+literal query match when available, so agents can see why each page matched.
+Agents that need the full body request it by path from the content endpoint
+(also protected by the same scopes):
 
 ```sh
 weldall request --scope search:read \
@@ -286,14 +287,16 @@ auto-discovered `search` skill documents both commands so agents can search
 and then read a result end to end.
 
 The generated `search` skill is customizable by the site owner through the
-`skills.search` option — a custom `title`, a full `content` replacement, or
-`extraRules` appended to the generated operating rules:
+`skills.search` option — a custom `title`, an opening `description` containing
+concrete discovery vocabulary and example tasks, a full `content` replacement,
+or `extraRules` appended to the generated operating rules:
 
 ```js
 weldallSearch("https://weldall.example.com", {
   // ...
   skills: {
     search: {
+      description: "Use this for office support, vehicle booking, onboarding, and company facts.",
       extraRules: "Pages under /office describe internal support teams.",
     },
   },

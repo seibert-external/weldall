@@ -51,12 +51,54 @@ const skillPreview = (skill: Skill): CachedSkillPreview => ({
   slug: skill.slug,
   title: skill.title,
   available: skill.available,
+  preview: skill.preview,
   ...(skill.meta?.tags === undefined ? {} : { tags: skill.meta.tags }),
   ...(skill.meta?.owner === undefined ? {} : { owner: skill.meta.owner }),
   ...(skill.source.type === "resource"
     ? { sourceKey: skill.source.key, sourceName: skill.source.name }
     : { sourceName: "Weldall" }),
 });
+
+const normalizedSearchTerms = (value: string): string[] => {
+  const terms = [
+    ...new Set((value.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(Boolean)),
+  ];
+  return terms.length > 1 ? terms.filter((term) => term.length >= 3) : terms;
+};
+
+/**
+ * Searches cached skill metadata without a network request. Exact phrase
+ * matches rank first; otherwise multi-word queries match and rank by the
+ * number of individual terms found across identifiers, metadata, and preview.
+ */
+export const findCachedSkills = (
+  skills: readonly CachedSkillPreview[],
+  query: string,
+): CachedSkillPreview[] => {
+  const phrase = query.trim().toLocaleLowerCase();
+  if (!phrase) return [];
+  const terms = normalizedSearchTerms(phrase);
+  return skills
+    .map((skill, index) => {
+      const values = [
+        skill.slug,
+        skill.title,
+        skill.preview ?? "",
+        ...(skill.tags ?? []),
+        skill.owner ?? "",
+        skill.sourceKey ?? "",
+        skill.sourceName ?? "",
+      ].map((value) => value.toLocaleLowerCase());
+      const phraseMatch = values.some((value) => value.includes(phrase));
+      const termMatches = terms.filter((term) =>
+        values.some((value) => value.includes(term)),
+      ).length;
+      return { skill, index, score: phraseMatch ? terms.length + 1 : termMatches };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ skill }) => skill);
+};
 
 const cachedSubject = async (issuer: string) => {
   const credentials = await keychain.get(issuer).catch(() => null);
@@ -585,14 +627,15 @@ const skillsFindCommand = define({
   name: "find",
   description: "Search the locally cached skill catalog",
   args: {
-    keyword: {
+    keywords: {
       type: "positional",
       required: true,
-      description: "Text to match in skill names, tags, owners, or resources",
+      description: "Text to match in skill IDs, titles, previews, tags, owners, or resources",
     },
     json: jsonArgument,
   },
-  examples: "weldall skills find employee\nweldall skills find personio --json",
+  examples:
+    'weldall skills find employee\nweldall skills find "contract review date"\nweldall skills find personio --json',
   run: async (context) => {
     const selection = await selectIssuer({ allowPrompt: false });
     if (!selection)
@@ -601,29 +644,32 @@ const skillsFindCommand = define({
       });
     const subject = await cachedSubject(selection.issuer);
     let snapshot = await appendixCache.readSnapshotForSubject(selection.issuer, subject);
-    if (!snapshot?.skillsInitialized) {
+    if (
+      !snapshot?.skillsInitialized ||
+      snapshot.skills.some((skill) => skill.preview === undefined)
+    ) {
       const config = await resolveWeldallConfig();
       const { result, subject: authenticatedSubject } = await listSkillsWithSubject(config);
       snapshot = await cacheSkills(config.issuer, result.items, authenticatedSubject);
     }
-    const keyword = context.values.keyword.trim().toLocaleLowerCase();
+    const keyword = context.values.keywords.trim().toLocaleLowerCase();
     if (!keyword) throw new CliError("Skill search keyword must not be empty");
-    const matches = snapshot.skills.filter((skill) =>
-      [
-        skill.slug,
-        skill.title,
-        ...(skill.tags ?? []),
-        skill.owner ?? "",
-        skill.sourceKey ?? "",
-        skill.sourceName ?? "",
-      ].some((value) => value.toLocaleLowerCase().includes(keyword)),
-    );
+    const matches = findCachedSkills(snapshot.skills, keyword);
     if (context.values.json) {
       jsonOutput(matches);
+      if (matches.length === 0) {
+        printWarning(
+          `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
+          "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
+        );
+      }
       return;
     }
     if (matches.length === 0) {
-      info(`No cached skills match ${JSON.stringify(context.values.keyword)}.`);
+      warning(
+        `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
+        "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
+      );
       return;
     }
     printUi(

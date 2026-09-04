@@ -15,6 +15,7 @@ export interface SkillMeta {
 export interface SkillSummary {
   slug: string;
   title: string;
+  preview: string;
   requiredScopes: string[];
   visibility: SkillVisibility;
   available: boolean;
@@ -58,6 +59,7 @@ const isSkillSummary = (value: unknown): value is SkillSummary =>
   isRecord(value) &&
   typeof value.slug === "string" &&
   typeof value.title === "string" &&
+  typeof value.preview === "string" &&
   Array.isArray(value.requiredScopes) &&
   value.requiredScopes.every((scope) => typeof scope === "string") &&
   (value.visibility === "DEFAULT" || value.visibility === "HIDDEN_IF_UNALLOWED") &&

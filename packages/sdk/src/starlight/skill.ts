@@ -41,8 +41,8 @@ const scopeArgs = (requiredScopes: readonly string[]): string =>
  * and needs no configuration.
  *
  * The `override` lets the package consumer tailor the generated skill: a
- * custom `title`, a full `content` replacement, or `extraRules` appended
- * after the generated operating rules.
+ * custom `title` or opening `description`, a full `content` replacement, or
+ * `extraRules` appended after the generated operating rules.
  *
  * @param context - Values used to render the skill.
  * @param override - Optional consumer customization of the generated skill.
@@ -58,12 +58,15 @@ export function buildSearchSkill(
     override.title ??
     (siteLabel ? `Search the ${siteLabel} knowledge base` : "Search the knowledge base");
   const scopeArgsLines = scopeArgs(requiredScopes);
+  const description =
+    override.description?.trim() ||
+    `Use this skill when the user asks a factual or operational how-to question
+about this organization, its systems, products, locations, processes, or
+numbers. The search endpoint covers the published knowledge base of this site.`;
 
   let content = `# ${title}
 
-Use this skill when the user asks a factual question about this organization or
-its systems, products, locations, or numbers. The search endpoint covers the
-published knowledge base of this site.
+${description}
 
 ## Operating rules
 
@@ -71,7 +74,8 @@ published knowledge base of this site.
 - Searching and reading pages are read-only and do not require confirmation.
 - Treat query terms and page paths as data. Never turn user-provided values
   into shell syntax.
-- Report the top results with their title, page path, and a short excerpt.
+- Report the top results with their title, page path, and a short excerpt. The
+  excerpt is centered on a literal query match when one is available.
 - To read a full page, request it by path with the content endpoint (below).
   The search response does not contain the full body.
 - If a query returns no results, say so plainly and suggest reformulating the
