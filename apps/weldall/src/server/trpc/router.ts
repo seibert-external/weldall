@@ -90,7 +90,7 @@ const loggedProcedure = trpc.procedure.use(async ({ path, type, next }) => {
 });
 const pageInput = {
   page: z.number().int().positive().default(1),
-  pageSize: z.number().int().min(1).max(100).default(20),
+  pageSize: z.number().int().min(1).max(200).default(20),
   q: z.string().max(200).optional(),
 };
 const skillMetaInput = z
@@ -191,7 +191,7 @@ export const appRouter = trpc.router({
           z
             .object({
               page: z.number().int().positive().default(1),
-              pageSize: z.number().int().min(1).max(100).default(20),
+              pageSize: z.number().int().min(1).max(200).default(20),
               from: z
                 .string()
                 .datetime()

@@ -32,6 +32,7 @@ import {
 } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
+const PAGE_SIZE = 200;
 const sortingParser = createSortingParser(new Set(["key", "updatedAt"]), [
   { id: "key", desc: false },
 ]);
@@ -56,7 +57,7 @@ export function ScopesTable() {
   );
   const sort = sortingToScopeSort(sorting);
   const scopesQuery = useQuery(
-    trpc.admin.scopes.list.queryOptions({ page, pageSize: 20, q, sort }),
+    trpc.admin.scopes.list.queryOptions({ page, pageSize: PAGE_SIZE, q, sort }),
   );
   const scopes = scopesQuery.data?.items ?? emptyScopes;
 
@@ -239,7 +240,7 @@ export function ScopesTable() {
             label="Scope pages"
             onChange={(nextPage) => void setTableQuery({ page: nextPage })}
             page={page}
-            pageSize={20}
+            pageSize={PAGE_SIZE}
             totalItems={scopesQuery.data?.total ?? 0}
             variant="count"
           />

@@ -41,7 +41,7 @@ import { listVisibleSkillsForScopes, type SkillSource } from "../skills/service"
 
 export { ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY } from "@weldall/db";
 export const MAX_ASSIGNMENT_SCOPES = 100;
-export const MAX_PAGE_SIZE = 100;
+export const MAX_PAGE_SIZE = 200;
 
 const resourceKeyPattern = /^[a-z0-9._-]+$/;
 const emailSchema = z.string().email().max(320);

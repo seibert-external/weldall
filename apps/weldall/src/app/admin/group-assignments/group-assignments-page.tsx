@@ -24,7 +24,8 @@ import {
   TableRowAction,
 } from "../resizable-table";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 200;
+const emptyGroupAssignments: GroupAssignmentDto[] = [];
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -51,7 +52,7 @@ export function GroupAssignmentsPage() {
     const validPage = Math.min(currentPage, lastPage);
     if (page !== validPage) void setTableQuery({ page: validPage });
   }, [currentPage, page, setTableQuery, total]);
-  const assignments = assignmentsQuery.data?.items ?? [];
+  const assignments = assignmentsQuery.data?.items ?? emptyGroupAssignments;
   const columns = useMemo<ColumnDef<GroupAssignmentDto>[]>(
     () => [
       {

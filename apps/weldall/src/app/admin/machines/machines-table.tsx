@@ -22,20 +22,23 @@ import {
   TableRowAction,
 } from "../resizable-table";
 
+const emptyMachines: MachineClientDto[] = [];
+
 export function MachinesTable() {
   const router = useRouter();
   const trpc = useTRPC();
   const [search, setSearch] = useState("");
   const machinesQuery = useQuery(trpc.admin.machineClients.list.queryOptions());
+  const machineData = machinesQuery.data ?? emptyMachines;
   const machines = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    if (!needle) return machinesQuery.data ?? [];
-    return (machinesQuery.data ?? []).filter(
+    if (!needle) return machineData;
+    return machineData.filter(
       (machine) =>
         machine.name.toLocaleLowerCase().includes(needle) ||
         machine.clientId.toLocaleLowerCase().includes(needle),
     );
-  }, [machinesQuery.data, search]);
+  }, [machineData, search]);
   const columns = useMemo<ColumnDef<MachineClientDto>[]>(
     () => [
       {

@@ -37,6 +37,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const emptyGroupProviders: GroupProviderDto[] = [];
 
 export function GroupProvidersPage() {
   const trpc = useTRPC();
@@ -57,7 +58,7 @@ export function GroupProvidersPage() {
         operationToast.error("Could not delete provider", error, "provider-delete"),
     }),
   );
-  const providers = providersQuery.data ?? [];
+  const providers = providersQuery.data ?? emptyGroupProviders;
   const columns = useMemo<ColumnDef<GroupProviderDto>[]>(
     () => [
       {

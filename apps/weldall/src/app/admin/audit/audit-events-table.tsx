@@ -34,7 +34,7 @@ import {
 } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 200;
 const sortingParser = createSortingParser(new Set(["occurredAt"]), [
   { id: "occurredAt", desc: true },
 ]);
@@ -47,6 +47,7 @@ const outcomes = ["success", "denied", "failed"] as const;
 const outcomeOptions = outcomes.map((value) => ({ value, label: value }));
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 type AuditRow = Omit<AuditEventDto, "metadata"> & { metadata?: unknown };
+const emptyAuditEvents: AuditRow[] = [];
 
 export function AuditEventsTable({ userId }: { userId?: string } = {}) {
   const trpc = useTRPC();
@@ -101,7 +102,7 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
       sort: sortingToAuditSort(sorting),
     }),
   );
-  const events = auditQuery.data?.items ?? [];
+  const events = auditQuery.data?.items ?? emptyAuditEvents;
   const columns = useMemo<ColumnDef<AuditRow>[]>(
     () => [
       {

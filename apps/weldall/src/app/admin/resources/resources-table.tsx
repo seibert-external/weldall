@@ -27,7 +27,9 @@ import {
 } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
+const PAGE_SIZE = 200;
 const sortingParser = createSortingParser(new Set(["name"]), [{ id: "name", desc: false }]);
+const emptyResources: ResourceDto[] = [];
 const discoveryStatuses = {
   fresh: { icon: "success", color: "success", label: "Fresh" },
   stale: { icon: "warning", color: "warning", label: "Stale" },
@@ -51,12 +53,12 @@ export function ResourcesTable() {
   const resourcesQuery = useQuery(
     trpc.admin.resources.list.queryOptions({
       page,
-      pageSize: 20,
+      pageSize: PAGE_SIZE,
       q,
       sort: sortingToResourceSort(sorting),
     }),
   );
-  const resources = resourcesQuery.data?.items ?? [];
+  const resources = resourcesQuery.data?.items ?? emptyResources;
   const columns = useMemo<ColumnDef<ResourceDto>[]>(
     () => [
       {
@@ -255,7 +257,7 @@ export function ResourcesTable() {
             label="Resource pages"
             onChange={(nextPage) => void setTableQuery({ page: nextPage })}
             page={page}
-            pageSize={20}
+            pageSize={PAGE_SIZE}
             totalItems={resourcesQuery.data?.total ?? 0}
             variant="count"
           />

@@ -29,9 +29,11 @@ import {
 } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
+const PAGE_SIZE = 200;
 const sortingParser = createSortingParser(new Set(["title", "updatedAt"]), [
   { id: "title", desc: false },
 ]);
+const emptySkills: SkillDto[] = [];
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -68,7 +70,7 @@ export function SkillsTable() {
   const skillsQuery = useQuery(
     trpc.admin.skills.list.queryOptions({
       page,
-      pageSize: 20,
+      pageSize: PAGE_SIZE,
       q,
       ...(source ? { source } : {}),
       sort: sortingToSkillSort(sorting),
@@ -91,7 +93,7 @@ export function SkillsTable() {
     },
     [setTableQuery],
   );
-  const skills = skillsQuery.data?.items ?? [];
+  const skills = skillsQuery.data?.items ?? emptySkills;
   const columns = useMemo<ColumnDef<SkillDto>[]>(
     () => [
       {
@@ -366,7 +368,7 @@ export function SkillsTable() {
             label="Skill pages"
             onChange={(nextPage) => void setTableQuery({ page: nextPage })}
             page={page}
-            pageSize={20}
+            pageSize={PAGE_SIZE}
             totalItems={skillsQuery.data?.total ?? 0}
             variant="count"
           />

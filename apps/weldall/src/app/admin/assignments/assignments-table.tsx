@@ -25,9 +25,11 @@ import {
 import { createSortingParser, resolveUpdater } from "../table-state";
 import { ScopeBadges } from "./scope-badges";
 
+const PAGE_SIZE = 200;
 const sortingParser = createSortingParser(new Set(["email", "updatedAt"]), [
   { id: "email", desc: false },
 ]);
+const emptyAssignments: AssignmentDto[] = [];
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -47,12 +49,12 @@ export function AssignmentsTable() {
   const assignmentsQuery = useQuery(
     trpc.admin.assignments.list.queryOptions({
       page,
-      pageSize: 20,
+      pageSize: PAGE_SIZE,
       q,
       sort: sortingToAssignmentSort(sorting),
     }),
   );
-  const assignments = assignmentsQuery.data?.items ?? [];
+  const assignments = assignmentsQuery.data?.items ?? emptyAssignments;
 
   const columns = useMemo<ColumnDef<AssignmentDto>[]>(
     () => [
@@ -218,7 +220,7 @@ export function AssignmentsTable() {
             label="Assignment pages"
             onChange={(nextPage) => void setTableQuery({ page: nextPage })}
             page={page}
-            pageSize={20}
+            pageSize={PAGE_SIZE}
             totalItems={assignmentsQuery.data?.total ?? 0}
             variant="count"
           />

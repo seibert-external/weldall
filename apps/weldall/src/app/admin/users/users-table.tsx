@@ -15,7 +15,6 @@ import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import type { UserDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
-import { PlanetLoader } from "../../_components/planet-loader";
 import {
   isInteractiveTableTarget,
   OverflowFade,
@@ -24,7 +23,7 @@ import {
 } from "../resizable-table";
 import { createSortingParser, resolveUpdater } from "../table-state";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 200;
 const sortingParser = createSortingParser(new Set(["name", "email", "createdAt"]), [
   { id: "createdAt", desc: true },
 ]);
@@ -32,6 +31,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const emptyUsers: UserDto[] = [];
 
 export function UsersTable() {
   const router = useRouter();
@@ -52,7 +52,7 @@ export function UsersTable() {
       sort: sortingToUserSort(sorting),
     }),
   );
-  const users = usersQuery.data?.items ?? [];
+  const users = usersQuery.data?.items ?? emptyUsers;
   const columns = useMemo<ColumnDef<UserDto>[]>(
     () => [
       {
@@ -117,8 +117,6 @@ export function UsersTable() {
     },
     getCoreRowModel: getCoreRowModel(),
   });
-
-  if (usersQuery.isPending) return <PlanetLoader />;
 
   return (
     <>
@@ -195,6 +193,13 @@ export function UsersTable() {
                           ? "No people match this search."
                           : "No people are known to this server yet."}
                       </Text>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                {usersQuery.isPending ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <Text color="secondary">Loading people…</Text>
                     </TableCell>
                   </TableRow>
                 ) : null}
