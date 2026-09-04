@@ -3,7 +3,7 @@ import { AnimatedSpan, Terminal, TypingAnimation } from "./Terminal";
 const copy = {
   de: {
     employeeRequest: "> Zeig mir alle Mitarbeitenden meines Unternehmens",
-    listsSkills: "Agent listet Skills auf",
+    listsSkills: "Agent sucht Skills",
     readsSkill: "Agent liest den Skill",
     requestsData: "Agent ruft Daten ab",
     employeesFound: "✔ 247 Mitarbeitende gefunden",
@@ -14,7 +14,7 @@ const copy = {
   },
   en: {
     employeeRequest: "> Show me all employees of my company",
-    listsSkills: "Agent lists skills",
+    listsSkills: "Agent searches skills",
     readsSkill: "Agent reads skill",
     requestsData: "Agent requests data",
     employeesFound: "✔ 247 employees found",
@@ -37,7 +37,7 @@ export const TerminalDemo = ({ locale = "en" }: TerminalDemoProps) => {
       <TypingAnimation>{text.employeeRequest}</TypingAnimation>
 
       <AnimatedSpan className="magic-terminal__line--info">{text.listsSkills}</AnimatedSpan>
-      <TypingAnimation>$ weldall skills</TypingAnimation>
+      <TypingAnimation>$ weldall skills find employees</TypingAnimation>
       <AnimatedSpan className="magic-terminal__line--success">
         ✔ HR Server Read · hr-server.read
       </AnimatedSpan>

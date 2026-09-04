@@ -82,8 +82,8 @@ Standalone binaries (no Node.js required) are available for Linux x64, Windows x
 weldall status          # who am I, what can I do?
 weldall whoami --json
 weldall scopes          # which scopes are granted?
-weldall skills          # which capabilities are visible?
 weldall skills find expense
+weldall skills list     # browse all visible capabilities
 weldall skills expenses.review
 ```
 
