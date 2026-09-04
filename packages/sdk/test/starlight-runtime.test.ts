@@ -95,7 +95,11 @@ describe("loadRuntimeConfig", () => {
       ".weldall-search/config.json": JSON.stringify({
         ...identity,
         contentPath: "/read",
-        skillsSearch: { title: "Find it", extraRules: "Pages under /office are teams." },
+        skillsSearch: {
+          title: "Find it",
+          description: "Search office processes and support topics.",
+          extraRules: "Pages under /office are teams.",
+        },
       }),
       ".weldall-search/index.json": "{}",
     });
@@ -105,6 +109,7 @@ describe("loadRuntimeConfig", () => {
     expect(config.contentPath).toBe("/read");
     expect(skillsSearch).toEqual({
       title: "Find it",
+      description: "Search office processes and support topics.",
       extraRules: "Pages under /office are teams.",
     });
   });
@@ -221,13 +226,15 @@ describe("buildSearchSkill", () => {
     expect(title).toBe("Search the knowledge base");
   });
 
-  it("applies a custom title and appended operating rules", () => {
+  it("applies a custom title, discovery description, and appended operating rules", () => {
     const { title, content } = buildSearchSkill(baseContext, {
       title: "Find company info",
+      description: "Use this for office support, vehicle booking, and company facts.",
       extraRules: "Pages under /office describe internal support teams.",
     });
     expect(title).toBe("Find company info");
     expect(content).toContain("# Find company info");
+    expect(content).toContain("Use this for office support, vehicle booking, and company facts.");
     expect(content).toContain("Pages under /office describe internal support teams.");
     expect(content).toContain("weldall request");
   });

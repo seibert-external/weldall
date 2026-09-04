@@ -138,7 +138,7 @@ Registry prefix, then checks supported and granted scopes. It never follows redi
 ambiguous targets receive neither a token nor request data. Weldall then obtains the matching resource
 token; before forwarding its ID-JAG, the CLI verifies the bound subject and verified email alongside
 the audience, resource, scopes, and device key. It then adds the DPoP authorization headers.
-`weldall skills list` refreshes a searchable local catalog. `weldall skills find <keyword>` searches cached slugs, titles, tags, owners, and resource names without networking after initialization. `weldall skills <skill-id>` is an alias for `weldall skills show <skill-id>`.
+`weldall skills list` refreshes a searchable local catalog. `weldall skills find <keywords>` searches cached slugs, titles, catalog previews, tags, owners, and resource names without networking after initialization. Multi-word queries rank skills matching more terms first; on no match, try fewer or broader system, resource, or action words, or browse with `weldall skills list`. `weldall skills <skill-id>` is an alias for `weldall skills show <skill-id>`.
 
 For offset-paginated JSON APIs, one process can prepare authorization once and request bounded pages concurrently:
 

@@ -40,19 +40,19 @@ Der Mitarbeiter muss weder wissen, welcher Service die Verträge verwaltet, noch
 
 ## 3. Der Agent sucht nach verfügbaren Skills
 
-Der Agent beginnt mit den Funktionen, die Weldall für diesen Mitarbeiter veröffentlicht:
+Der Agent durchsucht zuerst den lokal zwischengespeicherten Katalog mit konkreten Begriffen und Aktionen aus der Aufgabe:
 
 ```sh
-weldall skills
+weldall skills find "Vertrag Prüfdatum"
 ```
 
-`weldall skills` ist die Kurzform von `weldall skills list`. Eine mögliche Ausgabe ist:
+Die Suche berücksichtigt Skill-IDs, Titel, Katalogvorschauen, Tags, Verantwortliche und Ressourcen. Bei mehreren Suchwörtern stehen Skills mit mehr Treffern weiter oben. Eine mögliche Ausgabe ist:
 
 ```text
 contracts.manage  Verträge verwalten  available
 ```
 
-Die Liste enthält nur Skills, die für diesen Mitarbeiter sichtbar sind. Ein sichtbarer Skill kann je nach Konfiguration verfügbar sein oder auf fehlende Berechtigungen hinweisen.
+Gibt es keinen Treffer, sollte der Agent weniger oder allgemeinere Wörter wie das System, die Ressource oder die Aktion verwenden. `weldall skills` ist die Kurzform von `weldall skills list` und zeigt den vollständigen sichtbaren Katalog. Ein sichtbarer Skill kann je nach Konfiguration verfügbar sein oder auf fehlende Berechtigungen hinweisen.
 
 ## 4. Der Agent liest die Anleitung
 

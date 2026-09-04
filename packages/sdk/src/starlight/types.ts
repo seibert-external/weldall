@@ -14,6 +14,12 @@ export interface SearchSkillOverride {
    */
   title?: string;
   /**
+   * Custom opening description used to steer skill discovery. Put concrete
+   * user vocabulary and example tasks here; Weldall includes this opening in
+   * the catalog preview searched by `weldall skills find`.
+   */
+  description?: string;
+  /**
    * Full custom skill body. When provided it replaces the entire generated
    * content, including the search and page-read command blocks.
    */
