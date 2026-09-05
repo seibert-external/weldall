@@ -109,10 +109,23 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 | [`@weldall/docs`](apps/docs/)         | The documentation site (German and English).                                                    |
 | [`@weldall/db`](packages/db/)         | The Prisma database package and migrations.                                                     |
 
+## Compatibility
+
+Weldall works with any agent that can invoke the CLI. We recommend the open-source agents we use every day:
+
+| <img src="apps/docs/src/assets/compatibility/openwork.svg" width="22" height="22" align="center" /> [OpenWork](https://openworklabs.com) | <img src="apps/docs/src/assets/compatibility/pi.svg" width="22" height="22" align="center" /> [Pi](https://pi.dev) |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Desktop app                                                                                                                              | Terminal agent                                                                                                     |
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://opencode.ai), [Codex CLI](https://developers.openai.com/codex/), and [Gemini CLI](https://github.com/google-gemini/gemini-cli) can also invoke the CLI.
+
+Runs on <img src="apps/docs/src/assets/compatibility/apple.svg" width="16" height="16" align="center" /> macOS (Apple Silicon + Intel), <img src="apps/docs/src/assets/compatibility/windows8.svg" width="16" height="16" align="center" /> Windows (x64), and <img src="apps/docs/src/assets/compatibility/linux.svg" width="16" height="16" align="center" /> Linux (x64).
+
 ## Documentation
 
 Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
 
+- [Compatibility](apps/docs/src/content/docs/compatibility.mdx) — recommended agents and supported operating systems.
 - [A complete agent run](apps/docs/src/content/docs/agent-run.mdx) — the protocol walkthrough.
 - [Security model and OAuth standards](apps/docs/src/content/docs/oauth-security.mdx) — DPoP, ID-JAG, and the protocol's security guarantees.
 - [How to integrate a service](apps/docs/src/content/docs/service-configuration.md) — protect your API with the SDK.
