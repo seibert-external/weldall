@@ -1,0 +1,63 @@
+---
+title: Kompatibilität
+sidebar:
+  label: Kompatibilität
+description: Empfohlene Agenten, unterstützte Betriebssysteme und Bibliotheken für eigene Webdienste.
+---
+
+import BrandLinks from "../../../components/BrandLinks.astro";
+
+Wir empfehlen die Open-Source-Agenten **OpenWork und Pi** und nutzen beide täglich mit Weldall.
+
+<BrandLinks
+  items={[
+    {
+      brand: "openwork",
+      label: "OpenWork",
+      href: "https://openworklabs.com",
+      description: "Desktop-App",
+    },
+    { brand: "pi", label: "Pi", href: "https://pi.dev", description: "Agent im Terminal" },
+  ]}
+/>
+
+Die Weldall CLI ist nicht an einen bestimmten Agenten gebunden. Entscheidend ist, dass der Agent sie als Befehl ausführen darf. Anleitungen für die Einrichtung mit OpenWork und Pi sind in Vorbereitung.
+
+## Weitere Agenten
+
+Auch [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://opencode.ai), [Codex CLI](https://developers.openai.com/codex/) und [Gemini CLI](https://github.com/google-gemini/gemini-cli) können die Weldall CLI aufrufen. Die CLI muss in der Umgebung des Agenten installiert sein; die Ausführung von Befehlen darf dort nicht gesperrt sein.
+
+## Betriebssysteme
+
+<BrandLinks
+  items={[
+    { brand: "macos", label: "macOS" },
+    { brand: "windows", label: "Windows" },
+    { brand: "linux", label: "Linux" },
+  ]}
+/>
+
+Die Weldall CLI läuft unter macOS, Windows und Linux. Binaries ohne Node.js-Abhängigkeit gibt es für macOS auf Apple Silicon und Intel sowie für Windows x64 und Linux x64. Die [Paketübersicht](../sdks/) beschreibt die Installation.
+
+## SDKs für eigene Webdienste
+
+Für TypeScript und Python bieten wir Bibliotheken an, die eingehende Anfragen prüfen. Die Anleitungen zeigen, wie du sie in deine Anwendung einbindest.
+
+<BrandLinks
+  items={[
+    {
+      brand: "typescript",
+      label: "TypeScript",
+      href: "../service-configuration/typescript/",
+      description: "Hono, Next.js und Astro",
+    },
+    {
+      brand: "python",
+      label: "Python",
+      href: "../service-configuration/python/",
+      description: "FastAPI und Django",
+    },
+  ]}
+/>
+
+Die TypeScript-Bibliothek benötigt Node.js 22.15 oder neuer, die Python-Bibliothek Python 3.11 oder neuer. Beide Bibliotheken lassen sich auch ohne die genannten Webframeworks verwenden.

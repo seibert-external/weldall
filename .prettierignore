@@ -28,3 +28,13 @@ pnpm-lock.yaml
 
 # Existing example workspace was outside the root formatting selection
 examples/astro/
+
+# uv-managed Python example workspaces
+examples/python-fastapi/.venv/
+examples/python-fastapi/.mypy_cache/
+examples/python-fastapi/.pytest_cache/
+examples/python-fastapi/.ruff_cache/
+examples/python-django/.venv/
+examples/python-django/.mypy_cache/
+examples/python-django/.pytest_cache/
+examples/python-django/.ruff_cache/

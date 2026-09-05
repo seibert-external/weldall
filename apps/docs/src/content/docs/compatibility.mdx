@@ -1,0 +1,65 @@
+---
+title: Compatibility
+sidebar:
+  label: Compatibility
+description: Recommended agents, supported operating systems, and SDKs for your own web services.
+---
+
+import BrandLinks from "../../components/BrandLinks.astro";
+
+## Our recommendation
+
+We recommend the open-source agents **OpenWork and Pi** and use both with Weldall every day.
+
+<BrandLinks
+  items={[
+    {
+      brand: "openwork",
+      label: "OpenWork",
+      href: "https://openworklabs.com",
+      description: "Desktop app",
+    },
+    { brand: "pi", label: "Pi", href: "https://pi.dev", description: "Terminal agent" },
+  ]}
+/>
+
+The Weldall CLI is not tied to a particular agent. The agent needs permission to run it as a command. Setup guides for OpenWork and Pi are in preparation.
+
+## Other agents
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://opencode.ai), [Codex CLI](https://developers.openai.com/codex/), and [Gemini CLI](https://github.com/google-gemini/gemini-cli) can also invoke the Weldall CLI. The CLI must be installed in the agent's environment, and command execution must be allowed there.
+
+## Operating systems
+
+<BrandLinks
+  items={[
+    { brand: "macos", label: "macOS" },
+    { brand: "windows", label: "Windows" },
+    { brand: "linux", label: "Linux" },
+  ]}
+/>
+
+The Weldall CLI runs on macOS, Windows, and Linux. Standalone binaries require no Node.js and are available for macOS on Apple Silicon and Intel, Windows x64, and Linux x64. See the [package overview](../sdks/) for installation.
+
+## SDKs for your own web services
+
+We provide TypeScript and Python libraries that validate incoming requests. The integration guides show how to add them to your application.
+
+<BrandLinks
+  items={[
+    {
+      brand: "typescript",
+      label: "TypeScript",
+      href: "../service-configuration/typescript/",
+      description: "Hono, Next.js, and Astro",
+    },
+    {
+      brand: "python",
+      label: "Python",
+      href: "../service-configuration/python/",
+      description: "FastAPI and Django",
+    },
+  ]}
+/>
+
+The TypeScript SDK requires Node.js 22.15 or newer; the Python SDK requires Python 3.11 or newer. Both libraries also work without the listed web frameworks.

@@ -1,0 +1,13 @@
+[project]
+name = "weldall-example-python-django"
+version = "0.1.0"
+description = "Weldall Python SDK example resource server (Django)"
+requires-python = ">=3.11"
+dependencies = [
+  "weldall-sdk[django]>=0.1.0",
+]
+
+# In-repo development uses the local package; consumers get weldall-sdk from
+# PyPI and do not need this source override.
+[tool.uv.sources]
+weldall-sdk = { path = "../../packages/python-sdk" }

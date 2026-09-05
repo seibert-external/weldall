@@ -141,4 +141,4 @@ The provider receives no employee identity. It must return the same catalog for 
 
 The Hono adapter mounts the catalog route through `weldall.registerRoutes(app)`. Fetch, Next.js, and Astro integrations must expose `weldall.handlers.skills` at `/.well-known/weldall-skills` alongside the OAuth metadata, token, and JWKS handlers.
 
-See [How to: Integrate a service](../service-configuration/) for a complete Hono setup. [Security](../oauth-security/) covers keys, replay protection, and the protocol boundary.
+Follow the [TypeScript guide](../service-configuration/typescript/) for a complete Hono setup or the [Python guide](../service-configuration/python/) for FastAPI and the Django example. Both link to the SDK source and example directories on GitHub. [Security](../oauth-security/) covers keys, replay protection, and the protocol boundary.

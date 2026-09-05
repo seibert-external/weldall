@@ -26,6 +26,7 @@ export default defineConfig({
           label: "Weldall CLI",
           items: [
             { slug: "index" },
+            { slug: "compatibility" },
             { slug: "skill-classification" },
             { slug: "agent-run" },
             { label: "Features", link: "/features/" },
@@ -41,7 +42,15 @@ export default defineConfig({
               translations: { de: "How to: Weldall aufsetzen" },
               link: "/weldall-setup/",
             },
-            { slug: "service-configuration" },
+            {
+              label: "How to: Integrate a service",
+              translations: { de: "How to: Service integrieren" },
+              items: [
+                { slug: "service-configuration/typescript" },
+                { slug: "service-configuration/python" },
+                { slug: "service-configuration" },
+              ],
+            },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {

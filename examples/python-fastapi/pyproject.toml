@@ -1,0 +1,19 @@
+[project]
+name = "weldall-example-python-fastapi"
+version = "0.1.0"
+description = "Weldall Python SDK example resource server (FastAPI)"
+requires-python = ">=3.11"
+dependencies = [
+  "weldall-sdk[fastapi]>=0.1.0",
+  "uvicorn[standard]>=0.30.0",
+]
+
+# In-repo development uses the local package; consumers get weldall-sdk from
+# PyPI and do not need this source override.
+[tool.uv.sources]
+weldall-sdk = { path = "../../packages/python-sdk" }
+
+[dependency-groups]
+dev = [
+  "httpx>=0.27.0",
+]

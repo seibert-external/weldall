@@ -1,0 +1,109 @@
+---
+import { Image } from "astro:assets";
+import openwork from "../assets/compatibility/openwork.svg";
+import pi from "../assets/compatibility/pi.svg";
+import macos from "../assets/compatibility/apple.svg";
+import windows from "../assets/compatibility/windows8.svg";
+import linux from "../assets/compatibility/linux.svg";
+import typescript from "../assets/compatibility/typescript.svg";
+import python from "../assets/compatibility/python.svg";
+
+// Logo sources:
+// OpenWork: github.com/different-ai/openwork/blob/dev/apps/app/public/openwork-logo-square.svg
+// Pi: pi.dev/logo-auto.svg (linked from github.com/earendil-works/pi)
+// OS/language logos: github.com/devicons/devicon/tree/master/icons
+// Linux uses linux-plain.svg; the other Devicon logos use their original variant.
+// Devicon and OpenWork license notices are included beside the assets.
+const logos = { openwork, pi, macos, windows, linux, typescript, python };
+
+interface Props {
+  items: {
+    brand: keyof typeof logos;
+    label: string;
+    href?: string;
+    description?: string;
+  }[];
+}
+
+const { items } = Astro.props;
+---
+
+<ul class="brand-links" role="list">
+  {
+    items.map(({ brand, label, href, description }) => {
+      const Tag = href ? "a" : "div";
+      return (
+        <li>
+          <Tag class="brand-link" href={href}>
+            <span class="logo-frame">
+              <Image src={logos[brand]} alt="" width={56} height={56} />
+            </span>
+            <strong>{label}</strong>
+            {description && <span class="description">{description}</span>}
+          </Tag>
+        </li>
+      );
+    })
+  }
+</ul>
+
+<style>
+  .brand-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  .brand-links > li {
+    margin: 0;
+    min-width: 0;
+  }
+
+  .brand-link {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.25rem 1rem;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 0.75rem;
+    color: var(--sl-color-text);
+    text-align: center;
+    text-decoration: none;
+  }
+
+  a.brand-link:hover,
+  a.brand-link:focus-visible {
+    border-color: var(--sl-color-text-accent);
+    color: var(--sl-color-text-accent);
+  }
+
+  .logo-frame {
+    display: grid;
+    place-items: center;
+    width: 4.5rem;
+    height: 4.5rem;
+    margin-bottom: 0.25rem;
+    border-radius: 0.75rem;
+    background: #fff;
+    color-scheme: light;
+  }
+
+  .logo-frame img {
+    margin: 0;
+    object-fit: contain;
+  }
+
+  .brand-link strong,
+  .description {
+    margin: 0;
+  }
+
+  .description {
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+  }
+</style>
