@@ -1,6 +1,7 @@
 {
   "name": "@weldall/discovery-proxy",
   "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
   "private": true,
   "scripts": {
     "test": "sh scripts/test-upstream.sh",

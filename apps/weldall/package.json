@@ -1,6 +1,7 @@
 {
   "name": "@weldall/weldall",
   "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
   "private": true,
   "type": "module",
   "scripts": {

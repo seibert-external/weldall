@@ -1,6 +1,7 @@
 {
   "name": "@weldall/docs",
   "private": true,
+  "license": "FSL-1.1-ALv2",
   "type": "module",
   "scripts": {
     "dev": "astro dev",

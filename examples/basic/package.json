@@ -1,5 +1,6 @@
 {
   "name": "@weldall/example-basic",
+  "license": "FSL-1.1-ALv2",
   "private": true,
   "type": "module",
   "scripts": {

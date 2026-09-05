@@ -2,6 +2,7 @@
 name = "weldall-example-python-fastapi"
 version = "0.1.0"
 description = "Weldall Python SDK example resource server (FastAPI)"
+license = "FSL-1.1-ALv2"
 requires-python = ">=3.11"
 dependencies = [
   "weldall-sdk[fastapi]>=0.1.0",
