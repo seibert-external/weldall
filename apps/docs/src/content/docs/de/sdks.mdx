@@ -2,10 +2,10 @@
 title: SDKs
 sidebar:
   label: SDKs
-description: Die npm-Pakete für die Weldall CLI und angebundene Unternehmensservices.
+description: Die CLI- und SDK-Pakete für angebundene Unternehmensservices.
 ---
 
-Weldall veröffentlicht zwei npm-Pakete. Die CLI läuft auf dem Gerät eines Mitarbeiters. Das SDK läuft im angebundenen Service.
+Weldall veröffentlicht die npm-CLI sowie SDKs für TypeScript und Python. Die CLI läuft auf dem Gerät eines Mitarbeiters. Ein SDK läuft im angebundenen Service.
 
 ## `@weldall/cli`
 
@@ -63,6 +63,40 @@ In einem Fetch-Handler prüft `weldall.verify(request, { scopes: [...] })` den R
 - `@weldall/sdk/astro`
 
 Das SDK benötigt Node.js 22.15 oder neuer. Next.js-Routen müssen die Node.js-Runtime verwenden.
+
+## Einen Python-Service schützen
+
+Verwende [`weldall-sdk`](https://pypi.org/project/weldall-sdk/) für Services ab Python 3.11. Das SDK prüft Requests von Mitarbeitenden und Maschinen, bevor die Anwendung Daten verarbeitet. Es stellt außerdem die Protokollrouten bereit, die Weldall benötigt.
+
+Installiere nur den Kern oder ergänze das Extra für dein Framework:
+
+```sh
+pip install weldall-sdk
+pip install 'weldall-sdk[fastapi]'
+pip install 'weldall-sdk[django]'
+```
+
+```python
+from weldall import in_memory
+from weldall.adapters.fastapi import init_weldall
+
+weldall = init_weldall(
+    "https://weldall.example.com",
+    {
+        "resource": "https://contracts.example.com/api",
+        "public_origin": "https://contracts.example.com",
+        "client_id": "weldall-cli-at-contracts",
+        "supported_scopes": ["contracts:read"],
+        "signing_key": signing_key,
+        "replay_store": in_memory(),
+    },
+)
+weldall.register_routes(app)
+```
+
+`register_routes()` fügt der FastAPI-Anwendung die Weldall-Protokollrouten hinzu. Schütze die eigenen Routen mit `require_auth()` und lies die geprüfte Identität aus dem Request-State. Django-Projekte verwenden stattdessen die mitgelieferte Middleware, Views und URL-Patterns.
+
+Die [Python-SDK-Referenz](https://github.com/seibert-external/weldall/tree/main/packages/python-sdk) beschreibt Maschinenzugriffe, veröffentlichte Skills, Signaturschlüssel, Replay-Schutz und die Checkliste für den Produktivbetrieb.
 
 ## Skills aus einem Service veröffentlichen
 

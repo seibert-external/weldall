@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "weldall-sdk"
+version = "0.1.0"
+description = "Weldall resource-server SDK for Python (FastAPI and Django)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "FSL-1.1-ALv2"
+license-files = ["LICENSE"]
+authors = [{ name = "Seibert Products GmbH" }]
+keywords = ["oauth", "dpop", "weldall", "fastapi", "django"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "cryptography>=44.0.0",
+  "httpx>=0.27.0,<1",
+  "idna>=3.10,<4",
+  "joserfc>=1.2.0,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/seibert-external/weldall"
+Documentation = "https://docs.weldall.ai"
+Repository = "https://github.com/seibert-external/weldall"
+Issues = "https://github.com/seibert-external/weldall/issues"
+
+[project.optional-dependencies]
+fastapi = ["fastapi>=0.115.0", "starlette>=0.40.0"]
+django = ["Django>=5.1"]
+
+[dependency-groups]
+dev = [
+  "build>=1.2.2",
+  "Django>=5.1",
+  "django-stubs>=5.1.0",
+  "fastapi>=0.115.0",
+  "mypy>=1.14.0",
+  "pytest>=8.3.0",
+  "pytest-cov>=6.0.0",
+  "ruff>=0.9.0",
+  "starlette>=0.40.0",
+  "twine>=6.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/weldall"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/weldall", "LICENSE", "README.md", "CHANGELOG.md", "pyproject.toml", "uv.lock"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/test_adapters.py" = ["B008", "E402"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["weldall"]
+
+[tool.coverage.run]
+source = ["weldall"]
+branch = true

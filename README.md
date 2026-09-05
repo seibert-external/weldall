@@ -44,7 +44,7 @@ The **agent never sees an access token.** The local CLI keeps credentials in the
 - **You serve AI-agent skills centrally** — a federated skill directory, so what your systems can do lives in one catalog. Everyone gets their own directory, based on their permissions.
 - **You connect different services to different groups** — some scopes for one team, other scopes for another, all without editing code.
 - **You run your own identity provider** — users sign in through the SSO they already use; machines authenticate as their own registered identities, and groups can come from LDAP or Active Directory.
-- **You build internal APIs** and don't want to roll your own auth for every one — there's a drop-in resource-server SDK (Fetch, Hono, Next.js, Astro).
+- **You build internal APIs** and don't want to roll your own auth for every one — there are drop-in resource-server SDKs for TypeScript (Fetch, Hono, Next.js, Astro) and Python (FastAPI, Django).
 
 <div align="center">
   <img src="docs/assets/weldall-chat.gif" alt="Demo: an employee asks their agent to show all company employees via the Weldall CLI" width="480" />
@@ -98,15 +98,16 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 ## What's in the box
 
-| Workspace                             | Purpose                                                                                                  |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server, administration UI, and authenticated chat experience.                  |
-| [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests.          |
-| [`@weldall/sdk`](packages/sdk/)       | Resource-server SDK for Fetch, Hono, Next.js, and Astro: verifies DPoP-bound requests, publishes skills. |
-| [`@weldall/dev-idp`](apps/dev-idp/)   | A local-only OpenID Connect provider for development.                                                    |
-| [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK.                                                             |
-| [`@weldall/docs`](apps/docs/)         | The documentation site (German and English).                                                             |
-| [`@weldall/db`](packages/db/)         | The Prisma database package and migrations.                                                              |
+| Workspace                             | Purpose                                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server, administration UI, and authenticated chat experience.         |
+| [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests. |
+| [`@weldall/sdk`](packages/sdk/)       | TypeScript resource-server SDK for Fetch, Hono, Next.js, and Astro.                             |
+| [`weldall-sdk`](packages/python-sdk/) | Python resource-server SDK for framework-neutral use, FastAPI, and Django.                      |
+| [`@weldall/dev-idp`](apps/dev-idp/)   | A local-only OpenID Connect provider for development.                                           |
+| [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK.                                                    |
+| [`@weldall/docs`](apps/docs/)         | The documentation site (German and English).                                                    |
+| [`@weldall/db`](packages/db/)         | The Prisma database package and migrations.                                                     |
 
 ## Documentation
 
@@ -117,7 +118,8 @@ Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
 - [How to integrate a service](apps/docs/src/content/docs/service-configuration.md) — protect your API with the SDK.
 - [Machine authentication](apps/docs/src/content/docs/machine-authentication.mdx) — machines as first-class identities.
 - [Group providers](apps/docs/src/content/docs/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
-- [`@weldall/sdk` reference](packages/sdk/README.md) — route protection, skill catalogs, framework adapters.
+- [`@weldall/sdk` reference](packages/sdk/README.md) — TypeScript route protection, skill catalogs, framework adapters.
+- [`weldall-sdk` reference](packages/python-sdk/README.md) — Python core, FastAPI/Django adapters, and machine client.
 - [Local development](apps/docs/) — set up the full stack on your machine.
 
 ## Screenshots

@@ -2,7 +2,7 @@
 
 ## Status
 
-Not started. This is the execution plan for a port of `@weldall/sdk` (TypeScript) to Python. The TypeScript package is the authoritative behavior reference; every Python module in this plan maps 1:1 to a TypeScript source file. **Read the authoritative files listed in [Current state and authoritative files](#current-state-and-authoritative-files) before writing any code** — where this plan and the TypeScript source disagree, the TypeScript source wins.
+Implemented in `packages/python-sdk/`. The TypeScript package remains the authoritative behavior reference; every Python module in this plan maps 1:1 to a TypeScript source file. Where this plan and the TypeScript source disagree, the TypeScript source wins.
 
 The repository license was changed to FSL-1.1-ALv2 (commit `b11c870` on `main`). The Python package must carry the same FSL-1.1-ALv2 license.
 
@@ -86,47 +86,7 @@ The implementation must start by reading these files rather than relying only on
 
 ## Repository layout
 
-Place the package at **`packages/python-sdk/`** (next to `packages/sdk` for discoverability). It has no `package.json`, so pnpm/turbo ignore it (pnpm and turbo key off `package.json` presence); it is `uv`-managed. Confirm turbo ignores it in `turbo.json`/CI — if the root `pnpm`/`turbo` commands error on the directory, move it to a top-level `python-sdk/` instead and record that here.
-
-```
-packages/python-sdk/
-  pyproject.toml            # PEP 621 metadata + hatchling + extras
-  uv.lock
-  README.md                 # mirrors packages/sdk/README.md API surface
-  LICENSE                   # byte-identical copy of repo root LICENSE (FSL-1.1-ALv2)
-  src/weldall/
-    __init__.py             # public re-exports + __version__
-    py.typed                # empty marker (typing)
-    constants.py            # Protocol pins table
-    errors.py               # WeldallAuthError, error response builder
-    scope.py                # parse_scope
-    identity.py             # has_verified_email
-    crypto.py               # base64url_sha256, safe_equal, thumbprint helpers, keygen, P-256 asserts
-    jwt.py                  # sign_es256, verify_es256, env JWK loading
-    dpop.py                 # create_dpop_proof, verify_strict_dpop, normalize_htu
-    replay.py               # ReplayStore protocol, in_memory store, consume_replay
-    discovery.py            # WeldallDiscovery (metadata + JWKS caching/rotation)
-    id_jag.py               # issue_id_jag, verify_id_jag
-    resource_as.py          # issue_access_token, verify_access_token
-    machine.py              # machine client assertion + request_machine_token
-    signing.py              # direct key + provider, validated_jwks, sign_with_provider
-    skills.py               # parse_skill_catalog, load_skill_catalog
-    resource_registry.py    # URL normalization / prefix helpers
-    core.py                 # init_weldall, token endpoint, verify/verify_no_throw, handlers
-    adapters/
-      __init__.py
-      fastapi.py            # require_auth dependency, get_auth, register_routes
-      django.py             # middleware + views + urls helper
-  tests/
-    test_core.py            # port of core.test.ts behaviors
-    test_machine.py         # port of machine.test.ts
-    test_adapters.py        # FastAPI + Django adapter tests (port of adapters.test.ts)
-    test_resource_registry.py
-    test_crypto.py          # RFC 7638 vector + ES256 keygen/round-trip
-    test_dpop.py
-    test_skills.py
-  .github/                  # (if separate CI file needed; prefer wiring into root ci.yml)
-```
+The package lives at **`packages/python-sdk/`** (next to `packages/sdk` for discoverability). It has no `package.json`, so pnpm/turbo ignore it (pnpm and turbo key off `package.json` presence); it is `uv`-managed. `packages/python-sdk/pyproject.toml` owns package metadata and dependency groups, and `packages/python-sdk/README.md` owns the Python API and local development commands.
 
 ## Module-by-module specification
 
@@ -274,55 +234,21 @@ Tooling: `pytest`, `pytest-asyncio` (only if an async wrapper is added), `mypy` 
 
 ## Packaging and publishing
 
-`pyproject.toml` (PEP 621 + PEP 639):
-
-```toml
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[project]
-name = "weldall-sdk"
-version = "0.1.0"            # or dynamic from __version__; align with changesets later
-description = "Weldall resource-server SDK for Python (FastAPI, Django)"
-readme = "README.md"
-requires-python = ">=3.11"
-license = "FSL-1.1-ALv2"     # PEP 639 SPDX-style string; FSL is not SPDX-listed → PyPI shows "Other"
-license-files = ["LICENSE"]
-dependencies = ["joserfc>=…", "cryptography>=…", "httpx>=…"]
-
-[project.optional-dependencies]
-fastapi = ["fastapi>=…", "starlette>=…"]
-django = ["Django>=…"]
-dev = ["pytest", "pytest-asyncio", "mypy", "ruff", "httpx"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/weldall"]
-
-[tool.hatch.build.targets.sdist]
-include = ["src", "LICENSE", "README.md", "py.typed"]
-```
+`packages/python-sdk/pyproject.toml` owns the PEP 621/PEP 639 package metadata, optional framework extras, dependency groups, and build inclusion rules.
 
 Notes for the executor:
 
 - **`license = "FSL-1.1-ALv2"` is a deliberate choice** consistent with the monorepo — PEP 639 accepts arbitrary SPDX expressions but FSL isn't in the SPDX list, so PyPI displays "Other". Ship the `LICENSE` file (byte-identical to repo root) via `license-files` so the text is in the wheel.
 - Ship **sdist + wheel**; pure Python, so no platform wheels.
-- **`uv` workflow:** `uv sync` (dev), `uv build` → `dist/`, `uv publish --publish-url https://test.pypi.org/legacy/` for dry runs, `uv publish` for real.
-- **Trusted publishing:** add a `publish` job to `.github/workflows/ci.yml` using `pypa/gh-action-pypi-publish@release/v1` with `attestations: true`, triggered on the Changesets release event / tag (align with `release-cli-assets.yml` conventions). No API token secrets.
+- **`uv` workflow:** `uv sync` (dev), `uv build` → `dist/`; publishing is intentionally handled by the manual trusted-publishing workflow, not local commands.
+- **Trusted publishing:** `.github/workflows/release-python-sdk.yml` validates an explicitly authorized `weldall-sdk-vX.Y.Z` tag, builds without OIDC permission, and gives `id-token: write` only to the artifact-only publish job. TestPyPI and PyPI each use a protected environment; no API token secrets.
 - **Version sync:** decide between static version vs `dynamic = ["version"]` from a `__version__` attribute. Keep it simple (static 0.1.x) and revisit when a release flow lands; do not invent a Python-specific release automation in this task.
 - Add the package to the root `README.md` and `apps/docs` (small section) only after it is publishable.
 - Do not add `packages/python-sdk` to `pnpm-workspace.yaml`, `turbo.json`, or the root `pnpm` scripts.
 
 ## Milestones and exit criteria
 
-1. **Scaffold** — `packages/python-sdk/` with `pyproject.toml`, `uv` env, `src/` layout, `pytest`, `ruff`, `mypy` wired; `uv run pytest` passes on an empty suite.
-2. **Crypto + DPoP** — `crypto.py`, `jwt.py`, `dpop.py` with `test_crypto.py` + `test_dpop.py` incl. RFC 7638 vector and TS-interop fixture. **Exit:** DPoP proof created by TS verifies in Python and vice versa.
-3. **Core verify + discovery** — `errors/scope/identity/replay/discovery/signing` + `verify`/`verify_no_throw`; `test_core.py` ported (all `verify`/discovery/rotation behaviors). **Exit:** `core.test.ts` behaviors green except endpoint/adapter-specific ones.
-4. **Token endpoint + issuance + skills** — `id_jag.py`, `resource_as.py`, `skills.py`, token/skills/metadata handlers; remaining `core.test.ts` behaviors. **Exit:** full `test_core.py`.
-5. **Machine client + registry** — `machine.py`, `resource_registry.py`, `test_machine.py`, `test_resource_registry.py`. **Exit:** full machine parity.
-6. **Adapters** — `adapters/fastapi.py`, `adapters/django.py`, `test_adapters.py`. **Exit:** FastAPI + Django smoke apps (from `examples/` analog) authenticate end-to-end against a running weldall dev stack.
-7. **Packaging + CI** — `LICENSE`, `py.typed`, `pyproject` extras, trusted-publishing workflow, README. **Exit:** `uv build` produces sdist+wheel containing `LICENSE` + `py.typed`; `twine check`/`uv publish` to TestPyPI succeeds; CI matrix (3.11/3.12/3.13 + lint + typecheck + tests) green.
-8. **Interop gate (final)** — run the cross-language DPoP/JWT fixtures both directions; document any deviations from the TS SDK in the README.
+Implemented. Future changes should use `packages/python-sdk/README.md` for the local validation commands and `.github/workflows/release-python-sdk.yml` for the tag-gated trusted-publishing flow.
 
 ## Risks and sharp edges
 
@@ -337,9 +263,9 @@ Notes for the executor:
 - **PyPI name availability** must be checked before committing to `weldall` as the import name.
 - **FSL license on PyPI** displays as "Other" (not SPDX-listed) — benign, but document it in the README to avoid surprise.
 
-## Open questions for the executor
+## Resolved implementation questions
 
-- Confirm PyPI availability of `weldall-sdk` / import name `weldall`.
-- Confirm whether `packages/python-sdk/` is tolerated by the root pnpm/turbo/CI tooling (no `package.json`); if not, relocate to a top-level `python-sdk/` and update this plan's layout section.
-- Decide static vs dynamic version and whether to sync with the Changesets release flow now or later.
-- Confirm the Django adapter is in scope for this first port or should be cut to a FastAPI-only milestone 6.
+- Read-only PyPI JSON lookups returned 404 for both `weldall-sdk` and `weldall`; the distribution/import names remain as planned. Nothing was published.
+- `packages/python-sdk/` is tolerated by root pnpm/turbo tooling and remains outside the JavaScript workspace graph because it has no `package.json`.
+- Versioning is static at `0.1.0`; no Python-specific automatic versioning was added.
+- Both FastAPI and Django adapters are included in the initial release.

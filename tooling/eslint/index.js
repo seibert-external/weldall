@@ -2,7 +2,17 @@ import tseslint from "typescript-eslint";
 
 export default [
   {
-    ignores: ["**/dist/**", "**/.next/**", "**/node_modules/**", "**/.turbo/**"],
+    ignores: [
+      "**/dist/**",
+      "**/.next/**",
+      "**/node_modules/**",
+      "**/.turbo/**",
+      "**/.venv/**",
+      "**/.mypy_cache/**",
+      "**/.pytest_cache/**",
+      "**/.ruff_cache/**",
+      "**/__pycache__/**",
+    ],
   },
   {
     files: ["**/*.{ts,tsx}"],
