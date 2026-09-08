@@ -133,7 +133,7 @@ Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
 - [Group providers](apps/docs/src/content/docs/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
 - [`@weldall/sdk` reference](packages/sdk/README.md) — TypeScript route protection, skill catalogs, framework adapters.
 - [`weldall-sdk` reference](packages/python-sdk/README.md) — Python core, FastAPI/Django adapters, and machine client.
-- [Local development](apps/docs/) — set up the full stack on your machine.
+- [Local development](docs/development.md) — set up the full stack on your machine.
 
 ## Screenshots
 

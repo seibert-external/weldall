@@ -14,6 +14,7 @@ if [ "${WELDALL_DEPLOYMENT_MODE:-production}" != "production" ]; then
   echo "Error: WELDALL_DEPLOYMENT_MODE must be production in this image" >&2
   exit 1
 fi
+export WELDALL_DEPLOYMENT_MODE=production
 
 /app/packages/db/node_modules/.bin/prisma migrate deploy \
   --schema /app/packages/db/prisma/schema.prisma
