@@ -458,18 +458,19 @@ jobs:
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
 
-      # RELEASE_GITHUB_TOKEN is a PAT/App token so Changesets-created
-      # release.published events can start release-cli-assets.yml.
+      # CLI v3 requires action v2's structured publish output; v1 silently skips releases.
+      # Pass the PAT/App token as an input so release.published can start release-cli-assets.yml.
       - name: Create release pull request or publish
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
-          publish: pnpm release
+          github-token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          publish-script: pnpm release
           # changeset version bumps package.json but not pnpm-lock.yaml; refresh
           # the lockfile so version PRs and the subsequent frozen install stay in sync
-          version: pnpm release:version
-          title: "chore: release packages"
-          commit: "chore: release packages"
-          createGithubReleases: true
+          version-script: pnpm release:version
+          pr-title: "chore: release packages"
+          commit-message: "chore: release packages"
+          push-with-git-cli: true
+          create-github-releases: true
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
           NPM_CONFIG_IGNORE_SCRIPTS: true
