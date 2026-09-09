@@ -20,7 +20,7 @@ import componentsDark from "../../../assets/weldall-components-dark.svg";
   <Image src={componentsDark} alt="Komponenten des Weldall Ecosystems" data-zoom />
 </div>
 
-**Weldall CLI** ist eine Referenzimplementierung dafür, wie sich die **nächste Generation von OAuth für agentische Anwendungen** praktisch umsetzen lässt. Der durchgängige Flow verbindet den [Identity Assertion JWT Authorization Grant (ID-JAG, Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) mit dem [JWT Authorization Grant mit DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01). Er baut dabei auf etablierten Standards für [native OAuth-Clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html), [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html), [aktuelle OAuth-Sicherheitsempfehlungen (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html) und [sendergebundene Tokens mit DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html) auf.
+**Weldall CLI** ist eine Referenzimplementierung dafür, wie sich die **nächste Generation von OAuth für agentische Anwendungen** praktisch umsetzen lässt. Der durchgängige Flow verbindet den [Identity Assertion JWT Authorization Grant (ID-JAG)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) mit dem [JWT Authorization Grant mit DPoP](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01). Er baut dabei auf etablierten Standards für [native OAuth-Clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html), [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html), [aktuelle OAuth-Sicherheitsempfehlungen (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html) und [sendergebundene Tokens mit DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html) auf.
 
 Mitarbeitende werden Unternehmenssoftware künftig zunehmend über **natürliche Sprache** bedienen. Agenten beantworten dann nicht nur Fragen. **Sie führen Aufgaben aus.**
 
@@ -38,6 +38,6 @@ Der Agent erhält **zu keinem Zeitpunkt ein Access Token**. Die CLI verwaltet di
 
 Weldall protokolliert **erteilte und abgelehnte Zugriffe**. Administratoren können nachvollziehen, wer Zugriff auf welche Ressource und welche Berechtigungen angefordert hat. Änderungen an Policies, Ressourcen und Skills bleiben ebenfalls nachvollziehbar.
 
-Die Sicherheitsarchitektur folgt offenen OAuth-Standards. Unternehmensservices lassen sich über die mitgelieferten SDKs anbinden. Der verwendete Agent bleibt austauschbar.
+Die Sicherheitsarchitektur folgt offenen OAuth-Spezifikationen. Unternehmensservices lassen sich über die mitgelieferten SDKs anbinden. Der verwendete Agent bleibt austauschbar.
 
 „Weldall CLI“ bezeichnet dabei das gesamte Produkt: die lokale CLI, den Weldall Authorization Server und die SDKs für angebundene Services. Wie diese Komponenten zusammenspielen, zeigt [ein vollständiger Agentenlauf](./agent-run/).
