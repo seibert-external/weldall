@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Supersede older PR runs without interrupting main's validation or publishing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python-sdk:
     name: Python SDK (Python ${{ matrix.python-version }})
@@ -161,114 +166,10 @@ jobs:
           pnpm --filter @weldall/sdk test
           pnpm --filter @weldall/sdk pack:check
 
-  cli-source-native:
+  cli-native:
+    # Share setup across source, packed npm, and standalone checks on each platform.
     # Keep runner labels hard-coded here; build scripts validate them against the target descriptor.
-    name: CLI source (${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            target: linux-x64
-          - runner: windows-latest
-            target: windows-x64
-          - runner: macos-15
-            target: darwin-arm64
-          - runner: macos-15-intel
-            target: darwin-x64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - name: Set up minimum supported Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 22.15.0
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build CLI workspace dependencies
-        run: pnpm --filter @weldall/sdk build
-      - name: Typecheck and test complete CLI source suite
-        run: |
-          pnpm --filter @weldall/cli typecheck
-          pnpm --filter @weldall/cli test
-      - name: Build and verify npm package
-        run: pnpm --filter @weldall/cli pack:check
-      - name: Verify generated production notices
-        run: node apps/cli/scripts/generate-third-party-notices.mjs --check
-      - name: Assert packaging did not change or pollute the repository
-        run: |
-          git diff --exit-code
-          test -z "$(git status --porcelain --untracked-files=all)"
-          node apps/cli/scripts/assert-no-package-debris.mjs
-
-  cli-packed-native:
-    name: Packed CLI (${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            target: linux-x64
-          - runner: windows-latest
-            target: windows-x64
-          - runner: macos-15
-            target: darwin-arm64
-          - runner: macos-15-intel
-            target: darwin-x64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - name: Set up minimum supported Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 22.15.0
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build CLI workspace dependencies
-        run: pnpm --filter @weldall/sdk build
-      - name: Provision Linux Secret Service and D-Bus
-        if: matrix.target == 'linux-x64'
-        run: sudo apt-get update && sudo apt-get install --yes dbus-x11 gnome-keyring
-      - name: Smoke actual packed npm artifact on Linux
-        if: matrix.target == 'linux-x64'
-        run: |
-          dbus-run-session -- bash -euxo pipefail -c '
-            printf "ci-keyring-password" | gnome-keyring-daemon --unlock
-            gnome-keyring-daemon --start --components=secrets
-            busctl --user list
-            pnpm --filter @weldall/cli smoke:packed
-          '
-      - name: Smoke actual packed npm artifact
-        if: matrix.target != 'linux-x64'
-        run: pnpm --filter @weldall/cli smoke:packed
-      - name: Assert packed smoke left no repository debris
-        run: |
-          git diff --exit-code
-          test -z "$(git status --porcelain --untracked-files=all)"
-          node apps/cli/scripts/assert-no-package-debris.mjs
-
-  cli-standalone-native:
-    name: Standalone CLI (${{ matrix.target }})
+    name: CLI (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
@@ -316,9 +217,39 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build CLI workspace dependencies
         run: pnpm --filter @weldall/sdk build
+      - name: Typecheck and test complete CLI source suite
+        run: |
+          pnpm --filter @weldall/cli typecheck
+          pnpm --filter @weldall/cli test
+      - name: Build and verify npm package
+        run: pnpm --filter @weldall/cli pack:check
+      - name: Verify generated production notices
+        run: node apps/cli/scripts/generate-third-party-notices.mjs --check
+      - name: Assert packaging did not change or pollute the repository
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+          node apps/cli/scripts/assert-no-package-debris.mjs
       - name: Provision Linux Secret Service and D-Bus
         if: matrix.target == 'linux-x64'
         run: sudo apt-get update && sudo apt-get install --yes dbus-x11 gnome-keyring
+      - name: Smoke actual packed npm artifact on Linux
+        if: matrix.target == 'linux-x64'
+        run: |
+          dbus-run-session -- bash -euxo pipefail -c '
+            printf "ci-keyring-password" | gnome-keyring-daemon --unlock
+            gnome-keyring-daemon --start --components=secrets
+            busctl --user list
+            pnpm --filter @weldall/cli smoke:packed
+          '
+      - name: Smoke actual packed npm artifact
+        if: matrix.target != 'linux-x64'
+        run: pnpm --filter @weldall/cli smoke:packed
+      - name: Assert packed smoke left no repository debris
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+          node apps/cli/scripts/assert-no-package-debris.mjs
       - name: Build native standalone into runner.temp
         run: |
           OUTPUT_DIR="$RUNNER_TEMP/weldall-standalone" ARCHIVE_DIR="$RUNNER_TEMP/weldall-archive" node -e 'const fs = require("node:fs"); for (const path of [process.env.OUTPUT_DIR, process.env.ARCHIVE_DIR]) { fs.rmSync(path, { recursive: true, force: true }); fs.mkdirSync(path, { recursive: true }); }'
@@ -358,7 +289,7 @@ jobs:
   cli-standalone-detached:
     # This no-checkout matrix is intentionally hard-coded and mirrors the validated target descriptor.
     name: Detached standalone CLI (${{ matrix.target }})
-    needs: cli-standalone-native
+    needs: cli-native
     strategy:
       fail-fast: false
       matrix:
@@ -425,12 +356,13 @@ jobs:
       - python-sdk
       - verify
       - package-compat
-      - cli-source-native
-      - cli-packed-native
-      - cli-standalone-native
+      - cli-native
       - cli-standalone-detached
     runs-on: weldall
     timeout-minutes: 20
+    concurrency:
+      group: ci-release-main
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
