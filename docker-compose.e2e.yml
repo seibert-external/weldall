@@ -25,7 +25,9 @@ services:
       - /bin/bash
       - -euc
       - |
-        pnpm exec tsx scripts/generate-e2e-env.ts /run/e2e
+        if [ ! -f /run/e2e/database/env.sh ] || [ ! -f /run/e2e/weldall/env.sh ] || [ ! -f /run/e2e/expenses/env.sh ] || [ ! -f /run/e2e/dev-idp/env.sh ]; then
+          pnpm exec tsx scripts/generate-e2e-env.ts /run/e2e
+        fi
         . /run/e2e/database/env.sh
         pnpm --dir packages/db exec prisma migrate deploy --schema prisma/schema.prisma
         pnpm --dir packages/db exec tsx prisma/seed.ts

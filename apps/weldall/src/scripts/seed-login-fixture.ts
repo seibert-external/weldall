@@ -41,7 +41,7 @@ try {
           returnTo: "/",
         },
       },
-      { issuer: config.issuer, subject: "dev-alice", email, name: "Alice Dev" },
+      { issuer: config.issuer, subject: "dev-alice", email, name: "Alice E2E" },
     );
   }
 } finally {

@@ -919,7 +919,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       await upgrade.scope.create({
         data: {
           id: scopeId,
-          key: `upgrade:${scopeId}`,
+          key: `upgrade:scope-${scopeId}`,
           description: "Upgrade scope",
           createdBy: "test",
           updatedBy: "test",
