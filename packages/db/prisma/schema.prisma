@@ -17,7 +17,6 @@ model User {
   updatedAt                   DateTime            @updatedAt
   sessions                    Session[]
   accounts                    Account[]
-  chatThreads                 ChatThread[]
   completedLoginInstallations LoginInstallation[]
 }
 
@@ -162,50 +161,6 @@ model CliSettings {
   updatedAt   DateTime @updatedAt
   createdBy   String
   updatedBy   String
-}
-
-model ChatSettings {
-  id                   String   @id @default("default")
-  enabled              Boolean  @default(false)
-  baseUrl              String   @default("https://provider.example.com/v1")
-  model                String   @default("example-model")
-  encryptedApiKey      String?
-  encryptionKeyVersion Int?
-  version              Int      @default(1)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  createdBy            String
-  updatedBy            String
-}
-
-model ChatThread {
-  id            String        @id @default(cuid())
-  userId        String
-  title         String?
-  archivedAt    DateTime?
-  headMessageId String?
-  lastMessageAt DateTime      @default(now())
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages      ChatMessage[]
-
-  @@index([userId, lastMessageAt(sort: Desc), id(sort: Desc)])
-}
-
-model ChatMessage {
-  id        String
-  threadId  String
-  parentId  String?
-  role      String
-  parts     Json
-  createdAt DateTime      @default(now())
-  thread    ChatThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  parent    ChatMessage?  @relation("ChatMessageChildren", fields: [threadId, parentId], references: [threadId, id], onDelete: Cascade, onUpdate: NoAction)
-  children  ChatMessage[] @relation("ChatMessageChildren")
-
-  @@id([threadId, id])
-  @@index([threadId, createdAt])
 }
 
 model DownstreamResource {

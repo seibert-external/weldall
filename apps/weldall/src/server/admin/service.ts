@@ -7,8 +7,6 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { parseCliLogoUrl } from "../branding";
-import { encryptChatApiKey } from "../ai/credentials";
-import { normalizeChatApiKey, normalizeChatBaseUrl, normalizeChatModel } from "../ai/configuration";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
   lockConfigurationChanges,
@@ -58,7 +56,6 @@ const skillInclude = { iacBinding: managementBindingInclude } as const;
 export type AdminErrorCode =
   | "CONFLICT"
   | "FORBIDDEN"
-  | "INVALID_CHAT_SETTINGS"
   | "INVALID_CLI_SETTINGS"
   | "INVALID_EMAIL"
   | "INVALID_RESOURCE"
@@ -191,16 +188,6 @@ export interface CliSettingsDto {
   appendix: string;
   logoUrl: string;
   darkLogoUrl: string;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ChatSettingsDto {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  hasApiKey: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -502,84 +489,6 @@ export async function updateCliSettings(
       },
     });
     return serializeCliSettings(updated);
-  });
-}
-
-export async function getChatSettings(): Promise<ChatSettingsDto> {
-  const settings = await db.chatSettings.findUnique({ where: { id: "default" } });
-  if (!settings) throw new AdminDomainError("NOT_FOUND", "Chat settings are not initialized.");
-  return serializeChatSettings(settings);
-}
-
-export async function updateChatSettings(
-  input: {
-    enabled: boolean;
-    baseUrl: string;
-    model: string;
-    apiKey?: string | undefined;
-    expectedVersion: number;
-  },
-  actor: AdminActor,
-): Promise<ChatSettingsDto> {
-  let baseUrl: string;
-  let model: string;
-  let apiKey: string | undefined;
-  try {
-    baseUrl = normalizeChatBaseUrl(input.baseUrl);
-    model = normalizeChatModel(input.model);
-    apiKey = input.apiKey?.trim() ? normalizeChatApiKey(input.apiKey) : undefined;
-  } catch (error) {
-    throw new AdminDomainError(
-      "INVALID_CHAT_SETTINGS",
-      error instanceof Error ? error.message : "The chat settings are invalid.",
-    );
-  }
-
-  return db.$transaction(async (tx) => {
-    const current = await tx.chatSettings.findUnique({ where: { id: "default" } });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Chat settings are not initialized.");
-    assertVersion(current.version, input.expectedVersion);
-    if (input.enabled && !apiKey && !current.encryptedApiKey) {
-      throw new AdminDomainError(
-        "INVALID_CHAT_SETTINGS",
-        "Add an AI API key before enabling chat.",
-      );
-    }
-    const credential = apiKey ? encryptChatApiKey(current.id, apiKey) : {};
-    if (
-      current.enabled === input.enabled &&
-      current.baseUrl === baseUrl &&
-      current.model === model &&
-      !apiKey
-    ) {
-      return serializeChatSettings(current);
-    }
-    const write = await tx.chatSettings.updateMany({
-      where: { id: current.id, version: input.expectedVersion },
-      data: {
-        enabled: input.enabled,
-        baseUrl,
-        model,
-        ...credential,
-        version: { increment: 1 },
-        updatedBy: actor.id,
-      },
-    });
-    if (write.count !== 1) {
-      throw new AdminDomainError("CONFLICT", "The chat settings changed. Reload and try again.");
-    }
-    const updated = await tx.chatSettings.findUniqueOrThrow({ where: { id: current.id } });
-    await writeAudit(tx, actor, {
-      eventType: "chat_settings.updated",
-      subjectType: "chat_settings",
-      subjectId: current.id,
-      metadata: {
-        before: chatSettingsAuditSnapshot(current),
-        after: chatSettingsAuditSnapshot(updated),
-        apiKeyChanged: Boolean(apiKey),
-      },
-    });
-    return serializeChatSettings(updated);
   });
 }
 
@@ -1402,42 +1311,6 @@ function serializeScope(
     createdAt: scope.createdAt.toISOString(),
     updatedAt: scope.updatedAt.toISOString(),
     management: managementMetadata(scope.iacBinding),
-  };
-}
-
-function serializeChatSettings(settings: {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  encryptedApiKey: string | null;
-  version: number;
-  createdAt: Date;
-  updatedAt: Date;
-}): ChatSettingsDto {
-  return {
-    enabled: settings.enabled,
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    hasApiKey: Boolean(settings.encryptedApiKey),
-    version: settings.version,
-    createdAt: settings.createdAt.toISOString(),
-    updatedAt: settings.updatedAt.toISOString(),
-  };
-}
-
-function chatSettingsAuditSnapshot(settings: {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  encryptedApiKey: string | null;
-  version: number;
-}) {
-  return {
-    enabled: settings.enabled,
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    hasApiKey: Boolean(settings.encryptedApiKey),
-    version: settings.version,
   };
 }
 

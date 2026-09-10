@@ -123,7 +123,7 @@ check(
     `prefixes: ${expensesResource?.requestPrefixes.map((prefix) => prefix.urlPrefix).join(", ") || "none"}`,
 );
 check(
-  "expenses resource must enable skill discovery for chat",
+  "expenses resource must enable skill discovery",
   expensesResource?.skillDiscoveryEnabled === true,
 );
 check(

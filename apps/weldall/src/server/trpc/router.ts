@@ -13,7 +13,6 @@ import {
   deleteScope,
   deleteSkill,
   getAssignment,
-  getChatSettings,
   getCliSettings,
   getResource,
   getSkill,
@@ -28,7 +27,6 @@ import {
   listUsers,
   replaceAssignment,
   requireAdminUser,
-  updateChatSettings,
   updateCliSettings,
   updateResource,
   updateScope,
@@ -225,24 +223,6 @@ export const appRouter = trpc.router({
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getAuditEvent(input.id))),
-    }),
-    chat: trpc.router({
-      get: adminProcedure.query(() => mapDomainErrors(getChatSettings)),
-      update: adminProcedure
-        .input(
-          z
-            .object({
-              enabled: z.boolean(),
-              baseUrl: z.string().max(2_000),
-              model: z.string().max(200),
-              apiKey: z.string().max(10_000).optional(),
-              expectedVersion: z.number().int().positive(),
-            })
-            .strict(),
-        )
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => updateChatSettings(input, ctx.adminActor)),
-        ),
     }),
     cli: trpc.router({
       get: adminProcedure.query(() => mapDomainErrors(getCliSettings)),

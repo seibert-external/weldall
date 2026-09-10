@@ -48,40 +48,6 @@ const idJagIssuedMetadata = z
   .strict();
 const idJagDeniedMetadata = z.object(idJagRequestedMetadata).strict();
 const idJagFailedMetadata = z.object(idJagRequestedMetadata).strict();
-const chatToolRequestMetadata = z
-  .object({
-    toolCallId: z.string().min(1).max(191),
-    skillSlug: z.string().min(1).max(120),
-    resourceKey: z.string().min(1).max(120),
-    method: z.enum(["GET", "POST"]),
-    target: z.string().url().max(2_000),
-    querySha256: digest.nullable(),
-    scopes: scopeArray.min(1),
-    requestBodySha256: digest.nullable(),
-    requestBodyBytes: z.number().int().nonnegative(),
-  })
-  .strict();
-const chatToolResultMetadata = chatToolRequestMetadata.extend({
-  downstreamStatus: z.number().int().min(100).max(599).nullable(),
-  responseBytes: z.number().int().nonnegative().nullable(),
-});
-const chatSettingsSnapshot = z
-  .object({
-    enabled: z.boolean(),
-    baseUrl: z.string().url().max(2_000),
-    model: z.string().min(1).max(200),
-    hasApiKey: z.boolean(),
-    version: z.number().int().positive(),
-  })
-  .strict();
-const chatSettingsMetadata = z
-  .object({
-    before: chatSettingsSnapshot,
-    after: chatSettingsSnapshot,
-    apiKeyChanged: z.boolean(),
-  })
-  .strict();
-
 const machineClientMetadata = z
   .object({
     clientId: z.string().min(1).max(128),
@@ -300,9 +266,6 @@ const metadataSchemas = {
   "id_jag.issued": idJagIssuedMetadata,
   "id_jag.denied": idJagDeniedMetadata,
   "id_jag.failed": idJagFailedMetadata,
-  "chat_tool.requested": chatToolRequestMetadata,
-  "chat_tool.succeeded": chatToolResultMetadata,
-  "chat_tool.failed": chatToolResultMetadata,
   "login.provider.saved": z
     .object({
       providerId: z.string().uuid(),
@@ -316,7 +279,6 @@ const metadataSchemas = {
   "login.installation.completed": z
     .object({ providerId: z.string().uuid(), scopes: scopeArray })
     .strict(),
-  "chat_settings.updated": chatSettingsMetadata,
   "machine_client.created": machineClientMetadata,
   "machine_client.updated": machineClientMetadata,
   "machine_client.deactivated": machineClientMetadata,
