@@ -73,8 +73,7 @@ test("all three catalog warning codes are named", () => {
 });
 
 test("a failed lookup routes to weldall login instead of a workaround", () => {
-  assert.match(procedure, /weldall login/);
-  assert.match(procedure, /Do not retry/);
+  assert.match(procedure, /`weldall login`\.\s+Do not retry/);
 });
 
 test("the placeholder rule names a concrete placeholder", () => {
