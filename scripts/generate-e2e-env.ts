@@ -21,6 +21,7 @@ const [weldall, expenses, devIdp, machine] = await Promise.all([
 const secret = () => randomBytes(32).toString("base64url");
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 const postgresUrl = "postgresql://postgres:postgres@postgres:5432/postgres";
+const setupToken = secret();
 const devIdpClientSecret = secret();
 const credentialEncryptionKey = randomBytes(32).toString("base64");
 const devUsers = JSON.stringify([
@@ -58,6 +59,7 @@ const files: Record<string, Record<string, string>> = {
   "database/env.sh": {
     POSTGRES_URL: postgresUrl,
     WELDALL_DEPLOYMENT_MODE: "e2e",
+    WELDALL_SETUP_TOKEN: setupToken,
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: credentialEncryptionKey,
     DEV_IDP_CLIENT_ID: "weldall-dev",
     DEV_IDP_CLIENT_SECRET: devIdpClientSecret,
@@ -67,6 +69,7 @@ const files: Record<string, Record<string, string>> = {
   "weldall/env.sh": {
     POSTGRES_URL: postgresUrl,
     BETTER_AUTH_SECRET: secret(),
+    WELDALL_SETUP_TOKEN: setupToken,
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: credentialEncryptionKey,
     WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(weldall.privateJwk),
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(weldall.publicJwk),
