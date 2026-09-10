@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { cpSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
@@ -101,6 +101,50 @@ const config = providerConfigSchema.parse({
 let nextHandlers: typeof import("../src/app/api/auth/[...all]/route");
 let control: PrismaClient;
 let created = false;
+function deployMigrations(databaseUrl: string, schema = "prisma/schema.prisma") {
+  execFileSync(
+    "pnpm",
+    ["--filter", "@weldall/db", "exec", "prisma", "migrate", "deploy", "--schema", schema],
+    { cwd: root, env: { ...process.env, POSTGRES_URL: databaseUrl }, stdio: "pipe" },
+  );
+}
+function withMigrationsThrough0014(run: (schema: string) => void) {
+  const workspace = fileURLToPath(
+    new URL(`../../../.tmp-prisma-prior-migrations-${randomUUID()}/`, import.meta.url),
+  );
+  try {
+    const prisma = `${workspace}/prisma`;
+    const migrations = `${prisma}/migrations`;
+    mkdirSync(migrations, { recursive: true });
+    cpSync(`${root}/packages/db/prisma/schema.prisma`, `${prisma}/schema.prisma`);
+    cpSync(
+      `${root}/packages/db/prisma/migrations/migration_lock.toml`,
+      `${migrations}/migration_lock.toml`,
+    );
+    for (const name of [
+      "0001_baseline",
+      "0002_machine_clients",
+      "0003_weldall_iac",
+      "0004_iac_skills",
+      "0005_iac_skill_binding",
+      "0006_cli_logo_url",
+      "0007_skill_metadata",
+      "0008_cli_dark_logo_url",
+      "0009_skill_retrieval_events",
+      "0010_chat_tool_audit_events",
+      "0011_chat_settings",
+      "0012_initialize_chat_settings",
+      "0013_chat_threads",
+      "0014_chat_thread_heads",
+    ])
+      cpSync(`${root}/packages/db/prisma/migrations/${name}`, `${migrations}/${name}`, {
+        recursive: true,
+      });
+    run(`${prisma}/schema.prisma`);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}
 function barrier() {
   let release!: () => void;
   const promise = new Promise<void>((resolve) => {
@@ -212,20 +256,7 @@ async function freshInstallation(run: () => Promise<void>) {
   const originalCookies = new Map(cookies);
   execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `CREATE DATABASE "${name}"`]);
   try {
-    execFileSync(
-      "pnpm",
-      [
-        "--filter",
-        "@weldall/db",
-        "exec",
-        "prisma",
-        "migrate",
-        "deploy",
-        "--schema",
-        "prisma/schema.prisma",
-      ],
-      { cwd: root, env: { ...process.env, POSTGRES_URL: url.toString() }, stdio: "pipe" },
-    );
+    deployMigrations(url.toString());
     fixture.prisma = new PrismaClient({ datasourceUrl: url.toString() });
     cookies.clear();
     await run();
@@ -253,20 +284,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       `CREATE DATABASE "${databaseName}"`,
     ]);
     created = true;
-    execFileSync(
-      "pnpm",
-      [
-        "--filter",
-        "@weldall/db",
-        "exec",
-        "prisma",
-        "migrate",
-        "deploy",
-        "--schema",
-        "prisma/schema.prisma",
-      ],
-      { cwd: root, env: { ...process.env, POSTGRES_URL: url.toString() }, stdio: "pipe" },
-    );
+    deployMigrations(url.toString());
     fixture.prisma = new PrismaClient({ datasourceUrl: url.toString() });
     control = new PrismaClient({ datasourceUrl: url.toString() });
     vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 2).toString("base64"));
@@ -870,53 +888,147 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
   });
-  it("Google cleanup removes only exact legacy pair; repeat/no-Google is a no-op", async () => {
-    const user = await fixture.prisma.user.findUniqueOrThrow({
-      where: { email: "alice@example.com" },
-    });
-    const entries = [
-      { providerId: "google", issuer: "https://accounts.google.com" },
-      { providerId: "other", issuer: "https://accounts.google.com" },
-      { providerId: "google", issuer: "https://other.example.com" },
-    ];
-    const ids: string[] = [];
-    for (const entry of entries) {
-      const id = randomUUID();
-      ids.push(id);
-      await fixture.prisma.account.create({
+  it("populated upgrade removes only exact legacy Google account bindings", async () => {
+    const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
+    const url = new URL(server!);
+    url.pathname = `/${name}`;
+    execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `CREATE DATABASE "${name}"`]);
+    const databaseUrl = url.toString();
+    const upgrade = new PrismaClient({ datasourceUrl: databaseUrl });
+    try {
+      withMigrationsThrough0014((schema) => deployMigrations(databaseUrl, schema));
+      const userId = randomUUID();
+      const scopeId = randomUUID();
+      const assignmentId = randomUUID();
+      const grantId = randomUUID();
+      const sessionId = randomUUID();
+      const accountIds = {
+        legacyGoogle: randomUUID(),
+        googleDifferentIssuer: randomUUID(),
+        nonGoogleAccountsIssuer: randomUUID(),
+        nonGoogleDifferentIssuer: randomUUID(),
+      };
+      await upgrade.user.create({
         data: {
-          ...entry,
-          id,
-          providerAccountId: id,
-          userId: user.id,
-          accessToken: "old",
-          refreshToken: "old-refresh",
+          id: userId,
+          name: "Alice Upgrade",
+          email: "alice-upgrade@example.com",
+          emailVerified: true,
         },
       });
+      await upgrade.scope.create({
+        data: {
+          id: scopeId,
+          key: `upgrade:${scopeId}`,
+          description: "Upgrade scope",
+          createdBy: "test",
+          updatedBy: "test",
+        },
+      });
+      await upgrade.emailScopeAssignment.create({
+        data: {
+          id: assignmentId,
+          normalizedEmail: "alice-upgrade@example.com",
+          createdBy: "test",
+          updatedBy: "test",
+        },
+      });
+      await upgrade.emailScopeGrant.create({
+        data: { id: grantId, assignmentId, scopeId, createdBy: "test" },
+      });
+      await upgrade.session.create({
+        data: {
+          id: sessionId,
+          token: `upgrade-session-${sessionId}`,
+          userId,
+          expiresAt: new Date(Date.now() + 60000),
+        },
+      });
+      await upgrade.account.createMany({
+        data: [
+          {
+            id: accountIds.legacyGoogle,
+            providerId: "google",
+            issuer: "https://accounts.google.com",
+            providerAccountId: "legacy-google",
+            userId,
+            accessToken: "old",
+            refreshToken: "old-refresh",
+          },
+          {
+            id: accountIds.googleDifferentIssuer,
+            providerId: "google",
+            issuer: "https://other.example.com",
+            providerAccountId: "other-issuer",
+            userId,
+          },
+          {
+            id: accountIds.nonGoogleAccountsIssuer,
+            providerId: "other",
+            issuer: "https://accounts.google.com",
+            providerAccountId: "other-provider",
+            userId,
+          },
+          {
+            id: accountIds.nonGoogleDifferentIssuer,
+            providerId: "oidc",
+            issuer: "https://id.example.com",
+            providerAccountId: "oidc-provider",
+            userId,
+          },
+        ],
+      });
+      const before = {
+        user: await upgrade.user.findUniqueOrThrow({ where: { id: userId } }),
+        grant: await upgrade.emailScopeGrant.findUniqueOrThrow({ where: { id: grantId } }),
+        session: await upgrade.session.findUniqueOrThrow({ where: { id: sessionId } }),
+      };
+      deployMigrations(databaseUrl);
+      deployMigrations(databaseUrl);
+      expect(
+        await upgrade.account.findUnique({ where: { id: accountIds.legacyGoogle } }),
+      ).toBeNull();
+      expect(
+        await upgrade.account.findMany({
+          where: {
+            id: { in: Object.values(accountIds).filter((id) => id !== accountIds.legacyGoogle) },
+          },
+          orderBy: { id: "asc" },
+        }),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: accountIds.googleDifferentIssuer,
+            providerId: "google",
+            issuer: "https://other.example.com",
+          }),
+          expect.objectContaining({
+            id: accountIds.nonGoogleAccountsIssuer,
+            providerId: "other",
+            issuer: "https://accounts.google.com",
+          }),
+          expect.objectContaining({
+            id: accountIds.nonGoogleDifferentIssuer,
+            providerId: "oidc",
+            issuer: "https://id.example.com",
+          }),
+        ]),
+      );
+      expect(await upgrade.account.count()).toBe(3);
+      expect(await upgrade.user.findUniqueOrThrow({ where: { id: userId } })).toEqual(before.user);
+      expect(await upgrade.emailScopeGrant.findUniqueOrThrow({ where: { id: grantId } })).toEqual(
+        before.grant,
+      );
+      expect(await upgrade.session.findUniqueOrThrow({ where: { id: sessionId } })).toEqual(
+        before.session,
+      );
+      expect(
+        (await upgrade.loginInstallation.findUniqueOrThrow({ where: { id: "default" } })).state,
+      ).toBe("UNINITIALIZED");
+    } finally {
+      await upgrade.$disconnect();
+      execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
     }
-    const beforeUser = await fixture.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    const grants = await fixture.prisma.emailScopeGrant.findMany();
-    const migration = readFileSync(
-      new URL(
-        "../../../packages/db/prisma/migrations/0015_oidc_login_installation/migration.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    const cleanupSql = migration
-      .split("\n")
-      .find((line) => line.startsWith('DELETE FROM "Account"'));
-    expect(cleanupSql).toBe(
-      'DELETE FROM "Account" WHERE "providerId" = \'google\' AND "issuer" = \'https://accounts.google.com\';',
-    );
-    expect(await fixture.prisma.$executeRawUnsafe(cleanupSql!)).toBe(1);
-    expect(await fixture.prisma.$executeRawUnsafe(cleanupSql!)).toBe(0);
-    expect(await fixture.prisma.account.findUnique({ where: { id: ids[0]! } })).toBeNull();
-    expect(await fixture.prisma.account.count({ where: { id: { in: ids.slice(1) } } })).toBe(2);
-    expect(await fixture.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).toEqual(
-      beforeUser,
-    );
-    expect(await fixture.prisma.emailScopeGrant.findMany()).toEqual(grants);
   });
   it("competing setup transactions cannot reopen completion or grant another admin", async () => {
     const before = await fixture.prisma.emailScopeGrant.count();
