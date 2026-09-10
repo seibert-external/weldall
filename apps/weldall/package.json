@@ -34,7 +34,6 @@
     "next": "^16.3.3",
     "nuqs": "^2.10.1",
     "openid-client": "6.8.8",
-    "radix-ui": "^1.6.7",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "^10.1.0",
