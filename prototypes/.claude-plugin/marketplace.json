@@ -1,0 +1,19 @@
+{
+  "name": "weldall-prototypes",
+  "owner": {
+    "name": "Seibert Group"
+  },
+  "description": "Parked agent-plugin prototypes from the Weldall repository. Locations here are provisional.",
+  "plugins": [
+    {
+      "name": "weldall",
+      "source": "./weldall-agent-plugin",
+      "description": "Routes company-system requests through Weldall's live, per-user skill catalog.",
+      "author": {
+        "name": "Seibert Group"
+      },
+      "category": "productivity",
+      "tags": ["weldall", "skills", "oauth"]
+    }
+  ]
+}
