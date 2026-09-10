@@ -1,11 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-  ADMIN_SCOPE_KEY,
-  db,
-  isMachineOnlySystemScope,
-  LOGIN_SCOPE_KEY,
-  Prisma,
-} from "@weldall/db";
+import { createHash } from "node:crypto";
+import { ADMIN_SCOPE_KEY, db, isMachineOnlySystemScope, Prisma } from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,

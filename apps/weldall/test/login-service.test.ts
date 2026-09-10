@@ -45,23 +45,19 @@ beforeEach(() => {
   vi.stubEnv("WELDALL_SETUP_TOKEN", token);
   mocks.claim.mockReset();
   mocks.installation.mockReset().mockResolvedValue({ state: "UNINITIALIZED" });
-  mocks.provider
-    .mockReset()
-    .mockResolvedValue({
-      ...config,
-      id: providerId,
-      enabled: true,
-      version: 1,
-      encryptedClientSecret: seal("provider", providerId, config.clientSecret),
-    });
-  mocks.verify
-    .mockReset()
-    .mockResolvedValue({
-      issuer: config.issuer,
-      subject: "alice",
-      email: "alice@example.com",
-      name: "Alice",
-    });
+  mocks.provider.mockReset().mockResolvedValue({
+    ...config,
+    id: providerId,
+    enabled: true,
+    version: 1,
+    encryptedClientSecret: seal("provider", providerId, config.clientSecret),
+  });
+  mocks.verify.mockReset().mockResolvedValue({
+    issuer: config.issuer,
+    subject: "alice",
+    email: "alice@example.com",
+    name: "Alice",
+  });
   attempt = {
     id: digest(state),
     state,

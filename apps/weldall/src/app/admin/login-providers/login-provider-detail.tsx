@@ -53,9 +53,7 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
     enabled: isNew,
     staleTime: Infinity,
   });
-  const provider = isNew
-    ? null
-    : (providersQuery.data?.find((p) => p.id === providerId) ?? null);
+  const provider = isNew ? null : (providersQuery.data?.find((p) => p.id === providerId) ?? null);
   const draft: Draft | null = isNew
     ? draftQuery.data
       ? {
@@ -283,9 +281,7 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
           variant="secondary"
         />
         <Button href="/admin/login-providers" label="Cancel" variant="secondary" />
-        <form.Subscribe
-          selector={(state) => [state.canSubmit, state.submissionAttempts] as const}
-        >
+        <form.Subscribe selector={(state) => [state.canSubmit, state.submissionAttempts] as const}>
           {([canSubmit, submissionAttempts]) => {
             // Before the first submit attempt the button stays enabled so validation
             // errors can be surfaced; afterwards it reflects validity.
@@ -310,12 +306,13 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
           </h2>
           {provider ? (
             <Text color="secondary">
-              Version {provider.version} · Validated {new Date(provider.validatedAt).toLocaleString()}
+              Version {provider.version} · Validated{" "}
+              {new Date(provider.validatedAt).toLocaleString()}
             </Text>
           ) : (
             <Text color="secondary">
-              OIDC providers assert identity, not Weldall permissions. The issuer is immutable
-              once set.
+              OIDC providers assert identity, not Weldall permissions. The issuer is immutable once
+              set.
             </Text>
           )}
         </div>
@@ -333,8 +330,7 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
             {field("buttonLabel", "Login button label", setupFieldSchemas.buttonLabel)}
             {field("buttonColor", "Button color", setupFieldSchemas.buttonColor, {
               placeholder: "#2563eb",
-              description:
-                "Six-digit hex color. Login text contrast is calculated automatically.",
+              description: "Six-digit hex color. Login text contrast is calculated automatically.",
             })}
             {field("sortOrder", "Order (lower first)", validateSortOrder)}
             {field(
@@ -383,9 +379,7 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
                   onBlur={fieldApi.handleBlur}
                   onChange={(value) => {
                     invalidate();
-                    fieldApi.handleChange(
-                      setupFieldSchemas.tokenEndpointAuthMethod.parse(value),
-                    );
+                    fieldApi.handleChange(setupFieldSchemas.tokenEndpointAuthMethod.parse(value));
                   }}
                   options={["client_secret_basic", "client_secret_post"]}
                   value={fieldApi.state.value}
@@ -397,16 +391,11 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
             {field("scopes", "Scopes", setupFieldSchemas.scopes, {
               description: "Space-separated scopes; openid and email are required.",
             })}
-            {field(
-              "domains",
-              "Allowed email domains",
-              setupFieldSchemas.domains,
-              {
-                optional: true,
-                description:
-                  "Comma-separated exact domains. Leave empty to trust all verified emails.",
-              },
-            )}
+            {field("domains", "Allowed email domains", setupFieldSchemas.domains, {
+              optional: true,
+              description:
+                "Comma-separated exact domains. Leave empty to trust all verified emails.",
+            })}
             <form.Field name="enabled">
               {(fieldApi) => (
                 <Switch
@@ -451,9 +440,7 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
                 const lastEnabled =
                   Boolean(provider) &&
                   (providersQuery.data ?? []).filter((p) => p.enabled).length === 1 &&
-                  (providersQuery.data ?? []).some(
-                    (p) => p.id === draft.providerId && p.enabled,
-                  ) &&
+                  (providersQuery.data ?? []).some((p) => p.id === draft.providerId && p.enabled) &&
                   !enabled;
                 return lastEnabled ? (
                   <form.Field

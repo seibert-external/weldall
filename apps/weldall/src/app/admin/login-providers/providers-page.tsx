@@ -182,10 +182,7 @@ export function LoginProvidersPage() {
                     {row.getVisibleCells().map((cell, index) => (
                       <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
                         {index === 0 ? (
-                          <TableRowAction
-                            href={href}
-                            label={`Edit ${row.original.name}`}
-                          >
+                          <TableRowAction href={href} label={`Edit ${row.original.name}`}>
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </TableRowAction>
                         ) : (

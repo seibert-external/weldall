@@ -1,4 +1,3 @@
-import { Heading } from "@astryxdesign/core/Heading";
 import { VStack } from "@astryxdesign/core/Stack";
 import { installationCompleted, publicLoginProviders } from "@/server/auth/login-service";
 import { redirect } from "next/navigation";
