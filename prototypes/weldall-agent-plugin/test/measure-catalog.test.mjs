@@ -63,3 +63,34 @@ test("measure reports utf-8 bytes and a token estimate of a quarter of them", ()
 test("trimming the fixture actually saves bytes", () => {
   assert.ok(measure(trimCatalog(fixture)).bytes < measure(fixture).bytes);
 });
+
+test("trimming omits tags when meta is absent or has no tags field", () => {
+  const noMeta = trimCatalog({
+    warnings: [],
+    items: [
+      {
+        slug: "test.noMeta",
+        title: "Test",
+        preview: "No meta",
+        available: true,
+        source: { type: "resource", name: "Test" },
+      },
+    ],
+  });
+  assert.ok(!("tags" in noMeta.items[0]), "tags should not exist when meta is absent");
+
+  const metaNoTags = trimCatalog({
+    warnings: [],
+    items: [
+      {
+        slug: "test.metaNoTags",
+        title: "Test",
+        preview: "Meta without tags",
+        available: true,
+        meta: {},
+        source: { type: "resource", name: "Test" },
+      },
+    ],
+  });
+  assert.ok(!("tags" in metaNoTags.items[0]), "tags should not exist when meta has no tags field");
+});
