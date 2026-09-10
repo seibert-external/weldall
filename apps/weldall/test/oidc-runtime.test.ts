@@ -1,9 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { calculatePKCECodeChallenge, type CustomFetchOptions } from "openid-client";
+import { calculatePKCECodeChallenge } from "openid-client";
 import { providerConfigSchema } from "../src/server/auth/oidc-config";
-const transport = vi.hoisted(() => vi.fn());
-vi.mock("../src/server/auth/oidc-transport", () => ({ oidcFetch: transport }));
+const transport = vi.fn();
 import { authorizationUrl, discover, verifyCallback } from "../src/server/auth/oidc-runtime";
 
 const keysets = new Map<string, Awaited<ReturnType<typeof generateKeyPair>>>();
@@ -28,8 +27,10 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   transport.mockReset();
+  vi.stubGlobal("fetch", transport);
 });
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 async function upstream(
@@ -117,6 +118,24 @@ describe("openid-client signed callback integration", () => {
       });
     },
   );
+  it("accepts discovery, token and JWKS responses larger than 256 KiB without a custom cap", async () => {
+    const padding = "x".repeat(300 * 1024);
+    for (const custom of [false, true]) {
+      const { provider } = await upstream({
+        metadata: { padding },
+        tokens: { padding },
+      });
+      if (custom) provider.discoveryUrl = "https://routing.example.com/metadata";
+      const original = transport.getMockImplementation()!;
+      transport.mockImplementation(async (url, options) => {
+        const response = await original(url, options);
+        return url.endsWith("/jwks")
+          ? Response.json({ ...(await response.json()), padding })
+          : response;
+      });
+      await expect(run(provider)).resolves.toHaveProperty("email", "alice@example.com");
+    }
+  });
   it.each(["client_secret_post", "client_secret_basic"] as const)(
     "uses %s and library form encoding",
     async (method) => {
@@ -124,7 +143,7 @@ describe("openid-client signed callback integration", () => {
       provider.clientId = "client :+&ü";
       provider.clientSecret = "secret :+&ü";
       await run(provider);
-      const options = tokenCalls()[0]![1] as CustomFetchOptions;
+      const options = tokenCalls()[0]![1] as RequestInit;
       const body = new URLSearchParams(options.body as URLSearchParams);
       expect(body.get("code_verifier")).toBe(verifier);
       expect(body.get("redirect_uri")).toBe(callback);
@@ -459,6 +478,32 @@ describe("lazy policy-constrained configurations", () => {
     }
     expect(transport).toHaveBeenCalledTimes(5);
   });
+  it.each(["discovery", "token", "jwks"])(
+    "rejects %s redirects without following them",
+    async (endpoint) => {
+      for (const custom of [false, true]) {
+        const { provider } = await upstream();
+        if (custom) provider.discoveryUrl = "https://routing.example.com/metadata";
+        const original = transport.getMockImplementation()!;
+        transport.mockImplementation((url, options) => {
+          const redirect =
+            endpoint === "discovery"
+              ? url === provider.discoveryUrl || url.endsWith("openid-configuration")
+              : url.endsWith(`/${endpoint}`);
+          return redirect
+            ? new Response(null, { status: 302, headers: { location: "https://evil.example.com" } })
+            : original(url, options);
+        });
+        await expect(run(provider)).rejects.toThrow(
+          endpoint === "discovery" ? "invalid_discovery" : "invalid_id_token",
+        );
+      }
+      expect(transport.mock.calls.every(([, options]) => options.redirect === "manual")).toBe(true);
+      expect(transport.mock.calls.some(([url]) => url.startsWith("https://evil.example.com"))).toBe(
+        false,
+      );
+    },
+  );
   it("sets eight-second timeouts for both discovery paths, token and JWKS", async () => {
     const timeout = vi.spyOn(AbortSignal, "timeout");
     for (const custom of [false, true]) {

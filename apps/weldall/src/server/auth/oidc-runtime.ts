@@ -8,7 +8,6 @@ import {
   type ProviderConfig,
 } from "./oidc-config";
 import { digest } from "./oidc-credentials";
-import { oidcFetch } from "./oidc-transport";
 
 const algorithms = ["RS256", "ES256", "EdDSA"];
 const metadataSchema = z
@@ -75,10 +74,9 @@ async function configuration(config: ProviderConfig): Promise<openid.Configurati
       const client = { [openid.clockTolerance]: 30 };
       // Explicit document URLs need not contain /.well-known/; discovery() cannot infer those.
       const metadata = config.discoveryUrl
-        ? await oidcFetch(config.discoveryUrl, {
+        ? await fetch(config.discoveryUrl, {
             method: "GET",
             headers: { accept: "application/json" },
-            body: undefined,
             redirect: "manual",
             signal: AbortSignal.timeout(8000),
           }).then(async (response) => {
@@ -87,7 +85,6 @@ async function configuration(config: ProviderConfig): Promise<openid.Configurati
           })
         : (
             await openid.discovery(new URL(config.issuer), config.clientId, client, auth, {
-              [openid.customFetch]: oidcFetch,
               timeout: 8,
             })
           ).serverMetadata();
@@ -116,7 +113,6 @@ async function configuration(config: ProviderConfig): Promise<openid.Configurati
         client,
         auth,
       );
-      result[openid.customFetch] = oidcFetch;
       result.timeout = 8;
       openid.enableNonRepudiationChecks(result);
       return result;

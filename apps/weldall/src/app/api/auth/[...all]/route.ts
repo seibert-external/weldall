@@ -20,8 +20,6 @@ const get = async (request: Request) => {
   return handlers.GET(enforceCliConsent(request));
 };
 const post = async (request: Request) => {
-  // Only consent needs this session lookup. OIDC admin/test endpoints perform their own
-  // refresh-disabled checks, so testing must not extend the initiating browser session.
   if (new URL(request.url).pathname.replace(/\/+$/, "") === "/api/auth/oauth2/consent") {
     const denied = await denyCliConsentWithoutLoginScope(
       request,

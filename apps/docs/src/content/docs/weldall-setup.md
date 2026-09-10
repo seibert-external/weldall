@@ -1,96 +1,100 @@
 ---
 title: "How to: Set up Weldall"
-description: Deploy Weldall, complete the one-time OIDC installer, and manage login providers.
+description: Deploy a Weldall instance and configure it for first use.
 sidebar:
   label: "How to: Set up Weldall"
 ---
 
-Weldall runs as a single [container](https://github.com/seibert-external/weldall/blob/main/Dockerfile) with PostgreSQL and a public HTTPS origin. Startup applies additive Prisma migrations, initializes production resources, refreshes published catalogs, and starts Next.js on port 3000. It does **not** create an administrator. With no login providers, the server serves the protected one-time installer; downstream discovery and machine authentication remain provider-neutral.
+Running Weldall yourself means operating a single container. The repository contains a [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) that builds the authorization server and the administration interface into one image. The image requires a PostgreSQL database, a defined set of environment variables, and a publicly reachable HTTPS URL. Once these requirements are met, the instance is operational: the administration interface, the OAuth endpoints, and the first administrator account are set up automatically on startup.
 
-## Prerequisites and secrets
+This page assumes basic knowledge of Weldall. The [introduction](../) describes the product.
 
-- A backed-up PostgreSQL database and a stable public origin such as `https://weldall.example.com`.
-- An OIDC identity authority supporting authorization code, PKCE S256, signed RS256/ES256/EdDSA ID tokens, and a stable subject. The signed ID token must contain `email` and boolean `email_verified: true`; Weldall does not fetch UserInfo or merge unsigned identity claims. Plain OAuth is not sufficient.
-- The provider's HTTPS issuer, client ID and client secret. Register the exact **server-generated callback URL displayed by the installer** before testing. Do not guess a provider ID or use a localhost callback.
+## What the container contains
 
-| Runtime variable                                                                   | Purpose                                                                                                                  |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `POSTGRES_URL`                                                                     | PostgreSQL connection string.                                                                                            |
-| `WELDALL_ISSUER`                                                                   | Public HTTPS origin; callback URLs never use request Host headers.                                                       |
-| `BETTER_AUTH_SECRET`                                                               | Browser cookie signing secret.                                                                                           |
-| `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID` | Stable ES256 JWK signing key pair and key ID for downstream JWTs.                                                        |
-| `WELDALL_CREDENTIAL_ENCRYPTION_KEY`                                                | Canonical base64-encoded 32-byte AES key shared by OIDC credentials/attempts, group-provider tokens and chat API keys.   |
-| `WELDALL_SETUP_TOKEN`                                                              | Server-only operator token, base64url generated from at least 32 random bytes; needed only until installation completes. |
-| `WELDALL_DEPLOYMENT_MODE`                                                          | Set to `production`. Never expose development fixtures in production.                                                    |
+The image runs the Weldall server as a standalone Next.js application. Startup performs the following steps:
 
-Keep the credential-encryption key and setup token **different**. Reuse your existing `WELDALL_CREDENTIAL_ENCRYPTION_KEY`; only generate one if it does not exist:
+1. The database migrations run with Prisma.
+2. The production database is initialized, and published skill catalogs are refreshed.
+3. If an email address is configured, the first administrator account is created.
+4. The server starts on port 3000.
 
-```sh
-openssl rand -base64 32                         # WELDALL_CREDENTIAL_ENCRYPTION_KEY (only if absent)
-openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n' # WELDALL_SETUP_TOKEN
-```
+The container runs as a non-root user and exposes a health check on `/.well-known/openid-configuration`. It can therefore be connected directly to the readiness checks of your container platform.
 
-Keep the encryption key stable and back it up separately from the database. Losing or replacing it prevents decryption of provider secrets; automatic key rotation/recovery is not provided. Do not reuse the cookie secret or setup token as the credential-encryption key. Never paste secrets into URLs, logs, or browser storage. After completion remove the setup token from runtime secrets; possession of it cannot reopen completed setup.
+## Prerequisites
 
-`WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION` defaults to `1` for group-provider and chat credential envelopes; it does not automatically rotate the key. `LOG_LEVEL` defaults to `INFO`. Missing database/migration state is a service error, never a reason to reopen setup.
+Before building and starting the image, the following requirements must be met:
 
-## Build and start
+- **A PostgreSQL database** – Weldall stores configuration and audit records in PostgreSQL.
+- **A public HTTPS URL** – Employees sign in through this URL; it must be reachable and use HTTPS. The same URL is used for `WELDALL_ISSUER` and for the login redirect.
+- **A Google OAuth client** – Sign-in uses Google as the SSO provider. The client is created in the Google Cloud Console; `<WELDALL_ISSUER>/api/auth/callback/google` is registered as the redirect URL.
+- **A signing key pair** – Weldall signs its JWTs (ID-JAGs) with an ES256 (P-256) key pair.
 
-Builds need no reachable database, upstream IdP, provider credentials, setup token, or credential-encryption key. Inject runtime secrets through your container platform, not image layers:
+## Environment variables
+
+If a required variable is missing, the container aborts startup. This behavior is intentional: a partially configured instance is not operational and should not start in the first place.
+
+| Variable                                                    | Purpose                                      |
+| ----------------------------------------------------------- | -------------------------------------------- |
+| `POSTGRES_URL`                                              | Connection string for PostgreSQL.            |
+| `WELDALL_ISSUER`                                            | Public HTTPS URL of the instance.            |
+| `BETTER_AUTH_SECRET`                                        | Secret used to sign browser session cookies. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                  | The Google OAuth client for SSO sign-in.     |
+| `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK` | The ES256 signing key pair as JWK.           |
+| `WELDALL_SIGNING_KID`                                       | Key ID that identifies the signing key.      |
+
+:::note[Signing keys]
+The ES256 key pair is generated once and kept in your secret manager. The JWKs and the key ID must remain stable: rotating the key would invalidate already-issued identity assertions.
+:::
+
+Optional variables:
+
+| Variable                            | Purpose                                                                |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| `WELDALL_BOOTSTRAP_ADMIN_EMAIL`     | Email of the first administrator, created on first start.              |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | AES key for storing write-only group-provider credentials.             |
+| `OAUTH_PROXY_SECRET`                | Shared secret for the optional [discovery proxy](../discovery-proxy/). |
+| `LOG_LEVEL`                         | Log verbosity, defaults to `INFO`.                                     |
+
+## Build and run
+
+The image is built from the [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) in the repository root and started with the respective configuration:
 
 ```sh
 docker build -t weldall .
-# Operator-managed runtime environment file, readable only by its owner:
-docker run --name weldall --env-file /secure/weldall-runtime.env -p 3000:3000 weldall
+
+docker run -d --name weldall \
+  -p 3000:3000 \
+  -e POSTGRES_URL=postgresql://user:password@db:5432/weldall \
+  -e WELDALL_ISSUER=https://weldall.example.com \
+  -e BETTER_AUTH_SECRET=... \
+  -e GOOGLE_CLIENT_ID=... \
+  -e GOOGLE_CLIENT_SECRET=... \
+  -e WELDALL_SIGNING_PRIVATE_JWK='...' \
+  -e WELDALL_SIGNING_PUBLIC_JWK='...' \
+  -e WELDALL_SIGNING_KID=... \
+  -e WELDALL_BOOTSTRAP_ADMIN_EMAIL=admin@example.com \
+  weldall
 ```
 
-Terminate HTTPS at your trusted proxy and forward to port 3000. `/.well-known/openid-configuration` is the image health-check endpoint; it does not prove an upstream provider is available. The production seed leaves the installer uninitialized on a fresh database. Do not run development seed helpers in production.
+The container listens on port 3000. Alternatively, a container platform can build the Dockerfile directly from the repository; the production instance is deployed this way.
 
-## One-time installation
+## After first start
 
-1. Open `https://weldall.example.com/setup`. `/` and `/login` redirect here until installation completes. CLI authorization returns `setup_required` during this time.
-2. Enter the operator token, the normalized email of the first administrator, and the first provider's connection, button, scopes, and optional allowed email domains. Register the displayed callback URL upstream. Issuer spelling must match discovery exactly; HTTPS path-bearing issuers and explicit discovery URL overrides are supported. Use `client_secret_basic` or `client_secret_post` as supported by the provider. `openid` and `email` are mandatory; `offline_access` is forbidden upstream.
-3. Acknowledge that this provider can assert identities for its permitted email domains. Verified email is **the provider's assertion**, not independent proof. Empty domains trust all verified email assertions; domain restrictions cannot make a malicious provider safe.
-4. Optionally choose **Test login (optional)** to try the configuration on your own responsibility in a new tab. The operator-token/browser-bound test checks the nominated verified email and reports pass/fail. It creates no provider, user, account, grants, session, audit, completion or test history. Allow popups; if the provider removes the opener, read the result in the test tab. The original form retains its configuration only in memory, never browser storage; edits invalidate test status.
-5. Choose **Complete installation** when ready, without needing a prior test or even after a failed one. This starts its **own** OIDC login as the nominated email; a previous test result never authorizes completion. Discovery, signatures, issuer/audience, nonce, PKCE, current verified email, and domains must all pass.
-6. Only that matching verified login transaction enables the first provider, preserves or creates the Weldall user, grants `weldall:login` and `weldall:administer` additively, records audit, and permanently completes setup. Only then is an administrator session issued; outstanding setup and setup-test attempts are removed.
+1. Open `https://weldall.example.com` and sign in with the Google account that matches `WELDALL_BOOTSTRAP_ADMIN_EMAIL`. The bootstrap step grants this account the administrator role and the `weldall:login` scope.
+2. In the administration interface, scopes are created, resources are registered, and permissions are assigned. [How to: Integrate a service](../service-configuration/) describes the procedure.
+3. On an employee device, the CLI is pointed at the instance and signed in:
 
-The callback URL is allocated once for the installation and remains identical across reloads, tabs, long configuration sessions and provider activation. Merely opening the form starts no login attempt and requires no draft cookie. Each button action starts a single-use, browser-bound OIDC attempt lasting ten minutes; removing or changing the operator token invalidates outstanding attempts. Cancellation, wrong email, expired or replayed attempts, conflicts and failed exchange cannot grant administrator access. Retry from `/setup`. Completed setup never reopens, including when every provider is disabled. Preserve an existing admin session while changing login options.
+```sh
+weldall config set-issuer https://weldall.example.com
+weldall login
+```
 
-## Manage providers live
-
-Open `/admin/login-providers` as a Weldall administrator. Add, edit, enable/disable or set order without a restart. IDs and issuers are immutable; a new authority requires a new provider. Secret fields are write-only: leave blank on edit to retain the stored value. Disabled providers do not appear on `/login`, but their identity bindings and audit remain. Provider count is bounded at 100.
-
-**Test login** opens a new tab and uses the current, possibly unsaved form values. It consumes a short-lived encrypted browser/admin-session-bound attempt, but creates no provider, user, link, grants, new session, audit record or test history. It does not replace the administrator's session, even when testing a different identity. Return to the form for pass/fail. Allow popups; if an upstream browser isolation policy removes the opener, read the result in the test tab and retry as needed. Closing the tab or losing the initiating session cannot authorize a save on your behalf.
-
-Test before saving. Test status is invalidated by edits, and late results from older forms are ignored. **Saving is the administrator's explicit responsibility**, not gated by a stored proof of test success. Saves preflight discovery and are admin-authorized, CSRF-protected, versioned and audited; reload after a stale-version error. Re-enabling, creating, or changing connection/credential/identity-authority settings always preflights. Disabling, reordering and presentation-only edits with unchanged authority can succeed during an IdP outage; these retain the previous validation timestamp, not a claim of fresh validation.
-
-Every enabled save requires a fresh trust acknowledgement. Disabling the last enabled provider requires a separate lockout acknowledgement. It may prevent new logins; it does not reset installation. Disabling or editing does **not** revoke existing sessions, CLI refresh tokens, or downstream access tokens. In-flight ordinary logins fail if their provider version changes.
-
-OIDC grants no ordinary-user permissions. Assign `weldall:login` before users' first CLI authorization, and assign resource scopes separately. Upstream groups/roles never grant Weldall scopes. Same normalized verified email across trusted issuers links to the same user ID; conflicting legacy emails, unverified local users, and changed-email bindings fail rather than merge or reassign. No upstream access/refresh tokens are stored.
-
-All four flows use `openid-client` for upstream authorization, PKCE, complete callback validation, token exchange and signed ID-token/JWKS verification. Weldall owns provider policy, encrypted browser-bound one-time attempts, identity linking and installation transactions; Better Auth owns local sessions only after successful application completion. No upstream tokens are returned to routes or persisted.
-
-Upstream discovery/token/JWKS requests use verified HTTPS, no redirects, strict JSON media types, a 256 KiB streamed response cap and an eight-second timeout per request, including its body (not per whole login). Private HTTPS destinations remain permitted. There is **no application-layer destination/DNS filtering or SSRF protection**; restrict egress at deployment as needed. Discovery must exactly match issuer spelling and support the configured client authentication method. Fixed endpoint routing queries are allowed, but reserved protocol parameters in endpoint URLs are rejected rather than repaired.
-
-Client configurations are initialized lazily, cached for five minutes (at most 100 entries, keyed by configuration/credentials), and failed initialization is evicted. Provider availability/version checks are independent of cache hits. The library caches JWKS for five minutes and allows unknown-key refetch after one minute; publish new keys before using them and retain old keys during rollover. An immediate new-key switch can temporarily fail login. Discovery failure for one provider does not block others or neutral downstream endpoints.
-
-## Cut over an existing deployment (operator task)
-
-This is an intentional breaking change. Rehearse with a **copy** of the database before the production maintenance window. The application and migrations do not perform the following operational revocation for you:
-
-1. Back up the database, stable signing/cookie secrets and credential keys. Inventory user IDs, scope assignments, provider bindings, browser sessions and CLI authorization; confirm your nominated admin email matches a verified identity without normalized legacy duplicates.
-2. Drain **all old application instances** and stop new browser/CLI authorization. Ensure the existing credential-encryption key is available and prepare the setup token in runtime secrets; keep the same public origin.
-3. Explicitly revoke legacy browser and CLI authentication before reopening traffic. Review `Session`, `OauthRefreshToken` (including rotation replay state), user `OauthAccessToken`, `OAuthDeviceRefreshBinding`, and outstanding authorization-code `Verification` state with your operator tooling. Do not delete users, grants, business records, machine identities, or unrelated verification data indiscriminately. Cookie-secret rotation alone is not CLI refresh revocation.
-4. Account separately for already-issued self-contained JWTs/ID-JAGs and downstream service tokens: deleting database rows does not invalidate them at offline verifiers. Wait out the **maximum configured lifetime across downstream services** or coordinate signing-key retirement and verifier/JWKS cache invalidation. Do not assume database revocation is immediate global logout.
-5. Deploy the new image; Prisma adds installation/provider/attempt state and deletes only `Account` rows with the exact pair `providerId='google' AND issuer='https://accounts.google.com'`, including tokens on those rows. Users/IDs, verification, grants, sessions, nonmatching bindings and business data are preserved. Existing migration history stays untouched; no replacement provider is imported.
-6. Remove old Google credentials, dev-login flags, bootstrap-admin email and OAuth proxy secrets/configuration. The old first-admin command, Google button/preset, runtime dev branch and localhost callback flow no longer exist. Production never reads dev fixture variables as a provider source.
-7. Verify health and setup-required behavior, run the installer, confirm the preserved admin ID/grants, add/test additional providers, and check browser and CLI authorization. Retire the external legacy Google OAuth client and upstream credentials separately after confirming no other application uses them. Exact account cleanup is not external-client revocation.
-8. Reopen traffic only after revoked legacy refresh/code flows fail and the new OIDC login works. Remove the setup token. Keep backup/rollback handling within the maintenance plan; restoring an old database also restores its old authorization state.
+:::note
+Weldall never grants `weldall:login` automatically from the identity provider. Assign the scope to users before their first CLI login.
+:::
 
 ## Next steps
 
-- [Integrate a service](../service-configuration/) and assign resource scopes.
-- [Infrastructure as code](../infrastructure-as-code/) for supported resources and assignments; login providers are deliberately UI-managed, not IaC.
-- [Security](../oauth-security/) for the unchanged downstream OAuth/DPoP contract.
-- [Local development](https://github.com/seibert-external/weldall/blob/main/docs/development.md) for ordinary configured dev OIDC fixtures and the real installer recipe.
+- Secure your own services with the SDK: [How to: Integrate a service](../service-configuration/).
+- Manage settings, scopes, resources, and assignments as code: [Infrastructure as code](../infrastructure-as-code/).
+- Understand the security flow implemented by this instance: [Security](../oauth-security/).

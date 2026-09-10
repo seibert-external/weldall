@@ -13,20 +13,25 @@ import {
 import { digest, requireSetupToken, seal, unseal } from "./oidc-credentials";
 import { authorizationUrl, verifyCallback } from "./oidc-runtime";
 
+/** Builds a provider callback from the configured Weldall origin, never the request Host. */
 export const callbackUrl = (id: string) => `${WELDALL_ISSUER}/api/auth/callback/${id}`;
 const INITIAL_PROVIDER_ID = "00000000-0000-4000-8000-000000000001";
+/**
+ * Reads the installation state. Missing records or database failures propagate as errors;
+ * they must not be treated as permission to open the installer.
+ */
 export async function installationCompleted(): Promise<boolean> {
-  // Never translate database errors or a missing migration into an open installer.
   const installation = await db.loginInstallation.findUniqueOrThrow({
     where: { id: "default" },
     select: { state: true },
   });
   return installation.state === "COMPLETED";
 }
+/** Returns the fixed first-provider ID so its callback can be registered before setup. */
 export function firstProviderId(): string {
-  // This identifier is public in the callback URL; keeping it constant avoids installer state.
   return INITIAL_PROVIDER_ID;
 }
+/** Returns up to 100 enabled providers' public button details, ordered for the login page. */
 export async function publicLoginProviders() {
   return db.loginProvider.findMany({
     where: { enabled: true },
@@ -35,6 +40,10 @@ export async function publicLoginProviders() {
     take: 100,
   });
 }
+/**
+ * Loads an enabled provider and decrypts its current configuration.
+ * The returned configuration contains the client secret and must remain server-side.
+ */
 export async function currentProvider(id: string) {
   const row = await db.loginProvider.findUnique({ where: { id } });
   if (!row?.enabled) throw new LoginError("provider_unavailable");
@@ -64,16 +73,25 @@ const payloadSchema = z.object({
   testSessionId: z.string().optional(),
   testId: z.string().uuid().optional(),
 });
+/** Accepts only home or a bounded `/login?...` return path; rejects other redirect targets. */
 export function safeReturnTo(value: string): string {
   if (value === "/") return value;
   if (value.length <= 8192 && value.startsWith("/login?") && !/[\r\n\\]/.test(value)) return value;
   throw new LoginError("invalid_return_url");
 }
+/**
+ * Starts login for an enabled provider after installation is complete.
+ * Stores a browser-bound attempt with the current provider version and returns its authorization URL.
+ */
 export async function startLogin(input: { providerId: string; browser: string; returnTo: string }) {
   if (!(await installationCompleted())) throw new LoginError("setup_required");
   const { row, config } = await currentProvider(input.providerId);
   return createAttempt({ ...input, config, mode: "login", providerVersion: row.version });
 }
+/**
+ * Starts installation or an optional setup test using draft provider values and a valid operator token.
+ * Stores only a transient attempt; no provider, user, grants or session are created here.
+ */
 export async function startSetup(
   input: {
     config: ProviderConfig;
@@ -92,15 +110,22 @@ export async function startSetup(
     adminEmail: emailSchema.parse(input.adminEmail),
   });
 }
+/** Rejects attempts authorized by a setup token that has since been changed or removed. */
 function assertSetupToken(setupTokenHash: string | undefined) {
   if (setupTokenHash !== digest(process.env.WELDALL_SETUP_TOKEN ?? ""))
     throw new LoginError("setup_unauthorized");
   requireSetupToken(process.env.WELDALL_SETUP_TOKEN ?? "");
 }
+/** Rechecks that installation is still open and the attempt's operator authorization is current. */
 async function assertSetupOpen(attempt: ConsumedAttempt) {
   if (await installationCompleted()) throw new LoginError("setup_completed");
   assertSetupToken(attempt.payload.setupTokenHash);
 }
+/**
+ * Starts a test of possibly unsaved provider values, recording the initiating admin/session IDs.
+ * The caller must authorize the admin and recheck that session around callback verification.
+ * Only the transient attempt is saved; the provider configuration is not updated.
+ */
 export async function startProviderTest(input: {
   providerId: string;
   config: ProviderConfig;
@@ -112,6 +137,11 @@ export async function startProviderTest(input: {
   if (!(await installationCompleted())) throw new LoginError("setup_required");
   return createAttempt({ ...input, mode: "provider-test", returnTo: "/" });
 }
+/**
+ * Creates fresh state, nonce and PKCE verifier, preflights discovery, then stores a state hash
+ * and encrypted payload for a ten-minute, single-use flow. Enforces global/browser limits transactionally
+ * and rechecks setup authorization after discovery and lock waits.
+ */
 async function createAttempt(input: {
   providerId: string;
   config: ProviderConfig;
@@ -181,9 +211,14 @@ async function createAttempt(input: {
   });
   return { url };
 }
+/**
+ * Atomically claims and deletes an unexpired attempt matching provider, state and browser binding.
+ * The caller must validate the callback state and supply the verified browser cookie first.
+ * Only one concurrent callback can succeed; later verification failure does not restore the attempt.
+ * Returns authenticated state and decrypted payload for server-side verification.
+ */
 export async function consumeAttempt(providerId: string, state: string, browser: string) {
   const id = digest(state);
-  // DELETE ... RETURNING is the one-time claim shared by all processes. Even a failed exchange consumes it.
   const rows = await db.$queryRaw<
     Array<{
       id: string;
@@ -203,7 +238,10 @@ export async function consumeAttempt(providerId: string, state: string, browser:
     payload: payloadSchema.parse(JSON.parse(unseal("attempt", id, attempt.encryptedPayload))),
   };
 }
+/** A claimed attempt with authenticated state and a secret-bearing decrypted configuration. */
 export type ConsumedAttempt = Awaited<ReturnType<typeof consumeAttempt>>;
+
+/** Locks the provider through completion and rejects disabled or changed configurations. */
 async function assertCurrent(tx: Prisma.TransactionClient, attempt: ConsumedAttempt) {
   const rows = await tx.$queryRaw<
     Array<{ enabled: boolean; version: number }>
@@ -211,7 +249,12 @@ async function assertCurrent(tx: Prisma.TransactionClient, attempt: ConsumedAtte
   if (!rows[0]?.enabled || rows[0].version !== attempt.providerVersion)
     throw new LoginError("provider_changed");
 }
-// Serialize linking across issuers and normalized emails, not just within one provider.
+/**
+ * Links an already-verified identity to a user within the caller's transaction.
+ * Matches accounts by issuer/subject and users by normalized email, creating missing records.
+ * Rejects unverified local users and changed-email bindings; never merges or reassigns accounts.
+ * Serializes linking across providers to prevent concurrent email/identity collisions.
+ */
 export async function linkIdentity(
   tx: Prisma.TransactionClient,
   identity: VerifiedIdentity,
@@ -251,6 +294,12 @@ export async function linkIdentity(
   });
   return user;
 }
+/**
+ * Commits a login or installation using an identity the caller has already verified.
+ * Login rechecks the provider version and links the identity. Installation additionally creates
+ * the first provider, grants admin/login scopes, records an audit, closes setup and removes its attempts.
+ * Test modes are rejected. This function does not create a session; the caller may do so only after commit.
+ */
 export async function completeVerifiedAttempt(
   attempt: ConsumedAttempt,
   identity: VerifiedIdentity,
@@ -322,6 +371,14 @@ export async function completeVerifiedAttempt(
     return { user, returnTo: "/" };
   });
 }
+/**
+ * Verifies the complete callback query against a previously consumed attempt through the OIDC adapter.
+ * Checks provider availability/version before ordinary login exchange, and setup authorization/email
+ * around setup exchange. Creates no provider, user, grant or session; tests stop after this step.
+ * Admin-test session checks belong to the caller; final login version checks belong to completion.
+ *
+ * @param query The received URL search string, preserving duplicate parameters.
+ */
 export async function verifyAttempt(attempt: ConsumedAttempt, query: string) {
   if (attempt.mode === "login") {
     const { row } = await currentProvider(attempt.providerId);

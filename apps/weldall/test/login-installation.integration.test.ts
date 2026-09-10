@@ -27,46 +27,44 @@ vi.mock("@weldall/db", async (importOriginal) => ({
     },
   }),
 }));
-vi.mock("../src/server/auth/oidc-transport", () => ({
-  oidcFetch: async (url: string) => {
-    if (fixture.offline) throw new Error("fixture offline");
-    if (url.endsWith("openid-configuration")) {
-      await fixture.pauseDiscovery?.();
-      return Response.json({
-        issuer: "https://id.example.com",
-        authorization_endpoint: "https://id.example.com/authorize",
-        token_endpoint: "https://id.example.com/token",
-        jwks_uri: "https://id.example.com/jwks",
-        response_types_supported: ["code"],
-        id_token_signing_alg_values_supported: ["ES256"],
-        token_endpoint_auth_methods_supported: ["client_secret_post"],
-        code_challenge_methods_supported: ["S256"],
-      });
-    }
-    if (url.endsWith("/jwks")) return Response.json({ keys: [fixture.jwk] });
-    if (url.endsWith("/token")) {
-      await fixture.pauseExchange?.();
-      return Response.json({
-        access_token: "fixture-access-token",
-        token_type: "Bearer",
-        id_token: await new SignJWT({
-          nonce: fixture.nonce,
-          email: "alice@example.com",
-          email_verified: true,
-          ...fixture.claims,
-        })
-          .setProtectedHeader({ alg: "ES256", kid: "test" })
-          .setIssuer("https://id.example.com")
-          .setAudience("client")
-          .setSubject("alice")
-          .setIssuedAt()
-          .setExpirationTime("5m")
-          .sign(fixture.privateKey),
-      });
-    }
-    throw new Error("unexpected upstream");
-  },
-}));
+const upstreamFetch = async (url: string) => {
+  if (fixture.offline) throw new Error("fixture offline");
+  if (url.endsWith("openid-configuration")) {
+    await fixture.pauseDiscovery?.();
+    return Response.json({
+      issuer: "https://id.example.com",
+      authorization_endpoint: "https://id.example.com/authorize",
+      token_endpoint: "https://id.example.com/token",
+      jwks_uri: "https://id.example.com/jwks",
+      response_types_supported: ["code"],
+      id_token_signing_alg_values_supported: ["ES256"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      code_challenge_methods_supported: ["S256"],
+    });
+  }
+  if (url.endsWith("/jwks")) return Response.json({ keys: [fixture.jwk] });
+  if (url.endsWith("/token")) {
+    await fixture.pauseExchange?.();
+    return Response.json({
+      access_token: "fixture-access-token",
+      token_type: "Bearer",
+      id_token: await new SignJWT({
+        nonce: fixture.nonce,
+        email: "alice@example.com",
+        email_verified: true,
+        ...fixture.claims,
+      })
+        .setProtectedHeader({ alg: "ES256", kid: "test" })
+        .setIssuer("https://id.example.com")
+        .setAudience("client")
+        .setSubject("alice")
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(fixture.privateKey),
+    });
+  }
+  throw new Error("unexpected upstream");
+};
 import {
   completeVerifiedAttempt,
   consumeAttempt,
@@ -297,6 +295,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     vi.stubEnv("WELDALL_SIGNING_PRIVATE_JWK", JSON.stringify(await exportJWK(keys.privateKey)));
     vi.stubEnv("WELDALL_SIGNING_PUBLIC_JWK", JSON.stringify(await exportJWK(keys.publicKey)));
     vi.stubEnv("WELDALL_SKIP_RESOURCE_SEED", "true");
+    vi.stubGlobal("fetch", upstreamFetch);
     nextHandlers = await import("../src/app/api/auth/[...all]/route");
   }, 60000);
   afterAll(async () => {
@@ -310,6 +309,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
         "-c",
         `DROP DATABASE "${databaseName}"`,
       ]);
+    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
   it("replays all migrations and initializes singleton without any provider", async () => {
