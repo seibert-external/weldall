@@ -422,6 +422,10 @@
     text-align: center;
   }
 
+  .setup-panel {
+    width: min(42rem, 100%);
+  }
+
   .login-auth-logo {
     display: block;
     width: 10rem;
@@ -429,7 +433,6 @@
     margin-inline: auto;
   }
 
-  .public-home,
   .skill-directory-page,
   .skill-detail-page {
     min-height: 100dvh;
@@ -825,39 +828,6 @@
     ) !important;
   }
 
-  .public-home {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .public-home-main {
-    display: flex;
-    width: min(48rem, calc(100% - 3rem));
-    flex: 1;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1.75rem;
-    margin-inline: auto;
-    padding-block: 5rem 8rem;
-    text-align: center;
-  }
-
-  .public-brand-lockup {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: center;
-    gap: 1.5rem;
-  }
-
-  .public-brand-logo {
-    display: block;
-    width: min(17rem, 42%);
-    max-height: 5.5rem;
-    object-fit: contain;
-  }
-
   img.theme-logo-dark {
     display: none;
   }
@@ -868,18 +838,6 @@
 
   [data-theme="dark"] img.theme-logo-dark {
     display: block;
-  }
-
-  .public-brand-x {
-    color: var(--color-text-disabled);
-    font-size: 2rem;
-    font-weight: 300;
-  }
-
-  .public-home-main > p {
-    margin: 0;
-    color: var(--color-text-secondary);
-    font-size: 1rem;
   }
 
   .skill-directory-main,
@@ -929,10 +887,6 @@
     width: auto;
     height: 0.875rem;
     filter: grayscale(1);
-  }
-
-  [data-theme="dark"] .public-brand-weldall {
-    filter: invert(1);
   }
 
   [data-theme="dark"] .skill-directory-powered-by img {
@@ -1815,18 +1769,6 @@
 
     .skill-detail-sidebar {
       grid-template-columns: 1fr;
-    }
-
-    .public-home-main {
-      width: calc(100% - 2rem);
-    }
-
-    .public-brand-lockup {
-      gap: 0.75rem;
-    }
-
-    .public-brand-x {
-      font-size: 1.25rem;
     }
   }
 }

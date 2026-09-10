@@ -1,23 +1,20 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { genericOAuth, jwt, oAuthProxy } from "better-auth/plugins";
+import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "@weldall/db";
 import { WELDALL_CLIENT_ID, WELDALL_ISSUER, WELDALL_RESOURCE } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
 import { requireLoginScopeForOAuthGrant } from "./login-policy";
 import { errorForLog, logger } from "../observability/logger";
-import { resolveDeploymentMode, resolveLoginProviders } from "./providers";
+import { oidcLoginPlugin } from "./oidc-plugin";
 const required = (n: string) => {
   const v = process.env[n];
   if (!v) throw new Error(`${n} is required`);
   return v;
 };
 const signingKid = required("WELDALL_SIGNING_KID");
-const deploymentMode = resolveDeploymentMode();
-const loginProviders = resolveLoginProviders();
 const cliScopes = ["openid", "profile", "email", "offline_access", "weldall:scopes"];
-const localCallbackOrigin = "http://localhost:3000";
 const authLogger = logger.child({ name: "better-auth" });
 
 export const auth = betterAuth({
@@ -25,9 +22,23 @@ export const auth = betterAuth({
   basePath: "/api/auth",
   secret: required("BETTER_AUTH_SECRET"),
   database: prismaAdapter(db, { provider: "postgresql" }),
-  trustedOrigins: [
-    WELDALL_ISSUER,
-    ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:3000"]),
+  trustedOrigins: [WELDALL_ISSUER],
+  account: { accountLinking: { enabled: false } },
+  disabledPaths: [
+    "/sign-in/social",
+    "/sign-in/email",
+    "/sign-up/email",
+    "/link-social",
+    "/unlink-account",
+    "/change-email",
+    "/set-password",
+    "/change-password",
+    "/request-password-reset",
+    "/reset-password",
+    "/send-verification-email",
+    "/verify-email",
+    "/get-access-token",
+    "/refresh-token",
   ],
   logger: {
     level: "debug",
@@ -46,49 +57,9 @@ export const auth = betterAuth({
   rateLimit: {
     customRules: { "/oauth2/token": false },
   },
-  socialProviders: loginProviders.google
-    ? {
-        google: {
-          ...loginProviders.google,
-          includeGrantedScopes: false,
-          overrideUserInfoOnSignIn: true,
-          redirectURI: `${deploymentMode === "production" ? WELDALL_ISSUER : localCallbackOrigin}/api/auth/callback/google`,
-        },
-      }
-    : {},
+  socialProviders: {},
   plugins: [
-    ...(deploymentMode === "production"
-      ? []
-      : [
-          oAuthProxy({
-            productionURL: localCallbackOrigin,
-            currentURL: WELDALL_ISSUER,
-            maxAge: 60,
-            secret: required("OAUTH_PROXY_SECRET"),
-          }),
-        ]),
-    ...(loginProviders.devOidc
-      ? [
-          genericOAuth({
-            config: [
-              {
-                providerId: "dev-oidc",
-                name: "Development login",
-                discoveryUrl: `${loginProviders.devOidc.issuer}/.well-known/openid-configuration`,
-                clientId: loginProviders.devOidc.clientId,
-                clientSecret: loginProviders.devOidc.clientSecret,
-                tokenEndpointAuth: { method: "client_secret_post" },
-                scopes: ["openid", "email", "profile"],
-                redirectURI:
-                  process.env.DEV_IDP_REDIRECT_URI ??
-                  `${localCallbackOrigin}/api/auth/callback/dev-oidc`,
-                pkce: true,
-                requireEmailVerification: true,
-              },
-            ],
-          }),
-        ]
-      : []),
+    oidcLoginPlugin(),
     jwt({
       jwks: {
         remoteUrl: `${WELDALL_ISSUER}/api/oauth/jwks`,

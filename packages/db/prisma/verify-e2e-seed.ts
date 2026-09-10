@@ -2,7 +2,7 @@
  * E2E seed gate.
  *
  * Runs inside the `bootstrap` compose service (docker-compose.e2e.yml) after
- * `migrate deploy`, `seed.ts`, `seed.dev.ts` and `bootstrap-admin.ts`, and
+ * `migrate deploy`, `seed.ts`, `seed.dev.ts` and the login fixture seed, and
  * *before* the bootstrap readiness marker file is touched. Every check below
  * names a row that a Playwright assertion in apps/e2e/test/system.spec.ts
  * reads back through the UI or the CLI.
@@ -19,7 +19,7 @@ import { DEVELOPMENT_SKILL_COUNT } from "./seed.dev-skills.js";
 
 const db = new PrismaClient();
 
-/** Administrator identity bootstrapped by bootstrap-admin.ts in the same service. */
+/** Administrator identity installed by the login fixture seed in the same service. */
 const ADMIN_EMAIL = process.env.E2E_SEED_ADMIN_EMAIL ?? "alice@example.com";
 
 /** Scopes whose existence the `weldall scopes` assertions in the suite depend on. */
@@ -101,12 +101,12 @@ for (const key of REQUIRED_BUSINESS_SCOPE_KEYS) {
 
 const adminScopeKeys = new Set((adminAssignment?.grants ?? []).map((grant) => grant.scope.key));
 check(
-  `bootstrap-admin must grant ${ADMIN_EMAIL} the administrator scope`,
+  `seed-login-fixture must grant ${ADMIN_EMAIL} the administrator scope`,
   adminScopeKeys.has(ADMIN_SCOPE_KEY),
   () => `assigned scopes: ${[...adminScopeKeys].sort().join(", ") || "none"}`,
 );
 check(
-  `bootstrap-admin must grant ${ADMIN_EMAIL} the CLI login scope`,
+  `seed-login-fixture must grant ${ADMIN_EMAIL} the CLI login scope`,
   adminScopeKeys.has(LOGIN_SCOPE_KEY),
 );
 

@@ -68,25 +68,28 @@ export async function effectiveScopesFor(email: string): Promise<ScopeKey[]> {
 export async function hasEffectiveSystemScopeFor(
   email: string,
   scopeKey: string,
+  transaction?: Prisma.TransactionClient,
 ): Promise<boolean> {
   const normalizedEmail = normalizePolicyEmail(email);
-  const { memberships } = await resolveProviderMemberships(normalizedEmail);
-  return db.$transaction(
-    async (tx) => {
-      const [scope, effectiveScopes] = await Promise.all([
-        tx.scope.findUnique({
-          where: { key: scopeKey },
-          select: { key: true, isSystem: true },
-        }),
-        loadEffectiveScopes(tx, normalizedEmail, memberships),
-      ]);
-      return (
-        isProtectedSystemScope(scope, scopeKey) &&
-        effectiveScopes.some((effectiveScope) => effectiveScope === scopeKey)
-      );
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-  );
+  const { memberships } = await resolveProviderMemberships(normalizedEmail, transaction);
+  const check = async (tx: Prisma.TransactionClient) => {
+    const [scope, effectiveScopes] = await Promise.all([
+      tx.scope.findUnique({
+        where: { key: scopeKey },
+        select: { key: true, isSystem: true },
+      }),
+      loadEffectiveScopes(tx, normalizedEmail, memberships),
+    ]);
+    return (
+      isProtectedSystemScope(scope, scopeKey) &&
+      effectiveScopes.some((effectiveScope) => effectiveScope === scopeKey)
+    );
+  };
+  return transaction
+    ? check(transaction)
+    : db.$transaction(check, {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      });
 }
 
 export async function assignedScopesFor(email: string): Promise<ScopeKey[]> {
@@ -435,8 +438,9 @@ function exchangePolicy(
 
 async function resolveProviderMemberships(
   normalizedEmail: string,
+  transaction: Prisma.TransactionClient = db,
 ): Promise<ProviderMembershipResolution> {
-  const providers = await db.groupProvider.findMany({
+  const providers = await transaction.groupProvider.findMany({
     where: { enabled: true, assignments: { some: {} } },
     orderBy: { key: "asc" },
     select: {

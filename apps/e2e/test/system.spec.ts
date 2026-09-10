@@ -138,7 +138,11 @@ const waitForBrowserUrl = async (login: ReturnType<typeof startCli>) => {
   );
 };
 
-const openDevelopmentLogin = async (page: Page, login: ReturnType<typeof startCli>) => {
+const openDevelopmentLogin = async (
+  page: Page,
+  login: ReturnType<typeof startCli>,
+  email: string,
+) => {
   const sessionProbe = page.waitForResponse((response) =>
     response.url().includes("/api/auth/get-session"),
   );
@@ -149,7 +153,18 @@ const openDevelopmentLogin = async (page: Page, login: ReturnType<typeof startCl
   // React root has mounted, so waiting for it guarantees the click reaches its
   // handler even on a loaded CI runner.
   await sessionProbe;
+  const startResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/api/auth/oidc/start"),
+  );
   await page.getByRole("button", { name: "Development login" }).click();
+  const startResponse = await startResponsePromise;
+  if (!startResponse.ok()) expect(startResponse.ok(), await startResponse.text()).toBe(true);
+  await page.waitForURL("https://dev-idp.seibert.localdev/authorize?**");
+  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByLabel("Email").selectOption(email);
+  await page.getByRole("button", { name: "Continue" }).click();
 };
 
 test.beforeEach(async () => {
@@ -178,12 +193,7 @@ test("runs login, skill discovery, a DPoP request, and logout end to end", async
   ]);
 
   const login = startCli(["login"], 150_000);
-  await openDevelopmentLogin(page, login);
-  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
-    timeout: 30_000,
-  });
-  await page.getByLabel("Email").selectOption("alice@example.com");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await openDevelopmentLogin(page, login, "alice@example.com");
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
     timeout: 30_000,
   });
@@ -537,12 +547,7 @@ test("denies CLI login without weldall:login while preserving browser authentica
   ]);
 
   const login = startCli(["login"], 150_000);
-  await openDevelopmentLogin(page, login);
-  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
-    timeout: 30_000,
-  });
-  await page.getByLabel("Email").selectOption("bob@example.com");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await openDevelopmentLogin(page, login, "bob@example.com");
   await expect(page.getByRole("heading", { name: "Login to Weldall CLI" })).toBeVisible({
     timeout: 90_000,
   });

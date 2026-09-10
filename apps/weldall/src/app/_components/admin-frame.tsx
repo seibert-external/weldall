@@ -161,6 +161,14 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 icon={CliIcon}
                 isSelected={selected("/admin/cli")}
               />
+
+              <SectionNavItem
+                route="login-providers"
+                label="Login providers"
+                href="/admin/login-providers"
+                icon={GroupIcon}
+                isSelected={selected("/admin/login-providers")}
+              />
             </SideNavSection>
           </SideNav>
         </div>

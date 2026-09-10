@@ -13,7 +13,7 @@ const schema = z.object({
   DEV_IDP_ISSUER: z.string().url(),
   DEV_IDP_CLIENT_ID: z.string().min(1),
   DEV_IDP_CLIENT_SECRET: z.string().min(16),
-  DEV_IDP_REDIRECT_URI: z.string().url(),
+  WELDALL_ISSUER: z.string().url().default("https://weldall.seibert.localdev"),
   DEV_IDP_SIGNING_PRIVATE_JWK: z.string(),
   DEV_IDP_SIGNING_PUBLIC_JWK: z.string(),
   DEV_IDP_SIGNING_KID: z.string().min(1),
@@ -25,7 +25,7 @@ export type DevIdpEnv = {
   issuer: string;
   clientId: string;
   clientSecret: string;
-  redirectUri: string;
+  callbackOrigin: string;
   signingKid: string;
   privateJwk: JWK;
   publicJwk: JWK;
@@ -35,11 +35,18 @@ export type DevIdpEnv = {
 export async function getEnv(source: NodeJS.ProcessEnv = process.env): Promise<DevIdpEnv> {
   const value = schema.parse(source);
   const issuer = new URL(value.DEV_IDP_ISSUER);
-  const redirect = new URL(value.DEV_IDP_REDIRECT_URI);
+  const redirect = new URL(value.WELDALL_ISSUER);
   if (issuer.protocol !== "https:" || issuer.pathname !== "/" || issuer.search || issuer.hash)
     throw new Error("DEV_IDP_ISSUER must be an HTTPS origin");
-  if (redirect.protocol !== "http:" || redirect.hostname !== "localhost")
-    throw new Error("DEV_IDP_REDIRECT_URI must use the localhost development callback");
+  if (
+    redirect.protocol !== "https:" ||
+    redirect.pathname !== "/" ||
+    redirect.username ||
+    redirect.password ||
+    redirect.search ||
+    redirect.hash
+  )
+    throw new Error("WELDALL_ISSUER must be an HTTPS origin");
   const keyPair = await loadEs256KeyPairFromEnv({
     privateName: "DEV_IDP_SIGNING_PRIVATE_JWK",
     privateValue: value.DEV_IDP_SIGNING_PRIVATE_JWK,
@@ -55,7 +62,7 @@ export async function getEnv(source: NodeJS.ProcessEnv = process.env): Promise<D
     issuer: issuer.origin,
     clientId: value.DEV_IDP_CLIENT_ID,
     clientSecret: value.DEV_IDP_CLIENT_SECRET,
-    redirectUri: redirect.toString(),
+    callbackOrigin: redirect.origin,
     signingKid: value.DEV_IDP_SIGNING_KID,
     privateJwk: keyPair.privateJwk,
     publicJwk: keyPair.publicJwk,

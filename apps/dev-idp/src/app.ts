@@ -41,6 +41,24 @@ const html = (value: string) =>
   });
 
 export function createApp(env: DevIdpEnv) {
+  // This insecure fixture accepts only server-generated provider callbacks at its configured Weldall origin.
+  const validCallback = (value: string | undefined) => {
+    try {
+      const url = new URL(value ?? "");
+      return (
+        url.origin === env.callbackOrigin &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash &&
+        /^\/api\/auth\/callback\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+          url.pathname,
+        )
+      );
+    } catch {
+      return false;
+    }
+  };
   const transactions = new Map<string, AuthorizationTransaction>();
   const codes = new Map<string, AuthorizationCode>();
   const accessTokens = new Map<string, { user: DevIdpUser; expiresAt: number }>();
@@ -89,7 +107,8 @@ export function createApp(env: DevIdpEnv) {
       requiredParameters.some((name) => requestUrl.searchParams.getAll(name).length !== 1) ||
       query.response_type !== "code" ||
       query.client_id !== env.clientId ||
-      query.redirect_uri !== env.redirectUri ||
+      !query.redirect_uri ||
+      !validCallback(query.redirect_uri) ||
       !query.state ||
       !query.nonce ||
       query.code_challenge_method !== "S256" ||

@@ -7,6 +7,8 @@ import type { DevIdpEnv } from "../src/env.js";
 
 let key: DpopKeyPair;
 let env: DevIdpEnv;
+const redirectUri =
+  "https://weldall.example.com/api/auth/callback/0195be74-d5e4-4543-8fcf-4fe368d74214";
 
 beforeAll(async () => {
   key = await generateEs256KeyPair();
@@ -14,7 +16,7 @@ beforeAll(async () => {
     issuer: "https://dev-idp.example",
     clientId: "weldall",
     clientSecret: "development-client-secret",
-    redirectUri: "http://localhost:3000/api/auth/callback/dev-oidc",
+    callbackOrigin: "https://weldall.example.com",
     signingKid: "dev-idp-test",
     privateJwk: key.privateJwk,
     publicJwk: key.publicJwk,
@@ -35,7 +37,7 @@ const authorizationUrl = (verifier: string) => {
   Object.entries({
     response_type: "code",
     client_id: env.clientId,
-    redirect_uri: env.redirectUri,
+    redirect_uri: redirectUri,
     scope: "openid email profile",
     state: "state",
     nonce: "nonce",
@@ -68,7 +70,7 @@ const exchange = (app: ReturnType<typeof createApp>, code: string, verifier: str
       code,
       client_id: env.clientId,
       client_secret: env.clientSecret,
-      redirect_uri: env.redirectUri,
+      redirect_uri: redirectUri,
       code_verifier: verifier,
     }),
   });
@@ -154,7 +156,7 @@ describe("development OIDC provider", () => {
       code,
       client_id: env.clientId,
       client_secret: env.clientSecret,
-      redirect_uri: env.redirectUri,
+      redirect_uri: redirectUri,
       code_verifier: verifier,
     });
     body.append("code", code);

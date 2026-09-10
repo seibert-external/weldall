@@ -1,11 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-  ADMIN_SCOPE_KEY,
-  db,
-  isMachineOnlySystemScope,
-  LOGIN_SCOPE_KEY,
-  Prisma,
-} from "@weldall/db";
+import { createHash } from "node:crypto";
+import { ADMIN_SCOPE_KEY, db, isMachineOnlySystemScope, Prisma } from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
@@ -268,7 +262,10 @@ export function parseScopeDescription(rawDescription: string): string {
   return description;
 }
 
-export async function isAdminEmail(email: string): Promise<boolean> {
+export async function isAdminEmail(
+  email: string,
+  transaction?: Prisma.TransactionClient,
+): Promise<boolean> {
   let normalizedEmail: string;
   try {
     normalizedEmail = normalizeEmail(email);
@@ -276,18 +273,21 @@ export async function isAdminEmail(email: string): Promise<boolean> {
     return false;
   }
 
-  return hasEffectiveSystemScopeFor(normalizedEmail, ADMIN_SCOPE_KEY);
+  return hasEffectiveSystemScopeFor(normalizedEmail, ADMIN_SCOPE_KEY, transaction);
 }
 
-export async function requireAdminUser(userId: string): Promise<{
+export async function requireAdminUser(
+  userId: string,
+  transaction?: Prisma.TransactionClient,
+): Promise<{
   id: string;
   email: string;
 }> {
-  const user = await db.user.findUnique({
+  const user = await (transaction ?? db).user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, emailVerified: true },
   });
-  if (!user?.emailVerified || !(await isAdminEmail(user.email))) {
+  if (!user?.emailVerified || !(await isAdminEmail(user.email, transaction))) {
     throw new AdminDomainError("FORBIDDEN", "Administrator access is required.");
   }
   return { id: user.id, email: user.email };
@@ -1171,102 +1171,6 @@ export async function deleteAssignment(
   );
   if (!deleted) throw new AdminDomainError("NOT_FOUND", "Assignment not found.");
   return { id: deleted.id, version: deleted.version };
-}
-
-export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
-  const normalizedEmail = normalizeEmail(email);
-  const actor: AdminActor = {
-    id: "deployment-bootstrap",
-    requestId: randomUUID(),
-  };
-
-  return db.$transaction(
-    async (tx) => {
-      const requiredScopes = await tx.scope.findMany({
-        where: { key: { in: [ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY] }, isSystem: true },
-      });
-      if (requiredScopes.length !== 2) {
-        throw new AdminDomainError("NOT_FOUND", "The built-in bootstrap scopes are missing.");
-      }
-      const adminScope = requiredScopes.find((scope) => scope.key === ADMIN_SCOPE_KEY)!;
-      const existing = await tx.emailScopeAssignment.findUnique({
-        where: { normalizedEmail },
-        include: { grants: { include: { scope: { select: { key: true } } } } },
-      });
-      const beforeScopes = existing
-        ? sortedUnique(existing.grants.map((grant) => grant.scope.key))
-        : [];
-      const hasAdminScope = beforeScopes.includes(ADMIN_SCOPE_KEY);
-      const hasLoginScope = beforeScopes.includes(LOGIN_SCOPE_KEY);
-      if (hasAdminScope) {
-        if (hasLoginScope) return serializeAssignment(existing!);
-        throw new AdminDomainError(
-          "CONFLICT",
-          "Bootstrap is disabled after the first administrator exists.",
-        );
-      }
-      if (
-        await tx.emailScopeGrant.findFirst({
-          where: { scopeId: adminScope.id },
-          select: { id: true },
-        })
-      ) {
-        throw new AdminDomainError(
-          "CONFLICT",
-          "Bootstrap is disabled after the first administrator exists.",
-        );
-      }
-
-      const newGrants = requiredScopes
-        .filter((scope) => !beforeScopes.includes(scope.key))
-        .map((scope) => ({
-          id: randomUUID(),
-          scopeId: scope.id,
-          createdBy: actor.id,
-        }));
-      const assignment = existing
-        ? await tx.emailScopeAssignment.update({
-            where: { id: existing.id },
-            data: {
-              version: { increment: 1 },
-              updatedBy: actor.id,
-              grants: { create: newGrants },
-            },
-            include: {
-              grants: { include: { scope: { select: { key: true } } } },
-            },
-          })
-        : await tx.emailScopeAssignment.create({
-            data: {
-              normalizedEmail,
-              createdBy: actor.id,
-              updatedBy: actor.id,
-              grants: { create: newGrants },
-            },
-            include: {
-              grants: { include: { scope: { select: { key: true } } } },
-            },
-          });
-      const afterScopes = sortedUnique(assignment.grants.map((grant) => grant.scope.key));
-      await writeAudit(tx, actor, {
-        eventType: beforeScopes.length ? "user_scopes.replaced" : "user_scopes.created",
-        subjectType: "email_scope_assignment",
-        subjectId: assignment.id,
-        metadata: {
-          normalizedEmail,
-          beforeScopes,
-          afterScopes,
-          addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),
-          removedScopes: [],
-          source: "deployment_bootstrap",
-          versionBefore: existing?.version ?? 0,
-          versionAfter: assignment.version,
-        },
-      });
-      return serializeAssignment(assignment);
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
 }
 
 export function countVerifiedAdminEmails(
