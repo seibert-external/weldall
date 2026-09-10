@@ -33,8 +33,8 @@ export default async function Setup() {
               <Text color="secondary">
                 WELDALL_SETUP_TOKEN must be a base64url token generated from at least 32 random
                 bytes. WELDALL_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key,
-                shared with group-provider and chat credentials. Keep the encryption key stable;
-                never replace an existing key to retry setup.
+                shared with group-provider credentials. Keep the encryption key stable; never
+                replace an existing key to retry setup.
               </Text>
             </>
           ) : (
