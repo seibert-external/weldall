@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { measure, trimCatalog } from "../scripts/measure-catalog.mjs";
+import { measure, resolveOutputDirectory, trimCatalog } from "../scripts/measure-catalog.mjs";
 
 const fixture = JSON.parse(
   await readFile(join(import.meta.dirname, "fixtures", "skills-list.json"), "utf8"),
@@ -62,6 +63,35 @@ test("measure reports utf-8 bytes and a token estimate of a quarter of them", ()
 
 test("trimming the fixture actually saves bytes", () => {
   assert.ok(measure(trimCatalog(fixture)).bytes < measure(fixture).bytes);
+});
+
+test("the default output directory stays inside the plugin directory, no matter the cwd", async () => {
+  const pluginDirectory = join(import.meta.dirname, "..");
+  const originalCwd = process.cwd();
+  const elsewhere = await mkdtemp(join(tmpdir(), "weldall-measure-catalog-"));
+  try {
+    process.chdir(elsewhere);
+    const directory = resolveOutputDirectory(undefined);
+    assert.equal(directory, join(pluginDirectory, "measurements"));
+    assert.ok(
+      !directory.startsWith(elsewhere),
+      "the default directory must not be resolved against the cwd",
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test("an explicit output directory still resolves against the cwd", async () => {
+  const originalCwd = process.cwd();
+  const elsewhere = await mkdtemp(join(tmpdir(), "weldall-measure-catalog-"));
+  try {
+    process.chdir(elsewhere);
+    const directory = resolveOutputDirectory("custom-measurements");
+    assert.equal(directory, resolve("custom-measurements"));
+  } finally {
+    process.chdir(originalCwd);
+  }
 });
 
 test("trimming omits tags when meta is absent or has no tags field", () => {

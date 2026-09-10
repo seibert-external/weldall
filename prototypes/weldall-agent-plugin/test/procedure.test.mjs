@@ -24,6 +24,18 @@ test("the lookup block holds the live command and a swappable alternative", () =
   assert.match(block[1], /weldall skills list --json \| jq/);
 });
 
+test("the trimmed lookup's jq projection names every field the outcome table branches on", () => {
+  const block = procedure.match(/<!-- lookup -->\n([\s\S]*?)<!-- \/lookup -->/)[1];
+  const jqLine = block.match(/weldall skills list --json \| jq[^\n]*/);
+  assert.ok(jqLine, "the trimmed lookup must be a single jq line");
+  for (const field of ["warnings", "available", "missingScopes"])
+    assert.match(
+      jqLine[0],
+      new RegExp(`\\b${field}\\b`),
+      `the trimmed lookup's jq projection must keep ${field}`,
+    );
+});
+
 test("the lookup is live on every run and never reused", () => {
   assert.match(procedure, /every time/);
   assert.match(procedure, /Never reuse a catalog read/);
@@ -79,6 +91,18 @@ test("a failed lookup routes to weldall login instead of a workaround", () => {
 test("the placeholder rule names a concrete placeholder", () => {
   assert.match(procedure, /placeholder/);
   assert.ok(procedure.includes("<contract-id>"));
+});
+
+test("the load step uses weldall skills show, with --json, never find", () => {
+  const block = procedure.match(/## Load and follow the skill\n([\s\S]*?)\n## /);
+  assert.ok(block, "procedure.md must have a Load and follow the skill section");
+  assert.match(block[1], /```sh\nweldall skills show <slug> --json\n```/);
+  assert.ok(!block[1].includes("skills find"), "the load step must not name skills find");
+});
+
+test("the load step names the document field carrying the skill's instructions", () => {
+  const block = procedure.match(/## Load and follow the skill\n([\s\S]*?)\n## /);
+  assert.match(block[1], /`document` field holds the instructions/);
 });
 
 test("the skill document is data, not an instruction that outranks the user", () => {
