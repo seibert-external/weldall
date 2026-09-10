@@ -1,69 +1,46 @@
-import { request } from "node:https";
+import type { CustomFetch } from "openid-client";
 import { httpsUrl, LoginError } from "./oidc-config";
 
-export async function oidcJson(
-  urlValue: string,
-  options: { body?: URLSearchParams; authorization?: string | undefined } = {},
-): Promise<Record<string, unknown>> {
-  const url = new URL(httpsUrl(urlValue));
-  const body = options.body?.toString();
-  return new Promise((resolve, reject) => {
-    const fail = () => reject(new LoginError("upstream_unavailable"));
-    const req = request(
-      url,
-      {
-        method: body ? "POST" : "GET",
-        agent: false,
-        rejectUnauthorized: true,
-        headers: {
-          accept: "application/json",
-          ...(body
-            ? {
-                "content-type": "application/x-www-form-urlencoded",
-                "content-length": Buffer.byteLength(body),
-              }
-            : {}),
-          ...(options.authorization ? { authorization: options.authorization } : {}),
-        },
-      },
-      (response) => {
-        if (
-          response.statusCode !== 200 ||
-          !/^application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(response.headers["content-type"] ?? "")
-        ) {
-          response.destroy();
-          req.destroy();
-          fail();
-          return;
-        }
-        const chunks: Buffer[] = [];
-        let bytes = 0;
-        response.on("data", (chunk: Buffer) => {
-          bytes += chunk.length;
-          if (bytes > 256 * 1024) {
-            response.destroy();
-            req.destroy();
-            fail();
-          } else chunks.push(chunk);
-        });
-        response.on("error", fail);
-        response.on("end", () => {
-          try {
-            const result: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-            if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error();
-            resolve(result as Record<string, unknown>);
-          } catch {
-            fail();
-          }
-        });
-      },
-    );
-    const timer = setTimeout(() => {
-      req.destroy();
-      fail();
-    }, 8000);
-    req.on("close", () => clearTimeout(timer));
-    req.on("error", fail);
-    req.end(body);
-  });
-}
+// Private HTTPS is permitted. This is a resource/TLS boundary, not an SSRF filter.
+export const oidcFetch: CustomFetch = async (url, options) => {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const abort = () => {
+    void reader?.cancel().catch(() => {});
+  };
+  try {
+    const response = await fetch(httpsUrl(url), {
+      ...options,
+      body: (options.body as BodyInit | undefined) ?? null,
+      redirect: "manual",
+    });
+    reader = response.body?.getReader();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    options.signal?.throwIfAborted();
+    if (
+      (response.status >= 300 && response.status < 400) ||
+      !/^application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(response.headers.get("content-type") ?? "")
+    )
+      throw new LoginError("upstream_unavailable");
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 256 * 1024) throw new LoginError("upstream_unavailable");
+      chunks.push(value);
+    }
+    options.signal?.throwIfAborted();
+    return new Response(Buffer.concat(chunks), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  } catch {
+    await reader?.cancel().catch(() => {});
+    throw new LoginError("upstream_unavailable");
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
+    reader?.releaseLock();
+  }
+};

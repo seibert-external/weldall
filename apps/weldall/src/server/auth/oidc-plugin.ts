@@ -259,7 +259,7 @@ export function oidcLoginPlugin(): BetterAuthPlugin {
           }
         },
       ),
-      // Same endpoint key intentionally replaces Better Auth's built-in unverified upstream callback.
+      // Own application policy/test completion here; Better Auth still owns local sessions.
       callbackOAuth: createAuthEndpoint(
         "/callback/:providerId",
         { method: "GET", requireRequest: true },
@@ -275,9 +275,8 @@ export function oidcLoginPlugin(): BetterAuthPlugin {
               !z.string().uuid().safeParse(ctx.params.providerId).success
             )
               throw new LoginError("invalid_callback");
-            for (const name of ["state", "code", "iss", "error"])
-              if (url.searchParams.getAll(name).length > 1)
-                throw new LoginError("invalid_callback");
+            if (url.searchParams.getAll("state").length !== 1)
+              throw new LoginError("invalid_callback");
             const state = url.searchParams.get("state");
             const browser = await ctx.getSignedCookie(browserCookie, ctx.context.secret);
             if (!state || !/^[A-Za-z0-9_-]{43}$/.test(state) || !browser)
@@ -292,11 +291,7 @@ export function oidcLoginPlugin(): BetterAuthPlugin {
                 throw new LoginError("invalid_test_session");
             };
             if (attempt.mode === "provider-test") await assertTestAdmin();
-            const identity = await verifyAttempt(attempt, {
-              code: url.searchParams.get("code") ?? undefined,
-              issuer: url.searchParams.get("iss") ?? undefined,
-              error: url.searchParams.get("error") ?? undefined,
-            });
+            const identity = await verifyAttempt(attempt, url.search);
             if (attempt.mode === "provider-test" || attempt.mode === "setup-test") {
               if (attempt.mode === "provider-test") await assertTestAdmin();
               return ctx.redirect(testResultUrl(attempt.mode, attempt.payload.testId!, true));

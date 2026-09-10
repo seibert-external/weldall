@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { randomState, randomNonce, randomPKCECodeVerifier } from "openid-client";
 import { db, ensureSystemScopes, ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY, type Prisma } from "@weldall/db";
 import { z } from "zod";
 import { WELDALL_ISSUER } from "../oauth/constants";
@@ -9,8 +10,8 @@ import {
   type ProviderConfig,
   type VerifiedIdentity,
 } from "./oidc-config";
-import { digest, randomValue, requireSetupToken, seal, unseal } from "./oidc-credentials";
-import { authorizationUrl, exchange } from "./oidc-runtime";
+import { digest, requireSetupToken, seal, unseal } from "./oidc-credentials";
+import { authorizationUrl, verifyCallback } from "./oidc-runtime";
 
 export const callbackUrl = (id: string) => `${WELDALL_ISSUER}/api/auth/callback/${id}`;
 const INITIAL_PROVIDER_ID = "00000000-0000-4000-8000-000000000001";
@@ -124,10 +125,10 @@ async function createAttempt(input: {
   testSessionId?: string;
   testId?: string;
 }) {
-  const state = randomValue();
+  const state = randomState();
   const id = digest(state);
-  const nonce = randomValue();
-  const verifier = randomValue();
+  const nonce = randomNonce();
+  const verifier = randomPKCECodeVerifier();
   const returnTo = safeReturnTo(input.returnTo);
   const url = await authorizationUrl(
     input.config,
@@ -198,6 +199,7 @@ export async function consumeAttempt(providerId: string, state: string, browser:
   if (!attempt) throw new LoginError("invalid_attempt");
   return {
     ...attempt,
+    state,
     payload: payloadSchema.parse(JSON.parse(unseal("attempt", id, attempt.encryptedPayload))),
   };
 }
@@ -320,38 +322,19 @@ export async function completeVerifiedAttempt(
     return { user, returnTo: "/" };
   });
 }
-export async function finishLogin(input: {
-  providerId: string;
-  state: string;
-  browser: string;
-  code?: string | undefined;
-  issuer?: string | undefined;
-  error?: string | undefined;
-}) {
-  const attempt = await consumeAttempt(input.providerId, input.state, input.browser);
-  const identity = await verifyAttempt(attempt, input);
-  return completeVerifiedAttempt(attempt, identity);
-}
-export async function verifyAttempt(
-  attempt: ConsumedAttempt,
-  input: {
-    code?: string | undefined;
-    issuer?: string | undefined;
-    error?: string | undefined;
-  },
-) {
-  if (input.error || !input.code) throw new LoginError("authorization_cancelled");
-  if (input.issuer !== undefined && input.issuer !== attempt.payload.config.issuer)
-    throw new LoginError("issuer_mismatch");
+export async function verifyAttempt(attempt: ConsumedAttempt, query: string) {
   if (attempt.mode === "login") {
     const { row } = await currentProvider(attempt.providerId);
     if (row.version !== attempt.providerVersion) throw new LoginError("provider_changed");
   } else if (attempt.mode === "setup" || attempt.mode === "setup-test")
     await assertSetupOpen(attempt);
-  const identity = await exchange(
+  // Only the query is received from the browser; origin/path and expected state are authenticated.
+  const callback = new URL(callbackUrl(attempt.providerId));
+  callback.search = query;
+  const identity = await verifyCallback(
     attempt.payload.config,
-    callbackUrl(attempt.providerId),
-    input.code,
+    callback,
+    attempt.state,
     attempt.payload.nonce,
     attempt.payload.verifier,
   );

@@ -1,96 +1,149 @@
-import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { oidcFetch } from "../src/server/auth/oidc-transport";
 
-const fixture = vi.hoisted(() => ({
-  status: 200,
-  contentType: "application/json",
-  body: '{"ok":true}',
-  requests: [] as Array<{ url: URL; options: Record<string, any> }>,
-  stall: false,
-}));
-
-vi.mock("node:https", () => ({
-  request: (url: URL, options: Record<string, any>, callback: Function) => {
-    fixture.requests.push({ url, options });
-    const req = new EventEmitter() as EventEmitter & { end: Function; destroy: Function };
-    req.destroy = () => req.emit("close");
-    req.end = () => {
-      if (fixture.stall) return;
-      const response = new EventEmitter() as EventEmitter & {
-        statusCode: number;
-        headers: Record<string, string>;
-        destroy: Function;
-      };
-      response.statusCode = fixture.status;
-      response.headers = {
-        "content-type": fixture.contentType,
-        location: "https://evil.example.com",
-      };
-      response.destroy = () => {};
-      callback(response);
-      response.emit("data", Buffer.from(fixture.body));
-      response.emit("end");
-      req.emit("close");
-    };
-    return req;
-  },
-}));
-
-import { oidcJson } from "../src/server/auth/oidc-transport";
-
+const fetchMock = vi.fn<typeof fetch>();
 beforeEach(() => {
-  fixture.status = 200;
-  fixture.contentType = "application/json";
-  fixture.body = '{"ok":true}';
-  fixture.requests = [];
-  fixture.stall = false;
+  fetchMock.mockReset().mockResolvedValue(Response.json({ ok: true }));
+  vi.stubGlobal("fetch", fetchMock);
 });
-
-afterEach(() => {
-  vi.useRealTimers();
-});
-
-it("uses bounded verified HTTPS without application-layer destination filtering", async () => {
-  await expect(oidcJson("https://127.0.0.1/jwks")).resolves.toEqual({ ok: true });
-  expect(fixture.requests).toHaveLength(1);
-  expect(fixture.requests[0]!.options.rejectUnauthorized).toBe(true);
-  expect(fixture.requests[0]!.options.agent).toBe(false);
-});
-
-it("never follows redirects and sends credentials only on the requested call", async () => {
-  fixture.status = 302;
-  await expect(
-    oidcJson("https://id.example.com/token", {
-      authorization: "Basic secret",
-      body: new URLSearchParams({ code: "code" }),
-    }),
-  ).rejects.toThrow("upstream_unavailable");
-  expect(fixture.requests[0]!.options.headers).toMatchObject({
-    authorization: "Basic secret",
-    "content-type": "application/x-www-form-urlencoded",
+afterEach(() => vi.unstubAllGlobals());
+const request = (url = "https://id.example.com/config", signal = new AbortController().signal) =>
+  oidcFetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+    body: undefined,
+    redirect: "manual",
+    signal,
   });
 
-  fixture.status = 200;
-  await oidcJson("https://id.example.com/config");
-  expect(fixture.requests[1]!.options.headers).not.toHaveProperty("authorization");
+it("permits private HTTPS using Fetch's default TLS verification and preserves the library signal", async () => {
+  const signal = new AbortController().signal;
+  expect(await (await request("https://127.0.0.1/jwks", signal)).json()).toEqual({ ok: true });
+  expect(fetchMock).toHaveBeenCalledWith("https://127.0.0.1/jwks", {
+    method: "GET",
+    headers: { accept: "application/json" },
+    body: null,
+    redirect: "manual",
+    signal,
+  });
 });
-
-it("rejects invalid content types, oversized payloads, and non-object JSON", async () => {
-  fixture.contentType = "text/html";
-  await expect(oidcJson("https://id.example.com/config")).rejects.toThrow();
-  fixture.contentType = "application/json";
-  fixture.body = JSON.stringify({ data: "x".repeat(256 * 1024) });
-  await expect(oidcJson("https://id.example.com/config")).rejects.toThrow();
-  fixture.body = "[]";
-  await expect(oidcJson("https://id.example.com/config")).rejects.toThrow();
+it.each([
+  "http://id.example.com",
+  "https://user:password@id.example.com",
+  "https://id.example.com/#fragment",
+])("rejects URL %s before sending credentials", async (url) => {
+  await expect(request(url)).rejects.toThrow("upstream_unavailable");
+  expect(fetchMock).not.toHaveBeenCalled();
 });
-
-it("bounds the entire request even if connection establishment stalls", async () => {
-  vi.useFakeTimers();
-  fixture.stall = true;
-  const pending = expect(oidcJson("https://id.example.com/config")).rejects.toThrow(
-    "upstream_unavailable",
+it("never redirects/forwards credentials, cancels redirects and keeps status/error JSON for the library", async () => {
+  const cancel = vi.fn();
+  fetchMock.mockResolvedValueOnce(
+    new Response(new ReadableStream({ cancel }), {
+      status: 302,
+      headers: { "content-type": "application/json", location: "https://evil.example.com" },
+    }),
   );
-  await vi.advanceTimersByTimeAsync(8000);
-  await pending;
+  await expect(
+    oidcFetch("https://id.example.com/token", {
+      method: "POST",
+      headers: { authorization: "Basic secret" },
+      body: new URLSearchParams({ code: "code" }),
+      redirect: "manual",
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toThrow("upstream_unavailable");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(fetchMock).toHaveBeenCalledOnce();
+  fetchMock.mockResolvedValueOnce(Response.json({ error: "invalid_grant" }, { status: 400 }));
+  const response = await request();
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "invalid_grant" });
+  expect(new Headers(fetchMock.mock.calls[1]![1]!.headers).has("authorization")).toBe(false);
+});
+it.each(["text/html", "application/jsonp", "text/json", ""])(
+  "cancels invalid media type %s",
+  async (contentType) => {
+    const cancel = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(new ReadableStream({ cancel }), { headers: { "content-type": contentType } }),
+    );
+    await expect(request()).rejects.toThrow("upstream_unavailable");
+    expect(cancel).toHaveBeenCalledOnce();
+  },
+);
+it.each(["application/json", "application/jwk-set+json", "Application/JSON; charset=utf-8"])(
+  "accepts JSON media type %s without parsing/rebuilding protocol JSON",
+  async (contentType) => {
+    fetchMock.mockResolvedValueOnce(
+      new Response("not-json", { headers: { "content-type": contentType } }),
+    );
+    expect(await (await request()).text()).toBe("not-json");
+  },
+);
+it("caps chunked bytes, not declared Content-Length, and cancels oversized bodies", async () => {
+  const cancel = vi.fn();
+  let chunks = 0;
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      new ReadableStream({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(128 * 1024));
+          chunks++;
+        },
+        cancel,
+      }),
+      { headers: { "content-type": "application/json", "content-length": "1" } },
+    ),
+  );
+  await expect(request()).rejects.toThrow("upstream_unavailable");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(chunks).toBeLessThanOrEqual(4);
+  fetchMock.mockResolvedValueOnce(
+    new Response(new Uint8Array(256 * 1024), { headers: { "content-type": "application/json" } }),
+  );
+  expect((await (await request()).arrayBuffer()).byteLength).toBe(256 * 1024);
+});
+it("honors abort during stalled connection establishment", async () => {
+  fetchMock.mockImplementationOnce(
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), {
+          once: true,
+        });
+      }),
+  );
+  await expect(request(undefined, AbortSignal.timeout(20))).rejects.toThrow("upstream_unavailable");
+});
+it("honors abort during a slow response body and cancels it", async () => {
+  const cancel = vi.fn();
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array([123]));
+        },
+        cancel,
+      }),
+      { headers: { "content-type": "application/json" } },
+    ),
+  );
+  await expect(request(undefined, AbortSignal.timeout(20))).rejects.toThrow("upstream_unavailable");
+  expect(cancel).toHaveBeenCalledOnce();
+});
+it("sanitizes TLS/network and body read failures", async () => {
+  fetchMock.mockRejectedValueOnce(new Error("certificate rejected: sensitive destination"));
+  const failure = await request().catch((error: Error) => error);
+  expect(failure).toMatchObject({ message: "upstream_unavailable" });
+  expect(failure).not.toHaveProperty("cause");
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new Error("body secret"));
+        },
+      }),
+      { headers: { "content-type": "application/json" } },
+    ),
+  );
+  await expect(request()).rejects.toThrow("upstream_unavailable");
 });

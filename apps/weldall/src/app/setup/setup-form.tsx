@@ -201,8 +201,8 @@ export function SetupForm({ callbackUrl }: { callbackUrl: string }) {
       }}
     >
       <form.Subscribe
-        selector={
-          (state) => [state.canSubmit, state.isSubmitting, state.submissionAttempts] as const
+        selector={(state) =>
+          [state.canSubmit, state.isSubmitting, state.submissionAttempts] as const
         }
       >
         {([canSubmit, isSubmitting, submissionAttempts]) => {
@@ -210,127 +210,127 @@ export function SetupForm({ callbackUrl }: { callbackUrl: string }) {
           // always surface validation errors; afterwards they reflect validity.
           const blockSubmit = submissionAttempts > 0 && !canSubmit;
           return (
-          <fieldset disabled={isSubmitting || redirecting} className="m-0 min-w-0 border-0 p-0">
-            <FormLayout>
-              {error ? (
-                <Banner
-                  container="card"
-                  status="error"
-                  title="Setup could not continue"
-                  description={error}
+            <fieldset disabled={isSubmitting || redirecting} className="m-0 min-w-0 border-0 p-0">
+              <FormLayout>
+                {error ? (
+                  <Banner
+                    container="card"
+                    status="error"
+                    title="Setup could not continue"
+                    description={error}
+                  />
+                ) : null}
+                {status ? <p role="status">{status}</p> : null}
+                {textField("token", "Operator setup token", { type: "password" })}
+                {textField("adminEmail", "First administrator email", { type: "email" })}
+                {textField("name", "Provider name")}
+                {textField("buttonLabel", "Login button label")}
+                {textField("buttonColor", "Button color", {
+                  placeholder: "#2563eb",
+                  description:
+                    "Six-digit hex color. Login text contrast is calculated automatically.",
+                })}
+                {textField("issuer", "Exact HTTPS issuer", {
+                  placeholder: "https://identity.example.com",
+                })}
+                {textField("discoveryUrl", "Discovery URL override", {
+                  optional: true,
+                  description: "Leave empty to discover configuration from the issuer.",
+                })}
+                <TextInput
+                  label="Callback URL"
+                  description="Register this exact URL with your identity provider. It stays the same across reloads and after installation."
+                  value={callbackUrl}
+                  isDisabled
+                  width="100%"
                 />
-              ) : null}
-              {status ? <p role="status">{status}</p> : null}
-              {textField("token", "Operator setup token", { type: "password" })}
-              {textField("adminEmail", "First administrator email", { type: "email" })}
-              {textField("name", "Provider name")}
-              {textField("buttonLabel", "Login button label")}
-              {textField("buttonColor", "Button color", {
-                placeholder: "#2563eb",
-                description:
-                  "Six-digit hex color. Login text contrast is calculated automatically.",
-              })}
-              {textField("issuer", "Exact HTTPS issuer", {
-                placeholder: "https://identity.example.com",
-              })}
-              {textField("discoveryUrl", "Discovery URL override", {
-                optional: true,
-                description: "Leave empty to discover configuration from the issuer.",
-              })}
-              <TextInput
-                label="Callback URL"
-                description="Register this exact URL with your identity provider. It stays the same across reloads and after installation."
-                value={callbackUrl}
-                isDisabled
-                width="100%"
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                label={copied ? "Callback URL copied" : "Copy callback URL"}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(callbackUrl);
-                    setCopied(true);
-                  } catch {
-                    setError(
-                      "Could not copy the callback URL. Check clipboard permissions and retry.",
-                    );
-                  }
-                }}
-              />
-              {textField("clientId", "Client ID")}
-              {textField("clientSecret", "Client secret", { type: "password" })}
-              <form.Field
-                name="tokenEndpointAuthMethod"
-                validators={{ onChange: setupFieldSchemas.tokenEndpointAuthMethod }}
-              >
-                {(field) => (
-                  <Selector
-                    label="Token endpoint authentication"
-                    isRequired
-                    options={["client_secret_basic", "client_secret_post"]}
-                    value={field.state.value}
-                    onChange={(value) => {
-                      invalidate();
-                      field.handleChange(
-                        setupFormSchema.shape.tokenEndpointAuthMethod.parse(value),
+                <Button
+                  type="button"
+                  variant="secondary"
+                  label={copied ? "Callback URL copied" : "Copy callback URL"}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(callbackUrl);
+                      setCopied(true);
+                    } catch {
+                      setError(
+                        "Could not copy the callback URL. Check clipboard permissions and retry.",
                       );
-                    }}
-                    onBlur={field.handleBlur}
-                    width="100%"
-                    {...fieldStatusProps(field)}
-                  />
-                )}
-              </form.Field>
-              {textField("scopes", "Scopes", {
-                description: "Space-separated scopes; openid and email are required.",
-              })}
-              {textField("domains", "Allowed email domains", {
-                optional: true,
-                description:
-                  "Comma-separated exact domains. Leave empty to trust all verified emails.",
-              })}
-              <form.Field
-                name="acknowledgeAuthority"
-                validators={{ onChange: setupFieldSchemas.acknowledgeAuthority }}
-              >
-                {(field) => (
-                  <CheckboxInput
-                    label="I trust this provider to assert email identities"
-                    description="Verified email is the provider's assertion, not independent proof. Domain restrictions limit its authority but cannot make a malicious provider safe."
-                    isRequired
-                    value={field.state.value}
-                    onChange={(value) => {
-                      invalidate();
-                      field.handleChange(value);
-                    }}
-                    onBlur={field.handleBlur}
-                    width="100%"
-                    {...fieldStatusProps(field)}
-                  />
-                )}
-              </form.Field>
-              <p>
-                Test login is optional and runs on your responsibility. It saves nothing and does
-                not authorize installation.
-              </p>
-              <Button
-                type="button"
-                variant="secondary"
-                label="Test login (optional)"
-                isDisabled={blockSubmit || isSubmitting || redirecting}
-                onClick={() => submit(true)}
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                label="Complete installation"
-                isDisabled={blockSubmit || redirecting}
-                isLoading={isSubmitting || redirecting}
-              />
-            </FormLayout>
-          </fieldset>
+                    }
+                  }}
+                />
+                {textField("clientId", "Client ID")}
+                {textField("clientSecret", "Client secret", { type: "password" })}
+                <form.Field
+                  name="tokenEndpointAuthMethod"
+                  validators={{ onChange: setupFieldSchemas.tokenEndpointAuthMethod }}
+                >
+                  {(field) => (
+                    <Selector
+                      label="Token endpoint authentication"
+                      isRequired
+                      options={["client_secret_basic", "client_secret_post"]}
+                      value={field.state.value}
+                      onChange={(value) => {
+                        invalidate();
+                        field.handleChange(
+                          setupFormSchema.shape.tokenEndpointAuthMethod.parse(value),
+                        );
+                      }}
+                      onBlur={field.handleBlur}
+                      width="100%"
+                      {...fieldStatusProps(field)}
+                    />
+                  )}
+                </form.Field>
+                {textField("scopes", "Scopes", {
+                  description: "Space-separated scopes; openid and email are required.",
+                })}
+                {textField("domains", "Allowed email domains", {
+                  optional: true,
+                  description:
+                    "Comma-separated exact domains. Leave empty to trust all verified emails.",
+                })}
+                <form.Field
+                  name="acknowledgeAuthority"
+                  validators={{ onChange: setupFieldSchemas.acknowledgeAuthority }}
+                >
+                  {(field) => (
+                    <CheckboxInput
+                      label="I trust this provider to assert email identities"
+                      description="Verified email is the provider's assertion, not independent proof. Domain restrictions limit its authority but cannot make a malicious provider safe."
+                      isRequired
+                      value={field.state.value}
+                      onChange={(value) => {
+                        invalidate();
+                        field.handleChange(value);
+                      }}
+                      onBlur={field.handleBlur}
+                      width="100%"
+                      {...fieldStatusProps(field)}
+                    />
+                  )}
+                </form.Field>
+                <p>
+                  Test login opens a new tab where it starts a login attempt. If successful you
+                  might proceed.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  label="Test login (optional)"
+                  isDisabled={blockSubmit || isSubmitting || redirecting}
+                  onClick={() => submit(true)}
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  label="Complete installation"
+                  isDisabled={blockSubmit || redirecting}
+                  isLoading={isSubmitting || redirecting}
+                />
+              </FormLayout>
+            </fieldset>
           );
         }}
       </form.Subscribe>

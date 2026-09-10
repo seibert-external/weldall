@@ -1,4 +1,4 @@
-import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose";
+import * as openid from "openid-client";
 import { z } from "zod";
 import {
   discoveryUrl,
@@ -8,24 +8,22 @@ import {
   type ProviderConfig,
 } from "./oidc-config";
 import { digest } from "./oidc-credentials";
-import { oidcJson } from "./oidc-transport";
-const metadataSchema = z.object({
-  issuer: z.string(),
-  authorization_endpoint: httpsUrlSchema,
-  token_endpoint: httpsUrlSchema,
-  jwks_uri: httpsUrlSchema,
-  userinfo_endpoint: httpsUrlSchema.optional(),
-  response_types_supported: z.array(z.string()).max(50),
-  id_token_signing_alg_values_supported: z.array(z.string()).max(50),
-  token_endpoint_auth_methods_supported: z
-    .array(z.string())
-    .max(50)
-    .default(["client_secret_basic"]),
-  code_challenge_methods_supported: z.array(z.string()).max(50).optional(),
-});
-type Metadata = z.infer<typeof metadataSchema>;
-const supportedIdTokenAlgorithms = ["RS256", "ES256", "EdDSA"];
-const authorizationParameterNames = new Set([
+import { oidcFetch } from "./oidc-transport";
+
+const algorithms = ["RS256", "ES256", "EdDSA"];
+const metadataSchema = z
+  .object({
+    issuer: z.string(),
+    authorization_endpoint: httpsUrlSchema,
+    token_endpoint: httpsUrlSchema,
+    jwks_uri: httpsUrlSchema,
+    response_types_supported: z.array(z.string()),
+    id_token_signing_alg_values_supported: z.array(z.string()),
+    token_endpoint_auth_methods_supported: z.array(z.string()).default(["client_secret_basic"]),
+    code_challenge_methods_supported: z.array(z.string()).optional(),
+  })
+  .passthrough();
+const reservedParameters = new Set([
   "response_type",
   "response_mode",
   "client_id",
@@ -35,8 +33,6 @@ const authorizationParameterNames = new Set([
   "nonce",
   "code_challenge_method",
   "code_challenge",
-]);
-const forbiddenEndpointParameters = new Set([
   "request",
   "request_uri",
   "claims",
@@ -50,52 +46,96 @@ const forbiddenEndpointParameters = new Set([
   "grant_type",
   "code",
   "code_verifier",
+  "iss",
+  "error",
+  "error_description",
+  "error_uri",
 ]);
-function validateEndpointParameters(value: string, authorization: boolean) {
-  for (const key of new URL(value).searchParams.keys()) {
-    const name = key.toLowerCase();
-    if (
-      forbiddenEndpointParameters.has(name) ||
-      (!authorization && authorizationParameterNames.has(name))
-    )
-      throw new LoginError("invalid_discovery");
-  }
-}
-const cache = new Map<string, { expires: number; value: Promise<Metadata> }>();
-export async function discover(config: ProviderConfig): Promise<Metadata> {
-  const cacheKey = digest(
-    JSON.stringify([config.issuer, discoveryUrl(config), config.tokenEndpointAuthMethod]),
+const cache = new Map<string, { expires: number; value: Promise<openid.Configuration> }>();
+async function configuration(config: ProviderConfig): Promise<openid.Configuration> {
+  const key = digest(
+    JSON.stringify([
+      config.issuer,
+      discoveryUrl(config),
+      config.clientId,
+      config.clientSecret,
+      config.tokenEndpointAuthMethod,
+      algorithms,
+      30,
+    ]),
   );
-  const cached = cache.get(cacheKey);
+  const cached = cache.get(key);
   if (cached && cached.expires > Date.now()) return cached.value;
   const value = (async () => {
-    const parsed = metadataSchema.safeParse(await oidcJson(discoveryUrl(config)));
-    if (!parsed.success) throw new LoginError("invalid_discovery");
-    const data = parsed.data;
-    validateEndpointParameters(data.authorization_endpoint, true);
-    validateEndpointParameters(data.token_endpoint, false);
-    if (data.userinfo_endpoint) validateEndpointParameters(data.userinfo_endpoint, false);
-    if (
-      data.issuer !== config.issuer ||
-      !data.response_types_supported.includes("code") ||
-      !data.id_token_signing_alg_values_supported.some((algorithm) =>
-        supportedIdTokenAlgorithms.includes(algorithm),
-      ) ||
-      !data.token_endpoint_auth_methods_supported.includes(config.tokenEndpointAuthMethod) ||
-      (data.code_challenge_methods_supported &&
-        !data.code_challenge_methods_supported.includes("S256"))
-    )
+    try {
+      const auth =
+        config.tokenEndpointAuthMethod === "client_secret_basic"
+          ? openid.ClientSecretBasic(config.clientSecret)
+          : openid.ClientSecretPost(config.clientSecret);
+      const client = { [openid.clockTolerance]: 30 };
+      // Explicit document URLs need not contain /.well-known/; discovery() cannot infer those.
+      const metadata = config.discoveryUrl
+        ? await oidcFetch(config.discoveryUrl, {
+            method: "GET",
+            headers: { accept: "application/json" },
+            body: undefined,
+            redirect: "manual",
+            signal: AbortSignal.timeout(8000),
+          }).then(async (response) => {
+            if (response.status !== 200) throw new LoginError("invalid_discovery");
+            return response.json();
+          })
+        : (
+            await openid.discovery(new URL(config.issuer), config.clientId, client, auth, {
+              [openid.customFetch]: oidcFetch,
+              timeout: 8,
+            })
+          ).serverMetadata();
+      const data = metadataSchema.parse(metadata);
+      for (const endpoint of [data.authorization_endpoint, data.token_endpoint, data.jwks_uri]) {
+        for (const name of new URL(endpoint).searchParams.keys()) {
+          if (reservedParameters.has(name.toLowerCase())) throw new LoginError("invalid_discovery");
+        }
+      }
+      data.id_token_signing_alg_values_supported =
+        data.id_token_signing_alg_values_supported.filter((algorithm) =>
+          algorithms.includes(algorithm),
+        );
+      if (
+        data.issuer !== config.issuer ||
+        !data.response_types_supported.includes("code") ||
+        !data.id_token_signing_alg_values_supported.length ||
+        !data.token_endpoint_auth_methods_supported.includes(config.tokenEndpointAuthMethod) ||
+        (data.code_challenge_methods_supported &&
+          !data.code_challenge_methods_supported.includes("S256"))
+      )
+        throw new LoginError("invalid_discovery");
+      const result = new openid.Configuration(
+        data as openid.ServerMetadata,
+        config.clientId,
+        client,
+        auth,
+      );
+      result[openid.customFetch] = oidcFetch;
+      result.timeout = 8;
+      openid.enableNonRepudiationChecks(result);
+      return result;
+    } catch (error) {
+      if (error instanceof LoginError) throw error;
       throw new LoginError("invalid_discovery");
-    return data;
+    }
   })();
   if (cache.size >= 100) cache.delete(cache.keys().next().value!);
-  cache.set(cacheKey, { expires: Date.now() + 300_000, value });
+  cache.set(key, { expires: Date.now() + 300_000, value });
   try {
     return await value;
   } catch (error) {
-    cache.delete(cacheKey);
+    if (cache.get(key)?.value === value) cache.delete(key);
     throw error;
   }
+}
+export async function discover(config: ProviderConfig): Promise<void> {
+  await configuration(config);
 }
 export async function authorizationUrl(
   config: ProviderConfig,
@@ -104,94 +144,49 @@ export async function authorizationUrl(
   nonce: string,
   verifier: string,
 ) {
-  const metadata = await discover(config);
-  const url = new URL(metadata.authorization_endpoint);
-  // Preserve fixed endpoint routing parameters, never protocol overrides or duplicate OIDC inputs.
-  for (const key of [...url.searchParams.keys()]) {
-    if (authorizationParameterNames.has(key.toLowerCase())) url.searchParams.delete(key);
-  }
-  for (const [key, value] of Object.entries({
-    response_type: "code",
-    response_mode: "query",
-    client_id: config.clientId,
-    redirect_uri: callback,
-    scope: config.scopes.join(" "),
-    state,
-    nonce,
-    code_challenge_method: "S256",
-    code_challenge: digest(verifier),
-  }))
-    url.searchParams.set(key, value);
-  return url.toString();
+  return openid
+    .buildAuthorizationUrl(await configuration(config), {
+      redirect_uri: callback,
+      scope: config.scopes.join(" "),
+      response_type: "code",
+      response_mode: "query",
+      state,
+      nonce,
+      code_challenge_method: "S256",
+      code_challenge: await openid.calculatePKCECodeChallenge(verifier),
+    })
+    .toString();
 }
-export async function exchange(
+export async function verifyCallback(
   config: ProviderConfig,
-  callback: string,
-  code: string,
+  callback: URL,
+  state: string,
   nonce: string,
   verifier: string,
 ) {
   try {
-    const metadata = await discover(config);
-    const body = new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: callback,
-      code_verifier: verifier,
+    const tokens = await openid.authorizationCodeGrant(await configuration(config), callback, {
+      expectedState: state,
+      expectedNonce: nonce,
+      pkceCodeVerifier: verifier,
+      idTokenExpected: true,
     });
-    let authorization: string | undefined;
-    if (config.tokenEndpointAuthMethod === "client_secret_post") {
-      body.set("client_id", config.clientId);
-      body.set("client_secret", config.clientSecret);
-    } else {
-      const encode = (v: string) => new URLSearchParams({ v }).toString().slice(2);
-      authorization = `Basic ${Buffer.from(`${encode(config.clientId)}:${encode(config.clientSecret)}`).toString("base64")}`;
-    }
-    const tokens = await oidcJson(metadata.token_endpoint, { body, authorization });
-    if (typeof tokens.id_token !== "string" || tokens.id_token.length > 32768)
-      throw new LoginError("invalid_id_token");
-    const jwks = await oidcJson(metadata.jwks_uri);
+    const claims = tokens.claims()!;
+    const now = Math.floor(Date.now() / 1000);
+    // Application policy is stricter than OIDC: current issuance and azp even for one audience.
     if (
-      !Array.isArray(jwks.keys) ||
-      jwks.keys.length < 1 ||
-      jwks.keys.length > 50 ||
-      jwks.keys.some((k) => !k || typeof k !== "object" || "d" in k || "k" in k)
-    )
-      throw new LoginError("invalid_jwks");
-    const { payload, protectedHeader } = await jwtVerify(
-      tokens.id_token,
-      createLocalJWKSet(jwks as unknown as JSONWebKeySet),
-      {
-        algorithms: supportedIdTokenAlgorithms,
-        issuer: config.issuer,
-        audience: config.clientId,
-        clockTolerance: 30,
-        requiredClaims: ["exp", "iat", "sub", "nonce"],
-        maxTokenAge: 600,
-      },
-    );
-    if (
-      !metadata.id_token_signing_alg_values_supported.includes(protectedHeader.alg) ||
-      payload.nonce !== nonce ||
-      (payload.azp !== undefined && payload.azp !== config.clientId) ||
-      (Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== config.clientId)
+      claims.iat < now - 630 ||
+      claims.iat > now + 30 ||
+      (claims.azp !== undefined && claims.azp !== config.clientId)
     )
       throw new LoginError("invalid_id_token");
-    let identityClaims: Record<string, unknown> = payload;
-    const needsUserInfo = payload.email === undefined || payload.email_verified === undefined;
-    if (needsUserInfo && metadata.userinfo_endpoint && typeof tokens.access_token === "string") {
-      if (tokens.access_token.length > 8192 || !/^[\x21-\x7e]+$/.test(tokens.access_token))
-        throw new LoginError("invalid_access_token");
-      const info = await oidcJson(metadata.userinfo_endpoint, {
-        authorization: `Bearer ${tokens.access_token}`,
-      });
-      if (info.sub !== payload.sub) throw new LoginError("userinfo_subject_mismatch");
-      // Signed ID-token claims always win; UserInfo only fills missing identity fields.
-      identityClaims = { ...info, ...payload };
-    }
-    return verifiedIdentity(identityClaims, config);
+    return verifiedIdentity(claims, config);
   } catch (error) {
     if (error instanceof LoginError) throw error;
-    throw new LoginError("invalid_id_token");
+    throw new LoginError(
+      error instanceof openid.AuthorizationResponseError
+        ? "authorization_cancelled"
+        : "invalid_id_token",
+    );
   }
 }

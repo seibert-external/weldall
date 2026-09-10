@@ -27,6 +27,7 @@ try {
     await completeVerifiedAttempt(
       {
         id: randomUUID(),
+        state: "dev-seed",
         providerId: await firstProviderId(),
         providerVersion: null,
         mode: "setup",

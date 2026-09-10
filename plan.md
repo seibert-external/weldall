@@ -35,21 +35,21 @@ integrations. Historical Prisma migrations remain immutable.
 
 ## OIDC configuration contract
 
-| Field | Contract |
-| --- | --- |
-| `id` | Server-generated immutable opaque provider ID; used in callbacks/audit. Never reused. |
-| `name` | Required internal display name. |
-| `buttonLabel` | Required plain text, bounded length. |
-| `buttonColor` | Validated hex color with computed accessible foreground contrast. |
-| `sortOrder` | Bounded integer, deterministic tie-breaker. |
-| `issuer` | Required HTTPS issuer, path-bearing allowed, no credentials/query/fragment, exact spelling preserved. Immutable after creation; a different authority = a new provider. |
-| `discoveryUrl` | Default derived from issuer per OIDC rules; explicit HTTPS override. Returned issuer must exactly match configured issuer. |
-| `clientId` | Required. Never taken from browser-controlled params. |
-| `clientSecret` | Write-only, encrypted. Omitted on update = unchanged; replacement must be nonempty. |
-| `tokenEndpointAuthMethod` | `client_secret_basic` or `client_secret_post`, validated against discovery. |
-| `scopes` | Default `openid profile email`; `openid`+`email` mandatory. Bounded extra scopes allowed; `offline_access` rejected. |
-| `allowedEmailDomains` | Optional exact normalized domain list; empty = trust all verified emails. |
-| `enabled` | Whether the provider is offered on the login page. Set by the admin on save; the test button does not change it. |
+| Field                     | Contract                                                                                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                      | Server-generated immutable opaque provider ID; used in callbacks/audit. Never reused.                                                                                   |
+| `name`                    | Required internal display name.                                                                                                                                         |
+| `buttonLabel`             | Required plain text, bounded length.                                                                                                                                    |
+| `buttonColor`             | Validated hex color with computed accessible foreground contrast.                                                                                                       |
+| `sortOrder`               | Bounded integer, deterministic tie-breaker.                                                                                                                             |
+| `issuer`                  | Required HTTPS issuer, path-bearing allowed, no credentials/query/fragment, exact spelling preserved. Immutable after creation; a different authority = a new provider. |
+| `discoveryUrl`            | Default derived from issuer per OIDC rules; explicit HTTPS override. Returned issuer must exactly match configured issuer.                                              |
+| `clientId`                | Required. Never taken from browser-controlled params.                                                                                                                   |
+| `clientSecret`            | Write-only, encrypted. Omitted on update = unchanged; replacement must be nonempty.                                                                                     |
+| `tokenEndpointAuthMethod` | `client_secret_basic` or `client_secret_post`, validated against discovery.                                                                                             |
+| `scopes`                  | Default `openid profile email`; `openid`+`email` mandatory. Bounded extra scopes allowed; `offline_access` rejected.                                                    |
+| `allowedEmailDomains`     | Optional exact normalized domain list; empty = trust all verified emails.                                                                                               |
+| `enabled`                 | Whether the provider is offered on the login page. Set by the admin on save; the test button does not change it.                                                        |
 
 Callback URL is not editable: we display `${WELDALL_ISSUER}/api/auth/callback/${providerId}` with
 copy controls, derived from deployment config, not request `Host` headers. Response type =
@@ -117,19 +117,33 @@ full-history replay. Legacy session/refresh revocation is a separate operator cu
   lookup, metadata, or machine/CLI endpoints. We cache initialization with bounded lifetime and
   evict failed promises. Availability decisions read the DB per attempt; caches never keep a
   disabled provider usable.
-- Strict current-assertion validation before any write: verified signature/JWKS, RS256/ES256,
-  issuer/audience/azp, expiry with bounded skew, nonce, nonempty subject, and boolean
-  `email_verified: true` with domain match on every login, including already-bound identities.
+- `openid-client` 6.8.8 owns authorization/PKCE, complete callback validation, client authentication,
+  code exchange, OIDC claims, signature verification and JWKS caching (resolved `oauth4webapi` 3.8.8).
+  Effective signing algorithms are advertised RS256/ES256/EdDSA only; non-repudiation checks are
+  enabled for every flow. Weldall retains current issuance (600 seconds, 30-second tolerance),
+  any-present azp, subject, verified-email/domain and transactional identity/setup policy.
+  Email and boolean `email_verified: true` must be in the signed ID token; no UserInfo fallback.
 - One normalized email = one user. We bind by (issuer, subject); same-email different issuers /
   pairwise subjects link to one verified user. Changed-email bindings and unverified local conflicts
   fail with diagnostics; no silent reassignment, no verification bypass.
 - `login` state is single-use and checked against the provider's current enabled/config state before
   any write; in-flight login is rejected when its provider is disabled or re-enabled with a
   different config.
-- We reuse one hardened outbound transport for discovery/token/userinfo/JWKS: connection-time DNS
-  validation, no redirects, no credential leakage across origins, bounded time/bytes/shape, TLS
-  verification always on. Public IdPs only; the dev fixture allows only its own fixture host. Fail
-  closed; classified errors only.
+- Bounded Fetch handles discovery/token/JWKS with verified HTTPS, no credentials/fragments in URLs,
+  no redirects, strict JSON media types and a streamed 256 KiB cap. Each request (including its body)
+  has an eight-second timeout; this is not an eight-second whole-login deadline. Private HTTPS
+  destinations remain permitted; destination filtering/SSRF protection is a separate egress-policy
+  task. Errors are classified without upstream bodies, tokens or library causes.
+- Lazy client configurations are bounded to 100 entries/five minutes and keyed by a digest including
+  credentials, client ID, issuer/discovery, authentication and verification policy. Failed initialization
+  is evicted. Metadata must match exact issuer spelling, support code/auth/S256 policy, and contain
+  no reserved endpoint query parameters; fixed routing queries and response-issuer metadata survive.
+  Library JWKS caching lasts five minutes; an unknown key can refetch after one minute. Providers
+  should publish new keys before using them and retain old keys during rollout.
+- The full callback query (including duplicates) is combined with the configured Weldall origin/path.
+  Only after atomic browser-bound attempt consumption does the adapter receive authenticated expected
+  state, nonce and verifier. Better Auth creates sessions only after application completion; setup
+  and provider tests never enter session/linking/persistence completion.
 - We do not request upstream refresh/offline access or persist upstream tokens. Downstream OAuth
   plugins and session/metadata/token handling stay provider-neutral and work with zero providers.
   No upstream network or DB contact during `next build`.
@@ -177,20 +191,36 @@ order) + create/edit form (appearance, connection, email authority, callback dis
 
 ## Test matrix
 
-| Area | Positive | Negative/concurrency |
-| --- | --- | --- |
-| Config | path issuer, explicit discovery URL, both auth methods, deterministic buttons | issuer mismatch, bad metadata/color/domain, unsupported auth/algorithms, secrets in DTOs/logs |
-| Network | public IdP, key rotation | private/loopback IPs, redirects, DNS rebinding, huge/slow discovery/JWKS |
-| Tokens | signed ID token, nonce/PKCE/state, matching UserInfo subject | missing/unsigned ID token, wrong issuer/audience, stale time claims, replay, provider mix-up |
-| Identity | new user, repeat login, second issuer same email, pairwise subject | false/string `email_verified`, changed email, unverified local conflict, concurrent create/link |
-| Access | admin/login grants apply across providers | identity grants no scopes, CLI code/refresh denial, upstream roles ignored, blocked alt auth/link routes |
-| Installer | exact-email test, fresh DB, existing verified user, retry | CSRF, wrong email, replay, competing setup, setup after completion |
-| Admin | add/edit/enable/reorder, test login from unsaved form values | non-admin, stale versions, last-provider lockout warning, test persisting nothing |
-| Runtime | two instances, multiple issuers, outage isolation | cached disabled provider, cached failed init, unbounded cache, IdP outage breaking neutral paths |
-| Migration | full-history replay, populated upgrade, no-Google no-op, preserved users/grants | overbroad deletion, user/data loss, history rewrite, failed transaction |
+| Area      | Positive                                                                        | Negative/concurrency                                                                                                                              |
+| --------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config    | path issuer, explicit discovery URL, both auth methods, deterministic buttons   | issuer mismatch, bad metadata/color/domain, unsupported auth/algorithms, secrets in DTOs/logs                                                     |
+| Network   | verified public/private HTTPS, library-supported key rotation                   | redirects, credential URLs, invalid media types, huge/slow discovery/token/JWKS; destination filtering deferred                                   |
+| Tokens    | signed ID-token email, nonce/PKCE/state, all allowed signing algorithms         | missing/unsigned ID token, wrong issuer/audience/azp/nonce, stale/future issuance, missing advertised callback iss, duplicate protocol parameters |
+| Identity  | new user, repeat login, second issuer same email, pairwise subject              | false/string `email_verified`, changed email, unverified local conflict, concurrent create/link                                                   |
+| Access    | admin/login grants apply across providers                                       | identity grants no scopes, CLI code/refresh denial, upstream roles ignored, blocked alt auth/link routes                                          |
+| Installer | exact-email test, fresh DB, existing verified user, retry                       | CSRF, wrong email, replay, competing setup, setup after completion                                                                                |
+| Admin     | add/edit/enable/reorder, test login from unsaved form values                    | non-admin, stale versions, last-provider lockout warning, test persisting nothing                                                                 |
+| Runtime   | two instances, multiple issuers, outage isolation                               | cached disabled provider, cached failed init, unbounded cache, IdP outage breaking neutral paths                                                  |
+| Migration | full-history replay, populated upgrade, no-Google no-op, preserved users/grants | overbroad deletion, user/data loss, history rewrite, failed transaction                                                                           |
 
 Tests must assert absence of unauthorized DB/session/audit side effects, not just HTTP errors.
 Real-DB tests prove uniqueness and locking; mocks alone don't establish concurrency safety.
+
+## OIDC replacement validation status
+
+Isolated library/transport/service/UI/metadata tests passed (189 cases), as did SDK downstream
+DPoP/machine regressions (45 cases), application/changed-test TypeScript, focused ESLint and formatting.
+This is not deployment proof. The PostgreSQL installation suite is adapted but unexecuted, as are
+real dev-IdP authorize/login/token/JWKS + PKCE checks, HTTPS deployment trust/redirect checks and
+DB-backed downstream regressions. The operator chose to test live login/setup/provider flows manually;
+no live browser/user/E2E or database-mutating validation was run. Production/offline build and
+zero-provider startup remain pending; do not build into the running dev server's `.next` directory.
+
+The adapter/transport shrank from 197+69 to 192+46 lines (266 → 238, 10.5%); the four auth files
+including application glue shrank from 953 to 903 lines. The protocol ownership reduction is much
+larger than the modest raw line-count reduction: manual authorization/PKCE, token requests/client
+secret encoding, JWT/JWKS verification and UserInfo are gone. Required metadata/configuration/cache
+policy replaces much of that footprint; no compatibility path or duplicate verifier remains.
 
 ## Completion checklist
 

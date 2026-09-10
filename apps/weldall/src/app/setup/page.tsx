@@ -1,11 +1,11 @@
 import { Banner } from "@astryxdesign/core/Banner";
-import { Heading } from "@astryxdesign/core/Heading";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { redirect } from "next/navigation";
 import { callbackUrl, firstProviderId, installationCompleted } from "@/server/auth/login-service";
 import { setupConfigurationIssues } from "@/server/auth/oidc-credentials";
 import { SetupForm } from "./setup-form";
+import { Link } from "@astryxdesign/core/Link";
 
 export const dynamic = "force-dynamic";
 export default async function Setup() {
@@ -22,7 +22,6 @@ export default async function Setup() {
             height={51}
             className="login-auth-logo"
           />
-          <Heading level={1}>Set up Weldall</Heading>
           {issues.length ? (
             <>
               <Banner
@@ -40,10 +39,14 @@ export default async function Setup() {
             </>
           ) : (
             <>
-              <Text color="secondary">
-                Configure your first identity provider. Test login is optional and saves nothing.
-                Complete installation starts a separate verified login matching the nominated
-                administrator email, whether or not you tested first.
+              <Text className="py-2">
+                To use Weldall you need to connect a central OIDC provider. This is probably your
+                companies SSO provider like Entra or Google. Please configure the service
+                accordingly. Refer to the{" "}
+                <Link href="https://docs.weldall.ai" target="blank" className="underline">
+                  documentation
+                </Link>{" "}
+                to get more information.
               </Text>
               <SetupForm callbackUrl={callbackUrl(firstProviderId())} />
             </>

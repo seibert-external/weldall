@@ -28,11 +28,11 @@ vi.mock("@weldall/db", async (importOriginal) => ({
   }),
 }));
 vi.mock("../src/server/auth/oidc-transport", () => ({
-  oidcJson: async (url: string) => {
+  oidcFetch: async (url: string) => {
     if (fixture.offline) throw new Error("fixture offline");
     if (url.endsWith("openid-configuration")) {
       await fixture.pauseDiscovery?.();
-      return {
+      return Response.json({
         issuer: "https://id.example.com",
         authorization_endpoint: "https://id.example.com/authorize",
         token_endpoint: "https://id.example.com/token",
@@ -41,12 +41,14 @@ vi.mock("../src/server/auth/oidc-transport", () => ({
         id_token_signing_alg_values_supported: ["ES256"],
         token_endpoint_auth_methods_supported: ["client_secret_post"],
         code_challenge_methods_supported: ["S256"],
-      };
+      });
     }
-    if (url.endsWith("/jwks")) return { keys: [fixture.jwk] };
+    if (url.endsWith("/jwks")) return Response.json({ keys: [fixture.jwk] });
     if (url.endsWith("/token")) {
       await fixture.pauseExchange?.();
-      return {
+      return Response.json({
+        access_token: "fixture-access-token",
+        token_type: "Bearer",
         id_token: await new SignJWT({
           nonce: fixture.nonce,
           email: "alice@example.com",
@@ -60,7 +62,7 @@ vi.mock("../src/server/auth/oidc-transport", () => ({
           .setIssuedAt()
           .setExpirationTime("5m")
           .sign(fixture.privateKey),
-      };
+      });
     }
     throw new Error("unexpected upstream");
   },
@@ -132,6 +134,7 @@ async function request(path: string, body?: unknown, extraHeaders: Record<string
 function attempt(providerId: string, mode = "setup", email = "alice@example.com"): ConsumedAttempt {
   return {
     id: randomUUID(),
+    state: "s".repeat(43),
     providerId,
     providerVersion: mode === "login" ? 1 : null,
     mode,
@@ -575,6 +578,38 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       });
     },
   );
+  it("callback boundary rejects ambiguous state without consumption, but consumes duplicate-code and invalid protocol responses without writes", async () => {
+    await freshInstallation(async () => {
+      const before = await snapshot();
+      const flow = await beginSetup("setup");
+      fixture.nonce = flow.nonce;
+      const state = flow.url.searchParams.get("state")!;
+      for (const query of ["code=test", `state=${state}&state=${state}&code=test`]) {
+        expect(
+          (await request(`/callback/${firstProviderId()}?${query}`)).headers.get("location"),
+        ).toContain("invalid_callback");
+        expect(await fixture.prisma.loginAttempt.count()).toBe(1);
+        expect(await snapshot()).toEqual(before);
+      }
+      expect((await request(`${flow.path}&code=duplicate`)).headers.get("location")).toContain(
+        "invalid_id_token",
+      );
+      expect(await fixture.prisma.loginAttempt.count()).toBe(0);
+      expect((await request(flow.path)).headers.get("location")).toContain("invalid_attempt");
+      for (const claims of [
+        { nonce: "wrong" },
+        { email: undefined },
+        { email_verified: undefined },
+      ]) {
+        const invalid = await beginSetup("setup");
+        fixture.nonce = invalid.nonce;
+        fixture.claims = claims;
+        expect((await request(invalid.path)).headers.get("location")).not.toBe(`${origin}/`);
+        expect(await fixture.prisma.loginAttempt.count()).toBe(0);
+        expect(await snapshot()).toEqual(before);
+      }
+    });
+  });
   it("real signed callback rejects wrong email and replay without grants/session/provider", async () => {
     const ctx = { providerId: await firstProviderId() };
     const start = await request("/oidc/setup", {
@@ -664,6 +699,38 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     expect(await fixture.prisma.session.count()).toBe(sessionsBefore + 1);
     expect(await fixture.prisma.auditEvent.count()).toBe(1);
     expect(await fixture.prisma.emailScopeGrant.count()).toBe(2);
+  });
+  it("provider changes during code exchange prevent all login completion writes", async () => {
+    const provider = await fixture.prisma.loginProvider.findFirstOrThrow();
+    const flow = new URL(
+      (await (await request("/oidc/start", { providerId: provider.id })).json()).url,
+    );
+    fixture.nonce = flow.searchParams.get("nonce")!;
+    const entered = barrier();
+    const resume = barrier();
+    fixture.pauseExchange = async () => {
+      entered.release();
+      await resume.promise;
+    };
+    const pending = request(
+      `/callback/${provider.id}?state=${flow.searchParams.get("state")}&code=test`,
+    );
+    try {
+      await entered.promise;
+      await control.loginProvider.update({
+        where: { id: provider.id },
+        data: { version: { increment: 1 } },
+      });
+      const before = await snapshot();
+      resume.release();
+      expect((await pending).headers.get("location")).toContain("provider_changed");
+      expect(await snapshot()).toEqual(before);
+      expect(await fixture.prisma.loginAttempt.count()).toBe(0);
+    } finally {
+      resume.release();
+      await pending;
+      fixture.pauseExchange = null;
+    }
   });
   it("blocks alternate upstream linking, local signup, and verification routes in real auth configuration", async () => {
     const before = [
@@ -831,7 +898,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     const grants = await fixture.prisma.emailScopeGrant.findMany();
     const migration = readFileSync(
       new URL(
-        "../../../packages/db/prisma/migrations/20260720000000_oidc_login_installation/migration.sql",
+        "../../../packages/db/prisma/migrations/0015_oidc_login_installation/migration.sql",
         import.meta.url,
       ),
       "utf8",

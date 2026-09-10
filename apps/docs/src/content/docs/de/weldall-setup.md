@@ -10,7 +10,7 @@ Weldall läuft als einzelner [Container](https://github.com/seibert-external/wel
 ## Voraussetzungen und Geheimnisse
 
 - Eine gesicherte PostgreSQL-Datenbank und eine stabile öffentliche Origin, etwa `https://weldall.example.com`.
-- Ein vertrauenswürdiger OIDC-Provider mit Authorization Code, PKCE S256, signierten RS256/ES256-ID-Tokens, stabilem Subject und dem booleschen Claim `email_verified: true`. Reines OAuth reicht nicht.
+- Ein vertrauenswürdiger OIDC-Provider mit Authorization Code, PKCE S256, signierten RS256/ES256/EdDSA-ID-Tokens und stabilem Subject. Das signierte ID-Token muss `email` und den booleschen Claim `email_verified: true` enthalten; Weldall ruft kein UserInfo ab und ergänzt keine unsignierten Identitätsclaims. Reines OAuth reicht nicht.
 - HTTPS-Issuer, Client-ID und Client-Secret. Die **vom Installer angezeigte, serverseitig erzeugte Callback-URL** muss vor dem Test beim Provider registriert werden; keine erfundene Provider-ID und kein localhost-Callback.
 
 | Laufzeitvariable                                                                   | Zweck                                                                                                                            |
@@ -69,7 +69,11 @@ Jeder aktivierte Save benötigt eine neue Vertrauensbestätigung. Der letzte akt
 
 OIDC vergibt normalen Benutzern keine Weldall-Berechtigungen. `weldall:login` vor der ersten CLI-Autorisierung und Ressourcen-Scopes separat zuweisen. Upstream-Rollen/Gruppen gewähren keine Scopes. Dieselbe normalisierte verifizierte E-Mail verschiedener vertrauenswürdiger Issuer bindet an dieselbe User-ID. Mehrdeutige Bestandsadressen, unverifizierte lokale Konten und geänderte E-Mail bestehender Bindungen scheitern statt stillschweigend zusammengeführt zu werden. Upstream-Access-/Refresh-Tokens werden nicht gespeichert.
 
-Upstream-Requests verwenden verifiziertes TLS, DNS-Prüfung beim Verbindungsaufbau, Zeit-/Größenlimits und keine Redirects. Produktion erlaubt nur öffentliche Adressen. Ein defekter Provider blockiert weder andere Provider noch neutrale Downstream-Endpunkte.
+Alle vier Abläufe verwenden `openid-client` für Upstream-Autorisierung, PKCE, vollständige Callback-Prüfung, Token-Austausch und signierte ID-Token-/JWKS-Verifikation. Weldall behält Provider-Policy, verschlüsselte browsergebundene Einmalversuche, Identitätsbindung und Installationstransaktionen. Better Auth erstellt lokale Sessions erst nach erfolgreichem Anwendungsabschluss. Upstream-Tokens werden weder an Routen zurückgegeben noch gespeichert.
+
+Discovery-/Token-/JWKS-Requests verwenden verifiziertes HTTPS, keine Redirects, strikte JSON-Medientypen, ein gestreamtes Antwortlimit von 256 KiB und acht Sekunden Timeout pro Request einschließlich Body (nicht für den gesamten Login). Private HTTPS-Ziele bleiben erlaubt. Es gibt **keine anwendungsseitige Ziel-/DNS-Filterung oder SSRF-Abwehr**; bei Bedarf Egress im Deployment begrenzen. Discovery muss die exakte Issuer-Schreibweise und die konfigurierte Client-Authentifizierung unterstützen. Feste Routing-Querys sind erlaubt; reservierte Protokollparameter in Endpoint-URLs werden abgelehnt statt repariert.
+
+Client-Konfigurationen werden erst bei Bedarf initialisiert und fünf Minuten gecacht (maximal 100 Einträge, nach Konfiguration/Zugangsdaten getrennt). Fehlgeschlagene Initialisierung wird verworfen; Verfügbarkeits-/Versionsprüfungen bleiben unabhängig vom Cache. Die Bibliothek hält JWKS fünf Minuten vor und erlaubt bei unbekannten Schlüsseln nach einer Minute erneutes Laden. Neue Schlüssel vor ihrer Nutzung veröffentlichen und alte während des Übergangs beibehalten; ein sofortiger Wechsel kann Logins vorübergehend scheitern lassen. Ein defekter Provider blockiert weder andere Provider noch neutrale Downstream-Endpunkte.
 
 ## Bestehende Installation umstellen (Operator-Aufgabe)
 

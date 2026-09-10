@@ -10,7 +10,7 @@ Weldall runs as a single [container](https://github.com/seibert-external/weldall
 ## Prerequisites and secrets
 
 - A backed-up PostgreSQL database and a stable public origin such as `https://weldall.example.com`.
-- An OIDC identity authority supporting authorization code, PKCE S256, signed RS256/ES256 ID tokens, a stable subject, and a boolean `email_verified: true` assertion. Plain OAuth is not sufficient.
+- An OIDC identity authority supporting authorization code, PKCE S256, signed RS256/ES256/EdDSA ID tokens, and a stable subject. The signed ID token must contain `email` and boolean `email_verified: true`; Weldall does not fetch UserInfo or merge unsigned identity claims. Plain OAuth is not sufficient.
 - The provider's HTTPS issuer, client ID and client secret. Register the exact **server-generated callback URL displayed by the installer** before testing. Do not guess a provider ID or use a localhost callback.
 
 | Runtime variable                                                                   | Purpose                                                                                                                  |
@@ -69,7 +69,11 @@ Every enabled save requires a fresh trust acknowledgement. Disabling the last en
 
 OIDC grants no ordinary-user permissions. Assign `weldall:login` before users' first CLI authorization, and assign resource scopes separately. Upstream groups/roles never grant Weldall scopes. Same normalized verified email across trusted issuers links to the same user ID; conflicting legacy emails, unverified local users, and changed-email bindings fail rather than merge or reassign. No upstream access/refresh tokens are stored.
 
-All upstream requests use verified TLS, connection-time DNS filtering, bounded time/bytes and no redirects. Only public addresses are allowed in production. Discovery failure for one provider does not block others or neutral downstream endpoints.
+All four flows use `openid-client` for upstream authorization, PKCE, complete callback validation, token exchange and signed ID-token/JWKS verification. Weldall owns provider policy, encrypted browser-bound one-time attempts, identity linking and installation transactions; Better Auth owns local sessions only after successful application completion. No upstream tokens are returned to routes or persisted.
+
+Upstream discovery/token/JWKS requests use verified HTTPS, no redirects, strict JSON media types, a 256 KiB streamed response cap and an eight-second timeout per request, including its body (not per whole login). Private HTTPS destinations remain permitted. There is **no application-layer destination/DNS filtering or SSRF protection**; restrict egress at deployment as needed. Discovery must exactly match issuer spelling and support the configured client authentication method. Fixed endpoint routing queries are allowed, but reserved protocol parameters in endpoint URLs are rejected rather than repaired.
+
+Client configurations are initialized lazily, cached for five minutes (at most 100 entries, keyed by configuration/credentials), and failed initialization is evicted. Provider availability/version checks are independent of cache hits. The library caches JWKS for five minutes and allows unknown-key refetch after one minute; publish new keys before using them and retain old keys during rollover. An immediate new-key switch can temporarily fail login. Discovery failure for one provider does not block others or neutral downstream endpoints.
 
 ## Cut over an existing deployment (operator task)
 
