@@ -37,6 +37,7 @@ type AdminRoute =
   | "assignments"
   | "group-assignments"
   | "group-providers"
+  | "login-providers"
   | "users"
   | "skills";
 export const adminSectionDesigns = {
@@ -80,6 +81,11 @@ export const adminSectionDesigns = {
     light: toPair(corporateGradients.lake.light),
     dark: toPair(corporateGradients.lake.dark),
   },
+  "login-providers": {
+    title: "Login providers",
+    light: toPair(corporateGradients.lavenderLight.light),
+    dark: toPair(corporateGradients.lavenderLight.dark),
+  },
   "group-providers": {
     title: "Group providers",
     light: toPair(corporateGradients.lavenderLight.light),
@@ -113,6 +119,7 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/admin/assignments")) return "assignments";
     if (pathname.startsWith("/admin/group-assignments")) return "group-assignments";
     if (pathname.startsWith("/admin/group-providers")) return "group-providers";
+    if (pathname.startsWith("/admin/login-providers")) return "login-providers";
     if (pathname.startsWith("/admin/users")) return "users";
     if (pathname.startsWith("/admin/skills")) return "skills";
     return "scopes";

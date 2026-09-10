@@ -30,7 +30,7 @@ services:
         pnpm --dir packages/db exec prisma migrate deploy --schema prisma/schema.prisma
         pnpm --dir packages/db exec tsx prisma/seed.ts
         pnpm --dir packages/db exec tsx prisma/seed.dev.ts
-        pnpm exec tsx apps/weldall/src/scripts/bootstrap-admin.ts --email alice@example.com
+        pnpm exec tsx apps/weldall/src/scripts/seed-login-fixture.ts
         pnpm --dir packages/db exec tsx prisma/verify-e2e-seed.ts
         touch /run/e2e/database/ready
         exec tail -f /dev/null

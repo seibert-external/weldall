@@ -141,9 +141,6 @@ describe("weldall:login policy", () => {
 
   it("leaves browser session creation unchanged for a user without the scope", async () => {
     Object.assign(process.env, {
-      ENABLE_DEV_LOGIN: "false",
-      GOOGLE_CLIENT_ID: "browser-regression-test-client",
-      GOOGLE_CLIENT_SECRET: "browser-regression-test-secret",
       WELDALL_DEPLOYMENT_MODE: "development",
     });
     const { auth } = await import("../src/server/auth/auth.js");

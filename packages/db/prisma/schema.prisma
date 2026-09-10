@@ -8,16 +8,17 @@ datasource db {
 }
 
 model User {
-  id            String       @id
-  name          String
-  email         String       @unique
-  emailVerified Boolean
-  image         String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  chatThreads   ChatThread[]
+  id                          String              @id
+  name                        String
+  email                       String              @unique
+  emailVerified               Boolean
+  image                       String?
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+  sessions                    Session[]
+  accounts                    Account[]
+  chatThreads                 ChatThread[]
+  completedLoginInstallations LoginInstallation[]
 }
 
 model Scope {
@@ -471,6 +472,56 @@ model AuditEvent {
   @@index([actorId, occurredAt, id])
   @@index([actorEmail, occurredAt, id])
   @@index([subjectType, subjectId, occurredAt, id])
+}
+
+enum LoginInstallationState {
+  UNINITIALIZED
+  COMPLETED
+}
+
+model LoginInstallation {
+  id                   String                 @id @default("default")
+  state                LoginInstallationState @default(UNINITIALIZED)
+  completedAdminUserId String?
+  completedAdminUser   User?                  @relation(fields: [completedAdminUserId], references: [id], onDelete: Restrict)
+  completedAt          DateTime?
+}
+
+model LoginProvider {
+  id                      String   @id
+  name                    String
+  buttonLabel             String
+  buttonColor             String
+  sortOrder               Int      @default(0)
+  issuer                  String
+  discoveryUrl            String?
+  clientId                String
+  encryptedClientSecret   String
+  tokenEndpointAuthMethod String
+  scopes                  String[]
+  allowedEmailDomains     String[] @default([])
+  enabled                 Boolean  @default(false)
+  version                 Int      @default(1)
+  validatedAt             DateTime
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  createdBy               String
+  updatedBy               String
+
+  @@index([enabled, sortOrder, id])
+}
+
+model LoginAttempt {
+  id               String   @id
+  providerId       String
+  providerVersion  Int?
+  mode             String
+  browserHash      String
+  encryptedPayload String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 model Session {

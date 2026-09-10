@@ -4,7 +4,6 @@ import { db } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
 import {
   assertAdminCanBeRemoved,
-  bootstrapAdmin,
   countVerifiedAdminEmails,
   createResource,
   createScope,
@@ -1051,13 +1050,6 @@ describe("admin scope service", () => {
       ).rejects.toMatchObject({ code: "SYSTEM_SCOPE" });
     },
   );
-
-  it("does not use bootstrap to restore a revoked login scope", async () => {
-    await expect(bootstrapAdmin(primaryEmail)).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(getAssignmentByEmail(primaryEmail)).resolves.toMatchObject({
-      scopes: ["weldall:administer"],
-    });
-  });
 
   it("protects the last administrator and allows an explicit handover", async () => {
     expect(countVerifiedAdminEmails([primaryEmail, "pending@example.com"], [primaryEmail])).toBe(1);

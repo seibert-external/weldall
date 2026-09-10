@@ -1,11 +1,20 @@
 import { Heading } from "@astryxdesign/core/Heading";
 import { VStack } from "@astryxdesign/core/Stack";
-import { resolveLoginProviders } from "@/server/auth/providers";
+import { installationCompleted, publicLoginProviders } from "@/server/auth/login-service";
+import { redirect } from "next/navigation";
 import { AppearanceSequence } from "../_components/appearance-sequence";
 import { LoginOptions } from "./login-options";
 
-export default function Login() {
-  const loginProviders = resolveLoginProviders();
+export const dynamic = "force-dynamic";
+
+export default async function Login({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const query = await searchParams;
+  if (!(await installationCompleted())) redirect(query.loginError ? "/setup?failed=1" : "/setup");
+  const loginProviders = await publicLoginProviders();
   return (
     <div className="login-shell">
       <main className="login-panel login-auth-panel">
@@ -21,13 +30,7 @@ export default function Login() {
               />
             </div>
             <div data-appear>
-              <Heading level={1}>Sign in to Weldall</Heading>
-            </div>
-            <div data-appear>
-              <LoginOptions
-                google={Boolean(loginProviders.google)}
-                dev={Boolean(loginProviders.devOidc)}
-              />
+              <LoginOptions providers={loginProviders} />
             </div>
           </VStack>
         </AppearanceSequence>

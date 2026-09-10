@@ -27,8 +27,6 @@ RUN pnpm --dir packages/db exec prisma generate --schema prisma/schema.prisma \
     --outfile=/app/deployment-init.mjs
 RUN POSTGRES_URL=postgresql://build:build@127.0.0.1:5432/build \
   BETTER_AUTH_SECRET=build-only-better-auth-secret-at-least-32-characters \
-  GOOGLE_CLIENT_ID=build-only-client \
-  GOOGLE_CLIENT_SECRET=build-only-secret \
   WELDALL_DEPLOYMENT_MODE=production \
   WELDALL_ISSUER=https://build.invalid \
   WELDALL_SIGNING_KID=build-only \

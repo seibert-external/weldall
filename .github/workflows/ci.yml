@@ -92,6 +92,8 @@ jobs:
           --health-retries 12
     env:
       POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # OIDC security tests create/drop only uniquely named databases on this server.
+      OIDC_TEST_SERVER_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -112,6 +114,15 @@ jobs:
 
       - name: Generate test configuration
         run: pnpm secrets:generate > .env
+
+      - name: Ensure PostgreSQL test client
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes postgresql-client
+          fi
+          psql --version
+          test -n "$OIDC_TEST_SERVER_URL"
 
       - name: Prepare test database
         run: |

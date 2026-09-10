@@ -1,5 +1,5 @@
 import { db } from "@weldall/db";
-import { bootstrapConfiguredAdmin, prepareProductionDatabase } from "../server/deployment";
+import { prepareProductionDatabase } from "../server/deployment";
 import { errorForLog, logger } from "../server/observability/logger";
 import { refreshDueCatalogs } from "../server/skills/catalogs";
 
@@ -11,19 +11,6 @@ try {
 
   await refreshDueCatalogs();
 
-  const email = process.env.WELDALL_BOOTSTRAP_ADMIN_EMAIL?.trim();
-  if (email) {
-    const assignment = await bootstrapConfiguredAdmin(email);
-    if (assignment) {
-      logger.info(
-        {
-          event: "deployment_init.admin_bootstrapped",
-          assignmentVersion: assignment.version,
-        },
-        "Administrator bootstrap complete",
-      );
-    }
-  }
   logger.info({ event: "deployment_init.completed" }, "Deployment initialization completed");
 } catch (error) {
   logger.fatal(

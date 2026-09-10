@@ -303,6 +303,19 @@ const metadataSchemas = {
   "chat_tool.requested": chatToolRequestMetadata,
   "chat_tool.succeeded": chatToolResultMetadata,
   "chat_tool.failed": chatToolResultMetadata,
+  "login.provider.saved": z
+    .object({
+      providerId: z.string().uuid(),
+      versionBefore: z.number().int().nonnegative(),
+      versionAfter: z.number().int().positive(),
+      enabledBefore: z.boolean(),
+      enabledAfter: z.boolean(),
+      secretChanged: z.boolean(),
+    })
+    .strict(),
+  "login.installation.completed": z
+    .object({ providerId: z.string().uuid(), scopes: scopeArray })
+    .strict(),
   "chat_settings.updated": chatSettingsMetadata,
   "machine_client.created": machineClientMetadata,
   "machine_client.updated": machineClientMetadata,

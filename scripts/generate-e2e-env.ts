@@ -22,6 +22,7 @@ const secret = () => randomBytes(32).toString("base64url");
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 const postgresUrl = "postgresql://postgres:postgres@postgres:5432/postgres";
 const devIdpClientSecret = secret();
+const credentialEncryptionKey = randomBytes(32).toString("base64");
 const devUsers = JSON.stringify([
   {
     sub: "dev-alice",
@@ -56,21 +57,21 @@ if (missingDevEmails.length > 0) {
 const files: Record<string, Record<string, string>> = {
   "database/env.sh": {
     POSTGRES_URL: postgresUrl,
+    WELDALL_DEPLOYMENT_MODE: "e2e",
+    WELDALL_CREDENTIAL_ENCRYPTION_KEY: credentialEncryptionKey,
+    DEV_IDP_CLIENT_ID: "weldall-dev",
+    DEV_IDP_CLIENT_SECRET: devIdpClientSecret,
     DEV_M2M_SIGNING_PUBLIC_JWK: JSON.stringify(machine.publicJwk),
     DEV_M2M_SIGNING_KID: "dev-m2m-e2e",
   },
   "weldall/env.sh": {
     POSTGRES_URL: postgresUrl,
     BETTER_AUTH_SECRET: secret(),
-    OAUTH_PROXY_SECRET: secret(),
+    WELDALL_CREDENTIAL_ENCRYPTION_KEY: credentialEncryptionKey,
     WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(weldall.privateJwk),
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(weldall.publicJwk),
     WELDALL_SIGNING_KID: "weldall-e2e",
     WELDALL_DEPLOYMENT_MODE: "e2e",
-    ENABLE_DEV_LOGIN: "true",
-    DEV_IDP_ISSUER: "https://dev-idp.seibert.localdev",
-    DEV_IDP_CLIENT_ID: "weldall-dev",
-    DEV_IDP_CLIENT_SECRET: devIdpClientSecret,
   },
   "expenses/env.sh": {
     EXPENSES_SIGNING_PRIVATE_JWK: JSON.stringify(expenses.privateJwk),
@@ -83,7 +84,7 @@ const files: Record<string, Record<string, string>> = {
     DEV_IDP_ISSUER: "https://dev-idp.seibert.localdev",
     DEV_IDP_CLIENT_ID: "weldall-dev",
     DEV_IDP_CLIENT_SECRET: devIdpClientSecret,
-    DEV_IDP_REDIRECT_URI: "http://localhost:3000/api/auth/callback/dev-oidc",
+    WELDALL_ISSUER: "https://weldall.seibert.localdev",
     DEV_IDP_SIGNING_PRIVATE_JWK: JSON.stringify(devIdp.privateJwk),
     DEV_IDP_SIGNING_PUBLIC_JWK: JSON.stringify(devIdp.publicJwk),
     DEV_IDP_SIGNING_KID: "dev-idp-e2e",
