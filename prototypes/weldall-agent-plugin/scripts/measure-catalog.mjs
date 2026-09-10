@@ -26,8 +26,17 @@ export const measure = (value) => {
   return { bytes, tokens: Math.ceil(bytes / 4) };
 };
 
+/**
+ * An explicit directory resolves against the cwd, the caller's choice. The default must
+ * not: it resolves against this script's own location, so the live catalog it writes
+ * always lands in the plugin's own `measurements/` directory (matched by the repo's
+ * `.gitignore`), no matter where the script was invoked from.
+ */
+export const resolveOutputDirectory = (argument) =>
+  argument === undefined ? join(import.meta.dirname, "..", "measurements") : resolve(argument);
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  const directory = resolve(process.argv[2] ?? "measurements");
+  const directory = resolveOutputDirectory(process.argv[2]);
   const { stdout } = await run("weldall", ["skills", "list", "--json"], {
     maxBuffer: 32 * 1024 * 1024,
   });
