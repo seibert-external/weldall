@@ -122,6 +122,12 @@ importers:
 
   apps/dev-idp:
     dependencies:
+      '@astryxdesign/core':
+        specifier: 0.1.4
+        version: 0.1.4(patch_hash=04f28b850c4b051615d5e0742b2273839bd08ebd938d887e44cc54ca4a37b277)(@stylexjs/stylex@0.18.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@astryxdesign/theme-neutral':
+        specifier: 0.1.4
+        version: 0.1.4(@astryxdesign/core@0.1.4(patch_hash=04f28b850c4b051615d5e0742b2273839bd08ebd938d887e44cc54ca4a37b277)(@stylexjs/stylex@0.18.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.5)

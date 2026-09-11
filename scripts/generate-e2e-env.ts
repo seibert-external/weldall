@@ -40,9 +40,9 @@ const devUsers = JSON.stringify([
 ]);
 
 // apps/e2e/test/system.spec.ts logs in as alice (administrator path) and as bob
-// (login-denied path) by selecting these addresses on the development IdP form.
+// (login-denied path) by typing these addresses on the development IdP form.
 // Generating an identity set without them would only show up later as a failing
-// selectOption, so reject it here, before any container starts.
+// form fill, so reject it here, before any container starts.
 const requiredDevEmails = ["alice@example.com", "bob@example.com"];
 const generatedDevEmails = new Set(
   (JSON.parse(devUsers) as { email: string }[]).map((user) => user.email.toLowerCase()),
