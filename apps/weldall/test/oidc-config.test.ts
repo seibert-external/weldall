@@ -11,7 +11,6 @@ import {
   decryptProviderToken,
   encryptProviderToken,
 } from "../src/server/group-providers/credentials";
-import { decryptChatApiKey, encryptChatApiKey } from "../src/server/ai/credentials";
 export const config = {
   name: "Company",
   buttonLabel: "Sign in",
@@ -97,14 +96,11 @@ it("shares the credential key without mixing credential purposes", () => {
   const oidc = seal("provider", "one", "oidc-secret");
   const attempt = seal("attempt", "one", "transient-secret");
   const group = { id: "one", ...encryptProviderToken("one", "group-token") };
-  const chat = { id: "one", ...encryptChatApiKey("one", "chat-key") };
   expect(unseal("provider", "one", oidc)).toBe("oidc-secret");
   expect(unseal("attempt", "one", attempt)).toBe("transient-secret");
   expect(decryptProviderToken(group)).toBe("group-token");
-  expect(decryptChatApiKey(chat)).toBe("chat-key");
   expect(() => unseal("provider", "one", attempt)).toThrow();
   expect(() => unseal("provider", "one", group.encryptedToken)).toThrow();
-  expect(() => unseal("attempt", "one", chat.encryptedApiKey)).toThrow();
   vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 4).toString("base64"));
   expect(() => unseal("provider", "one", oidc)).toThrow("credential_unavailable");
   expect(() => unseal("attempt", "one", attempt)).toThrow("credential_unavailable");

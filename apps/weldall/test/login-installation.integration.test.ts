@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
@@ -119,22 +119,13 @@ function withMigrationsThrough0014(run: (schema: string) => void) {
       `${root}/packages/db/prisma/migrations/migration_lock.toml`,
       `${migrations}/migration_lock.toml`,
     );
-    for (const name of [
-      "0001_baseline",
-      "0002_machine_clients",
-      "0003_weldall_iac",
-      "0004_iac_skills",
-      "0005_iac_skill_binding",
-      "0006_cli_logo_url",
-      "0007_skill_metadata",
-      "0008_cli_dark_logo_url",
-      "0009_skill_retrieval_events",
-      "0010_chat_tool_audit_events",
-      "0011_chat_settings",
-      "0012_initialize_chat_settings",
-      "0013_chat_threads",
-      "0014_chat_thread_heads",
-    ])
+    const priorMigrations = readdirSync(`${root}/packages/db/prisma/migrations`, {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isDirectory() && /^00(0[1-9]|1[0-4])_/.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+    for (const name of priorMigrations)
       cpSync(`${root}/packages/db/prisma/migrations/${name}`, `${migrations}/${name}`, {
         recursive: true,
       });

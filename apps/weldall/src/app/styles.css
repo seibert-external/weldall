@@ -7,25 +7,6 @@
 @import "@astryxdesign/theme-neutral/theme.css";
 @import "@astryxdesign/core/tailwind-theme.css";
 @import "tailwindcss/utilities.css" layer(utilities);
-@import "tw-shimmer";
-
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
-@theme inline {
-  --color-background: var(--color-background-surface);
-  --color-foreground: var(--color-text-primary);
-  --color-card-foreground: var(--color-text-primary);
-  --color-popover-foreground: var(--color-text-primary);
-  --color-primary-foreground: var(--color-background-surface);
-  --color-secondary: var(--color-background-muted);
-  --color-secondary-foreground: var(--color-text-primary);
-  --color-muted-foreground: var(--color-text-secondary);
-  --color-accent: var(--color-background-muted);
-  --color-accent-foreground: var(--color-text-primary);
-  --color-destructive: var(--color-error);
-  --color-input: var(--color-border);
-  --color-ring: var(--color-text-accent);
-}
 
 @layer base {
   html,
@@ -61,7 +42,6 @@
     --radius-element: 0;
     --radius-container: 0;
     --radius-page: 0;
-    --radius-chat: 0;
     --radius-full: 0;
   }
 
@@ -1788,28 +1768,5 @@
     opacity: 1;
     filter: none;
     transform: none;
-  }
-}
-
-@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
-
-@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
-
-@theme inline {
-  @keyframes collapsible-down {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
-    }
-  }
-  @keyframes collapsible-up {
-    from {
-      height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
-    }
-    to {
-      height: 0;
-    }
   }
 }

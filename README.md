@@ -104,7 +104,7 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 | Workspace                             | Purpose                                                                                         |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server, administration UI, and authenticated chat experience.         |
+| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server and administration UI.                                         |
 | [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests. |
 | [`@weldall/sdk`](packages/sdk/)       | TypeScript resource-server SDK for Fetch, Hono, Next.js, and Astro.                             |
 | [`weldall-sdk`](packages/python-sdk/) | Python resource-server SDK for framework-neutral use, FastAPI, and Django.                      |
