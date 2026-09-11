@@ -1,7 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import type { Context } from "hono";
-import { getCookie } from "hono/cookie";
 import { SignJWT, importJWK } from "jose";
 import type { DevIdpEnv, DevIdpUser } from "./env.js";
 import { resolveIdentity } from "./identity.js";
@@ -62,11 +60,6 @@ export function createApp(env: DevIdpEnv) {
       status,
       headers: { ...noStore, "content-type": "application/json" },
     });
-  // Mirrors the Weldall theme cookie so the mock provider matches the app's color mode.
-  const themeMode = (c: Context) => {
-    const value = getCookie(c, "weldall-theme");
-    return value === "light" || value === "dark" ? value : undefined;
-  };
   // The first configured identity is the one the development seed grants admin/login scopes to,
   // so it is prefilled; any other address can still be typed.
   const defaultEmail = env.users[0]!.email;
@@ -133,7 +126,6 @@ export function createApp(env: DevIdpEnv) {
         transaction,
         suggestions: env.users.map((user) => user.email),
         value: defaultEmail,
-        mode: themeMode(c),
       }),
       200,
       loginPageHeaders,
@@ -158,7 +150,6 @@ export function createApp(env: DevIdpEnv) {
           suggestions: env.users.map((candidate) => candidate.email),
           value: submitted.slice(0, 320),
           error: `Enter a valid email address, for example ${defaultEmail}.`,
-          mode: themeMode(c),
         }),
         400,
         loginPageHeaders,

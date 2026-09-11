@@ -42,8 +42,6 @@ const weldallTokens = `
  */
 const pageStyles = `
 :root { color-scheme: light dark; }
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
 
 body {
   background: var(--color-background-body);
@@ -192,15 +190,13 @@ export const loginPageHeaders = {
 /**
  * Renders the passwordless development login form in the Weldall/Astryx neutral theme.
  * `suggestions` are the configured identities, offered through a datalist; the input itself
- * accepts any email address. `value` is the current field content and `mode` mirrors the Weldall
- * theme cookie when one is set.
+ * accepts any email address. `value` is the current field content.
  */
 export function loginPage(input: {
   transaction: string;
   suggestions: string[];
   value?: string;
   error?: string;
-  mode?: "light" | "dark" | undefined;
 }) {
   const suggestions = input.suggestions
     .map((email) => `<option value="${escapeHtml(email)}"></option>`)
@@ -209,7 +205,7 @@ export function loginPage(input: {
     ? `<p class="login-error" id="email-error" role="alert">${escapeHtml(input.error)}</p>`
     : "";
   return `<!doctype html>
-<html lang="en" data-astryx-theme="neutral"${input.mode ? ` data-theme="${input.mode}"` : ""}>
+<html lang="en" data-astryx-theme="neutral">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

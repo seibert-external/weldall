@@ -135,18 +135,6 @@ describe("development OIDC provider", () => {
     );
   });
 
-  it.each([
-    ["weldall-theme=dark", ' data-theme="dark"'],
-    ["weldall-theme=light", ' data-theme="light"'],
-    ["weldall-theme=system", ""],
-  ])("mirrors the Weldall theme cookie %s", async (cookie, attribute) => {
-    const page = await createApp(env).request(authorizationUrl("v".repeat(64)), {
-      headers: { cookie },
-    });
-    const body = await page.text();
-    expect(body).toContain(`<html lang="en" data-astryx-theme="neutral"${attribute}>`);
-  });
-
   it("issues a nonce-bound ID token for an allowlisted identity", async () => {
     const app = createApp(env);
     const verifier = "v".repeat(64);
