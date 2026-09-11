@@ -125,6 +125,20 @@ Weldall works with any agent that can invoke the CLI. We recommend the open-sour
 
 Runs on <img src="apps/docs/src/assets/compatibility/apple.svg" width="16" height="16" align="center" /> macOS (Apple Silicon + Intel), <img src="apps/docs/src/assets/compatibility/windows8.svg" width="16" height="16" align="center" /> Windows (x64), and <img src="apps/docs/src/assets/compatibility/linux.svg" width="16" height="16" align="center" /> Linux (x64).
 
+Works with every OIDC provider:
+
+<p align="center">
+  <img src="apps/docs/src/assets/providers/google.svg" alt="Google Workspace" height="28" />
+  <img src="apps/docs/src/assets/providers/entra-id.svg" alt="Microsoft Entra ID" height="28" />
+  <img src="apps/docs/src/assets/providers/okta.svg" alt="Okta" height="28" />
+  <img src="apps/docs/src/assets/providers/auth0.svg" alt="Auth0" height="28" />
+  <img src="apps/docs/src/assets/providers/keycloak.svg" alt="Keycloak" height="28" />
+  <img src="apps/docs/src/assets/providers/authentik.svg" alt="authentik" height="28" />
+  <img src="apps/docs/src/assets/providers/openid.svg" alt="OpenID Connect" height="28" />
+</p>
+
+Vendor names and logos are trademarks of their respective owners and indicate interoperability only.
+
 ## Documentation
 
 Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
@@ -137,7 +151,7 @@ Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
 - [Group providers](apps/docs/src/content/docs/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
 - [`@weldall/sdk` reference](packages/sdk/README.md) — TypeScript route protection, skill catalogs, framework adapters.
 - [`weldall-sdk` reference](packages/python-sdk/README.md) — Python core, FastAPI/Django adapters, and machine client.
-- [Local development](docs/development.md) — set up the full stack on your machine.
+- [Local development](apps/docs/src/content/docs/local-development.md) — set up the full stack on your machine.
 
 ## Screenshots
 

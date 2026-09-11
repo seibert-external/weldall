@@ -1,0 +1,77 @@
+---
+title: "How to: Den Installer ausführen"
+description: Den Identity Provider des Unternehmens anbinden und den ersten Administrator im Weldall-Setup anlegen.
+sidebar:
+  label: "How to: Installer ausführen"
+---
+
+import { Image } from "astro:assets";
+import installerForm from "../../../assets/installer-form.png";
+
+Weldall hat keine lokalen Konten und keine Passwörter. Jede Anmeldung läuft über den Identity Provider deines Unternehmens, deshalb braucht Weldall einen zentralen IdP mit OpenID Connect (OIDC). Google Workspace, Okta, Entra ID, Keycloak und Auth0 können das.
+
+Beim ersten Start erscheint ein Installer unter `/setup`. Er fragt nach dem Operator-Token, dem ersten Administrator und einem OIDC-Client. Weldall liest die Konfiguration des Providers vom Issuer und nutzt diesen Client für jede spätere Anmeldung.
+
+<Image
+  src={installerForm}
+  alt="Installer-Formular mit Feldern für Operator-Setup-Token, E-Mail des ersten Administrators, Provider-Angaben, Callback-URL, Client-Zugangsdaten, Scopes, erlaubte E-Mail-Domains und die Vertrauensbestätigung"
+/>
+
+## Bevor du beginnst
+
+- Die Instanz antwortet auf ihrer öffentlichen HTTPS-URL. [How to: Weldall aufsetzen](../weldall-setup/) beschreibt den Container.
+- `WELDALL_SETUP_TOKEN` und `WELDALL_CREDENTIAL_ENCRYPTION_KEY` sind auf dem Server gesetzt. Ohne sie bleibt der Installer geschlossen.
+- Zugang zu deinem IdP, um einen OIDC-Client anzulegen. Bei Google heißt das OAuth-Client; das Formular fragt nach Client-ID und Secret.
+
+## 1. Installer öffnen
+
+Öffne `https://weldall.example.com/setup`. Die Seite bleibt verfügbar, bis eine Installation abgeschlossen ist; danach leitet sie auf die Anmeldeseite um.
+
+## 2. Formular ausfüllen
+
+| Feld                                             | Was du einträgst                                                                                                                                                                                                                   |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operator setup token                             | Das `WELDALL_SETUP_TOKEN` aus der Server-Konfiguration. Es autorisiert die Installation.                                                                                                                                           |
+| First administrator email                        | Die Adresse, die den ersten Administrator stellt. Nur sie kann die Installation abschließen, und sie erhält `weldall:administer` und `weldall:login`.                                                                              |
+| Provider name                                    | Interner Name des Providers, zum Beispiel `Google`. Er erscheint in der Administrationsoberfläche.                                                                                                                                 |
+| Login button label                               | Text des Anmelde-Buttons auf der Anmeldeseite, zum Beispiel `Continue with SSO`.                                                                                                                                                   |
+| Button color                                     | Sechsstellige Hex-Farbe dieses Buttons, zum Beispiel `#2563eb`. Weldall wählt für den Kontrast schwarze oder weiße Schrift.                                                                                                        |
+| Exact HTTPS issuer                               | Der Issuer deines IdP, ohne abschließenden Slash und ohne Query, zum Beispiel `https://accounts.google.com`. Weldall liest die Provider-Konfiguration unter `<issuer>/.well-known/openid-configuration`.                           |
+| Discovery URL override                           | Optional. Nur nötig, wenn dein IdP seine Konfiguration an einer anderen Stelle als unter dem Issuer veröffentlicht.                                                                                                                |
+| Callback URL                                     | Schreibgeschützt. Trage sie in deinem IdP ein, siehe Schritt 3.                                                                                                                                                                    |
+| Client ID                                        | Die Client- oder Anwendungs-ID des OIDC-Clients, den du für Weldall angelegt hast.                                                                                                                                                 |
+| Client secret                                    | Das Secret dieses Clients. Weldall verschlüsselt es, bevor es gespeichert wird.                                                                                                                                                    |
+| Token endpoint authentication                    | Wie sich der Client am Token-Endpunkt authentifiziert. `client_secret_basic` sendet die Zugangsdaten im `Authorization`-Header, `client_secret_post` im Request-Body. Welche Variante erwartet wird, steht in der Doku deines IdP. |
+| Scopes                                           | Leerzeichengetrennte Scopes für die Anmeldeanfrage. `openid` und `email` sind Pflicht, `profile` ergänzt den Anzeigenamen.                                                                                                         |
+| Allowed email domains                            | Optional. Kommagetrennte exakte Domains, zum Beispiel `example.com`. Identitäten anderer Domains werden abgelehnt. Leer akzeptiert jede verifizierte Adresse.                                                                      |
+| I trust this provider to assert email identities | Bestätigt, dass du die verifizierte E-Mail des Providers als Identität akzeptierst, an der Weldall Scopes festmacht.                                                                                                               |
+
+## 3. Callback-URL eintragen
+
+Kopiere die Callback-URL aus dem Formular in die Redirect-URLs des OIDC-Clients:
+
+```text
+https://weldall.example.com/api/auth/callback/00000000-0000-4000-8000-000000000001
+```
+
+Der erste Provider behält die feste ID `00000000-0000-4000-8000-000000000001`, die URL bleibt also über Reloads und eine wiederholte Installation hinweg gleich. Öffentliche Provider verlangen die exakte URL; eine Abweichung ist der häufigste Grund für eine fehlgeschlagene Testanmeldung.
+
+## 4. Anmeldung testen
+
+**Test login** öffnet einen neuen Tab und meldet sich mit den Werten aus dem Formular an. Der Test besteht, wenn der Provider die angegebene Administrator-Adresse zurückgibt. Gespeichert wird nichts; korrigiere die Werte und teste erneut.
+
+## 5. Installation abschließen
+
+**Complete installation** startet eine neue Anmeldung. Nach deren Erfolg speichert Weldall den Provider, legt das Administratorkonto an, vergibt `weldall:administer` und `weldall:login` und schließt den Installer endgültig.
+
+Beide Buttons starten einen einmaligen Versuch, der an deinen Browser gebunden ist und nach zehn Minuten verfällt. Eine falsche E-Mail oder eine abgebrochene Anmeldung lässt sich wiederholen.
+
+## Nach der Installation
+
+Der Administrator meldet sich auf der Anmeldeseite an und pflegt Scopes, Ressourcen und Zuweisungen in der Administrationsoberfläche. Weldall vergibt `weldall:login` niemals vom Identity Provider: Weise den Scope Mitarbeitenden vor ihrer ersten CLI-Anmeldung zu, direkt oder über eine Provider-Gruppe.
+
+## Nächste Schritte
+
+- [How to: Service integrieren](../service-configuration/) — eine API mit dem SDK absichern.
+- [Group Provider](../group-provider-http-interface/) — Gruppen und Mitgliedschaften aus dem IdP lesen.
+- [Infrastructure as Code](../infrastructure-as-code/) — Einstellungen, Scopes und Zuweisungen als Code verwalten.

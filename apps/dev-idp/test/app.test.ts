@@ -6,6 +6,7 @@ import { createApp } from "../src/app.js";
 import type { DevIdpEnv } from "../src/env.js";
 
 let key: DpopKeyPair;
+let jwks: JSONWebKeySet;
 let env: DevIdpEnv;
 const redirectUri =
   "https://weldall.example.com/api/auth/callback/0195be74-d5e4-4543-8fcf-4fe368d74214";
@@ -29,6 +30,7 @@ beforeAll(async () => {
       },
     ],
   };
+  jwks = { keys: [{ ...key.publicJwk, kid: env.signingKid, alg: "ES256" }] };
 });
 
 const authorizationUrl = (verifier: string) => {
@@ -47,16 +49,27 @@ const authorizationUrl = (verifier: string) => {
   return url;
 };
 
-const authorize = async (app: ReturnType<typeof createApp>, verifier: string) => {
+const startAuthorization = async (app: ReturnType<typeof createApp>, verifier: string) => {
   const page = await app.request(authorizationUrl(verifier));
   expect(page.status).toBe(200);
   const transaction = (await page.text()).match(/name="transaction" value="([^"]+)"/)?.[1];
   expect(transaction).toBeTruthy();
-  const login = await app.request("/login", {
+  return transaction!;
+};
+
+const submitLogin = (app: ReturnType<typeof createApp>, transaction: string, email: string) =>
+  app.request("/login", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ transaction: transaction!, email: "alice@example.com" }),
+    body: new URLSearchParams({ transaction, email }),
   });
+
+const authorize = async (
+  app: ReturnType<typeof createApp>,
+  verifier: string,
+  email = "alice@example.com",
+) => {
+  const login = await submitLogin(app, await startAuthorization(app, verifier), email);
   expect(login.status).toBe(302);
   return new URL(login.headers.get("location")!).searchParams.get("code")!;
 };
@@ -75,6 +88,22 @@ const exchange = (app: ReturnType<typeof createApp>, code: string, verifier: str
     }),
   });
 
+const issuedToken = async (response: Response) => {
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { id_token: string; access_token: string };
+  const { payload } = await jwtVerify(body.id_token, createLocalJWKSet(jwks), {
+    issuer: env.issuer,
+    audience: env.clientId,
+    algorithms: ["ES256"],
+  });
+  return { payload, body };
+};
+
+const loginAs = async (app: ReturnType<typeof createApp>, email: string) => {
+  const verifier = "v".repeat(64);
+  return exchange(app, await authorize(app, verifier, email), verifier);
+};
+
 describe("development OIDC provider", () => {
   it("rejects incomplete authorization requests", async () => {
     const response = await createApp(env).request("/authorize?client_id=weldall");
@@ -82,26 +111,81 @@ describe("development OIDC provider", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "invalid_request" });
   });
 
+  it("renders a text input that suggests configured identities", async () => {
+    const page = await createApp(env).request(authorizationUrl("v".repeat(64)));
+    expect(page.status).toBe(200);
+    const body = await page.text();
+    const input = body.match(/<input[^>]*id="email"[^>]*>/)?.[0];
+    expect(input).toContain('type="email"');
+    expect(input).toContain('value="alice@example.com"');
+    expect(body).not.toContain("<select");
+    expect(body).toContain('<option value="alice@example.com"></option>');
+    // The page is themed by the Astryx neutral theme the Weldall app loads, not by local colors.
+    expect(body).toContain('<html lang="en" data-astryx-theme="neutral">');
+    expect(body).toContain('class="login-shell"');
+    expect(body).toContain('class="login-panel"');
+    const styles = body.match(/<style>([\s\S]*?)<\/style>/)?.[1];
+    expect(styles).toBeTruthy();
+    expect(styles).toContain('@scope ([data-astryx-theme="neutral"])');
+    expect(styles).toContain("--color-background-surface: light-dark(#ffffff, #262626)");
+    expect(styles).toContain("--size-element-md:32px");
+    // The CSP must keep allowing exactly the inline style block the page ships with.
+    expect(page.headers.get("content-security-policy")).toContain(
+      `style-src 'sha256-${createHash("sha256").update(styles!).digest("base64")}'`,
+    );
+  });
+
   it("issues a nonce-bound ID token for an allowlisted identity", async () => {
     const app = createApp(env);
     const verifier = "v".repeat(64);
-    const response = await exchange(app, await authorize(app, verifier), verifier);
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { id_token: string; access_token: string };
-    const jwks: JSONWebKeySet = {
-      keys: [{ ...key.publicJwk, kid: env.signingKid, alg: "ES256" }],
-    };
-    await expect(
-      jwtVerify(body.id_token, createLocalJWKSet(jwks), {
-        issuer: env.issuer,
-        audience: env.clientId,
-        algorithms: ["ES256"],
-      }),
-    ).resolves.toMatchObject({ payload: { sub: "alice", nonce: "nonce" } });
+    const { payload, body } = await issuedToken(
+      await exchange(app, await authorize(app, verifier), verifier),
+    );
+    expect(payload).toMatchObject({ sub: "alice", nonce: "nonce" });
     const userInfo = await app.request("/userinfo", {
       headers: { authorization: `Bearer ${body.access_token}` },
     });
     await expect(userInfo.json()).resolves.toMatchObject({ sub: "alice", email_verified: true });
+  });
+
+  it("matches a configured identity regardless of case and surrounding whitespace", async () => {
+    const { payload } = await issuedToken(await loginAs(createApp(env), " ALICE@Example.COM "));
+    expect(payload).toMatchObject({ sub: "alice", email: "alice@example.com" });
+  });
+
+  it("derives a stable verified identity for an unconfigured email", async () => {
+    const app = createApp(env);
+    const first = await issuedToken(await loginAs(app, " Bob.Roe+test@Example.com "));
+    const second = await issuedToken(await loginAs(app, "bob.roe+test@example.com"));
+    expect(first.payload).toMatchObject({
+      email: "bob.roe+test@example.com",
+      email_verified: true,
+      name: "Bob Roe Test",
+    });
+    expect(first.payload.sub).toMatch(/^dev-bob-roe-test-[0-9a-f]{12}$/);
+    expect(second.payload.sub).toBe(first.payload.sub);
+  });
+
+  it("keeps the login transaction after a malformed email", async () => {
+    const app = createApp(env);
+    const verifier = "v".repeat(64);
+    const transaction = await startAuthorization(app, verifier);
+    const rejected = await submitLogin(app, transaction, "not-an-email");
+    expect(rejected.status).toBe(400);
+    const body = await rejected.text();
+    expect(body).toContain("Enter a valid email address");
+    expect(body).toContain(`name="transaction" value="${transaction}"`);
+    expect(body).toContain('value="not-an-email"');
+    expect((await submitLogin(app, transaction, "alice@example.com")).status).toBe(302);
+  });
+
+  it("consumes the login transaction after a successful login", async () => {
+    const app = createApp(env);
+    const transaction = await startAuthorization(app, "v".repeat(64));
+    expect((await submitLogin(app, transaction, "alice@example.com")).status).toBe(302);
+    const replay = await submitLogin(app, transaction, "alice@example.com");
+    expect(replay.status).toBe(400);
+    await expect(replay.json()).resolves.toMatchObject({ error: "invalid_request" });
   });
 
   it("consumes an authorization code after a failed PKCE attempt", async () => {

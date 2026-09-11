@@ -160,10 +160,10 @@ const openDevelopmentLogin = async (
   const startResponse = await startResponsePromise;
   if (!startResponse.ok()) expect(startResponse.ok(), await startResponse.text()).toBe(true);
   await page.waitForURL("https://dev-idp.seibert.localdev/authorize?**");
-  await expect(page.getByRole("heading", { name: "Insecure development login" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Development login" })).toBeVisible({
     timeout: 30_000,
   });
-  await page.getByLabel("Email").selectOption(email);
+  await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Continue" }).click();
 };
 

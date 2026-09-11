@@ -2,6 +2,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { SignJWT, importJWK } from "jose";
 import type { DevIdpEnv, DevIdpUser } from "./env.js";
+import { resolveIdentity } from "./identity.js";
+import { loginPage, loginPageHeaders } from "./login-page.js";
 
 type AuthorizationTransaction = {
   clientId: string;
@@ -28,17 +30,6 @@ const safeEqual = (left: string, right: string) => {
   const b = Buffer.from(right);
   return a.length === b.length && timingSafeEqual(a, b);
 };
-const html = (value: string) =>
-  value.replace(/[&<>"']/g, (character) => {
-    const escaped: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return escaped[character]!;
-  });
 
 export function createApp(env: DevIdpEnv) {
   // This insecure fixture accepts only server-generated provider callbacks at its configured Weldall origin.
@@ -69,6 +60,9 @@ export function createApp(env: DevIdpEnv) {
       status,
       headers: { ...noStore, "content-type": "application/json" },
     });
+  // The first configured identity is the one the development seed grants admin/login scopes to,
+  // so it is prefilled; any other address can still be typed.
+  const defaultEmail = env.users[0]!.email;
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.get("/.well-known/openid-configuration", (c) =>
@@ -127,17 +121,14 @@ export function createApp(env: DevIdpEnv) {
       scope: query.scope,
       expiresAt: Date.now() + 60_000,
     });
-    const options = env.users
-      .map((user) => `<option value="${html(user.email)}">${html(user.email)}</option>`)
-      .join("");
     return c.html(
-      `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Development login</title></head><body><main><h1>Insecure development login</h1><p>Choose a configured test identity. No password is required.</p><form method="post" action="/login"><input type="hidden" name="transaction" value="${transaction}"><label for="email">Email</label><select id="email" name="email" required>${options}</select><button type="submit">Continue</button></form></main></body></html>`,
+      loginPage({
+        transaction,
+        suggestions: env.users.map((user) => user.email),
+        value: defaultEmail,
+      }),
       200,
-      {
-        ...noStore,
-        "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-        "x-content-type-options": "nosniff",
-      },
+      loginPageHeaders,
     );
   });
 
@@ -145,12 +136,25 @@ export function createApp(env: DevIdpEnv) {
     const body = await c.req.parseBody({ all: true });
     const transactionId = typeof body.transaction === "string" ? body.transaction : "";
     const transaction = transactions.get(transactionId);
-    transactions.delete(transactionId);
-    if (!transaction || transaction.expiresAt < Date.now())
+    if (!transaction || transaction.expiresAt < Date.now()) {
+      transactions.delete(transactionId);
       return oauthError("invalid_request", "invalid or expired login transaction");
-    const email = typeof body.email === "string" ? body.email.toLowerCase() : "";
-    const user = env.users.find((candidate) => candidate.email.toLowerCase() === email);
-    if (!user) return oauthError("access_denied", "unknown development identity", 401);
+    }
+    const submitted = typeof body.email === "string" ? body.email : "";
+    const user = resolveIdentity(submitted, env.users);
+    // A malformed address keeps the transaction, so the form can be corrected and resubmitted.
+    if (!user)
+      return c.html(
+        loginPage({
+          transaction: transactionId,
+          suggestions: env.users.map((candidate) => candidate.email),
+          value: submitted.slice(0, 320),
+          error: `Enter a valid email address, for example ${defaultEmail}.`,
+        }),
+        400,
+        loginPageHeaders,
+      );
+    transactions.delete(transactionId);
     const code = randomValue();
     codes.set(code, { ...transaction, user });
     const redirect = new URL(transaction.redirectUri);
