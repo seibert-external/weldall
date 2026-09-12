@@ -65,6 +65,7 @@ const upstreamFetch = async (url: string) => {
   }
   throw new Error("unexpected upstream");
 };
+import { AUDIT_EVENT_TYPES } from "../src/lib/audit";
 import {
   completeVerifiedAttempt,
   consumeAttempt,
@@ -106,7 +107,12 @@ function deployMigrations(databaseUrl: string, schema = "prisma/schema.prisma") 
     { cwd: root, env: { ...process.env, POSTGRES_URL: databaseUrl }, stdio: "pipe" },
   );
 }
-function withMigrationsThrough0014(run: (schema: string) => void) {
+// Deploys only the migrations matching `include` into a throwaway workspace so a test can
+// reproduce the database state an earlier release left behind before upgrading it.
+function withMigrationSubset(
+  include: (migration: string) => boolean,
+  run: (schema: string) => void,
+) {
   const workspace = fileURLToPath(
     new URL(`../../../.tmp-prisma-prior-migrations-${randomUUID()}/`, import.meta.url),
   );
@@ -119,13 +125,13 @@ function withMigrationsThrough0014(run: (schema: string) => void) {
       `${root}/packages/db/prisma/migrations/migration_lock.toml`,
       `${migrations}/migration_lock.toml`,
     );
-    const priorMigrations = readdirSync(`${root}/packages/db/prisma/migrations`, {
+    const selectedMigrations = readdirSync(`${root}/packages/db/prisma/migrations`, {
       withFileTypes: true,
     })
-      .filter((entry) => entry.isDirectory() && /^00(0[1-9]|1[0-4])_/.test(entry.name))
+      .filter((entry) => entry.isDirectory() && include(entry.name))
       .map((entry) => entry.name)
       .sort();
-    for (const name of priorMigrations)
+    for (const name of selectedMigrations)
       cpSync(`${root}/packages/db/prisma/migrations/${name}`, `${migrations}/${name}`, {
         recursive: true,
       });
@@ -887,7 +893,10 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     const databaseUrl = url.toString();
     const upgrade = new PrismaClient({ datasourceUrl: databaseUrl });
     try {
-      withMigrationsThrough0014((schema) => deployMigrations(databaseUrl, schema));
+      withMigrationSubset(
+        (migration) => /^00(0[1-9]|1[0-4])_/.test(migration),
+        (schema) => deployMigrations(databaseUrl, schema),
+      );
       const userId = randomUUID();
       const scopeId = randomUUID();
       const assignmentId = randomUUID();
@@ -1016,6 +1025,50 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       expect(
         (await upgrade.loginInstallation.findUniqueOrThrow({ where: { id: "default" } })).state,
       ).toBe("UNINITIALIZED");
+    } finally {
+      await upgrade.$disconnect();
+      execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
+    }
+  });
+  it("upgrading a database that already applied 0015_oidc_login_installation keeps login audit events", async () => {
+    const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
+    const url = new URL(server!);
+    url.pathname = `/${name}`;
+    execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `CREATE DATABASE "${name}"`]);
+    const databaseUrl = url.toString();
+    const upgrade = new PrismaClient({ datasourceUrl: databaseUrl });
+    try {
+      // Reproduce a deployment that shipped 0015_oidc_login_installation before 0015_drop_chat,
+      // which is the order an existing installation applies the two same-numbered migrations in.
+      withMigrationSubset(
+        (migration) => migration !== "0015_drop_chat",
+        (schema) => deployMigrations(databaseUrl, schema),
+      );
+      await upgrade.auditEvent.create({
+        data: {
+          eventType: "login.provider.saved",
+          actorType: "user",
+          actorId: "admin",
+          requestId: "upgrade",
+          outcome: "success",
+          metadata: {},
+        },
+      });
+      deployMigrations(databaseUrl);
+      expect(await upgrade.auditEvent.count()).toBe(1);
+      const constraints = await upgrade.$queryRaw<Array<{ definition: string }>>`
+        SELECT pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint
+        WHERE conname = 'AuditEvent_event_type'`;
+      const allowed = (constraints[0]?.definition.match(/'[^']+'/g) ?? [])
+        .map((literal) => literal.replaceAll("'", ""))
+        .sort();
+      expect(allowed).toEqual([...AUDIT_EVENT_TYPES].sort());
+      expect(
+        await upgrade.$queryRaw<Array<{ tablename: string }>>`
+          SELECT tablename FROM pg_tables
+          WHERE schemaname = 'public' AND tablename LIKE 'Chat%'`,
+      ).toEqual([]);
     } finally {
       await upgrade.$disconnect();
       execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
