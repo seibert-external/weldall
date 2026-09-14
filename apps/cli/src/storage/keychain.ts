@@ -129,42 +129,48 @@ const writeTestKeychain = async (value: TestKeychain) => {
 
 const credentialStoreHint =
   "Install the optional @napi-rs/keyring dependency and ensure your operating system's secure credential service is available.";
+const macOsLegacyItemHint = `If a session from an older CLI build blocks the keychain, remove it with: security delete-generic-password -s ${SERVICE}`;
 
 const execFileAsync = promisify(execFile);
-const usesMacOsSecurity =
-  process.platform === "darwin" &&
-  (globalThis as typeof globalThis & { Bun?: unknown }).Bun !== undefined;
+const isMacOs = () => process.platform === "darwin";
+const isBun = () => (globalThis as typeof globalThis & { Bun?: unknown }).Bun !== undefined;
 
-const security = async (args: string[]) =>
-  execFileAsync("/usr/bin/security", args, { encoding: "utf8", maxBuffer: 1024 * 1024 });
-
-const nativeEntry = async (issuer: string) => {
-  const { AsyncEntry } = await import("@napi-rs/keyring");
-  return new AsyncEntry(SERVICE, accountFor(issuer));
+// The credential item must be created by this process so macOS binds the item's access
+// control list (and, for Developer-ID-signed builds, its partition list) to the CLI's own
+// code signature. Earlier standalone builds delegated to `/usr/bin/security`, which left
+// items readable by any process that could spawn that tool.
+//
+// Items created by those builds, or by an unsigned `node` binary of an npm install, are
+// invisible to a signed process yet still block the name with errSecDuplicateItem, and the
+// keyring addon cannot delete them. Worse, the addon's write tries to update an existing item
+// in place, which on a foreign item raises an interactive authorization prompt; approving it
+// would keep the item bound to the old owner. `security delete-generic-password` removes any
+// such item without a prompt (exit 44 = nothing there). Deleting is the only use of the
+// security tool: credentials are never read or written through it (a secret would cross a
+// child-process stdout, and the code would keep a reusable read path around).
+const deleteMacOsItem = async (service: string, account: string) => {
+  try {
+    await execFileAsync(
+      "/usr/bin/security",
+      ["delete-generic-password", "-s", service, "-a", account],
+      { encoding: "utf8" },
+    );
+  } catch (error) {
+    // 44 = errSecItemNotFound: nothing to remove.
+    if ((error as { code?: unknown }).code === 44) return;
+    throw error;
+  }
 };
 
 export const nativeCredentialStore = {
   async get(service: string, account: string) {
-    if (usesMacOsSecurity) {
-      try {
-        const { stdout } = await security([
-          "find-generic-password",
-          "-s",
-          service,
-          "-a",
-          account,
-          "-w",
-        ]);
-        return stdout.replace(/\r?\n$/, "");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException & { code?: number }).code === 44) return null;
-        throw error;
-      }
-    }
-    const { AsyncEntry } = await import("@napi-rs/keyring");
+    const { AsyncEntry, findCredentialsAsync } = await import("@napi-rs/keyring");
     const raw = await new AsyncEntry(service, account).getPassword();
     if (raw !== null && raw !== undefined) return raw;
-    const { findCredentialsAsync } = await import("@napi-rs/keyring");
+    // Bun 1.3.14's compiled Intel macOS N-API path can return null for an exact lookup even
+    // though the item exists; enumerating the service reads the same OS store. Node builds
+    // never showed the quirk, so a miss there stays a single lookup.
+    if (!isBun()) return null;
     return (
       (await findCredentialsAsync(service)).find((credential) => credential.account === account)
         ?.password ?? null
@@ -172,17 +178,22 @@ export const nativeCredentialStore = {
   },
 
   async set(service: string, account: string, password: string) {
-    if (usesMacOsSecurity) {
-      await security(["add-generic-password", "-U", "-s", service, "-a", account, "-w", password]);
-      return;
-    }
     const { AsyncEntry } = await import("@napi-rs/keyring");
+    // On macOS, drop any pre-existing item first so the addon always performs a clean insert
+    // that binds the new item to this process's signature, never an in-place update of a
+    // foreign item (see deleteMacOsItem). The item is rewritten under withCredentialLock, so
+    // the brief gap is not observable by a concurrent CLI invocation.
+    if (isMacOs()) await deleteMacOsItem(service, account);
     await new AsyncEntry(service, account).setPassword(password);
   },
 
   async clear(service: string, account: string) {
-    if (usesMacOsSecurity) {
-      await security(["delete-generic-password", "-s", service, "-a", account]);
+    // On macOS the addon's delete raises an authorization prompt for an item owned by a
+    // different signature (a legacy `security`/`node` item) and then only reports false, so
+    // logout would prompt and, if declined, leave the item behind. `security
+    // delete-generic-password` removes any item, ours or foreign, without a prompt.
+    if (isMacOs()) {
+      await deleteMacOsItem(service, account);
       return;
     }
     const { AsyncEntry } = await import("@napi-rs/keyring");
@@ -190,18 +201,8 @@ export const nativeCredentialStore = {
   },
 };
 
-const readNativePassword = async (issuer: string) => {
-  if (usesMacOsSecurity) return nativeCredentialStore.get(SERVICE, accountFor(issuer));
-  const entry = await nativeEntry(issuer);
-  const raw = await entry.getPassword();
-  const bun = (globalThis as typeof globalThis & { Bun?: unknown }).Bun;
-  if ((raw !== null && raw !== undefined) || !bun) return raw;
-  const { findCredentialsAsync } = await import("@napi-rs/keyring");
-  return (
-    (await findCredentialsAsync(SERVICE)).find(({ account }) => account === accountFor(issuer))
-      ?.password ?? null
-  );
-};
+const readNativePassword = (issuer: string) =>
+  nativeCredentialStore.get(SERVICE, accountFor(issuer));
 
 export const keychain = {
   async get(issuer: string): Promise<StoredCredentials | null> {
@@ -240,7 +241,7 @@ export const keychain = {
     } catch (error) {
       throw new CliError("Unable to save the Weldall session in the secure credential store", {
         cause: error,
-        hint: credentialStoreHint,
+        hint: isMacOs() ? `${credentialStoreHint} ${macOsLegacyItemHint}` : credentialStoreHint,
       });
     }
   },
@@ -259,7 +260,7 @@ export const keychain = {
     } catch (error) {
       throw new CliError("Unable to remove the Weldall session from the secure credential store", {
         cause: error,
-        hint: credentialStoreHint,
+        hint: isMacOs() ? `${credentialStoreHint} ${macOsLegacyItemHint}` : credentialStoreHint,
       });
     }
   },
