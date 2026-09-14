@@ -17,6 +17,7 @@ import { effectiveScopesFor, exchangePolicyFor } from "../src/server/policy/reso
 
 const runId = randomUUID().replaceAll("-", "");
 const email = `group-policy-${runId}@example.com`;
+const avatarUserId = `group-policy-user-${runId}`;
 const providerKey = `provider-${runId}`;
 const actor: AdminActor = {
   id: `group-policy-actor-${runId}`,
@@ -43,7 +44,15 @@ beforeAll(async () => {
     }
     if (url.includes("/api/management/users/?mail=")) {
       lookupCount += 1;
-      return json([{ username: "alice", email, is_active: true, extra: "ignored" }]);
+      return json([
+        {
+          username: "alice",
+          email: new URL(url).searchParams.get("mail") ?? "",
+          is_active: true,
+          avatar_url: "https://photos.example.com/alice.png",
+          extra: "ignored",
+        },
+      ]);
     }
     if (url.endsWith("/api/management/users/alice/")) {
       userDetailStarted?.();
@@ -63,6 +72,7 @@ afterAll(async () => {
   });
   await db.groupProvider.deleteMany({ where: { key: { startsWith: providerKey } } });
   await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: email } });
+  await db.user.deleteMany({ where: { id: avatarUserId } });
   await db.auditEvent.deleteMany({ where: { actorId: actor.id } });
 });
 
@@ -226,6 +236,10 @@ describe("group provider administration and effective policy", () => {
     );
 
     const beforeLookups = lookupCount;
+    // A membership lookup also caches the avatar the provider reports for the matching user.
+    await db.user.create({
+      data: { id: avatarUserId, name: "Alice Member", email, emailVerified: true },
+    });
     await expect(effectiveScopesFor(email)).resolves.toEqual([
       "expenses:create",
       "expenses:delete",
@@ -241,6 +255,9 @@ describe("group provider administration and effective policy", () => {
       "weldall:login",
     ]);
     expect(lookupCount - beforeLookups).toBe(2);
+    await expect(
+      db.user.findUnique({ where: { id: avatarUserId }, select: { image: true } }),
+    ).resolves.toEqual({ image: "https://photos.example.com/alice.png" });
 
     let releaseUserDetail!: () => void;
     userDetailGate = new Promise<void>((resolve) => {

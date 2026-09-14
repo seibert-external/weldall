@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseAvatarUrl } from "./avatar-url";
 import type {
   GroupProviderAdapter,
   GroupProviderGroup,
@@ -19,6 +20,8 @@ const providerUserSummarySchema = z.object({
   username: z.string().trim().min(1).max(191),
   email: z.string().email().max(320),
   is_active: z.boolean(),
+  // Decorative data: an unusable avatar is dropped instead of failing the membership lookup.
+  avatar_url: z.unknown().optional(),
 });
 const providerUserDetailSchema = providerUserSummarySchema.extend({
   groups: z.array(z.string().trim().min(1).max(191)).max(MAX_GROUPS),
@@ -171,7 +174,13 @@ function mapGroup(group: z.infer<typeof providerGroupSchema>): GroupProviderGrou
 }
 
 function mapUser(user: z.infer<typeof providerUserSummarySchema>): GroupProviderUserSummary {
-  return { id: user.username, email: normalizeEmail(user.email), active: user.is_active };
+  const avatarUrl = parseAvatarUrl(user.avatar_url);
+  return {
+    id: user.username,
+    email: normalizeEmail(user.email),
+    active: user.is_active,
+    ...(avatarUrl ? { avatarUrl } : {}),
+  };
 }
 
 function normalizeEmail(email: string): string {

@@ -65,8 +65,8 @@ describe("skill detail availability", () => {
       windowDays: 7,
       uniqueRetrievalCount: 5,
       uniqueRetrievers: [
-        { id: "user-a", displayName: "Avery Analyst" },
-        { id: "user-b", displayName: "Bea Builder" },
+        { id: "user-a", displayName: "Avery Analyst", avatarUrl: null },
+        { id: "user-b", displayName: "Bea Builder", avatarUrl: null },
       ],
     });
     mocks.SkillRetrievalSummarySection.mockReset().mockImplementation(({ initialSummary }) =>
