@@ -185,8 +185,13 @@ export const nativeCredentialStore = {
     const { AsyncEntry } = await import("@napi-rs/keyring");
     // On macOS, drop any pre-existing item first so the addon always performs a clean insert
     // that binds the new item to this process's signature, never an in-place update of a
-    // foreign item (see deleteMacOsItem). The item is rewritten under withCredentialLock, so
-    // the brief gap is not observable by a concurrent CLI invocation.
+    // foreign item (see deleteMacOsItem). There is no prompt-free way to tell our own item from
+    // a foreign one beforehand: a read of a foreign item raises the same authorization prompt
+    // as a write (verified 2026-09-14 against a signed build and a `security`-created item).
+    // Two consequences are accepted: a concurrent unlocked read can land in the brief
+    // delete-to-insert window (SessionManager retries such a miss under withCredentialLock),
+    // and an insert that fails after the delete succeeded costs the session, so the user logs
+    // in again.
     if (isMacOs()) await deleteMacOsItem(service, account);
     await new AsyncEntry(service, account).setPassword(password);
   },

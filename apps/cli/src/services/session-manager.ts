@@ -57,13 +57,12 @@ export class SessionManager {
 
   async getAccessSession(): Promise<AccessSession> {
     const readStartedAt = timingNow();
+    // Read outside the lock first so a valid session costs a single keychain access. A miss is
+    // not final: on macOS a concurrent rewrite deletes and reinserts the item, so the locked
+    // read below, which waits for that rewrite, decides whether the user is logged in.
     const initial = await this.store.get(this.config.issuer);
     phaseTiming("keychain-read", readStartedAt);
-    if (!initial)
-      throw new CliError(`You are not logged in to ${this.config.issuer}`, {
-        hint: "Run `weldall login` first.",
-      });
-    const cached = usable(initial, this.now());
+    const cached = initial ? usable(initial, this.now()) : null;
     if (cached) {
       phaseTiming("session-reused", readStartedAt);
       return cached;

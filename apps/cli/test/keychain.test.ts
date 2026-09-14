@@ -119,13 +119,18 @@ describe("native credential store", () => {
     expect(findCredentials).not.toHaveBeenCalled();
   });
 
-  it("deletes any pre-existing macOS item before writing, so the addon always inserts cleanly", async () => {
+  it("deletes any pre-existing macOS item before writing, without reading it first", async () => {
     const restore = withPlatform("darwin");
     try {
-      const { nativeCredentialStore, setPassword, execFile, order } = await loadNativeStore({});
+      const getPassword = vi.fn(async () => "previous");
+      const { nativeCredentialStore, setPassword, execFile, order } = await loadNativeStore({
+        getPassword,
+      });
       await nativeCredentialStore.set("svc", "acct", "secret");
       expect(order).toEqual(["delete", "set"]);
       expectSecurityDelete(execFile, "svc", "acct");
+      // A read of a foreign item would raise an authorization prompt on macOS.
+      expect(getPassword).not.toHaveBeenCalled();
       expect(setPassword).toHaveBeenCalledTimes(1);
       expect(setPassword).toHaveBeenCalledWith("secret");
     } finally {
