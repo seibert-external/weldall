@@ -135,6 +135,11 @@ const execFileAsync = promisify(execFile);
 const isMacOs = () => process.platform === "darwin";
 const isBun = () => (globalThis as typeof globalThis & { Bun?: unknown }).Bun !== undefined;
 
+// Writes and deletes can collide with a legacy item on macOS (see deleteMacOsItem); reads
+// cannot, so only they get the extra hint.
+const writeHint = () =>
+  isMacOs() ? `${credentialStoreHint} ${macOsLegacyItemHint}` : credentialStoreHint;
+
 // The credential item must be created by this process so macOS binds the item's access
 // control list (and, for Developer-ID-signed builds, its partition list) to the CLI's own
 // code signature. Earlier standalone builds delegated to `/usr/bin/security`, which left
@@ -146,8 +151,7 @@ const isBun = () => (globalThis as typeof globalThis & { Bun?: unknown }).Bun !=
 // in place, which on a foreign item raises an interactive authorization prompt; approving it
 // would keep the item bound to the old owner. `security delete-generic-password` removes any
 // such item without a prompt (exit 44 = nothing there). Deleting is the only use of the
-// security tool: credentials are never read or written through it (a secret would cross a
-// child-process stdout, and the code would keep a reusable read path around).
+// security tool: credentials are never read or written through it.
 const deleteMacOsItem = async (service: string, account: string) => {
   try {
     await execFileAsync(
@@ -201,9 +205,6 @@ export const nativeCredentialStore = {
   },
 };
 
-const readNativePassword = (issuer: string) =>
-  nativeCredentialStore.get(SERVICE, accountFor(issuer));
-
 export const keychain = {
   async get(issuer: string): Promise<StoredCredentials | null> {
     const account = accountFor(issuer);
@@ -214,7 +215,7 @@ export const keychain = {
 
     let raw: string | null;
     try {
-      raw = (await readNativePassword(issuer)) ?? null;
+      raw = (await nativeCredentialStore.get(SERVICE, account)) ?? null;
     } catch (error) {
       throw new CliError("Unable to read the Weldall session from the secure credential store", {
         cause: error,
@@ -241,7 +242,7 @@ export const keychain = {
     } catch (error) {
       throw new CliError("Unable to save the Weldall session in the secure credential store", {
         cause: error,
-        hint: isMacOs() ? `${credentialStoreHint} ${macOsLegacyItemHint}` : credentialStoreHint,
+        hint: writeHint(),
       });
     }
   },
@@ -256,11 +257,11 @@ export const keychain = {
       return;
     }
     try {
-      await nativeCredentialStore.clear(SERVICE, accountFor(issuer));
+      await nativeCredentialStore.clear(SERVICE, account);
     } catch (error) {
       throw new CliError("Unable to remove the Weldall session from the secure credential store", {
         cause: error,
-        hint: isMacOs() ? `${credentialStoreHint} ${macOsLegacyItemHint}` : credentialStoreHint,
+        hint: writeHint(),
       });
     }
   },

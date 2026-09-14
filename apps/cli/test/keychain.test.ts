@@ -67,6 +67,24 @@ const loadNativeStore = async (behavior: KeyringBehavior, securityExitCode?: num
   return { nativeCredentialStore, setPassword, deletePassword, execFile, order };
 };
 
+// Asserts the one and only `execFile` call was a prompt-free security-tool delete of exactly
+// this item.
+const expectSecurityDelete = (
+  execFile: ReturnType<typeof vi.fn>,
+  service: string,
+  account: string,
+) => {
+  expect(execFile).toHaveBeenCalledTimes(1);
+  expect(execFile.mock.calls[0]?.[0]).toBe("/usr/bin/security");
+  expect(execFile.mock.calls[0]?.[1]).toEqual([
+    "delete-generic-password",
+    "-s",
+    service,
+    "-a",
+    account,
+  ]);
+};
+
 describe("native credential store", () => {
   afterEach(() => {
     vi.doUnmock("node:child_process");
@@ -107,15 +125,7 @@ describe("native credential store", () => {
       const { nativeCredentialStore, setPassword, execFile, order } = await loadNativeStore({});
       await nativeCredentialStore.set("svc", "acct", "secret");
       expect(order).toEqual(["delete", "set"]);
-      expect(execFile).toHaveBeenCalledTimes(1);
-      expect(execFile.mock.calls[0]?.[0]).toBe("/usr/bin/security");
-      expect(execFile.mock.calls[0]?.[1]).toEqual([
-        "delete-generic-password",
-        "-s",
-        "svc",
-        "-a",
-        "acct",
-      ]);
+      expectSecurityDelete(execFile, "svc", "acct");
       expect(setPassword).toHaveBeenCalledTimes(1);
       expect(setPassword).toHaveBeenCalledWith("secret");
     } finally {
@@ -186,15 +196,7 @@ describe("native credential store", () => {
       const { nativeCredentialStore, execFile, deletePassword } = await loadNativeStore({});
       await nativeCredentialStore.clear("svc", "acct");
       expect(deletePassword).not.toHaveBeenCalled();
-      expect(execFile).toHaveBeenCalledTimes(1);
-      expect(execFile.mock.calls[0]?.[0]).toBe("/usr/bin/security");
-      expect(execFile.mock.calls[0]?.[1]).toEqual([
-        "delete-generic-password",
-        "-s",
-        "svc",
-        "-a",
-        "acct",
-      ]);
+      expectSecurityDelete(execFile, "svc", "acct");
     } finally {
       restore();
     }
