@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { EventEmitter } from "node:events";
+import type { IncomingMessage } from "node:http";
+import { request } from "node:https";
+import { PassThrough } from "node:stream";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import {
@@ -9,11 +14,22 @@ import {
 } from "../src/server/avatars.js";
 import { parseAvatarUrl } from "../src/server/group-providers/avatar-url.js";
 
+vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
+vi.mock("node:https", () => ({ request: vi.fn() }));
+
 const runId = randomUUID();
 const userId = `user-avatar-${runId}`;
 const email = `user-avatar-${runId}@example.com`;
+const lookupMock = vi.mocked(lookup);
+const requestMock = vi.mocked(request);
+type PinnedLookup = (
+  hostname: string,
+  options: object,
+  callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void,
+) => void;
 
 afterAll(async () => {
+  if (!process.env.POSTGRES_URL) return;
   await db.user.deleteMany({ where: { id: userId } });
 });
 
@@ -42,21 +58,15 @@ describe("avatar URLs", () => {
 
 describe("avatar fetching", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
   it("returns bounded raster bytes", async () => {
-    const bytes = new Uint8Array([1, 2, 3]);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(
-        async () =>
-          new Response(bytes, {
-            status: 200,
-            headers: { "content-type": "image/png; charset=binary" },
-          }),
-      ),
-    );
+    mockAvatarRequest({
+      addresses: [{ address: "8.8.8.8", family: 4 }],
+      body: new Uint8Array([1, 2, 3]),
+      headers: { "content-type": "image/png; charset=binary" },
+    });
 
     const image = await fetchAvatarImage("https://photos.example.com/a.png");
 
@@ -65,71 +75,93 @@ describe("avatar fetching", () => {
   });
 
   it("refuses URLs it cannot serve without contacting the provider", async () => {
-    const request = vi.fn<typeof fetch>();
-    vi.stubGlobal("fetch", request);
-
     await expect(fetchAvatarImage("http://photos.example.com/a.png")).resolves.toBeNull();
     await expect(fetchAvatarImage("not a url")).resolves.toBeNull();
-    expect(request).not.toHaveBeenCalled();
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses direct private, loopback and link-local addresses without a request", async () => {
+    await expect(fetchAvatarImage("https://127.0.0.1/a.png")).resolves.toBeNull();
+    await expect(fetchAvatarImage("https://10.1.2.3/a.png")).resolves.toBeNull();
+    await expect(fetchAvatarImage("https://169.254.169.254/latest.png")).resolves.toBeNull();
+    await expect(fetchAvatarImage("https://[::1]/a.png")).resolves.toBeNull();
+    await expect(fetchAvatarImage("https://[fe80::1]/a.png")).resolves.toBeNull();
+
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses DNS answers that include private addresses without a request", async () => {
+    lookupMock.mockResolvedValue([
+      { address: "8.8.8.8", family: 4 },
+      { address: "127.0.0.1", family: 4 },
+    ]);
+
+    await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toBeNull();
+
+    expect(lookupMock).toHaveBeenCalledWith("photos.example.com", { all: true, verbatim: true });
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("pins the request lookup to the validated public address", async () => {
+    mockAvatarRequest({
+      addresses: [
+        { address: "8.8.8.8", family: 4 },
+        { address: "8.8.4.4", family: 4 },
+      ],
+      body: new Uint8Array([1]),
+      headers: { "content-type": "image/png" },
+    });
+
+    await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toMatchObject({
+      contentType: "image/png",
+    });
+
+    const options = requestMock.mock.calls[0]![1] as { lookup: PinnedLookup };
+    const resolved = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+      options.lookup("photos.example.com", {}, (error, address, family) => {
+        if (error) reject(error);
+        else resolve({ address: String(address), family: Number(family) });
+      });
+    });
+    expect(resolved).toEqual({ address: "8.8.8.8", family: 4 });
   });
 
   it("treats redirects, non-raster responses and oversized declarations as missing", async () => {
-    const respond = (response: Response) =>
-      vi.stubGlobal(
-        "fetch",
-        vi.fn<typeof fetch>(async () => response),
-      );
-
-    respond(
-      new Response(null, { status: 302, headers: { location: "https://elsewhere.example.com" } }),
-    );
+    mockAvatarRequest({
+      statusCode: 302,
+      headers: { location: "https://elsewhere.example.com" },
+    });
     await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toBeNull();
 
-    respond(
-      new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } }),
-    );
+    mockAvatarRequest({ body: "<html></html>", headers: { "content-type": "text/html" } });
     await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toBeNull();
 
-    respond(
-      new Response("<svg xmlns='http://www.w3.org/2000/svg'/>", {
-        status: 200,
-        headers: { "content-type": "image/svg+xml" },
-      }),
-    );
+    mockAvatarRequest({
+      body: "<svg xmlns='http://www.w3.org/2000/svg'/>",
+      headers: { "content-type": "image/svg+xml" },
+    });
     await expect(fetchAvatarImage("https://photos.example.com/a.svg")).resolves.toBeNull();
 
-    respond(
-      new Response(new ReadableStream({ start: (controller) => controller.close() }), {
-        status: 200,
-        headers: { "content-type": "image/png", "content-length": String(1024 * 1024) },
-      }),
-    );
+    mockAvatarRequest({
+      headers: { "content-type": "image/png", "content-length": String(1024 * 1024) },
+    });
     await expect(fetchAvatarImage("https://photos.example.com/huge.png")).resolves.toBeNull();
   });
 
   it("stops reading a body that exceeds the size limit", async () => {
     const chunk = new Uint8Array(64 * 1_024);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(
-        async () =>
-          new Response(
-            new ReadableStream({
-              start(controller) {
-                for (let index = 0; index < 16; index += 1) controller.enqueue(chunk);
-                controller.close();
-              },
-            }),
-            { status: 200, headers: { "content-type": "image/png" } },
-          ),
-      ),
-    );
+    mockAvatarRequest({
+      body: Array.from({ length: 16 }, () => chunk),
+      headers: { "content-type": "image/png" },
+    });
 
     await expect(fetchAvatarImage("https://photos.example.com/huge.png")).resolves.toBeNull();
   });
 });
 
-describe("provider avatar cache", () => {
+describe.skipIf(!process.env.POSTGRES_URL)("provider avatar cache", () => {
   it("stores the provider avatar by normalized email and reports it for the user", async () => {
     await db.user.create({
       data: { id: userId, name: "Avery Analyst", email, emailVerified: true },
@@ -145,3 +177,36 @@ describe("provider avatar cache", () => {
     await expect(loadAvatarUrl(`user-avatar-missing-${runId}`)).resolves.toBeNull();
   });
 });
+
+function mockAvatarRequest(input: {
+  addresses?: Array<{ address: string; family: 4 | 6 }>;
+  body?: string | Uint8Array | Uint8Array[];
+  headers?: Record<string, string>;
+  statusCode?: number;
+}): void {
+  lookupMock.mockResolvedValue(input.addresses ?? [{ address: "8.8.8.8", family: 4 }]);
+  requestMock.mockImplementation(((_url, _options, callback) => {
+    const responseCallback = callback as (response: IncomingMessage) => void;
+    const clientRequest = new EventEmitter() as EventEmitter & {
+      destroy: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    clientRequest.destroy = vi.fn();
+    clientRequest.end = vi.fn(() => {
+      const response = new PassThrough() as IncomingMessage;
+      response.statusCode = input.statusCode ?? 200;
+      response.headers = input.headers ?? { "content-type": "image/png" };
+      queueMicrotask(() => {
+        responseCallback(response);
+        const body = input.body ?? new Uint8Array();
+        if (Array.isArray(body)) {
+          for (const chunk of body) response.write(chunk);
+          response.end();
+        } else {
+          response.end(body);
+        }
+      });
+    });
+    return clientRequest;
+  }) as typeof request);
+}

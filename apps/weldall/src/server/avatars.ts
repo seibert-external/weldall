@@ -1,3 +1,7 @@
+import { lookup } from "node:dns/promises";
+import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
+import { request } from "node:https";
+import { BlockList, isIP } from "node:net";
 import { db } from "@weldall/db";
 import { parseAvatarUrl } from "./group-providers/avatar-url";
 import { errorForLog, logger } from "./observability/logger";
@@ -10,6 +14,43 @@ const AVATAR_ROUTE_PREFIX = "/api/avatars";
 
 const MAX_AVATAR_BYTES = 512 * 1_024;
 const AVATAR_REQUEST_TIMEOUT_MS = 5_000;
+const BLOCKED_AVATAR_IPV4_ADDRESSES = new BlockList();
+const BLOCKED_AVATAR_IPV6_ADDRESSES = new BlockList();
+
+for (const [address, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+] as const) {
+  BLOCKED_AVATAR_IPV4_ADDRESSES.addSubnet(address, prefix, "ipv4");
+}
+
+for (const [address, prefix] of [
+  ["::", 128],
+  ["::1", 128],
+  ["::ffff:0:0", 96],
+  ["64:ff9b:1::", 48],
+  ["100::", 64],
+  ["2001::", 32],
+  ["2001:db8::", 32],
+  ["2002::", 16],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+] as const) {
+  BLOCKED_AVATAR_IPV6_ADDRESSES.addSubnet(address, prefix, "ipv6");
+}
 
 /**
  * Raster formats only. Avatars are served from the Weldall origin, where an SVG could execute
@@ -70,48 +111,94 @@ export async function fetchAvatarImage(
 ): Promise<{ body: ArrayBuffer; contentType: string } | null> {
   const target = parseAvatarUrl(url);
   if (!target) return null;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), AVATAR_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(target, {
-      method: "GET",
-      headers: { Accept: "image/*" },
-      redirect: "manual",
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) return null;
-    const contentType = (response.headers.get("content-type") ?? "").split(";")[0]!.trim();
+    const resolved = await resolvePublicAvatarAddress(new URL(target));
+    if (!resolved) return null;
+    const response = await requestAvatar(new URL(target), resolved);
+    if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+      return null;
+    }
+    const contentType = headerValue(response.headers["content-type"]).split(";")[0]!.trim();
     if (!ALLOWED_AVATAR_TYPES.has(contentType.toLowerCase())) return null;
-    const contentLength = Number(response.headers.get("content-length") ?? "0");
+    const contentLength = Number(headerValue(response.headers["content-length"]) || "0");
     if (contentLength > MAX_AVATAR_BYTES) return null;
     const body = await readBoundedBody(response, MAX_AVATAR_BYTES);
     return body ? { body, contentType } : null;
   } catch {
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
-async function readBoundedBody(response: Response, limit: number): Promise<ArrayBuffer | null> {
-  if (!response.body) return new ArrayBuffer(0);
-  const reader = response.body.getReader();
+async function resolvePublicAvatarAddress(
+  url: URL,
+): Promise<{ address: string; family: 4 | 6 } | null> {
+  const hostname = hostnameForAddressChecks(url);
+  const literalFamily = isIP(hostname);
+  const addresses =
+    literalFamily === 4 || literalFamily === 6
+      ? [{ address: hostname, family: literalFamily }]
+      : await lookup(hostname, { all: true, verbatim: true });
+  if (!addresses.length) return null;
+  if (addresses.some((address) => isBlockedAvatarAddress(address.address, address.family))) {
+    return null;
+  }
+  const selected = addresses[0]!;
+  return { address: selected.address, family: selected.family as 4 | 6 };
+}
+
+function hostnameForAddressChecks(url: URL): string {
+  return url.hostname.replace(/^\[(.*)\]$/, "$1");
+}
+
+function isBlockedAvatarAddress(address: string, family: number): boolean {
+  if (family !== 4 && family !== 6) return true;
+  return family === 4
+    ? BLOCKED_AVATAR_IPV4_ADDRESSES.check(address, "ipv4")
+    : BLOCKED_AVATAR_IPV6_ADDRESSES.check(address, "ipv6");
+}
+
+function requestAvatar(
+  url: URL,
+  resolved: { address: string; family: 4 | 6 },
+): Promise<IncomingMessage> {
+  const hostname = hostnameForAddressChecks(url);
+  return new Promise((resolve, reject) => {
+    const clientRequest = request(
+      url,
+      {
+        method: "GET",
+        headers: { Accept: "image/*", Host: url.host },
+        lookup: (_hostname, _options, callback) => callback(null, resolved.address, resolved.family),
+        servername: isIP(hostname) ? undefined : hostname,
+        timeout: AVATAR_REQUEST_TIMEOUT_MS,
+      },
+      resolve,
+    );
+    clientRequest.once("error", reject);
+    clientRequest.once("timeout", () => {
+      clientRequest.destroy();
+      reject(new Error("avatar request timed out"));
+    });
+    clientRequest.end();
+  });
+}
+
+function headerValue(value: IncomingHttpHeaders[string]): string {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
+async function readBoundedBody(response: IncomingMessage, limit: number): Promise<ArrayBuffer | null> {
   const chunks: Uint8Array[] = [];
   let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > limit) {
-        await reader.cancel();
-        return null;
-      }
-      chunks.push(value);
+  for await (const value of response) {
+    const chunk = value instanceof Uint8Array ? value : Buffer.from(value);
+    size += chunk.byteLength;
+    if (size > limit) {
+      response.destroy();
+      return null;
     }
-  } finally {
-    reader.releaseLock();
+    chunks.push(chunk);
   }
   const buffer = new ArrayBuffer(size);
   const body = new Uint8Array(buffer);
