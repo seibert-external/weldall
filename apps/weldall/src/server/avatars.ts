@@ -197,7 +197,8 @@ function requestAvatar(
       {
         method: "GET",
         headers: { Accept: "image/*", Host: url.host },
-        lookup: (_hostname, _options, callback) => callback(null, resolved.address, resolved.family),
+        lookup: (_hostname, _options, callback) =>
+          callback(null, resolved.address, resolved.family),
         servername: isIP(hostname) ? undefined : hostname,
         signal,
         timeout: AVATAR_REQUEST_TIMEOUT_MS,

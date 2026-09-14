@@ -109,14 +109,14 @@ Every endpoint must return a successful HTTP status with `Content-Type: applicat
 - Group IDs, usernames, and entries in `groups` contain 1 to 191 characters after trimming.
 - Group names contain at most 191 characters. Descriptions contain at most 2,000 characters.
 - Email addresses must be valid and contain at most 320 characters.
-- `avatar_url` must be an absolute HTTPS URL without credentials and contain at most 2,048 characters.
+- `avatar_url` must be an absolute HTTPS URL without credentials or a fragment and contain at most 2,048 characters.
 - A response may be at most 5 MiB and must arrive within 5 seconds.
 - Weldall does not follow redirects, retry failed requests, or cache provider responses on the server. It stores only the `avatar_url` reported for a user, so the web interface can serve that avatar through its own origin.
 
 Weldall fetches membership again for every new authorization decision. Invalid responses, inactive users, timeouts, and provider failures do not create group-based scopes. An unusable `avatar_url` is discarded and never fails a lookup.
 
 :::note[Avatars]
-Avatars are optional and used only by the Weldall web interface. Weldall requests the `avatar_url` without the provider token, so it must be reachable without credentials. Redirects are not followed, and only raster images of at most 512 KiB are served; the browser never contacts the provider. Any signed-in user may read an avatar, no additional scope is required. Users without a usable avatar appear with their initials.
+Avatars are optional and used only by the Weldall web interface. Weldall requests the `avatar_url` without the provider token, so it must be reachable without credentials on a public address. Redirects are not followed, and only raster images of at most 512 KiB are served; the browser never contacts the provider. Any signed-in user may read an avatar, no additional scope is required. Users without a usable avatar appear with their initials.
 :::
 
 :::note[Effective scopes]
