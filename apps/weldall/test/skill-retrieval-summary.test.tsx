@@ -17,8 +17,8 @@ const defaultSummary = {
   windowDays: 7,
   uniqueRetrievalCount: 5,
   uniqueRetrievers: [
-    { id: "user-a", displayName: "Avery Analyst" },
-    { id: "user-b", displayName: "Bea Builder" },
+    { id: "user-a", displayName: "Avery Analyst", avatarUrl: "/api/avatars/user-a" },
+    { id: "user-b", displayName: "Bea Builder", avatarUrl: null },
   ],
 };
 
@@ -59,6 +59,21 @@ describe("skill retrieval summary section", () => {
     expect(html).toContain("5 unique retrievals in the last 7 days");
   });
 
+  it("renders each retriever with the proxied avatar and an initials fallback", () => {
+    const html = renderToStaticMarkup(
+      <SkillRetrievalSummarySection
+        slug={defaultSummary.skillSlug}
+        initialSummary={defaultSummary}
+      />,
+    );
+
+    expect(html).toContain('src="/api/avatars/user-a"');
+    expect(html).not.toContain("/api/avatars/user-b");
+    expect(html).toContain("Avery Analyst");
+    expect(html).toContain("Bea Builder");
+    expect(html).toContain(">BB<");
+  });
+
   it("supports a custom window", () => {
     const customSummary = {
       ...defaultSummary,
@@ -80,5 +95,26 @@ describe("skill retrieval summary section", () => {
       days: 14,
     });
     expect(html).toContain("2 unique retrievals in the last 14 days");
+  });
+
+  it("lists at most ten retrievers and summarizes the rest", () => {
+    const manySummary = {
+      ...defaultSummary,
+      uniqueRetrievalCount: 12,
+      uniqueRetrievers: Array.from({ length: 12 }, (_, index) => ({
+        id: `user-${index}`,
+        displayName: `User ${index}`,
+        avatarUrl: null,
+      })),
+    };
+    mocks.useQuery.mockReset().mockReturnValue({ data: manySummary, error: null });
+
+    const html = renderToStaticMarkup(
+      <SkillRetrievalSummarySection slug={manySummary.skillSlug} initialSummary={manySummary} />,
+    );
+
+    expect(html).toContain("User 9");
+    expect(html).not.toContain("User 10");
+    expect(html).toContain("and 2 more users");
   });
 });

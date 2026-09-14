@@ -69,18 +69,20 @@ Weldall entfernt Leerzeichen am Rand, schreibt die E-Mail-Adresse klein und verw
   {
     "username": "jane.doe",
     "email": "jane.doe@example.com",
-    "is_active": true
+    "is_active": true,
+    "avatar_url": "https://photos.example.com/jane.doe.png"
   }
 ]
 ```
 
 Die Antwort muss ein Array mit keinem oder genau einem Treffer sein. Ohne Treffer vergibt der Provider keine gruppenbasierten Scopes. Mehrere Treffer oder eine abweichende E-Mail-Adresse werden abgelehnt.
 
-| Feld        | Bedeutung                                                 |
-| ----------- | --------------------------------------------------------- |
-| `username`  | Erforderliche, stabile ID des Nutzers beim Provider.      |
-| `email`     | Erforderliche E-Mail-Adresse des Nutzers.                 |
-| `is_active` | Nur aktive Nutzer können gruppenbasierte Scopes erhalten. |
+| Feld         | Bedeutung                                                                                                                                    |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `username`   | Erforderliche, stabile ID des Nutzers beim Provider.                                                                                         |
+| `email`      | Erforderliche E-Mail-Adresse des Nutzers.                                                                                                    |
+| `is_active`  | Nur aktive Nutzer können gruppenbasierte Scopes erhalten.                                                                                    |
+| `avatar_url` | Optionales Profilbild. Weldall verwendet nur absolute HTTPS-URLs und ignoriert einen fehlenden oder unbrauchbaren Wert. `null` ist zulässig. |
 
 ## Nutzer mit Gruppen lesen
 
@@ -93,6 +95,7 @@ GET <baseUrl>/api/management/users/<url-kodierte-nutzer-id>/
   "username": "jane.doe",
   "email": "jane.doe@example.com",
   "is_active": true,
+  "avatar_url": "https://photos.example.com/jane.doe.png",
   "groups": ["finance", "employees"]
 }
 ```
@@ -106,10 +109,15 @@ Alle Endpunkte müssen mit einem erfolgreichen HTTP-Status und `Content-Type: ap
 - Gruppen-IDs, Nutzernamen und Einträge in `groups` enthalten nach dem Trimmen 1 bis 191 Zeichen.
 - Gruppennamen enthalten höchstens 191 Zeichen, Beschreibungen höchstens 2.000 Zeichen.
 - E-Mail-Adressen müssen gültig sein und dürfen höchstens 320 Zeichen enthalten.
+- `avatar_url` muss eine absolute HTTPS-URL ohne Zugangsdaten sein und darf höchstens 2.048 Zeichen enthalten.
 - Eine Antwort darf höchstens 5 MiB groß sein und muss innerhalb von 5 Sekunden eintreffen.
-- Weldall folgt keinen Redirects, wiederholt fehlgeschlagene Requests nicht und speichert Antworten des Providers nicht serverseitig zwischen.
+- Weldall folgt keinen Redirects, wiederholt fehlgeschlagene Requests nicht und speichert Antworten des Providers nicht serverseitig zwischen. Gespeichert wird nur die für einen Nutzer gemeldete `avatar_url`, damit die Web-Oberfläche den Avatar über den eigenen Origin ausliefern kann.
 
-Bei jeder neuen Autorisierungsentscheidung fragt Weldall die Mitgliedschaft erneut ab. Fehlerhafte Antworten, inaktive Nutzer, Timeouts und Fehler des Providers erzeugen keine gruppenbasierten Scopes.
+Bei jeder neuen Autorisierungsentscheidung fragt Weldall die Mitgliedschaft erneut ab. Fehlerhafte Antworten, inaktive Nutzer, Timeouts und Fehler des Providers erzeugen keine gruppenbasierten Scopes. Ein unbrauchbarer `avatar_url` wird verworfen und lässt eine Abfrage nie fehlschlagen.
+
+:::note[Avatare]
+Avatare sind optional und werden nur von der Weldall-Web-Oberfläche genutzt. Weldall ruft die `avatar_url` ohne das Provider-Token ab, sie muss also ohne Zugangsdaten erreichbar sein. Redirects werden nicht verfolgt und es werden nur Rasterbilder mit höchstens 512 KiB ausgeliefert; der Browser kontaktiert den Provider nie direkt. Jeder angemeldete Nutzer darf einen Avatar lesen, ein zusätzlicher Scope ist nicht erforderlich. Nutzer ohne nutzbaren Avatar erscheinen mit ihren Initialen.
+:::
 
 :::note[Effektive Scopes]
 Die effektiven Scopes eines Mitarbeiters sind die Vereinigung aus Gruppen-Scopes und direkt seiner E-Mail-Adresse zugewiesenen Scopes. Ist der Provider vorübergehend nicht erreichbar, bleiben die E-Mail-Scopes verfügbar.

@@ -1646,6 +1646,26 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
+  .skill-retriever-list {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .skill-retriever-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .skill-retriever-name {
+    color: var(--color-text-primary);
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+
   .skill-detail-muted {
     margin: 0;
   }

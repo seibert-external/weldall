@@ -1,6 +1,7 @@
 import { db, Prisma, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { z } from "zod";
+import { cacheProviderAvatar } from "../avatars";
 import { lockConfigurationChanges } from "../domain/configuration";
 import { decryptProviderToken } from "../group-providers/credentials";
 import { createGroupProviderAdapter } from "../group-providers/registry";
@@ -436,6 +437,9 @@ async function resolveProviderMemberships(
       ) {
         throw new Error("invalid_detail_identity");
       }
+      // The provider's user record is the only avatar source and is already in hand here.
+      // The cache write is best-effort and uses its own connection, so it cannot fail the check.
+      await cacheProviderAvatar(normalizedEmail, detail.avatarUrl ?? summary.avatarUrl);
       memberships.push({
         providerId: provider.id,
         providerVersion: provider.version,

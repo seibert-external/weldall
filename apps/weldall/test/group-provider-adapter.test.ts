@@ -26,6 +26,7 @@ describe("management-api-v1 adapter", () => {
             username: "alice/id",
             email: "Alice+tag@Example.com",
             is_active: true,
+            avatar_url: "https://photos.example.com/alice.png",
             password_date: "ignored",
           },
         ]);
@@ -35,6 +36,7 @@ describe("management-api-v1 adapter", () => {
           username: "alice/id",
           email: "alice+tag@example.com",
           is_active: true,
+          avatar_url: "https://photos.example.com/alice.png?v=2",
           groups: ["team/a", "team/a"],
           operating_system: "ignored",
         });
@@ -58,9 +60,15 @@ describe("management-api-v1 adapter", () => {
     );
 
     const summary = await adapter.findUserByEmail(" Alice+tag@Example.com ");
-    expect(summary).toEqual({ id: "alice/id", email: "alice+tag@example.com", active: true });
+    expect(summary).toEqual({
+      id: "alice/id",
+      email: "alice+tag@example.com",
+      active: true,
+      avatarUrl: "https://photos.example.com/alice.png",
+    });
     await expect(adapter.getUser(summary!.id)).resolves.toMatchObject({
       id: "alice/id",
+      avatarUrl: "https://photos.example.com/alice.png?v=2",
       groupIds: ["team/a"],
     });
     await expect(adapter.getGroup("team/a")).resolves.toEqual({
@@ -112,6 +120,31 @@ describe("management-api-v1 adapter", () => {
       vi.fn<typeof fetch>(async () => json([{ cn: "Missing ID", unrelated: true }])),
     );
     await expect(malformed.searchGroups("", 10)).rejects.toThrow();
+  });
+
+  it("drops avatar URLs it cannot serve without failing the lookup", async () => {
+    const unusable = [
+      "http://photos.example.com/alice.png",
+      "https://user:secret@photos.example.com/alice.png",
+      "https://photos.example.com/alice.png#fragment",
+      `https://photos.example.com/${"a".repeat(2_048)}.png`,
+      "not a url",
+      42,
+      null,
+    ];
+    for (const avatar_url of unusable) {
+      const adapter = new ManagementApiV1Adapter(
+        { baseUrl: "https://provider.example", token: "secret" },
+        vi.fn<typeof fetch>(async () =>
+          json([{ username: "one", email: "a@example.com", is_active: true, avatar_url }]),
+        ),
+      );
+      await expect(adapter.findUserByEmail("a@example.com")).resolves.toEqual({
+        id: "one",
+        email: "a@example.com",
+        active: true,
+      });
+    }
   });
 
   it("reports the complete bounded group count when testing a connection", async () => {

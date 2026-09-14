@@ -10,6 +10,8 @@ export interface GroupProviderUserSummary {
   id: string;
   email: string;
   active: boolean;
+  /** Absolute HTTPS avatar URL reported by the provider, when it reports a usable one. */
+  avatarUrl?: string;
 }
 
 export interface GroupProviderUser extends GroupProviderUserSummary {
