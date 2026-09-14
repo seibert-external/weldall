@@ -111,22 +111,50 @@ export async function fetchAvatarImage(
 ): Promise<{ body: ArrayBuffer; contentType: string } | null> {
   const target = parseAvatarUrl(url);
   if (!target) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AVATAR_REQUEST_TIMEOUT_MS);
   try {
-    const resolved = await resolvePublicAvatarAddress(new URL(target));
+    const parsedTarget = new URL(target);
+    const signal = controller.signal;
+    const resolved = await withAbort(resolvePublicAvatarAddress(parsedTarget), signal);
     if (!resolved) return null;
-    const response = await requestAvatar(new URL(target), resolved);
+    const response = await requestAvatar(parsedTarget, resolved, signal);
     if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-      return null;
+      return closeRejectedResponse(response);
     }
     const contentType = headerValue(response.headers["content-type"]).split(";")[0]!.trim();
-    if (!ALLOWED_AVATAR_TYPES.has(contentType.toLowerCase())) return null;
+    if (!ALLOWED_AVATAR_TYPES.has(contentType.toLowerCase())) {
+      return closeRejectedResponse(response);
+    }
     const contentLength = Number(headerValue(response.headers["content-length"]) || "0");
-    if (contentLength > MAX_AVATAR_BYTES) return null;
-    const body = await readBoundedBody(response, MAX_AVATAR_BYTES);
+    if (contentLength > MAX_AVATAR_BYTES) {
+      return closeRejectedResponse(response);
+    }
+    const body = await readBoundedBody(response, MAX_AVATAR_BYTES, signal);
     return body ? { body, contentType } : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+function withAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function resolvePublicAvatarAddress(
@@ -160,6 +188,7 @@ function isBlockedAvatarAddress(address: string, family: number): boolean {
 function requestAvatar(
   url: URL,
   resolved: { address: string; family: 4 | 6 },
+  signal: AbortSignal,
 ): Promise<IncomingMessage> {
   const hostname = hostnameForAddressChecks(url);
   return new Promise((resolve, reject) => {
@@ -170,6 +199,7 @@ function requestAvatar(
         headers: { Accept: "image/*", Host: url.host },
         lookup: (_hostname, _options, callback) => callback(null, resolved.address, resolved.family),
         servername: isIP(hostname) ? undefined : hostname,
+        signal,
         timeout: AVATAR_REQUEST_TIMEOUT_MS,
       },
       resolve,
@@ -188,17 +218,33 @@ function headerValue(value: IncomingHttpHeaders[string]): string {
   return value ?? "";
 }
 
-async function readBoundedBody(response: IncomingMessage, limit: number): Promise<ArrayBuffer | null> {
+function closeRejectedResponse(response: IncomingMessage): null {
+  response.destroy();
+  return null;
+}
+
+async function readBoundedBody(
+  response: IncomingMessage,
+  limit: number,
+  signal: AbortSignal,
+): Promise<ArrayBuffer | null> {
+  signal.throwIfAborted();
+  const abort = () => response.destroy(new Error("avatar request aborted"));
+  signal.addEventListener("abort", abort, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const value of response) {
-    const chunk = value instanceof Uint8Array ? value : Buffer.from(value);
-    size += chunk.byteLength;
-    if (size > limit) {
-      response.destroy();
-      return null;
+  try {
+    for await (const value of response) {
+      const chunk = value instanceof Uint8Array ? value : Buffer.from(value);
+      size += chunk.byteLength;
+      if (size > limit) {
+        response.destroy();
+        return null;
+      }
+      chunks.push(chunk);
     }
-    chunks.push(chunk);
+  } finally {
+    signal.removeEventListener("abort", abort);
   }
   const buffer = new ArrayBuffer(size);
   const body = new Uint8Array(buffer);

@@ -59,6 +59,7 @@ describe("avatar URLs", () => {
 describe("avatar fetching", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it("returns bounded raster bytes", async () => {
@@ -159,6 +160,27 @@ describe("avatar fetching", () => {
 
     await expect(fetchAvatarImage("https://photos.example.com/huge.png")).resolves.toBeNull();
   });
+
+  it("terminates a response body that stalls after headers", async () => {
+    vi.useFakeTimers();
+    let response: IncomingMessage | undefined;
+    mockAvatarRequest({
+      headers: { "content-type": "image/png" },
+      onResponse: (stream) => {
+        response = stream;
+      },
+      stallBody: true,
+    });
+
+    const image = fetchAvatarImage("https://photos.example.com/stalled.png");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(response).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(image).resolves.toBeNull();
+    expect(response!.destroy).toHaveBeenCalled();
+  });
 });
 
 describe.skipIf(!process.env.POSTGRES_URL)("provider avatar cache", () => {
@@ -182,7 +204,9 @@ function mockAvatarRequest(input: {
   addresses?: Array<{ address: string; family: 4 | 6 }>;
   body?: string | Uint8Array | Uint8Array[];
   headers?: Record<string, string>;
+  onResponse?: (response: IncomingMessage) => void;
   statusCode?: number;
+  stallBody?: boolean;
 }): void {
   lookupMock.mockResolvedValue(input.addresses ?? [{ address: "8.8.8.8", family: 4 }]);
   requestMock.mockImplementation(((_url, _options, callback) => {
@@ -196,8 +220,11 @@ function mockAvatarRequest(input: {
       const response = new PassThrough() as IncomingMessage;
       response.statusCode = input.statusCode ?? 200;
       response.headers = input.headers ?? { "content-type": "image/png" };
+      response.destroy = vi.fn(response.destroy.bind(response));
       queueMicrotask(() => {
         responseCallback(response);
+        input.onResponse?.(response);
+        if (input.stallBody) return;
         const body = input.body ?? new Uint8Array();
         if (Array.isArray(body)) {
           for (const chunk of body) response.write(chunk);
