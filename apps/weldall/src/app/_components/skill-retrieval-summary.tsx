@@ -1,13 +1,14 @@
 "use client";
 
-import { Avatar } from "@astryxdesign/core/Avatar";
+import { Popover } from "@astryxdesign/core/Popover";
 import { useQuery } from "@tanstack/react-query";
 import type { SkillRetrievalSummary as SkillRetrievalSummaryDto } from "@/server/skills/retrieval-metrics";
+import { SkillRetrieverList } from "./skill-retriever-list";
 import { skillRetrievalLabel } from "./skill-retrieval-flame";
 import { useTRPC } from "@/trpc/react";
 
 const DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS = 7;
-/** The sidebar lists the most recent retrievers and summarizes the rest. */
+/** The sidebar lists the most recent retrievers; the rest stay behind the popover. */
 const MAX_VISIBLE_RETRIEVERS = 10;
 
 export function SkillRetrievalSummarySection({
@@ -26,7 +27,8 @@ export function SkillRetrievalSummarySection({
   });
   const summary = query.data ?? initialSummary;
   const retrievers = summary?.uniqueRetrievers ?? [];
-  const remainingRetrievers = retrievers.length - MAX_VISIBLE_RETRIEVERS;
+  const visibleRetrievers = retrievers.slice(0, MAX_VISIBLE_RETRIEVERS);
+  const remainingRetrievers = retrievers.length - visibleRetrievers.length;
 
   return (
     <section>
@@ -40,24 +42,18 @@ export function SkillRetrievalSummarySection({
           <p className="skill-detail-muted">
             {skillRetrievalLabel(summary.uniqueRetrievalCount, summary.windowDays)}
           </p>
-          {retrievers.length ? (
-            <ul className="skill-retriever-list">
-              {retrievers.slice(0, MAX_VISIBLE_RETRIEVERS).map((retriever) => (
-                <li key={retriever.id}>
-                  <Avatar
-                    name={retriever.displayName}
-                    size="xsmall"
-                    {...(retriever.avatarUrl ? { src: retriever.avatarUrl } : {})}
-                  />
-                  <span className="skill-retriever-name">{retriever.displayName}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {visibleRetrievers.length ? <SkillRetrieverList retrievers={visibleRetrievers} /> : null}
           {remainingRetrievers > 0 ? (
-            <p className="skill-detail-muted">
-              {`and ${remainingRetrievers} more ${remainingRetrievers === 1 ? "user" : "users"}`}
-            </p>
+            <Popover
+              content={<SkillRetrieverList isScrollable retrievers={retrievers} />}
+              hasCloseButton={false}
+              label={`Users who retrieved this skill in the last ${summary.windowDays} days`}
+              width="16rem"
+            >
+              <button className="skill-retriever-more" type="button">
+                {`and ${remainingRetrievers} more ${remainingRetrievers === 1 ? "user" : "users"}`}
+              </button>
+            </Popover>
           ) : null}
         </>
       )}

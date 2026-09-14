@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +10,21 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-query", () => ({ useQuery: mocks.useQuery }));
 vi.mock("../src/trpc/react", () => ({ useTRPC: mocks.useTRPC }));
+// The real popover renders its content into a layer only while it is open, so the test renders the
+// content inline to assert the full retriever list the trigger hands to it.
+vi.mock("@astryxdesign/core/Popover", () => ({
+  Popover: (props: {
+    children?: ReactNode;
+    content?: ReactNode;
+    hasCloseButton?: boolean;
+    label?: string;
+  }) => (
+    <div data-has-close-button={String(props.hasCloseButton)} data-popover-label={props.label}>
+      {props.children}
+      {props.content}
+    </div>
+  ),
+}));
 
 import { SkillRetrievalSummarySection } from "../src/app/_components/skill-retrieval-summary";
 
@@ -57,21 +73,8 @@ describe("skill retrieval summary section", () => {
     );
     expect(html).toContain("Retrievals");
     expect(html).toContain("5 unique retrievals in the last 7 days");
-  });
-
-  it("renders each retriever with the proxied avatar and an initials fallback", () => {
-    const html = renderToStaticMarkup(
-      <SkillRetrievalSummarySection
-        slug={defaultSummary.skillSlug}
-        initialSummary={defaultSummary}
-      />,
-    );
-
-    expect(html).toContain('src="/api/avatars/user-a"');
-    expect(html).not.toContain("/api/avatars/user-b");
     expect(html).toContain("Avery Analyst");
-    expect(html).toContain("Bea Builder");
-    expect(html).toContain(">BB<");
+    expect(html).not.toContain("skill-retriever-more");
   });
 
   it("supports a custom window", () => {
@@ -97,13 +100,13 @@ describe("skill retrieval summary section", () => {
     expect(html).toContain("2 unique retrievals in the last 14 days");
   });
 
-  it("lists at most ten retrievers and summarizes the rest", () => {
+  it("lists ten retrievers in the sidebar and opens the full list in a popover", () => {
     const manySummary = {
       ...defaultSummary,
       uniqueRetrievalCount: 12,
       uniqueRetrievers: Array.from({ length: 12 }, (_, index) => ({
         id: `user-${index}`,
-        displayName: `User ${index}`,
+        displayName: `Retriever ${index}`,
         avatarUrl: null,
       })),
     };
@@ -113,8 +116,12 @@ describe("skill retrieval summary section", () => {
       <SkillRetrievalSummarySection slug={manySummary.skillSlug} initialSummary={manySummary} />,
     );
 
-    expect(html).toContain("User 9");
-    expect(html).not.toContain("User 10");
     expect(html).toContain("and 2 more users");
+    expect(html).toContain('data-has-close-button="false"');
+    expect(html).toContain(
+      'data-popover-label="Users who retrieved this skill in the last 7 days"',
+    );
+    // Ten rows in the sidebar plus every row in the popover.
+    expect(html.match(/<li/g)).toHaveLength(10 + manySummary.uniqueRetrievers.length);
   });
 });
