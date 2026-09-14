@@ -5,6 +5,14 @@ name: Rehearse macOS signing
 # smoke-test the signed binary, build the archive, and keep both as short-lived artifacts.
 # Nothing is attached to a release. Use it to validate the `release` environment secrets, the
 # runner image, and any change to the signing steps before they meet a real release tag.
+#
+# SECURITY PRECONDITION: this workflow produces a Seibert-signed, notarized binary of whatever
+# branch it is dispatched on, downloadable by anyone with read access for three days. That is
+# only acceptable because the `release` environment MUST have required reviewers configured
+# (Settings → Environments → release → Required reviewers) BEFORE the Apple certificate and
+# notary key are added as environment secrets. With reviewers in place every dispatch waits for
+# an approval; without them, anyone with write access could sign unreviewed code. Do not add
+# the secrets to an environment that has no reviewers.
 on:
   workflow_dispatch:
 

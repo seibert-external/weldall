@@ -87,8 +87,10 @@ jobs:
             executable: weldall
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
-    # The Apple Developer ID certificate and notary key live as secrets in this environment,
-    # so only the release build can read them. Add required reviewers here to gate signing.
+    # The Apple Developer ID certificate and notary key live as secrets in this environment.
+    # The environment MUST have required reviewers configured before those secrets exist:
+    # they are the only gate between "can dispatch a workflow" and "can produce a
+    # Seibert-signed binary" (see rehearse-macos-signing.yml for the full reasoning).
     environment: release
     env:
       WELDALL_RUNNER_LABEL: ${{ matrix.runner }}
