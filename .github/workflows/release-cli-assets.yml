@@ -128,50 +128,16 @@ jobs:
         run: |
           OUTPUT_DIR="$RUNNER_TEMP/standalone" ARCHIVE_DIR="$RUNNER_TEMP/archive" node -e 'const fs = require("node:fs"); for (const path of [process.env.OUTPUT_DIR, process.env.ARCHIVE_DIR]) { fs.rmSync(path, { recursive: true, force: true }); fs.mkdirSync(path, { recursive: true }); }'
           bun apps/cli/scripts/build-standalone.mjs --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/standalone"
-      - name: Import the Developer ID signing identity into a throwaway keychain
+      - name: Sign and notarize the macOS executable
         if: runner.os == 'macOS'
-        env:
-          CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          printf '%s' "$CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          rm -f "$RUNNER_TEMP/certificate.p12"
-          # Apple's "Developer ID Certification Authority G2" intermediate is absent on
-          # Command-Line-Tools-only runners; without it the chain to the Apple root is
-          # incomplete and codesign/notarization reject the identity.
-          curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
-          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KEYCHAIN"
-          rm -f "$RUNNER_TEMP/DeveloperIDG2CA.cer"
-          # Let codesign use the private key without an interactive prompt.
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
-          # Keep the existing search list and prepend the throwaway keychain. Strip the
-          # quotes and indentation from the listing so each path becomes one argument.
-          EXISTING_KEYCHAINS="$(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"[[:space:]]*$/\1/')"
-          security list-keychains -d user -s "$KEYCHAIN" $EXISTING_KEYCHAINS
-          test "$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -c 'Developer ID Application')" -eq 1
-      - name: Sign the macOS executable with hardened runtime
-        if: runner.os == 'macOS'
-        run: |
-          EXECUTABLE="$RUNNER_TEMP/standalone/${{ matrix.executable }}"
-          # Select the identity by the SHA-1 of the certificate just imported into the
-          # throwaway keychain: unambiguous even if the runner image ever carries another
-          # Developer ID identity, and no team or organization name lives in this file.
-          IDENTITY="$(security find-identity -v -p codesigning "$RUNNER_TEMP/signing.keychain-db" | awk '/Developer ID Application/ { print $2; exit }')"
-          test -n "$IDENTITY"
-          codesign --force --sign "$IDENTITY" \
-            --identifier dev.seibert.weldall-cli \
-            --options runtime --timestamp \
-            --entitlements apps/cli/entitlements.plist \
-            "$EXECUTABLE"
-          codesign --verify --strict --verbose=2 "$EXECUTABLE"
-          codesign -dvv "$EXECUTABLE" 2>&1 | grep -E '^Authority=Developer ID Application'
-          codesign -dvv "$EXECUTABLE" 2>&1 | grep -E '^TeamIdentifier=[A-Z0-9]{10}$'
+        uses: ./.github/actions/sign-macos
+        with:
+          executable: ${{ runner.temp }}/standalone/${{ matrix.executable }}
+          certificate-p12-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          notary-key-p8-base64: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+          notary-key-id: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          notary-issuer-id: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
       - name: Smoke copied Linux executable with secure-store diagnostics
         if: matrix.target == 'linux-x64'
         run: |
@@ -186,22 +152,6 @@ jobs:
         run: node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/standalone/${{ matrix.executable }}"
       - name: Create and independently extract the target archive
         run: node apps/cli/scripts/create-standalone-archive.mjs --target "${{ matrix.target }}" --version "${{ needs.prepare.outputs.version }}" --executable "$RUNNER_TEMP/standalone/${{ matrix.executable }}" --output-dir "$RUNNER_TEMP/archive"
-      - name: Notarize the macOS executable
-        if: runner.os == 'macOS'
-        env:
-          NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
-          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-        run: |
-          printf '%s' "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-          # A bare CLI binary cannot be stapled. Notarizing a zip of it makes Apple record a
-          # ticket for the binary's cdhash, which Gatekeeper checks online on first run; the
-          # archived binary shares that cdhash. A rejection fails the job before any upload.
-          ditto -c -k --norsrc "$RUNNER_TEMP/standalone/${{ matrix.executable }}" "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-            --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
-            --wait --timeout 20m
-          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
       - name: Assert immutable-commit build left no repository debris
         run: |
           git diff --exit-code
@@ -221,9 +171,6 @@ jobs:
           path: ${{ runner.temp }}/archive/*
           if-no-files-found: error
           retention-days: 7
-      - name: Remove the throwaway signing keychain
-        if: always() && runner.os == 'macOS'
-        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
   detached-smoke:
     # No checkout is intentional: this matrix may consume only each raw executable artifact.
