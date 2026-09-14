@@ -14,8 +14,19 @@ import {
 } from "../src/server/avatars.js";
 import { parseAvatarUrl } from "../src/server/group-providers/avatar-url.js";
 
+const loggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
+  warn: vi.fn(),
+}));
+
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 vi.mock("node:https", () => ({ request: vi.fn() }));
+vi.mock("../src/server/observability/logger.js", () => ({
+  errorForLog: (error: unknown) => ({
+    message: error instanceof Error ? error.message : String(error),
+  }),
+  logger: loggerMocks,
+}));
 
 const runId = randomUUID();
 const userId = `user-avatar-${runId}`;
@@ -54,6 +65,15 @@ describe("avatar URLs", () => {
   it("builds a same-origin path for a user", () => {
     expect(avatarRoutePath("user/a")).toBe("/api/avatars/user%2Fa");
   });
+
+  it("logs why an unusable provider avatar is not cached", async () => {
+    await cacheProviderAvatar(email, "http://photos.example.com/a.png");
+
+    expect(loggerMocks.debug).toHaveBeenCalledWith(
+      { event: "user_avatar.cache.skipped", reason: "invalid_url" },
+      "Skipped group provider avatar cache",
+    );
+  });
 });
 
 describe("avatar fetching", () => {
@@ -80,6 +100,10 @@ describe("avatar fetching", () => {
     await expect(fetchAvatarImage("not a url")).resolves.toBeNull();
     expect(lookupMock).not.toHaveBeenCalled();
     expect(requestMock).not.toHaveBeenCalled();
+    expect(loggerMocks.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "user_avatar.fetch.failed", reason: "invalid_url" }),
+      "Failed to fetch provider avatar",
+    );
   });
 
   it("refuses direct private, loopback and link-local addresses without a request", async () => {
@@ -91,6 +115,14 @@ describe("avatar fetching", () => {
 
     expect(lookupMock).not.toHaveBeenCalled();
     expect(requestMock).not.toHaveBeenCalled();
+    expect(loggerMocks.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "user_avatar.fetch.failed",
+        hostname: "fe80::1",
+        reason: "address_not_public",
+      }),
+      "Failed to fetch provider avatar",
+    );
   });
 
   it("refuses DNS answers that include private addresses without a request", async () => {
@@ -180,6 +212,14 @@ describe("avatar fetching", () => {
 
     await expect(image).resolves.toBeNull();
     expect(response!.destroy).toHaveBeenCalled();
+    expect(loggerMocks.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "user_avatar.fetch.failed",
+        hostname: "photos.example.com",
+        reason: "timeout",
+      }),
+      "Failed to fetch provider avatar",
+    );
   });
 });
 

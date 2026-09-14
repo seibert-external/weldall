@@ -77,17 +77,30 @@ export function avatarRoutePath(userId: string): string {
  */
 export async function cacheProviderAvatar(email: string, avatarUrl: unknown): Promise<void> {
   const url = parseAvatarUrl(avatarUrl);
-  if (!url) return;
+  if (!url) {
+    logger.debug(
+      { event: "user_avatar.cache.skipped", reason: "invalid_url" },
+      "Skipped group provider avatar cache",
+    );
+    return;
+  }
   try {
     // Guarded so an unchanged avatar costs a statement but no write. `image` is nullable, so an
     // absent avatar needs its own branch: SQL `<>` never matches NULL.
-    await db.user.updateMany({
+    const result = await db.user.updateMany({
       where: {
         email: email.trim().toLowerCase(),
         OR: [{ image: null }, { image: { not: url } }],
       },
       data: { image: url },
     });
+    logger.debug(
+      {
+        event: result.count ? "user_avatar.cache.updated" : "user_avatar.cache.skipped",
+        ...(result.count ? {} : { reason: "unchanged_or_user_not_found" }),
+      },
+      result.count ? "Cached group provider avatar" : "Skipped group provider avatar cache",
+    );
   } catch (error) {
     logger.warn(
       { event: "user_avatar.cache.failed", error: errorForLog(error) },
@@ -99,7 +112,18 @@ export async function cacheProviderAvatar(email: string, avatarUrl: unknown): Pr
 /** Returns the cached avatar URL for a user, or null when no usable URL is stored. */
 export async function loadAvatarUrl(userId: string): Promise<string | null> {
   const user = await db.user.findUnique({ where: { id: userId }, select: { image: true } });
-  return parseAvatarUrl(user?.image);
+  const url = parseAvatarUrl(user?.image);
+  if (!url) {
+    logger.debug(
+      {
+        event: "user_avatar.load.missing",
+        reason: user ? "invalid_or_missing_url" : "user_not_found",
+        userId,
+      },
+      "No cached avatar available",
+    );
+  }
+  return url;
 }
 
 /**
@@ -110,33 +134,61 @@ export async function fetchAvatarImage(
   url: string,
 ): Promise<{ body: ArrayBuffer; contentType: string } | null> {
   const target = parseAvatarUrl(url);
-  if (!target) return null;
+  if (!target) {
+    logAvatarFetchFailure("invalid_url");
+    return null;
+  }
+  const parsedTarget = new URL(target);
+  const hostname = hostnameForAddressChecks(parsedTarget);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AVATAR_REQUEST_TIMEOUT_MS);
   try {
-    const parsedTarget = new URL(target);
     const signal = controller.signal;
     const resolved = await withAbort(resolvePublicAvatarAddress(parsedTarget), signal);
-    if (!resolved) return null;
+    if (!resolved) {
+      logAvatarFetchFailure("address_not_public", hostname);
+      return null;
+    }
     const response = await requestAvatar(parsedTarget, resolved, signal);
     if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+      logAvatarFetchFailure("http_status", hostname, { status: response.statusCode ?? null });
       return closeRejectedResponse(response);
     }
     const contentType = headerValue(response.headers["content-type"]).split(";")[0]!.trim();
     if (!ALLOWED_AVATAR_TYPES.has(contentType.toLowerCase())) {
+      logAvatarFetchFailure("content_type", hostname, { contentType });
       return closeRejectedResponse(response);
     }
     const contentLength = Number(headerValue(response.headers["content-length"]) || "0");
     if (contentLength > MAX_AVATAR_BYTES) {
+      logAvatarFetchFailure("content_length", hostname, { contentLength });
       return closeRejectedResponse(response);
     }
     const body = await readBoundedBody(response, MAX_AVATAR_BYTES, signal);
-    return body ? { body, contentType } : null;
-  } catch {
+    if (!body) {
+      logAvatarFetchFailure("body_limit", hostname);
+      return null;
+    }
+    return { body, contentType };
+  } catch (error) {
+    logAvatarFetchFailure(controller.signal.aborted ? "timeout" : "request_failed", hostname, {
+      error: errorForLog(error),
+    });
     return null;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function logAvatarFetchFailure(
+  reason: string,
+  hostname?: string,
+  fields: Record<string, unknown> = {},
+): void {
+  logger.debug(
+    { event: "user_avatar.fetch.failed", reason, ...(hostname ? { hostname } : {}), ...fields },
+    "Failed to fetch provider avatar",
+  );
 }
 
 function withAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
