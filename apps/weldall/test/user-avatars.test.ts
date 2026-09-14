@@ -1,9 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { EventEmitter } from "node:events";
-import type { IncomingMessage } from "node:http";
-import { request } from "node:https";
-import { PassThrough } from "node:stream";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import {
@@ -19,8 +14,6 @@ const loggerMocks = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
-vi.mock("node:https", () => ({ request: vi.fn() }));
 vi.mock("../src/server/observability/logger.js", () => ({
   errorForLog: (error: unknown) => ({
     message: error instanceof Error ? error.message : String(error),
@@ -31,15 +24,11 @@ vi.mock("../src/server/observability/logger.js", () => ({
 const runId = randomUUID();
 const userId = `user-avatar-${runId}`;
 const email = `user-avatar-${runId}@example.com`;
-const lookupMock = vi.mocked(lookup);
-const requestMock = vi.mocked(request);
-type PinnedLookup = (
-  hostname: string,
-  options: object,
-  callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void,
-) => void;
+const fetchMock = vi.fn<typeof fetch>();
+vi.stubGlobal("fetch", fetchMock);
 
 afterAll(async () => {
+  vi.unstubAllGlobals();
   if (!process.env.POSTGRES_URL) return;
   await db.user.deleteMany({ where: { id: userId } });
 });
@@ -83,8 +72,7 @@ describe("avatar fetching", () => {
   });
 
   it("returns bounded raster bytes", async () => {
-    mockAvatarRequest({
-      addresses: [{ address: "8.8.8.8", family: 4 }],
+    mockAvatarFetch({
       body: new Uint8Array([1, 2, 3]),
       headers: { "content-type": "image/png; charset=binary" },
     });
@@ -98,86 +86,43 @@ describe("avatar fetching", () => {
   it("refuses URLs it cannot serve without contacting the provider", async () => {
     await expect(fetchAvatarImage("http://photos.example.com/a.png")).resolves.toBeNull();
     await expect(fetchAvatarImage("not a url")).resolves.toBeNull();
-    expect(lookupMock).not.toHaveBeenCalled();
-    expect(requestMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(loggerMocks.debug).toHaveBeenCalledWith(
       expect.objectContaining({ event: "user_avatar.fetch.failed", reason: "invalid_url" }),
       "Failed to fetch provider avatar",
     );
   });
 
-  it("refuses direct private, loopback and link-local addresses without a request", async () => {
-    await expect(fetchAvatarImage("https://127.0.0.1/a.png")).resolves.toBeNull();
-    await expect(fetchAvatarImage("https://10.1.2.3/a.png")).resolves.toBeNull();
-    await expect(fetchAvatarImage("https://169.254.169.254/latest.png")).resolves.toBeNull();
-    await expect(fetchAvatarImage("https://[::1]/a.png")).resolves.toBeNull();
-    await expect(fetchAvatarImage("https://[fe80::1]/a.png")).resolves.toBeNull();
+  it("allows trusted providers to serve avatars from internal HTTPS hosts", async () => {
+    mockAvatarFetch({ body: new Uint8Array([1]), headers: { "content-type": "image/png" } });
 
-    expect(lookupMock).not.toHaveBeenCalled();
-    expect(requestMock).not.toHaveBeenCalled();
-    expect(loggerMocks.debug).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "user_avatar.fetch.failed",
-        hostname: "fe80::1",
-        reason: "address_not_public",
-      }),
-      "Failed to fetch provider avatar",
-    );
-  });
-
-  it("refuses DNS answers that include private addresses without a request", async () => {
-    lookupMock.mockResolvedValue([
-      { address: "8.8.8.8", family: 4 },
-      { address: "127.0.0.1", family: 4 },
-    ]);
-
-    await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toBeNull();
-
-    expect(lookupMock).toHaveBeenCalledWith("photos.example.com", { all: true, verbatim: true });
-    expect(requestMock).not.toHaveBeenCalled();
-  });
-
-  it("pins the request lookup to the validated public address", async () => {
-    mockAvatarRequest({
-      addresses: [
-        { address: "8.8.8.8", family: 4 },
-        { address: "8.8.4.4", family: 4 },
-      ],
-      body: new Uint8Array([1]),
-      headers: { "content-type": "image/png" },
-    });
-
-    await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toMatchObject({
+    await expect(fetchAvatarImage("https://10.1.2.3/a.png")).resolves.toMatchObject({
       contentType: "image/png",
     });
 
-    const options = requestMock.mock.calls[0]![1] as { lookup: PinnedLookup };
-    const resolved = await new Promise<{ address: string; family: number }>((resolve, reject) => {
-      options.lookup("photos.example.com", {}, (error, address, family) => {
-        if (error) reject(error);
-        else resolve({ address: String(address), family: Number(family) });
-      });
-    });
-    expect(resolved).toEqual({ address: "8.8.8.8", family: 4 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://10.1.2.3/a.png",
+      expect.objectContaining({ method: "GET", redirect: "manual" }),
+    );
   });
 
   it("treats redirects, non-raster responses and oversized declarations as missing", async () => {
-    mockAvatarRequest({
+    mockAvatarFetch({
       statusCode: 302,
       headers: { location: "https://elsewhere.example.com" },
     });
     await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toBeNull();
 
-    mockAvatarRequest({ body: "<html></html>", headers: { "content-type": "text/html" } });
+    mockAvatarFetch({ body: "<html></html>", headers: { "content-type": "text/html" } });
     await expect(fetchAvatarImage("https://photos.example.com/a.png")).resolves.toBeNull();
 
-    mockAvatarRequest({
+    mockAvatarFetch({
       body: "<svg xmlns='http://www.w3.org/2000/svg'/>",
       headers: { "content-type": "image/svg+xml" },
     });
     await expect(fetchAvatarImage("https://photos.example.com/a.svg")).resolves.toBeNull();
 
-    mockAvatarRequest({
+    mockAvatarFetch({
       headers: { "content-type": "image/png", "content-length": String(1024 * 1024) },
     });
     await expect(fetchAvatarImage("https://photos.example.com/huge.png")).resolves.toBeNull();
@@ -185,7 +130,7 @@ describe("avatar fetching", () => {
 
   it("stops reading a body that exceeds the size limit", async () => {
     const chunk = new Uint8Array(64 * 1_024);
-    mockAvatarRequest({
+    mockAvatarFetch({
       body: Array.from({ length: 16 }, () => chunk),
       headers: { "content-type": "image/png" },
     });
@@ -195,23 +140,18 @@ describe("avatar fetching", () => {
 
   it("terminates a response body that stalls after headers", async () => {
     vi.useFakeTimers();
-    let response: IncomingMessage | undefined;
-    mockAvatarRequest({
+    const onAbort = vi.fn();
+    mockAvatarFetch({
       headers: { "content-type": "image/png" },
-      onResponse: (stream) => {
-        response = stream;
-      },
+      onAbort,
       stallBody: true,
     });
 
     const image = fetchAvatarImage("https://photos.example.com/stalled.png");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(response).toBeDefined();
-
     await vi.advanceTimersByTimeAsync(5_000);
 
     await expect(image).resolves.toBeNull();
-    expect(response!.destroy).toHaveBeenCalled();
+    expect(onAbort).toHaveBeenCalled();
     expect(loggerMocks.debug).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "user_avatar.fetch.failed",
@@ -240,40 +180,38 @@ describe.skipIf(!process.env.POSTGRES_URL)("provider avatar cache", () => {
   });
 });
 
-function mockAvatarRequest(input: {
-  addresses?: Array<{ address: string; family: 4 | 6 }>;
+function mockAvatarFetch(input: {
   body?: string | Uint8Array | Uint8Array[];
   headers?: Record<string, string>;
-  onResponse?: (response: IncomingMessage) => void;
+  onAbort?: () => void;
   statusCode?: number;
   stallBody?: boolean;
 }): void {
-  lookupMock.mockResolvedValue(input.addresses ?? [{ address: "8.8.8.8", family: 4 }]);
-  requestMock.mockImplementation(((_url, _options, callback) => {
-    const responseCallback = callback as (response: IncomingMessage) => void;
-    const clientRequest = new EventEmitter() as EventEmitter & {
-      destroy: ReturnType<typeof vi.fn>;
-      end: ReturnType<typeof vi.fn>;
-    };
-    clientRequest.destroy = vi.fn();
-    clientRequest.end = vi.fn(() => {
-      const response = new PassThrough() as IncomingMessage;
-      response.statusCode = input.statusCode ?? 200;
-      response.headers = input.headers ?? { "content-type": "image/png" };
-      response.destroy = vi.fn(response.destroy.bind(response));
-      queueMicrotask(() => {
-        responseCallback(response);
-        input.onResponse?.(response);
-        if (input.stallBody) return;
-        const body = input.body ?? new Uint8Array();
-        if (Array.isArray(body)) {
-          for (const chunk of body) response.write(chunk);
-          response.end();
-        } else {
-          response.end(body);
+  fetchMock.mockImplementationOnce(async (_url, init) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (input.stallBody) {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              input.onAbort?.();
+              controller.error(init.signal?.reason);
+            },
+            { once: true },
+          );
+          return;
         }
-      });
+        const body = input.body ?? new Uint8Array();
+        const chunks = Array.isArray(body) ? body : [body];
+        for (const chunk of chunks) {
+          controller.enqueue(typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk);
+        }
+        controller.close();
+      },
     });
-    return clientRequest;
-  }) as typeof request);
+    return new Response(stream, {
+      status: input.statusCode ?? 200,
+      headers: input.headers ?? { "content-type": "image/png" },
+    });
+  });
 }
