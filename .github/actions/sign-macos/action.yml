@@ -95,9 +95,28 @@ runs:
         # ticket for the binary's cdhash, which Gatekeeper checks online on first run; any
         # archive built from the same binary shares that cdhash. A rejection fails the job.
         ditto -c -k --norsrc "$EXECUTABLE" "$RUNNER_TEMP/notarize.zip"
-        xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+        # Capture the result as JSON regardless of the exit code so a rejection can be
+        # explained right here: notarytool only prints the status, the reasons live in the
+        # submission log, which needs the submission id.
+        SUBMISSION="$(xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
           --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
-          --wait --timeout 20m
+          --wait --timeout 20m --output-format json)" || true
+        printf '%s\n' "$SUBMISSION"
+        SUBMISSION_ID="$(printf '%s' "$SUBMISSION" | plutil -extract id raw -o - - 2>/dev/null || true)"
+        STATUS="$(printf '%s' "$SUBMISSION" | plutil -extract status raw -o - - 2>/dev/null || true)"
+        if [ -z "$SUBMISSION_ID" ]; then
+          echo "::error::notarytool returned no submission id; see the output above"
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
+          exit 1
+        fi
+        if [ "$STATUS" != "Accepted" ]; then
+          echo "::error::Notarization $SUBMISSION_ID ended with status '${STATUS:-unknown}'; log follows"
+          xcrun notarytool log "$SUBMISSION_ID" \
+            --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" || true
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
+          exit 1
+        fi
+        echo "Notarization $SUBMISSION_ID accepted"
         rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
     - name: Remove the throwaway signing keychain
       if: always()
