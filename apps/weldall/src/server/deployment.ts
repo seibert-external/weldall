@@ -1,26 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
-import { ADMIN_SCOPE_KEY, db, ensureSystemScopes } from "@weldall/db";
-import { bootstrapAdmin } from "./admin/service";
+import { db, ensureSystemScopes } from "@weldall/db";
 import { decryptProviderToken } from "./group-providers/credentials";
 import { WELDALL_RESOURCE } from "./oauth/constants";
 
 const LOCAL_WELDALL_RESOURCE = "https://weldall.seibert.localdev/api";
 const LOCAL_EXPENSES_RESOURCE = "https://expenses.seibert.localdev/api";
-
-type BootstrapAdmin = typeof bootstrapAdmin;
-
-export async function bootstrapConfiguredAdmin(
-  email: string,
-  prisma: PrismaClient = db,
-  bootstrap: BootstrapAdmin = bootstrapAdmin,
-): Promise<Awaited<ReturnType<BootstrapAdmin>> | null> {
-  const existingAdmin = await prisma.emailScopeGrant.findFirst({
-    where: { scope: { key: ADMIN_SCOPE_KEY } },
-    select: { id: true },
-  });
-  if (existingAdmin) return null;
-  return bootstrap(email);
-}
 
 export async function prepareProductionDatabase(prisma: PrismaClient = db): Promise<void> {
   const actor = "deployment-bootstrap";
@@ -81,11 +65,6 @@ export async function prepareProductionDatabase(prisma: PrismaClient = db): Prom
     await tx.cliSettings.upsert({
       where: { id: "default" },
       create: { id: "default", logoUrl: "", createdBy: actor, updatedBy: actor },
-      update: {},
-    });
-    await tx.chatSettings.upsert({
-      where: { id: "default" },
-      create: { id: "default", createdBy: actor, updatedBy: actor },
       update: {},
     });
     if (WELDALL_RESOURCE !== LOCAL_WELDALL_RESOURCE) {

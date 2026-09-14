@@ -69,18 +69,20 @@ Weldall trims and lowercases the email address and uses the `mail` query paramet
   {
     "username": "jane.doe",
     "email": "jane.doe@example.com",
-    "is_active": true
+    "is_active": true,
+    "avatar_url": "https://photos.example.com/jane.doe.png"
   }
 ]
 ```
 
 The response must be an array with zero or exactly one result. With no result, the provider contributes no group-based scopes. Multiple results or an email mismatch are rejected.
 
-| Field       | Meaning                                           |
-| ----------- | ------------------------------------------------- |
-| `username`  | Required, stable user ID at the provider.         |
-| `email`     | Required user email address.                      |
-| `is_active` | Only active users can receive group-based scopes. |
+| Field        | Meaning                                                                                                                      |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `username`   | Required, stable user ID at the provider.                                                                                    |
+| `email`      | Required user email address.                                                                                                 |
+| `is_active`  | Only active users can receive group-based scopes.                                                                            |
+| `avatar_url` | Optional profile picture. Weldall uses only absolute HTTPS URLs and ignores a missing or unusable value. `null` is accepted. |
 
 ## Get a user with groups
 
@@ -93,6 +95,7 @@ GET <baseUrl>/api/management/users/<url-encoded-user-id>/
   "username": "jane.doe",
   "email": "jane.doe@example.com",
   "is_active": true,
+  "avatar_url": "https://photos.example.com/jane.doe.png",
   "groups": ["finance", "employees"]
 }
 ```
@@ -106,10 +109,15 @@ Every endpoint must return a successful HTTP status with `Content-Type: applicat
 - Group IDs, usernames, and entries in `groups` contain 1 to 191 characters after trimming.
 - Group names contain at most 191 characters. Descriptions contain at most 2,000 characters.
 - Email addresses must be valid and contain at most 320 characters.
+- `avatar_url` must be an absolute HTTPS URL without credentials or a fragment and contain at most 2,048 characters.
 - A response may be at most 5 MiB and must arrive within 5 seconds.
-- Weldall does not follow redirects, retry failed requests, or cache provider responses on the server.
+- Weldall does not follow redirects, retry failed requests, or cache provider responses on the server. It stores only the `avatar_url` reported for a user, so the web interface can serve that avatar through its own origin.
 
-Weldall fetches membership again for every new authorization decision. Invalid responses, inactive users, timeouts, and provider failures do not create group-based scopes.
+Weldall fetches membership again for every new authorization decision. Invalid responses, inactive users, timeouts, and provider failures do not create group-based scopes. An unusable `avatar_url` is discarded and never fails a lookup.
+
+:::note[Avatars]
+Avatars are optional and used only by the Weldall web interface. Weldall requests the `avatar_url` without the provider token, so it must be reachable without credentials on a public address. Redirects are not followed, and only raster images of at most 512 KiB are served; the browser never contacts the provider. Any signed-in user may read an avatar, no additional scope is required. Users without a usable avatar appear with their initials.
+:::
 
 :::note[Effective scopes]
 An employee's effective scopes are the union of group scopes and scopes assigned directly to their email address. If the provider is temporarily unavailable, the email scopes remain available.

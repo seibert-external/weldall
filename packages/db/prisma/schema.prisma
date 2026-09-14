@@ -8,16 +8,16 @@ datasource db {
 }
 
 model User {
-  id            String       @id
-  name          String
-  email         String       @unique
-  emailVerified Boolean
-  image         String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  chatThreads   ChatThread[]
+  id                          String              @id
+  name                        String
+  email                       String              @unique
+  emailVerified               Boolean
+  image                       String?
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+  sessions                    Session[]
+  accounts                    Account[]
+  completedLoginInstallations LoginInstallation[]
 }
 
 model Scope {
@@ -161,50 +161,6 @@ model CliSettings {
   updatedAt   DateTime @updatedAt
   createdBy   String
   updatedBy   String
-}
-
-model ChatSettings {
-  id                   String   @id @default("default")
-  enabled              Boolean  @default(false)
-  baseUrl              String   @default("https://provider.example.com/v1")
-  model                String   @default("example-model")
-  encryptedApiKey      String?
-  encryptionKeyVersion Int?
-  version              Int      @default(1)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  createdBy            String
-  updatedBy            String
-}
-
-model ChatThread {
-  id            String        @id @default(cuid())
-  userId        String
-  title         String?
-  archivedAt    DateTime?
-  headMessageId String?
-  lastMessageAt DateTime      @default(now())
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages      ChatMessage[]
-
-  @@index([userId, lastMessageAt(sort: Desc), id(sort: Desc)])
-}
-
-model ChatMessage {
-  id        String
-  threadId  String
-  parentId  String?
-  role      String
-  parts     Json
-  createdAt DateTime      @default(now())
-  thread    ChatThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  parent    ChatMessage?  @relation("ChatMessageChildren", fields: [threadId, parentId], references: [threadId, id], onDelete: Cascade, onUpdate: NoAction)
-  children  ChatMessage[] @relation("ChatMessageChildren")
-
-  @@id([threadId, id])
-  @@index([threadId, createdAt])
 }
 
 model DownstreamResource {
@@ -471,6 +427,56 @@ model AuditEvent {
   @@index([actorId, occurredAt, id])
   @@index([actorEmail, occurredAt, id])
   @@index([subjectType, subjectId, occurredAt, id])
+}
+
+enum LoginInstallationState {
+  UNINITIALIZED
+  COMPLETED
+}
+
+model LoginInstallation {
+  id                   String                 @id @default("default")
+  state                LoginInstallationState @default(UNINITIALIZED)
+  completedAdminUserId String?
+  completedAdminUser   User?                  @relation(fields: [completedAdminUserId], references: [id], onDelete: Restrict)
+  completedAt          DateTime?
+}
+
+model LoginProvider {
+  id                      String   @id
+  name                    String
+  buttonLabel             String
+  buttonColor             String
+  sortOrder               Int      @default(0)
+  issuer                  String
+  discoveryUrl            String?
+  clientId                String
+  encryptedClientSecret   String
+  tokenEndpointAuthMethod String
+  scopes                  String[]
+  allowedEmailDomains     String[] @default([])
+  enabled                 Boolean  @default(false)
+  version                 Int      @default(1)
+  validatedAt             DateTime
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  createdBy               String
+  updatedBy               String
+
+  @@index([enabled, sortOrder, id])
+}
+
+model LoginAttempt {
+  id               String   @id
+  providerId       String
+  providerVersion  Int?
+  mode             String
+  browserHash      String
+  encryptedPayload String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 model Session {

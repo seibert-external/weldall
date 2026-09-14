@@ -42,10 +42,6 @@ describe("Better Auth DPoP replay patch", () => {
     Object.assign(process.env, {
       POSTGRES_URL: process.env.POSTGRES_URL ?? "postgresql://postgres@localhost:5433/postgres",
       BETTER_AUTH_SECRET: "test-better-auth-secret-at-least-32-characters",
-      OAUTH_PROXY_SECRET: "test-oauth-proxy-secret-at-least-32-characters",
-      ENABLE_DEV_LOGIN: "false",
-      GOOGLE_CLIENT_ID: "google-test-client",
-      GOOGLE_CLIENT_SECRET: "google-test-secret",
       WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(signingKey.privateJwk),
       WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(signingKey.publicJwk),
       WELDALL_SIGNING_KID: "weldall-provider-test",

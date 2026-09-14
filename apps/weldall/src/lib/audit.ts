@@ -1,11 +1,9 @@
 export const AUDIT_EVENT_TYPES = [
+  "login.installation.completed",
+  "login.provider.saved",
   "id_jag.issued",
   "id_jag.denied",
   "id_jag.failed",
-  "chat_tool.requested",
-  "chat_tool.succeeded",
-  "chat_tool.failed",
-  "chat_settings.updated",
   "machine_client.created",
   "machine_client.updated",
   "machine_client.deactivated",

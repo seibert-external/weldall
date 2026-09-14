@@ -1,6 +1,7 @@
 import { db, Prisma, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
-import { resolveResourceForTarget, type ResourceRegistryEntry } from "@weldall/sdk";
+import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { z } from "zod";
+import { cacheProviderAvatar } from "../avatars";
 import { lockConfigurationChanges } from "../domain/configuration";
 import { decryptProviderToken } from "../group-providers/credentials";
 import { createGroupProviderAdapter } from "../group-providers/registry";
@@ -68,25 +69,28 @@ export async function effectiveScopesFor(email: string): Promise<ScopeKey[]> {
 export async function hasEffectiveSystemScopeFor(
   email: string,
   scopeKey: string,
+  transaction?: Prisma.TransactionClient,
 ): Promise<boolean> {
   const normalizedEmail = normalizePolicyEmail(email);
-  const { memberships } = await resolveProviderMemberships(normalizedEmail);
-  return db.$transaction(
-    async (tx) => {
-      const [scope, effectiveScopes] = await Promise.all([
-        tx.scope.findUnique({
-          where: { key: scopeKey },
-          select: { key: true, isSystem: true },
-        }),
-        loadEffectiveScopes(tx, normalizedEmail, memberships),
-      ]);
-      return (
-        isProtectedSystemScope(scope, scopeKey) &&
-        effectiveScopes.some((effectiveScope) => effectiveScope === scopeKey)
-      );
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-  );
+  const { memberships } = await resolveProviderMemberships(normalizedEmail, transaction);
+  const check = async (tx: Prisma.TransactionClient) => {
+    const [scope, effectiveScopes] = await Promise.all([
+      tx.scope.findUnique({
+        where: { key: scopeKey },
+        select: { key: true, isSystem: true },
+      }),
+      loadEffectiveScopes(tx, normalizedEmail, memberships),
+    ]);
+    return (
+      isProtectedSystemScope(scope, scopeKey) &&
+      effectiveScopes.some((effectiveScope) => effectiveScope === scopeKey)
+    );
+  };
+  return transaction
+    ? check(transaction)
+    : db.$transaction(check, {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      });
 }
 
 export async function assignedScopesFor(email: string): Promise<ScopeKey[]> {
@@ -279,56 +283,6 @@ export interface ExchangePolicy {
   grantedScopes: string[];
 }
 
-export async function delegatedRequestPolicyFor(input: {
-  email: string;
-  target: URL;
-  requiredSystemScope: string;
-}): Promise<{ authorized: boolean; matches: ResourceRegistryEntry[] }> {
-  const normalizedEmail = normalizePolicyEmail(input.email);
-  const { memberships } = await resolveProviderMemberships(normalizedEmail);
-  return db.$transaction(
-    async (tx) => {
-      const [resources, effectiveScopes, requiredScope] = await Promise.all([
-        tx.downstreamResource.findMany({
-          where: { enabled: true },
-          include: {
-            requestPrefixes: { orderBy: { urlPrefix: "asc" } },
-            scopes: { include: { scope: { select: { key: true } } } },
-          },
-        }),
-        loadEffectiveScopes(tx, normalizedEmail, memberships),
-        tx.scope.findUnique({
-          where: { key: input.requiredSystemScope },
-          select: { key: true, isSystem: true },
-        }),
-      ]);
-      const granted = new Set<string>(effectiveScopes);
-      const registry = resources.map((resource) => {
-        const supportedScopes = sortedUnique(
-          resource.scopes.map(({ scope }) => scopeKeySchema.parse(scope.key)),
-        );
-        return {
-          key: resource.key,
-          name: resource.name,
-          resourceIdentifier: resource.resourceIdentifier,
-          authorizationServer: resource.authorizationServer,
-          downstreamClientId: resource.downstreamClientId,
-          requestPrefixes: resource.requestPrefixes.map((prefix) => prefix.urlPrefix),
-          supportedScopes,
-          grantedScopes: supportedScopes.filter((scope) => granted.has(scope)),
-        };
-      });
-      return {
-        authorized:
-          isProtectedSystemScope(requiredScope, input.requiredSystemScope) &&
-          granted.has(input.requiredSystemScope),
-        matches: resolveResourceForTarget(registry, input.target),
-      };
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-  );
-}
-
 interface ExchangePolicyInput {
   email: string;
   resourceIdentifier: string;
@@ -435,8 +389,9 @@ function exchangePolicy(
 
 async function resolveProviderMemberships(
   normalizedEmail: string,
+  transaction: Prisma.TransactionClient = db,
 ): Promise<ProviderMembershipResolution> {
-  const providers = await db.groupProvider.findMany({
+  const providers = await transaction.groupProvider.findMany({
     where: { enabled: true, assignments: { some: {} } },
     orderBy: { key: "asc" },
     select: {
@@ -482,6 +437,9 @@ async function resolveProviderMemberships(
       ) {
         throw new Error("invalid_detail_identity");
       }
+      // The provider's user record is the only avatar source and is already in hand here.
+      // The cache write is best-effort and uses its own connection, so it cannot fail the check.
+      await cacheProviderAvatar(normalizedEmail, detail.avatarUrl ?? summary.avatarUrl);
       memberships.push({
         providerId: provider.id,
         providerVersion: provider.version,

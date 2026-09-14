@@ -1,11 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-  ADMIN_SCOPE_KEY,
-  db,
-  isMachineOnlySystemScope,
-  LOGIN_SCOPE_KEY,
-  Prisma,
-} from "@weldall/db";
+import { createHash } from "node:crypto";
+import { ADMIN_SCOPE_KEY, db, isMachineOnlySystemScope, Prisma } from "@weldall/db";
 import {
   normalizeAuthorizationServer,
   normalizeRequestPrefix,
@@ -13,8 +7,6 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { parseCliLogoUrl } from "../branding";
-import { encryptChatApiKey } from "../ai/credentials";
-import { normalizeChatApiKey, normalizeChatBaseUrl, normalizeChatModel } from "../ai/configuration";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
   lockConfigurationChanges,
@@ -64,7 +56,6 @@ const skillInclude = { iacBinding: managementBindingInclude } as const;
 export type AdminErrorCode =
   | "CONFLICT"
   | "FORBIDDEN"
-  | "INVALID_CHAT_SETTINGS"
   | "INVALID_CLI_SETTINGS"
   | "INVALID_EMAIL"
   | "INVALID_RESOURCE"
@@ -202,16 +193,6 @@ export interface CliSettingsDto {
   updatedAt: string;
 }
 
-export interface ChatSettingsDto {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  hasApiKey: boolean;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface ResourceDto {
   id: string;
   key: string;
@@ -268,7 +249,10 @@ export function parseScopeDescription(rawDescription: string): string {
   return description;
 }
 
-export async function isAdminEmail(email: string): Promise<boolean> {
+export async function isAdminEmail(
+  email: string,
+  transaction?: Prisma.TransactionClient,
+): Promise<boolean> {
   let normalizedEmail: string;
   try {
     normalizedEmail = normalizeEmail(email);
@@ -276,18 +260,21 @@ export async function isAdminEmail(email: string): Promise<boolean> {
     return false;
   }
 
-  return hasEffectiveSystemScopeFor(normalizedEmail, ADMIN_SCOPE_KEY);
+  return hasEffectiveSystemScopeFor(normalizedEmail, ADMIN_SCOPE_KEY, transaction);
 }
 
-export async function requireAdminUser(userId: string): Promise<{
+export async function requireAdminUser(
+  userId: string,
+  transaction?: Prisma.TransactionClient,
+): Promise<{
   id: string;
   email: string;
 }> {
-  const user = await db.user.findUnique({
+  const user = await (transaction ?? db).user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, emailVerified: true },
   });
-  if (!user?.emailVerified || !(await isAdminEmail(user.email))) {
+  if (!user?.emailVerified || !(await isAdminEmail(user.email, transaction))) {
     throw new AdminDomainError("FORBIDDEN", "Administrator access is required.");
   }
   return { id: user.id, email: user.email };
@@ -502,84 +489,6 @@ export async function updateCliSettings(
       },
     });
     return serializeCliSettings(updated);
-  });
-}
-
-export async function getChatSettings(): Promise<ChatSettingsDto> {
-  const settings = await db.chatSettings.findUnique({ where: { id: "default" } });
-  if (!settings) throw new AdminDomainError("NOT_FOUND", "Chat settings are not initialized.");
-  return serializeChatSettings(settings);
-}
-
-export async function updateChatSettings(
-  input: {
-    enabled: boolean;
-    baseUrl: string;
-    model: string;
-    apiKey?: string | undefined;
-    expectedVersion: number;
-  },
-  actor: AdminActor,
-): Promise<ChatSettingsDto> {
-  let baseUrl: string;
-  let model: string;
-  let apiKey: string | undefined;
-  try {
-    baseUrl = normalizeChatBaseUrl(input.baseUrl);
-    model = normalizeChatModel(input.model);
-    apiKey = input.apiKey?.trim() ? normalizeChatApiKey(input.apiKey) : undefined;
-  } catch (error) {
-    throw new AdminDomainError(
-      "INVALID_CHAT_SETTINGS",
-      error instanceof Error ? error.message : "The chat settings are invalid.",
-    );
-  }
-
-  return db.$transaction(async (tx) => {
-    const current = await tx.chatSettings.findUnique({ where: { id: "default" } });
-    if (!current) throw new AdminDomainError("NOT_FOUND", "Chat settings are not initialized.");
-    assertVersion(current.version, input.expectedVersion);
-    if (input.enabled && !apiKey && !current.encryptedApiKey) {
-      throw new AdminDomainError(
-        "INVALID_CHAT_SETTINGS",
-        "Add an AI API key before enabling chat.",
-      );
-    }
-    const credential = apiKey ? encryptChatApiKey(current.id, apiKey) : {};
-    if (
-      current.enabled === input.enabled &&
-      current.baseUrl === baseUrl &&
-      current.model === model &&
-      !apiKey
-    ) {
-      return serializeChatSettings(current);
-    }
-    const write = await tx.chatSettings.updateMany({
-      where: { id: current.id, version: input.expectedVersion },
-      data: {
-        enabled: input.enabled,
-        baseUrl,
-        model,
-        ...credential,
-        version: { increment: 1 },
-        updatedBy: actor.id,
-      },
-    });
-    if (write.count !== 1) {
-      throw new AdminDomainError("CONFLICT", "The chat settings changed. Reload and try again.");
-    }
-    const updated = await tx.chatSettings.findUniqueOrThrow({ where: { id: current.id } });
-    await writeAudit(tx, actor, {
-      eventType: "chat_settings.updated",
-      subjectType: "chat_settings",
-      subjectId: current.id,
-      metadata: {
-        before: chatSettingsAuditSnapshot(current),
-        after: chatSettingsAuditSnapshot(updated),
-        apiKeyChanged: Boolean(apiKey),
-      },
-    });
-    return serializeChatSettings(updated);
   });
 }
 
@@ -1173,102 +1082,6 @@ export async function deleteAssignment(
   return { id: deleted.id, version: deleted.version };
 }
 
-export async function bootstrapAdmin(email: string): Promise<AssignmentDto> {
-  const normalizedEmail = normalizeEmail(email);
-  const actor: AdminActor = {
-    id: "deployment-bootstrap",
-    requestId: randomUUID(),
-  };
-
-  return db.$transaction(
-    async (tx) => {
-      const requiredScopes = await tx.scope.findMany({
-        where: { key: { in: [ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY] }, isSystem: true },
-      });
-      if (requiredScopes.length !== 2) {
-        throw new AdminDomainError("NOT_FOUND", "The built-in bootstrap scopes are missing.");
-      }
-      const adminScope = requiredScopes.find((scope) => scope.key === ADMIN_SCOPE_KEY)!;
-      const existing = await tx.emailScopeAssignment.findUnique({
-        where: { normalizedEmail },
-        include: { grants: { include: { scope: { select: { key: true } } } } },
-      });
-      const beforeScopes = existing
-        ? sortedUnique(existing.grants.map((grant) => grant.scope.key))
-        : [];
-      const hasAdminScope = beforeScopes.includes(ADMIN_SCOPE_KEY);
-      const hasLoginScope = beforeScopes.includes(LOGIN_SCOPE_KEY);
-      if (hasAdminScope) {
-        if (hasLoginScope) return serializeAssignment(existing!);
-        throw new AdminDomainError(
-          "CONFLICT",
-          "Bootstrap is disabled after the first administrator exists.",
-        );
-      }
-      if (
-        await tx.emailScopeGrant.findFirst({
-          where: { scopeId: adminScope.id },
-          select: { id: true },
-        })
-      ) {
-        throw new AdminDomainError(
-          "CONFLICT",
-          "Bootstrap is disabled after the first administrator exists.",
-        );
-      }
-
-      const newGrants = requiredScopes
-        .filter((scope) => !beforeScopes.includes(scope.key))
-        .map((scope) => ({
-          id: randomUUID(),
-          scopeId: scope.id,
-          createdBy: actor.id,
-        }));
-      const assignment = existing
-        ? await tx.emailScopeAssignment.update({
-            where: { id: existing.id },
-            data: {
-              version: { increment: 1 },
-              updatedBy: actor.id,
-              grants: { create: newGrants },
-            },
-            include: {
-              grants: { include: { scope: { select: { key: true } } } },
-            },
-          })
-        : await tx.emailScopeAssignment.create({
-            data: {
-              normalizedEmail,
-              createdBy: actor.id,
-              updatedBy: actor.id,
-              grants: { create: newGrants },
-            },
-            include: {
-              grants: { include: { scope: { select: { key: true } } } },
-            },
-          });
-      const afterScopes = sortedUnique(assignment.grants.map((grant) => grant.scope.key));
-      await writeAudit(tx, actor, {
-        eventType: beforeScopes.length ? "user_scopes.replaced" : "user_scopes.created",
-        subjectType: "email_scope_assignment",
-        subjectId: assignment.id,
-        metadata: {
-          normalizedEmail,
-          beforeScopes,
-          afterScopes,
-          addedScopes: afterScopes.filter((key) => !beforeScopes.includes(key)),
-          removedScopes: [],
-          source: "deployment_bootstrap",
-          versionBefore: existing?.version ?? 0,
-          versionAfter: assignment.version,
-        },
-      });
-      return serializeAssignment(assignment);
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
-}
-
 export function countVerifiedAdminEmails(
   assignedEmails: string[],
   verifiedUserEmails: string[],
@@ -1498,42 +1311,6 @@ function serializeScope(
     createdAt: scope.createdAt.toISOString(),
     updatedAt: scope.updatedAt.toISOString(),
     management: managementMetadata(scope.iacBinding),
-  };
-}
-
-function serializeChatSettings(settings: {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  encryptedApiKey: string | null;
-  version: number;
-  createdAt: Date;
-  updatedAt: Date;
-}): ChatSettingsDto {
-  return {
-    enabled: settings.enabled,
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    hasApiKey: Boolean(settings.encryptedApiKey),
-    version: settings.version,
-    createdAt: settings.createdAt.toISOString(),
-    updatedAt: settings.updatedAt.toISOString(),
-  };
-}
-
-function chatSettingsAuditSnapshot(settings: {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  encryptedApiKey: string | null;
-  version: number;
-}) {
-  return {
-    enabled: settings.enabled,
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    hasApiKey: Boolean(settings.encryptedApiKey),
-    version: settings.version,
   };
 }
 

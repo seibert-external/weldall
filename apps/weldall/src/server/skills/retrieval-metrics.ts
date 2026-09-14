@@ -1,4 +1,6 @@
 import { db } from "@weldall/db";
+import { avatarRoutePath } from "../avatars";
+import { parseAvatarUrl } from "../group-providers/avatar-url";
 import { getVisibleSkill } from "./service";
 
 export const DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS = 7;
@@ -9,6 +11,11 @@ const DAY_IN_MS = 24 * 60 * 60 * 1000;
 export interface SkillRetrievalSummaryEntry {
   id: string;
   displayName: string;
+  /**
+   * Same-origin proxy path for the retriever's cached group provider avatar, or null when the
+   * user has none. Clients must not fetch provider URLs directly: they may not allow CORS.
+   */
+  avatarUrl: string | null;
 }
 
 export interface SkillRetrievalSummary {
@@ -94,14 +101,19 @@ export async function getSkillRetrievalSummaryBySlug(
   const currentUsers = retrieverIds.length
     ? await db.user.findMany({
         where: { id: { in: retrieverIds } },
-        select: { id: true, name: true },
+        select: { id: true, name: true, image: true },
       })
     : [];
   const currentNames = new Map(currentUsers.map((user) => [user.id, user.name.trim()] as const));
+  const avatarPaths = new Map(
+    currentUsers.map(
+      (user) => [user.id, parseAvatarUrl(user.image) ? avatarRoutePath(user.id) : null] as const,
+    ),
+  );
   const uniqueRetrievers = retrieverIds
     .map((id) => {
       const displayName = currentNames.get(id) || retrieverNames.get(id) || id;
-      return { id, displayName };
+      return { id, displayName, avatarUrl: avatarPaths.get(id) ?? null };
     })
     .sort(
       (left, right) =>
