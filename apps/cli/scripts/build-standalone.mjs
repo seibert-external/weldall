@@ -109,6 +109,40 @@ try {
 }
 
 if (process.platform !== "win32") await chmod(output, 0o755);
+
+// Bun's compile step keeps the signature of the bun executable it copies (Oven's Developer ID)
+// on darwin-x64 and only re-signs ad hoc on darwin-arm64, where macOS requires a valid
+// signature. A modified binary with a stale foreign signature has no usable code identity, so
+// the keychain cannot bind items to it: a write succeeds, but the same process reads back
+// null and cannot delete. Re-sign ad hoc on both macOS targets so the executable owns a valid
+// identity. The release workflow replaces this with the Developer ID signature.
+if (target.platform === "darwin") {
+  const codesign = Bun.spawnSync(
+    [
+      "/usr/bin/codesign",
+      "--force",
+      "--sign",
+      "-",
+      "--identifier",
+      "dev.seibert.weldall-cli",
+      output,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  if (codesign.exitCode !== 0)
+    throw new Error(
+      `Ad-hoc code signing failed for ${target.id}: ${codesign.stderr.toString().trim()}`,
+    );
+  const verify = Bun.spawnSync(["/usr/bin/codesign", "--verify", "--strict", output], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (verify.exitCode !== 0)
+    throw new Error(
+      `Ad-hoc signature verification failed for ${target.id}: ${verify.stderr.toString().trim()}`,
+    );
+}
+
 const versionRun = Bun.spawnSync([output, "--version"], {
   cwd: outputDirectory,
   env: { ...process.env, NODE_ENV: "production" },

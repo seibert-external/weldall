@@ -74,6 +74,45 @@ describe("SessionManager", () => {
     expect(store.set).not.toHaveBeenCalled();
   });
 
+  it("retries an unlocked miss under the lock before reporting a missing login", async () => {
+    // On macOS a concurrent rewrite deletes and reinserts the keychain item, so an unlocked
+    // read can miss while the session is being refreshed.
+    const key = await generateEs256KeyPair();
+    const credentials: StoredCredentialsV2 = {
+      version: 2,
+      issuer,
+      ...key,
+      refreshToken: "refresh",
+      accessSession: { accessToken: "access", subject: "user", expiresAt: 2_000 },
+    };
+    const get = vi.fn<() => Promise<StoredCredentials | null>>();
+    get.mockResolvedValueOnce(null).mockResolvedValue(credentials);
+    const store = { get, set: vi.fn() };
+    const lock = vi.fn(serialLock());
+    const refresh = vi.fn();
+    await expect(
+      new SessionManager(config, store, lock, refresh as any, () => 1_000).getAccessSession(),
+    ).resolves.toMatchObject({ accessToken: "access", subject: "user" });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing login when both reads miss", async () => {
+    const store = { get: vi.fn(async () => null), set: vi.fn() };
+    await expect(
+      new SessionManager(
+        config,
+        store,
+        serialLock(),
+        vi.fn() as any,
+        () => 1_000,
+      ).getAccessSession(),
+    ).rejects.toThrow("You are not logged in");
+    expect(store.get).toHaveBeenCalledTimes(2);
+  });
+
   it.each([1_060, 900])("refreshes a near-expiry or expired session (%s)", async (expiresAt) => {
     const key = await generateEs256KeyPair();
     const credentials: StoredCredentialsV2 = {
