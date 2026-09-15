@@ -28,23 +28,28 @@ Replace the command in this block to change the lookup strategy.
 weldall skills list --json
 ```
 
-The same data with the fields an agent does not read removed. Needs `jq`:
-
-```sh
-weldall skills list --json | jq -c '{warnings, items: [.items[] | {slug, title, preview, available} + (if ((.missingScopes // []) | length) > 0 then {missingScopes} else {} end) + (if ((.meta // {}) | has("tags")) then {tags: .meta.tags} else {} end) + {source: (if .source.type == "resource" then .source.name else "Weldall" end)}]}'
-```
-
 <!-- /lookup -->
+
+Run the lookup command exactly as written. Do not append a filter, a search word, a pipeline
+or a shell redirect to it. Shaping the output is the CLI's job, not yours, and a word you
+choose yourself hides the skills whose author chose a different one.
 
 Do not use `weldall skills find`. After its first run it answers from a local snapshot, so
 it can report that no skill exists when the snapshot is days old. The CLI's own error hint
 on an unknown skill suggests `skills find` too. The prohibition still holds.
 
+## If there is no request yet
+
+Someone may run this procedure on its own, to find out what Weldall can do for them. Run the
+same lookup, then report what came back: group the items by source, give each its title and
+slug, and mark every item whose `available` is false with the scopes it needs. Do not pick a
+skill and do not call anything. Finish by asking what they want to do.
+
 ## Match a skill
 
-Read the `title`, `preview` and tags of every returned item and pick by judgement. Tags sit
-at `meta.tags` under the live lookup and `tags` under the trimmed one. There is no search
-string to get right, and the user's wording does not have to match the skill author's.
+Read the `title`, `preview` and `meta.tags` of every returned item and pick by judgement.
+Every item, including the ones that look unrelated at a glance. There is no search string to
+get right, and the user's wording does not have to match the skill author's.
 
 ## Branch on the result
 

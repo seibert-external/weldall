@@ -17,23 +17,31 @@ const tableCells = procedure
       .map((cell) => cell.trim()),
   );
 
-test("the lookup block holds the live command and a swappable alternative", () => {
+test("the lookup block holds exactly one command, and it is the live one", () => {
   const block = procedure.match(/<!-- lookup -->\n([\s\S]*?)<!-- \/lookup -->/);
   assert.ok(block, "procedure.md must delimit the lookup block with lookup comments");
   assert.match(block[1], /```sh\nweldall skills list --json\n```/);
-  assert.match(block[1], /weldall skills list --json \| jq/);
+  assert.equal(
+    block[1].match(/```sh/gu)?.length,
+    1,
+    "a second command in the block leaves the agent to choose, and two testers then run different lookups",
+  );
 });
 
-test("the trimmed lookup's jq projection names every field the outcome table branches on", () => {
-  const block = procedure.match(/<!-- lookup -->\n([\s\S]*?)<!-- \/lookup -->/)[1];
-  const jqLine = block.match(/weldall skills list --json \| jq[^\n]*/);
-  assert.ok(jqLine, "the trimmed lookup must be a single jq line");
-  for (const field of ["warnings", "available", "missingScopes"])
-    assert.match(
-      jqLine[0],
-      new RegExp(`\\b${field}\\b`),
-      `the trimmed lookup's jq projection must keep ${field}`,
+// The lookup must survive a machine without jq and a shell that is not POSIX: a quoted jq
+// program does not reach the binary through cmd.exe, and jq is on neither a stock macOS nor a
+// stock Windows install. Nothing in the procedure may hand the agent a pipeline to imitate.
+test("the procedure names no shell tool the agent would have to have installed", () => {
+  for (const tool of ["jq", "awk", "sed", "grep"])
+    assert.ok(
+      !new RegExp(`\\b${tool}\\b`, "u").test(procedure),
+      `procedure.md still names ${tool}`,
     );
+});
+
+test("the agent is told to run the lookup unmodified", () => {
+  assert.match(procedure, /exactly as written/);
+  assert.match(procedure, /Do not append a filter, a search word, a pipeline/);
 });
 
 test("the lookup is live on every run and never reused", () => {
@@ -44,6 +52,21 @@ test("the lookup is live on every run and never reused", () => {
 test("skills find is ruled out, with the reason", () => {
   assert.match(procedure, /Do not use `weldall skills find`/);
   assert.match(procedure, /snapshot/);
+});
+
+// A run with no request matches nothing, so without this section the no-match row fires and
+// the person who ran the procedure to find out what Weldall does is told it cannot help.
+test("a run with no request lists the catalog instead of reaching the outcome table", () => {
+  const section = procedure.match(/## If there is no request yet\n([\s\S]*?)\n## /);
+  assert.ok(section, "procedure.md must handle being run without a request");
+  assert.match(section[1], /Run the\s+same lookup/);
+  assert.match(section[1], /Do not pick a\s+skill and do not call anything/);
+  assert.match(section[1], /asking what they want to do/);
+  assert.ok(
+    procedure.indexOf("## If there is no request yet") <
+      procedure.indexOf("## Branch on the result"),
+    "the no-request section must come before the outcome table the agent would otherwise fall into",
+  );
 });
 
 test("the outcome table has one header, one rule and exactly four branches", () => {

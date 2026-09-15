@@ -19,8 +19,17 @@ test("the frontmatter survives being written as unquoted YAML", () => {
   assert.ok(!FRONTMATTER.description.includes("\n"), "the description must be one line");
 });
 
+test("the description says what the skill does before it says when to use it", () => {
+  const trigger = FRONTMATTER.description.indexOf("Use when ");
+  assert.ok(trigger > 0, "the description must still carry a trigger");
+  assert.ok(
+    /^Routes a request about a company system/.test(FRONTMATTER.description),
+    "a person browsing a list of skills reads this first, so it opens with what the skill does",
+  );
+});
+
 test("the trigger decides from the request, never from a catalog", () => {
-  assert.match(FRONTMATTER.description, /^Use when /);
+  assert.match(FRONTMATTER.description, /Use when the request concerns /);
   for (const noun of ["contracts", "expenses", "employees", "customers", "invoices", "licences"])
     assert.ok(FRONTMATTER.description.includes(noun), `the trigger must name ${noun}`);
   for (const excluded of ["local repository", "general knowledge", "own machine"])
