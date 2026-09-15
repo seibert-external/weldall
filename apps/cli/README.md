@@ -163,6 +163,8 @@ bodies, and piped scope lists remain plain output. Help shows a rounded purple W
 effective host and cached name and email of the signed-in account. Root help stacks it above the
 yellow organization-instructions panel, a capped assigned-scope preview, and a cached skill-discovery instruction. Root help is strictly local and works offline: it never performs discovery, token refresh, or background networking. Successful login, status, scopes, and skill commands refresh the local snapshot for later invocations.
 
+`weldall skills list --agentic` prints the same catalog shaped for a model instead of a parser: a TOON table of slug, title, preview, tags, `available`, `missingScopes`, and source, tab-delimited, with the row count declared in the header so a truncated read is visible. It costs roughly 40 percent fewer tokens than `--json` on a catalog of 47 skills. Unlike `--json` it is not a contract and may change in any release; do not write scripts against it. Full skill text still comes from `weldall skills show`.
+
 Set `WELDALL_DEBUG_TIMINGS=1` to print optional phase timings to standard error. Timing output contains phase names and elapsed milliseconds, not tokens or response data.
 
 On interactive terminals, the CLI checks at most once per day whether a newer `@weldall/cli` version is published and prints a stderr-only notice with the upgrade command for your install method (npm or standalone).
