@@ -87,6 +87,11 @@ jobs:
             executable: weldall
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    # The Apple Developer ID certificate and notary key live as secrets in this environment.
+    # The environment MUST have required reviewers configured before those secrets exist:
+    # they are the only gate between "can dispatch a workflow" and "can produce a
+    # Seibert-signed binary" (see rehearse-macos-signing.yml for the full reasoning).
+    environment: release
     env:
       WELDALL_RUNNER_LABEL: ${{ matrix.runner }}
     defaults:
@@ -125,6 +130,16 @@ jobs:
         run: |
           OUTPUT_DIR="$RUNNER_TEMP/standalone" ARCHIVE_DIR="$RUNNER_TEMP/archive" node -e 'const fs = require("node:fs"); for (const path of [process.env.OUTPUT_DIR, process.env.ARCHIVE_DIR]) { fs.rmSync(path, { recursive: true, force: true }); fs.mkdirSync(path, { recursive: true }); }'
           bun apps/cli/scripts/build-standalone.mjs --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/standalone"
+      - name: Sign and notarize the macOS executable
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/sign-macos
+        with:
+          executable: ${{ runner.temp }}/standalone/${{ matrix.executable }}
+          certificate-p12-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          notary-key-p8-base64: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+          notary-key-id: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          notary-issuer-id: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
       - name: Smoke copied Linux executable with secure-store diagnostics
         if: matrix.target == 'linux-x64'
         run: |

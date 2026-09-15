@@ -20,16 +20,14 @@ weldall --version
 
 ### Experimental standalone binaries
 
-Standalone binaries require no Node.js, npm, or Bun. Initial targets are Linux x64, Windows x64, and macOS ARM64/x64. They are currently unsigned. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases).
+Standalone binaries require no Node.js, npm, or Bun. Initial targets are Linux x64, Windows x64, and macOS ARM64/x64. The macOS binaries are signed with a Developer ID certificate and notarized by Apple, so Gatekeeper runs them without a warning; the Linux and Windows binaries are unsigned. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases).
 
 ```sh
-# macOS, after downloading the trusted binary
-xattr -d com.apple.quarantine ./weldall
-chmod +x ./weldall
-
-# Linux
+# macOS and Linux
 chmod +x ./weldall
 ```
+
+On macOS the signature also binds the saved session to the CLI: the keychain item can only be read by a Weldall binary signed by Seibert, and other programs trigger a keychain prompt. After upgrading from an npm install or an older unsigned build, run `weldall login` once more.
 
 Windows PowerShell: `Unblock-File .\weldall.exe`.
 
