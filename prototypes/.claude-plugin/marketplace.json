@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "weldall",
-      "source": "./weldall-agent-plugin",
+      "source": "./weldall-agent-plugin/hosts/claude-code",
       "description": "Routes company-system requests through Weldall's live, per-user skill catalog.",
       "author": {
         "name": "Seibert Group"
