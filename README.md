@@ -10,9 +10,13 @@
 </p>
 
 <p align="center">
+  <a href="https://weldall.ai">weldall.ai</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/seibert-external/weldall/blob/main/LICENSE"><img alt="License: FSL-1.1-ALv2" src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue.svg" /></a>
-  <a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04"><img alt="ID-JAG Draft-04" src="https://img.shields.io/badge/OAuth-ID--JAG%20Draft--04-8b5cf6" /></a>
-  <a href="https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01"><img alt="JWT DPoP Grant Draft-01" src="https://img.shields.io/badge/OAuth-JWT%20DPoP%20Grant%20Draft--01-8b5cf6" /></a>
+  <a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04"><img alt="ID-JAG" src="https://img.shields.io/badge/OAuth-ID--JAG-8b5cf6" /></a>
+  <a href="https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01"><img alt="JWT DPoP Grant" src="https://img.shields.io/badge/OAuth-JWT%20DPoP%20Grant-8b5cf6" /></a>
   <a href="https://www.rfc-editor.org/rfc/rfc9449.html"><img alt="RFC 9449 DPoP" src="https://img.shields.io/badge/RFC-9449%20DPoP-2563eb" /></a>
   <a href="https://www.rfc-editor.org/rfc/rfc8252.html"><img alt="RFC 8252" src="https://img.shields.io/badge/RFC-8252%20Native%20Apps-2563eb" /></a>
   <a href="https://docs.weldall.ai"><img alt="Docs" src="https://img.shields.io/badge/docs-docs.weldall.ai-6366f1" /></a>
@@ -54,14 +58,14 @@ The **agent never sees an access token.** The local CLI keeps credentials in the
 
 Weldall CLI is a reference implementation of the next generation of OAuth for agentic applications: it uses DPoP-bound API requests and ID-JAGs to reduce the risk of credential leaks.
 
-| Standard                                                                                                                                                   | What it provides                                                                                                                                                                         |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [ID-JAG — Identity Assertion JWT Authorization Grant (Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | The authorization server issues a short-lived identity assertion for a specific resource, client, scope set, and device — the core grant that lets an agent act without holding a token. |
-| [JWT Authorization Grant with DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                                | The resource server exchanges the identity assertion for an access token bound to the device key.                                                                                        |
-| [RFC 9449 — DPoP (Demonstrating Proof of Possession)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                         | Sender-constrained tokens: a stolen token is useless on another machine.                                                                                                                 |
-| [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                        | Browser-based sign-in for the CLI, with explicit consent.                                                                                                                                |
-| [RFC 7636 — PKCE](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                             | Protects the native authorization code exchange.                                                                                                                                         |
-| [RFC 9700 — OAuth Security Best Current Practice](https://www.rfc-editor.org/rfc/rfc9700.html)                                                             | Applied throughout the authorization server and client.                                                                                                                                  |
+| Specification                                                                                                                                   | What it provides                                                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ID-JAG — Identity Assertion JWT Authorization Grant](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | The authorization server issues a short-lived identity assertion for a specific resource, client, scope set, and device — the core grant that lets an agent act without holding a token. |
+| [JWT Authorization Grant with DPoP](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                                | The downstream authorization server verifies the DPoP proof against the ID-JAG assertion's key binding and exchanges it for an access token bound to the same key.                       |
+| [RFC 9449 — DPoP (Demonstrating Proof of Possession)](https://www.rfc-editor.org/rfc/rfc9449.html)                                              | Sender-constrained tokens: a stolen token is useless on another machine.                                                                                                                 |
+| [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html)                                                             | Browser-based sign-in for the CLI, with explicit consent.                                                                                                                                |
+| [RFC 7636 — PKCE](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                  | Protects the native authorization code exchange.                                                                                                                                         |
+| [RFC 9700 — OAuth Security Best Current Practice](https://www.rfc-editor.org/rfc/rfc9700.html)                                                  | Applied throughout the authorization server and client.                                                                                                                                  |
 
 ## Quick start
 
@@ -100,7 +104,7 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 | Workspace                             | Purpose                                                                                         |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server, administration UI, and authenticated chat experience.         |
+| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server and administration UI.                                         |
 | [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests. |
 | [`@weldall/sdk`](packages/sdk/)       | TypeScript resource-server SDK for Fetch, Hono, Next.js, and Astro.                             |
 | [`weldall-sdk`](packages/python-sdk/) | Python resource-server SDK for framework-neutral use, FastAPI, and Django.                      |
@@ -121,6 +125,20 @@ Weldall works with any agent that can invoke the CLI. We recommend the open-sour
 
 Runs on <img src="apps/docs/src/assets/compatibility/apple.svg" width="16" height="16" align="center" /> macOS (Apple Silicon + Intel), <img src="apps/docs/src/assets/compatibility/windows8.svg" width="16" height="16" align="center" /> Windows (x64), and <img src="apps/docs/src/assets/compatibility/linux.svg" width="16" height="16" align="center" /> Linux (x64).
 
+Works with every OIDC provider:
+
+<p align="center">
+  <img src="apps/docs/src/assets/providers/google.svg" alt="Google Workspace" height="28" />
+  <img src="apps/docs/src/assets/providers/entra-id.svg" alt="Microsoft Entra ID" height="28" />
+  <img src="apps/docs/src/assets/providers/okta.svg" alt="Okta" height="28" />
+  <img src="apps/docs/src/assets/providers/auth0.svg" alt="Auth0" height="28" />
+  <img src="apps/docs/src/assets/providers/keycloak.svg" alt="Keycloak" height="28" />
+  <img src="apps/docs/src/assets/providers/authentik.svg" alt="authentik" height="28" />
+  <img src="apps/docs/src/assets/providers/openid.svg" alt="OpenID Connect" height="28" />
+</p>
+
+Vendor names and logos are trademarks of their respective owners and indicate interoperability only.
+
 ## Documentation
 
 Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
@@ -133,7 +151,7 @@ Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
 - [Group providers](apps/docs/src/content/docs/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
 - [`@weldall/sdk` reference](packages/sdk/README.md) — TypeScript route protection, skill catalogs, framework adapters.
 - [`weldall-sdk` reference](packages/python-sdk/README.md) — Python core, FastAPI/Django adapters, and machine client.
-- [Local development](apps/docs/) — set up the full stack on your machine.
+- [Local development](apps/docs/src/content/docs/local-development.md) — set up the full stack on your machine.
 
 ## Screenshots
 

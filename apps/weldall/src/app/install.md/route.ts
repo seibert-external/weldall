@@ -1,3 +1,5 @@
+import { WELDALL_ISSUER } from "@/server/oauth/constants";
+
 const installGuide = (origin: string) => `# Install the Weldall CLI
 
 ## npm (recommended)
@@ -33,28 +35,8 @@ Unblock-File .\\weldall.exe
 \`\`\`
 `;
 
-const firstHeaderValue = (value: string | null) => value?.split(",", 1)[0]?.trim() || undefined;
-
-const publicOrigin = (request: Request) => {
-  const requestUrl = new URL(request.url);
-  const host =
-    firstHeaderValue(request.headers.get("x-forwarded-host")) ?? request.headers.get("host");
-  const forwardedProtocol = firstHeaderValue(request.headers.get("x-forwarded-proto"));
-  const protocol =
-    forwardedProtocol === "http" || forwardedProtocol === "https"
-      ? forwardedProtocol
-      : requestUrl.protocol.slice(0, -1);
-
-  if (!host) return requestUrl.origin;
-  try {
-    return new URL(`${protocol}://${host}`).origin;
-  } catch {
-    return requestUrl.origin;
-  }
-};
-
-export function GET(request: Request) {
-  return new Response(installGuide(publicOrigin(request)), {
+export function GET() {
+  return new Response(installGuide(WELDALL_ISSUER), {
     headers: { "content-type": "text/markdown; charset=utf-8" },
   });
 }

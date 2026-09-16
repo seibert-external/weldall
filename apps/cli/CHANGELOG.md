@@ -1,5 +1,15 @@
 # @weldall/cli
 
+## 0.13.0
+
+### Minor Changes
+
+- 12af225: Store the saved session through the operating system's credential service in-process on every runtime, including the standalone macOS executable, which previously went through `/usr/bin/security`. On macOS the keychain item is now created by the CLI itself, so only the Weldall executable can read it without a prompt; the standalone build is re-signed after compiling so the darwin-x64 executable gets a valid code identity too. After upgrading from an npm install or an older standalone build on macOS, run `weldall login` once more.
+
+### Patch Changes
+
+- 1358d09: Sign the macOS standalone executables with the Seibert Developer ID certificate and notarize them with Apple in the release workflow. Gatekeeper now runs a downloaded `weldall` binary without a warning, so the `xattr -d com.apple.quarantine` step is gone from the install instructions, and the saved session stays readable across CLI upgrades because the keychain trusts the signing identity rather than one specific build.
+
 ## 0.12.0
 
 ### Minor Changes

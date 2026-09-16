@@ -1,0 +1,103 @@
+name: Rehearse macOS signing
+
+# Manual dry run of the macOS part of the release pipeline on any branch: build the standalone
+# executable, sign and notarize it with the same composite action the release workflow uses,
+# smoke-test the signed binary, build the archive, and keep both as short-lived artifacts.
+# Nothing is attached to a release. Use it to validate the `release` environment secrets, the
+# runner image, and any change to the signing steps before they meet a real release tag.
+#
+# SECURITY PRECONDITION: this workflow produces a Seibert-signed, notarized binary of whatever
+# branch it is dispatched on, downloadable by anyone with read access for three days. That is
+# only acceptable because the `release` environment MUST have required reviewers configured
+# (Settings → Environments → release → Required reviewers) BEFORE the Apple certificate and
+# notary key are added as environment secrets. With reviewers in place every dispatch waits for
+# an approval; without them, anyone with write access could sign unreviewed code. Do not add
+# the secrets to an environment that has no reviewers.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rehearse-macos-signing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rehearse:
+    # Keep runner labels hard-coded; the build validates WELDALL_RUNNER_LABEL against the target descriptor.
+    name: Rehearse (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    environment: release
+    env:
+      WELDALL_RUNNER_LABEL: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build CLI workspace dependencies
+        run: pnpm --filter @weldall/sdk build
+      - name: Build native executable into runner.temp
+        run: |
+          rm -rf "$RUNNER_TEMP/standalone" "$RUNNER_TEMP/archive"
+          mkdir -p "$RUNNER_TEMP/standalone" "$RUNNER_TEMP/archive"
+          bun apps/cli/scripts/build-standalone.mjs --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/standalone"
+      - name: Sign and notarize with the release action
+        uses: ./.github/actions/sign-macos
+        with:
+          executable: ${{ runner.temp }}/standalone/weldall
+          certificate-p12-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          notary-key-p8-base64: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+          notary-key-id: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          notary-issuer-id: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+      - name: Smoke the signed executable with system-CA and keyring diagnostics
+        run: node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/standalone/weldall"
+      - name: Create and independently extract the archive
+        run: |
+          VERSION="$(node -p "require('./apps/cli/package.json').version")"
+          node apps/cli/scripts/create-standalone-archive.mjs --target "${{ matrix.target }}" --version "$VERSION" --executable "$RUNNER_TEMP/standalone/weldall" --output-dir "$RUNNER_TEMP/archive"
+      - name: Summarize the signature
+        run: |
+          {
+            echo "### ${{ matrix.target }}"
+            echo '```'
+            codesign -dvv "$RUNNER_TEMP/standalone/weldall" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|CodeDirectory)'
+            echo '```'
+            echo "Notarization: accepted (see the notarytool step)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the signed executable and archive for inspection
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rehearsal-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/standalone/weldall
+            ${{ runner.temp }}/archive/*
+          if-no-files-found: error
+          retention-days: 3

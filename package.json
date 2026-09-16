@@ -8,7 +8,6 @@
   },
   "packageManager": "pnpm@11.15.1",
   "scripts": {
-    "admin:bootstrap": "pnpm --filter @weldall/weldall admin:bootstrap",
     "build": "turbo run build",
     "build:dev": "turbo run build --filter=!@weldall/weldall",
     "check": "turbo run check",
@@ -25,7 +24,7 @@
     "db:migrate:deploy": "pnpm --filter @weldall/db migrate:deploy",
     "db:reset:hard": "pnpm --filter @weldall/db reset:hard",
     "db:seed:production": "pnpm --filter @weldall/db seed:production",
-    "db:seed:development": "pnpm --filter @weldall/db seed:development",
+    "db:seed:development": "pnpm --filter @weldall/db seed:development && pnpm --filter @weldall/db build && pnpm --filter @weldall/weldall with-env tsx src/scripts/seed-login-fixture.ts",
     "secrets:generate": "tsx scripts/generate-env.ts",
     "changeset": "changeset",
     "changeset:status": "changeset status",

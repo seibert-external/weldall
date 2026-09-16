@@ -7,25 +7,6 @@
 @import "@astryxdesign/theme-neutral/theme.css";
 @import "@astryxdesign/core/tailwind-theme.css";
 @import "tailwindcss/utilities.css" layer(utilities);
-@import "tw-shimmer";
-
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
-@theme inline {
-  --color-background: var(--color-background-surface);
-  --color-foreground: var(--color-text-primary);
-  --color-card-foreground: var(--color-text-primary);
-  --color-popover-foreground: var(--color-text-primary);
-  --color-primary-foreground: var(--color-background-surface);
-  --color-secondary: var(--color-background-muted);
-  --color-secondary-foreground: var(--color-text-primary);
-  --color-muted-foreground: var(--color-text-secondary);
-  --color-accent: var(--color-background-muted);
-  --color-accent-foreground: var(--color-text-primary);
-  --color-destructive: var(--color-error);
-  --color-input: var(--color-border);
-  --color-ring: var(--color-text-accent);
-}
 
 @layer base {
   html,
@@ -61,7 +42,6 @@
     --radius-element: 0;
     --radius-container: 0;
     --radius-page: 0;
-    --radius-chat: 0;
     --radius-full: 0;
   }
 
@@ -422,6 +402,10 @@
     text-align: center;
   }
 
+  .setup-panel {
+    width: min(42rem, 100%);
+  }
+
   .login-auth-logo {
     display: block;
     width: 10rem;
@@ -429,7 +413,6 @@
     margin-inline: auto;
   }
 
-  .public-home,
   .skill-directory-page,
   .skill-detail-page {
     min-height: 100dvh;
@@ -825,39 +808,6 @@
     ) !important;
   }
 
-  .public-home {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .public-home-main {
-    display: flex;
-    width: min(48rem, calc(100% - 3rem));
-    flex: 1;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1.75rem;
-    margin-inline: auto;
-    padding-block: 5rem 8rem;
-    text-align: center;
-  }
-
-  .public-brand-lockup {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: center;
-    gap: 1.5rem;
-  }
-
-  .public-brand-logo {
-    display: block;
-    width: min(17rem, 42%);
-    max-height: 5.5rem;
-    object-fit: contain;
-  }
-
   img.theme-logo-dark {
     display: none;
   }
@@ -868,18 +818,6 @@
 
   [data-theme="dark"] img.theme-logo-dark {
     display: block;
-  }
-
-  .public-brand-x {
-    color: var(--color-text-disabled);
-    font-size: 2rem;
-    font-weight: 300;
-  }
-
-  .public-home-main > p {
-    margin: 0;
-    color: var(--color-text-secondary);
-    font-size: 1rem;
   }
 
   .skill-directory-main,
@@ -929,10 +867,6 @@
     width: auto;
     height: 0.875rem;
     filter: grayscale(1);
-  }
-
-  [data-theme="dark"] .public-brand-weldall {
-    filter: invert(1);
   }
 
   [data-theme="dark"] .skill-directory-powered-by img {
@@ -1712,6 +1646,55 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
+  .skill-retriever-list {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .skill-retriever-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .skill-retriever-name {
+    color: var(--color-text-primary);
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+
+  .skill-retriever-list-scroll {
+    max-height: 16rem;
+    margin: 0;
+    overflow-y: auto;
+  }
+
+  .skill-retriever-more {
+    display: inline-flex;
+    width: fit-content;
+    cursor: pointer;
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: 0.8125rem;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .skill-retriever-more:hover {
+    color: var(--color-text-primary);
+  }
+
+  .skill-retriever-more:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+  }
+
   .skill-detail-muted {
     margin: 0;
   }
@@ -1816,18 +1799,6 @@
     .skill-detail-sidebar {
       grid-template-columns: 1fr;
     }
-
-    .public-home-main {
-      width: calc(100% - 2rem);
-    }
-
-    .public-brand-lockup {
-      gap: 0.75rem;
-    }
-
-    .public-brand-x {
-      font-size: 1.25rem;
-    }
   }
 }
 
@@ -1846,28 +1817,5 @@
     opacity: 1;
     filter: none;
     transform: none;
-  }
-}
-
-@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
-
-@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
-
-@theme inline {
-  @keyframes collapsible-down {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
-    }
-  }
-  @keyframes collapsible-up {
-    from {
-      height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
-    }
-    to {
-      height: 0;
-    }
   }
 }

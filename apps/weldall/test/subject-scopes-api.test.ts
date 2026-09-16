@@ -36,7 +36,6 @@ let providerId: string;
 beforeAll(async () => {
   Object.assign(process.env, {
     BETTER_AUTH_SECRET: "test-better-auth-secret-at-least-32-characters",
-    OAUTH_PROXY_SECRET: "test-oauth-proxy-secret-at-least-32-characters",
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 12).toString("base64"),
   });
   const issuerKey = await generateEs256KeyPair();

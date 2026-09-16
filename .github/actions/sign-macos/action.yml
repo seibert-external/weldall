@@ -1,0 +1,126 @@
+name: Sign and notarize a macOS executable
+description: >-
+  Imports the Developer ID identity into a throwaway keychain, signs the executable with the
+  hardened runtime and the CLI entitlements, verifies the signature, notarizes the binary, and
+  removes the keychain again. Used by the release workflow and by the manual rehearsal workflow
+  so both run the identical steps.
+inputs:
+  executable:
+    description: Path to the compiled macOS executable
+    required: true
+  entitlements:
+    description: Path to the entitlements plist
+    required: false
+    default: apps/cli/entitlements.plist
+  identifier:
+    description: Code signing identifier; part of the keychain access rule, must stay stable
+    required: false
+    default: dev.seibert.weldall-cli
+  certificate-p12-base64:
+    description: Developer ID Application certificate with private key, PKCS#12, base64
+    required: true
+  certificate-password:
+    description: Password of the PKCS#12 file
+    required: true
+  notary-key-p8-base64:
+    description: App Store Connect API key (.p8), base64
+    required: true
+  notary-key-id:
+    description: App Store Connect API key ID
+    required: true
+  notary-issuer-id:
+    description: App Store Connect issuer ID
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Import the Developer ID signing identity into a throwaway keychain
+      shell: bash
+      env:
+        CERTIFICATE_P12_BASE64: ${{ inputs.certificate-p12-base64 }}
+        CERTIFICATE_PASSWORD: ${{ inputs.certificate-password }}
+      run: |
+        KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+        KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
+        security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+        security set-keychain-settings -lut 3600 "$KEYCHAIN"
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+        printf '%s' "$CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+        security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        rm -f "$RUNNER_TEMP/certificate.p12"
+        # Apple's "Developer ID Certification Authority G2" intermediate is absent on
+        # Command-Line-Tools-only runners; without it the chain to the Apple root is
+        # incomplete and codesign/notarization reject the identity.
+        curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+        security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KEYCHAIN"
+        rm -f "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+        # Let codesign use the private key without an interactive prompt.
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+        # Keep the existing search list and prepend the throwaway keychain. Strip the
+        # quotes and indentation from the listing so each path becomes one argument.
+        EXISTING_KEYCHAINS="$(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"[[:space:]]*$/\1/')"
+        security list-keychains -d user -s "$KEYCHAIN" $EXISTING_KEYCHAINS
+        test "$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -c 'Developer ID Application')" -eq 1
+    - name: Sign the executable with hardened runtime and verify
+      shell: bash
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+        ENTITLEMENTS: ${{ inputs.entitlements }}
+        IDENTIFIER: ${{ inputs.identifier }}
+      run: |
+        # Select the identity by the SHA-1 of the certificate just imported into the
+        # throwaway keychain: unambiguous even if the runner image ever carries another
+        # Developer ID identity, and no team or organization name lives in this file.
+        IDENTITY="$(security find-identity -v -p codesigning "$RUNNER_TEMP/signing.keychain-db" | awk '/Developer ID Application/ { print $2; exit }')"
+        test -n "$IDENTITY"
+        codesign --force --sign "$IDENTITY" \
+          --identifier "$IDENTIFIER" \
+          --options runtime --timestamp \
+          --entitlements "$ENTITLEMENTS" \
+          "$EXECUTABLE"
+        codesign --verify --strict --verbose=2 "$EXECUTABLE"
+        codesign -dvv "$EXECUTABLE" 2>&1 | grep -E '^Authority=Developer ID Application'
+        codesign -dvv "$EXECUTABLE" 2>&1 | grep -E '^TeamIdentifier=[A-Z0-9]{10}$'
+        codesign -d --entitlements - "$EXECUTABLE" 2>/dev/null | grep -q 'disable-library-validation'
+    - name: Notarize the executable
+      shell: bash
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+        NOTARY_KEY_P8_BASE64: ${{ inputs.notary-key-p8-base64 }}
+        NOTARY_KEY_ID: ${{ inputs.notary-key-id }}
+        NOTARY_ISSUER_ID: ${{ inputs.notary-issuer-id }}
+      run: |
+        printf '%s' "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+        # A bare CLI binary cannot be stapled. Notarizing a zip of it makes Apple record a
+        # ticket for the binary's cdhash, which Gatekeeper checks online on first run; any
+        # archive built from the same binary shares that cdhash. A rejection fails the job.
+        ditto -c -k --norsrc "$EXECUTABLE" "$RUNNER_TEMP/notarize.zip"
+        # Capture the result as JSON regardless of the exit code so a rejection can be
+        # explained right here: notarytool only prints the status, the reasons live in the
+        # submission log, which needs the submission id.
+        SUBMISSION="$(xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+          --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
+          --wait --timeout 20m --output-format json)" || true
+        printf '%s\n' "$SUBMISSION"
+        SUBMISSION_ID="$(printf '%s' "$SUBMISSION" | plutil -extract id raw -o - - 2>/dev/null || true)"
+        STATUS="$(printf '%s' "$SUBMISSION" | plutil -extract status raw -o - - 2>/dev/null || true)"
+        if [ -z "$SUBMISSION_ID" ]; then
+          echo "::error::notarytool returned no submission id; see the output above"
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
+          exit 1
+        fi
+        if [ "$STATUS" != "Accepted" ]; then
+          echo "::error::Notarization $SUBMISSION_ID ended with status '${STATUS:-unknown}'; log follows"
+          xcrun notarytool log "$SUBMISSION_ID" \
+            --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" || true
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
+          exit 1
+        fi
+        echo "Notarization $SUBMISSION_ID accepted"
+        rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
+    - name: Remove the throwaway signing keychain
+      if: always()
+      shell: bash
+      run: |
+        rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/notarize.zip"
+        security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true

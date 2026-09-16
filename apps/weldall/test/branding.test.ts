@@ -72,27 +72,12 @@ describe("CLI branding", () => {
     });
   });
 
-  it("renders the configured logo on the welcome page", async () => {
-    const settings = await db.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
-    originalLogoUrls = { light: settings.logoUrl, dark: settings.darkLogoUrl };
-    await db.cliSettings.update({
-      where: { id: "default" },
-      data: {
-        logoUrl: "https://cdn.example.com/company-logo.svg",
-        darkLogoUrl: "https://cdn.example.com/company-logo-dark.svg",
-      },
-    });
+  it("redirects signed-out users from the welcome page to login", async () => {
+    pageMocks.getSession.mockResolvedValue(null);
 
-    const html = renderToStaticMarkup(await Home());
+    await Home();
 
-    expect(html).toContain(
-      '<img src="https://cdn.example.com/company-logo.svg" alt="Configured company logo"',
-    );
-    expect(html).toContain(
-      '<img src="https://cdn.example.com/company-logo-dark.svg" alt="Configured company logo"',
-    );
-    expect(html).toContain("theme-logo-light");
-    expect(html).toContain("theme-logo-dark");
+    expect(pageMocks.redirect).toHaveBeenCalledWith("/login");
   });
 
   it("redirects signed-in users from the welcome page to skills", async () => {
@@ -199,21 +184,5 @@ describe("CLI branding", () => {
     expect(html).not.toContain("⚡️");
     expect(regularTagIndex).toBeGreaterThan(resourceTagIndex);
     expect(html).not.toContain("Review an expense");
-  });
-
-  it("renders no company logo when none is configured", async () => {
-    const settings = await db.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
-    originalLogoUrls = { light: settings.logoUrl, dark: settings.darkLogoUrl };
-    await db.cliSettings.update({
-      where: { id: "default" },
-      data: { logoUrl: "", darkLogoUrl: "" },
-    });
-
-    const html = renderToStaticMarkup(await Home());
-
-    expect(html).not.toContain("Configured company logo");
-    expect(html).not.toContain("public-brand-x");
-    expect(html).toContain('href="/login"');
-    expect(html).not.toContain("Copy Prompt");
   });
 });

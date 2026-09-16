@@ -28,7 +28,7 @@ import securityFlowDark from "../../../assets/security-flow-dark.svg";
 
 Dieser Abschnitt erklärt, wie Weldall Zugriffe auf Unternehmenssysteme absichert. Im Kern gilt dabei eine einfache Regel: **Der Agent bekommt niemals Zugangsdaten zu sehen.** Alle Tokens werden in der CLI verwaltet, sind kurzlebig und an ein Gerät gebunden.
 
-Das Sicherheitsmodell haben wir nicht selbst ausgedacht, sondern baut auf etablierten und aktuellen OAuth-Standards auf. Konkret kombiniert es einen **Identity Assertion JWT Authorization Grant (ID-JAG)** mit einem **DPoP-gebundenen JWT Authorization Grant**.
+Das Sicherheitsmodell baut auf offenen OAuth-Spezifikationen auf. Konkret kombiniert es einen **Identity Assertion JWT Authorization Grant (ID-JAG)** mit einem **DPoP-gebundenen JWT Authorization Grant**. Die Spezifikationen sind offen dokumentiert und können von unabhängigen Parteien geprüft werden.
 
 ## Das Problem: langlebige Zugangsdaten
 
@@ -46,7 +46,7 @@ Das Diagramm oben zeigt den vollständigen Ablauf zwischen Mitarbeiter, Weldall 
 4. **Refresh-Token rotieren** – Bei jeder Verlängerung sendet die CLI den Refresh-Token zusammen mit einem **DPoP-Proof** und erhält einen neuen Access-Token sowie einen rotierten Refresh-Token. Ein bereits verwendeter Refresh-Token wird damit wertlos.
 5. **Service ermitteln** – Die CLI fragt beim AS die Resource Registry ab und erfährt, welche Ressourcen und Scopes für diesen Mitarbeiter freigegeben sind.
 6. **Identität weiterreichen (ID-JAG)** – Für den gewünschten Service tauscht die CLI den Refresh-Token in einen signierten ID-JAG um.
-7. **Downstream-Token beschaffen** – Der Downstream AS tauscht den ID-JAG per **DPoP** gegen einen Access-Token für genau diesen Service.
+7. **Downstream-Token beschaffen** – Die CLI übermittelt den ID-JAG mit dem **JWT DPoP Grant** (`urn:ietf:params:oauth:grant-type:jwt-dpop`) an den Downstream AS. Dieser prüft, ob der DPoP-Proof zum `cnf.jkt` der Assertion passt, und stellt einen an denselben Geräteschlüssel gebundenen Access-Token für diesen Service aus.
 8. **Request senden** – Die CLI sendet den Request mit Token und DPoP-Proof direkt an den Service und gibt nur die fachliche Antwort an den Agenten zurück.
 
 ## Warum der Agent kein Token sieht
@@ -67,16 +67,16 @@ Ob und wofür ein Mitarbeiter berechtigt ist, entscheidet der Authorization Serv
 
 Weldall protokolliert **erteilte und abgelehnte Zugriffe**. Administratoren können nachvollziehen, wer welchen Zugriff auf welche Ressource angefordert hat – und können Berechtigungen zentral anpassen.
 
-## Verwendete OAuth-Standards
+## Verwendete OAuth-Spezifikationen
 
-| Standard                                                                                                                                                  | Zweck                                                                       |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Identity Assertion JWT Authorization Grant (ID-JAG, Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | Identität über die Vertrauenskette bis zum Downstream-Service weiterreichen |
-| [JWT Authorization Grant mit DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                                | Refresh-Token sicher gegen einen Access-Token eintauschen                   |
-| [Native OAuth-Clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                            | Anmeldung über den Browser mit Loopback-Rückruf                             |
-| [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                            | Autorisierungscode gegen einen Client-seitig verifizierten Code tauschen    |
-| [OAuth-Sicherheitsempfehlungen (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)                                                                   | Aktuelle Best Practices für sichere OAuth-Flows                             |
-| [Sendergebundene Tokens mit DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                                 | Access- und Refresh-Tokens an den Geräteschlüssel binden                    |
+| Spezifikation                                                                                                                                   | Zweck                                                                                                   |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| [Identity Assertion JWT Authorization Grant (ID-JAG)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | Identität über die Vertrauenskette bis zum Downstream-Service weiterreichen                             |
+| [JWT Authorization Grant mit DPoP](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                                 | Gerätegebundene ID-JAG-Assertion gegen einen an denselben Schlüssel gebundenen Access-Token eintauschen |
+| [Native OAuth-Clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                  | Anmeldung über den Browser mit Loopback-Rückruf                                                         |
+| [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                  | Autorisierungscode gegen einen Client-seitig verifizierten Code tauschen                                |
+| [OAuth-Sicherheitsempfehlungen (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)                                                         | Aktuelle Best Practices für sichere OAuth-Flows                                                         |
+| [Sendergebundene Tokens mit DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                       | Access- und Refresh-Tokens an den Geräteschlüssel binden                                                |
 
 ## Weitere Themen
 

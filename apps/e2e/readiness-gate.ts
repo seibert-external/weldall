@@ -42,8 +42,6 @@ const dependencies: Dependency[] = [
   {
     name: "weldall dev login route",
     url: "https://weldall.seibert.localdev/login",
-    // ENABLE_DEV_LOGIN must reach the runtime; otherwise the suite's very first
-    // click target never renders.
     contains: "Development login",
   },
   {

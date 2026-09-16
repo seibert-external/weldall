@@ -43,6 +43,16 @@ export default defineConfig({
               link: "/weldall-setup/",
             },
             {
+              label: "How to: Run the installer",
+              translations: { de: "How to: Installer ausführen" },
+              link: "/installer/",
+            },
+            {
+              label: "How to: Develop locally",
+              translations: { de: "How to: Lokal entwickeln" },
+              link: "/local-development/",
+            },
+            {
               label: "How to: Integrate a service",
               translations: { de: "How to: Service integrieren" },
               items: [

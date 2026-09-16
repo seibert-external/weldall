@@ -29,7 +29,6 @@ function toPair(tuple: readonly [string, string]) {
 
 type AdminRoute =
   | "audit"
-  | "chat"
   | "cli"
   | "resources"
   | "machines"
@@ -37,6 +36,7 @@ type AdminRoute =
   | "assignments"
   | "group-assignments"
   | "group-providers"
+  | "login-providers"
   | "users"
   | "skills";
 export const adminSectionDesigns = {
@@ -44,11 +44,6 @@ export const adminSectionDesigns = {
     title: "Audit logs",
     light: toPair(corporateGradients.pineTeal.light),
     dark: toPair(corporateGradients.pineTeal.dark),
-  },
-  chat: {
-    title: "Chat",
-    light: { from: "rgb(179, 72, 65)", to: "rgb(165, 62, 107)" },
-    dark: { from: "rgb(91, 35, 39)", to: "rgb(82, 30, 54)" },
   },
   cli: {
     title: "CLI",
@@ -80,6 +75,11 @@ export const adminSectionDesigns = {
     light: toPair(corporateGradients.lake.light),
     dark: toPair(corporateGradients.lake.dark),
   },
+  "login-providers": {
+    title: "Login providers",
+    light: toPair(corporateGradients.lavenderLight.light),
+    dark: toPair(corporateGradients.lavenderLight.dark),
+  },
   "group-providers": {
     title: "Group providers",
     light: toPair(corporateGradients.lavenderLight.light),
@@ -106,13 +106,13 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
   const [title, setTitle] = useState<string | null>(null);
   const route = useMemo<AdminRoute>(() => {
     if (pathname.startsWith("/admin/audit")) return "audit";
-    if (pathname.startsWith("/admin/chat")) return "chat";
     if (pathname.startsWith("/admin/cli")) return "cli";
     if (pathname.startsWith("/admin/machines")) return "machines";
     if (pathname.startsWith("/admin/resources")) return "resources";
     if (pathname.startsWith("/admin/assignments")) return "assignments";
     if (pathname.startsWith("/admin/group-assignments")) return "group-assignments";
     if (pathname.startsWith("/admin/group-providers")) return "group-providers";
+    if (pathname.startsWith("/admin/login-providers")) return "login-providers";
     if (pathname.startsWith("/admin/users")) return "users";
     if (pathname.startsWith("/admin/skills")) return "skills";
     return "scopes";

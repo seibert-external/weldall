@@ -9,6 +9,8 @@ dist
 .git
 .env
 .env.*
+**/.env
+**/.env.*
 coverage
 **/coverage
 test-results

@@ -28,7 +28,7 @@ import securityFlowDark from "../../assets/security-flow-dark.svg";
 
 This section explains how Weldall secures access to company systems. At its core is one simple rule: **The agent never gets to see any credentials.** All tokens are managed inside the CLI, are short-lived, and are bound to a device.
 
-We did not invent this security model ourselves. It builds on established and current OAuth standards. Specifically, it combines an **Identity Assertion JWT Authorization Grant (ID-JAG)** with a **DPoP-bound JWT Authorization Grant**. Because we follow a standard, the flow is openly documented and can be reviewed by independent parties.
+This security model builds on open OAuth specifications. Specifically, it combines an **Identity Assertion JWT Authorization Grant (ID-JAG)** with a **DPoP-bound JWT Authorization Grant**. The specifications are openly documented and can be reviewed by independent parties.
 
 ## The problem: long-lived credentials
 
@@ -46,7 +46,7 @@ The diagram above shows the full flow between the employee, the Weldall CLI, the
 4. **Rotate the refresh token** – On every renewal, the CLI sends the refresh token together with a **DPoP proof** and receives a new access token plus a rotated refresh token. A refresh token that has already been used becomes worthless.
 5. **Resolve the service** – The CLI queries the AS resource registry to learn which resources and scopes are granted for this employee.
 6. **Chain the identity (ID-JAG)** – For the requested service, the CLI exchanges the refresh token for a signed ID-JAG.
-7. **Obtain a downstream token** – The downstream AS exchanges the ID-JAG via **DPoP** for an access token for exactly this service.
+7. **Obtain a downstream token** – The CLI presents the ID-JAG to the downstream AS using the **JWT DPoP grant** (`urn:ietf:params:oauth:grant-type:jwt-dpop`). The AS verifies that the DPoP proof matches the assertion's `cnf.jkt` and issues an access token bound to the same device key for this service.
 8. **Send the request** – The CLI sends the request with the token and DPoP proof directly to the service and returns only the business response to the agent.
 
 ## Why the agent never sees a token
@@ -67,16 +67,16 @@ Whether and for what an employee is authorized is decided by the authorization s
 
 Weldall logs **granted and denied access**. Administrators can trace who requested access to which resource and can adjust permissions centrally.
 
-## OAuth standards in use
+## OAuth specifications in use
 
-| Standard                                                                                                                                                  | Purpose                                                                   |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| [Identity Assertion JWT Authorization Grant (ID-JAG, Draft-04)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | Chain the identity through the trust chain down to the downstream service |
-| [JWT Authorization Grant with DPoP (Draft-01)](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                               | Securely exchange a refresh token for an access token                     |
-| [Native OAuth clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                            | Sign in through the browser with a loopback callback                      |
-| [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                            | Exchange an authorization code for a client-verified code                 |
-| [OAuth security best practices (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)                                                                   | Current best practices for secure OAuth flows                             |
-| [Sender-constrained tokens with DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                             | Bind access and refresh tokens to the device key                          |
+| Specification                                                                                                                                   | Purpose                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [Identity Assertion JWT Authorization Grant (ID-JAG)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-identity-assertion-authz-grant-04) | Chain the identity through the trust chain down to the downstream service          |
+| [JWT Authorization Grant with DPoP](https://datatracker.ietf.org/doc/html/draft-parecki-oauth-jwt-dpop-grant-01)                                | Exchange a device-bound ID-JAG assertion for an access token bound to the same key |
+| [Native OAuth clients (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html)                                                                  | Sign in through the browser with a loopback callback                               |
+| [PKCE (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)                                                                                  | Exchange an authorization code for a client-verified code                          |
+| [OAuth security best practices (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)                                                         | Current best practices for secure OAuth flows                                      |
+| [Sender-constrained tokens with DPoP (RFC 9449)](https://www.rfc-editor.org/rfc/rfc9449.html)                                                   | Bind access and refresh tokens to the device key                                   |
 
 ## Further reading
 

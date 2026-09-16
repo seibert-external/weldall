@@ -32,6 +32,10 @@ afterAll(async () => {
 });
 
 async function ensureUsers() {
+  await db.user.updateMany({
+    where: { id: { in: [aliceId, bobId, carolId] } },
+    data: { image: null },
+  });
   await db.user.upsert({
     where: { id: aliceId },
     create: { id: aliceId, name: "Alice Analyst", email: aliceEmail, emailVerified: true },
@@ -85,7 +89,7 @@ describe("skill retrieval metrics", () => {
       skillSlug,
       windowDays: 7,
       uniqueRetrievalCount: 1,
-      uniqueRetrievers: [{ id: aliceId, displayName: "Avery Updated" }],
+      uniqueRetrievers: [{ id: aliceId, displayName: "Avery Updated", avatarUrl: null }],
     });
 
     const summary = await getSkillRetrievalSummaryBySlug(skillSlug, 30);
@@ -95,8 +99,8 @@ describe("skill retrieval metrics", () => {
       uniqueRetrievalCount: 2,
     });
     expect(summary.uniqueRetrievers).toEqual([
-      { id: aliceId, displayName: "Avery Updated" },
-      { id: bobId, displayName: "Bob Builder" },
+      { id: aliceId, displayName: "Avery Updated", avatarUrl: null },
+      { id: bobId, displayName: "Bob Builder", avatarUrl: null },
     ]);
 
     await expect(db.skillRetrievalEvent.count({ where: { skillSlug } })).resolves.toBe(3);
@@ -129,5 +133,34 @@ describe("skill retrieval metrics", () => {
       [skillSlug]: 3,
     });
     await expect(getSkillRetrievalCountsBySlugs([])).resolves.toEqual({});
+  });
+
+  it("exposes a cached provider avatar as a same-origin proxy path", async () => {
+    await ensureUsers();
+    await db.user.update({
+      where: { id: aliceId },
+      data: { image: "https://photos.example.com/alice.png" },
+    });
+    // A stored value that is not a usable avatar URL must not become a proxy path.
+    await db.user.update({
+      where: { id: bobId },
+      data: { image: "http://photos.example.com/bob.png" },
+    });
+    await recordSkillRetrievalEvent({
+      skillSlug,
+      retrieverId: aliceId,
+      retrieverName: "Alice Analyst",
+    });
+    await recordSkillRetrievalEvent({
+      skillSlug,
+      retrieverId: bobId,
+      retrieverName: "Bob Builder",
+    });
+
+    const summary = await getSkillRetrievalSummaryBySlug(skillSlug);
+    expect(summary.uniqueRetrievers).toEqual([
+      { id: aliceId, displayName: "Alice Analyst", avatarUrl: `/api/avatars/${aliceId}` },
+      { id: bobId, displayName: "Bob Builder", avatarUrl: null },
+    ]);
   });
 });
