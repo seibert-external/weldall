@@ -1,7 +1,13 @@
 import { createElement } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
-import { findCachedSkills, formatSkillWarning, printPermissions } from "../src/commands.js";
+import {
+  findCachedSkills,
+  formatSkillWarning,
+  printPermissions,
+  printSkills,
+  skillsCommand,
+} from "../src/commands.js";
 import {
   appendixFrame,
   brandHeading,
@@ -329,5 +335,31 @@ describe("terminal output safety", () => {
     expect(output.mock.calls.flat().join("\n")).toContain("failed�]52;c;stolen�");
     expect(output.mock.calls.flat().join("\n")).toContain("retry�[2J");
     output.mockRestore();
+  });
+});
+
+describe("skills output flags", () => {
+  it("rejects --json combined with --agentic instead of silently dropping one", async () => {
+    await expect(printSkills(true, true)).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
+  });
+
+  it("declares --agentic on both the skills command and its list subcommand", () => {
+    expect(skillsCommand.args?.agentic).toBeDefined();
+    expect(skillsCommand.subCommands?.list.args?.agentic).toBeDefined();
+    expect(skillsCommand.subCommands?.list.examples).toContain("weldall skills list --agentic");
+  });
+
+  it("passes both output flags from parsed arguments through to printSkills", async () => {
+    const run = (command: { run?: (context: never) => unknown }, values: object) =>
+      command.run?.({ values } as never);
+
+    await expect(run(skillsCommand, { json: true, agentic: true })).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
+    await expect(
+      run(skillsCommand.subCommands?.list, { json: true, agentic: true }),
+    ).rejects.toThrow("--json cannot be combined with --agentic");
   });
 });

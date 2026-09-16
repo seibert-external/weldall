@@ -36,6 +36,7 @@ import {
   showSkillWithSubject,
   type SkillWarning,
 } from "./services/skills.js";
+import { skillsToon } from "./skills-toon.js";
 import { appendixCache, type CachedSkillPreview } from "./storage/appendix.js";
 import { weldallConfigCache } from "./storage/config-cache.js";
 import { keychain } from "./storage/keychain.js";
@@ -218,6 +219,13 @@ export const logoutCommand = define({
 const jsonArgument = {
   type: "boolean",
   description: "Print machine-readable JSON instead of explanatory text",
+} as const;
+
+// Deliberately unstable, unlike --json. The shape exists to be read by a model, so it is expected
+// to be retuned as models change, and nothing should be written against it that must keep working.
+const agenticArgument = {
+  type: "boolean",
+  description: "Print the catalog shaped for an agent (TOON; unstable, may change without notice)",
 } as const;
 
 export const statusCommand = define({
@@ -563,10 +571,15 @@ export const formatSkillWarning = (warning: SkillWarning): string => {
   );
 };
 
-const printSkills = async (asJson: boolean | undefined) => {
+export const printSkills = async (asJson: boolean | undefined, asAgentic?: boolean | undefined) => {
+  if (asJson && asAgentic) throw new CliError("--json cannot be combined with --agentic");
   const config = await resolveWeldallConfig();
   const { result, subject } = await listSkillsWithSubject(config);
   await cacheSkills(config.issuer, result.items, subject);
+  if (asAgentic) {
+    process.stdout.write(skillsToon(result));
+    return;
+  }
   if (asJson) {
     jsonOutput(result);
     return;
@@ -591,9 +604,10 @@ const printSkills = async (asJson: boolean | undefined) => {
 const skillsListCommand = define({
   name: "list",
   description: "List skills visible to the signed-in account",
-  args: { json: jsonArgument },
-  examples: "weldall skills\nweldall skills list\nweldall skills list --json",
-  run: (context) => printSkills(context.values.json),
+  args: { json: jsonArgument, agentic: agenticArgument },
+  examples:
+    "weldall skills\nweldall skills list\nweldall skills list --json\nweldall skills list --agentic",
+  run: (context) => printSkills(context.values.json, context.values.agentic),
 });
 
 const skillsShowCommand = define({
@@ -688,9 +702,9 @@ const skillsFindCommand = define({
 export const skillsCommand = define({
   name: "skills",
   description: "Discover agent instructions published by your organization",
-  args: { json: jsonArgument },
+  args: { json: jsonArgument, agentic: agenticArgument },
   subCommands: { list: skillsListCommand, show: skillsShowCommand, find: skillsFindCommand },
-  run: (context) => printSkills(context.values.json),
+  run: (context) => printSkills(context.values.json, context.values.agentic),
 });
 
 const setIssuerCommand = define({
