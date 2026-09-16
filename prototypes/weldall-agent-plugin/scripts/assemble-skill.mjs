@@ -9,6 +9,8 @@ const root = join(import.meta.dirname, "..");
 // prototype root and carries the version the wrapper ships.
 export const HOSTS = [
   { id: "claude-code", manifest: join("hosts", "claude-code", ".claude-plugin", "plugin.json") },
+  { id: "pi", manifest: join("hosts", "pi", "package.json") },
+  { id: "openwork", manifest: join("hosts", "openwork", "plugin.json") },
 ];
 
 export const skillPath = (host) => join(root, "hosts", host.id, "skills", "weldall", "SKILL.md");
@@ -21,6 +23,7 @@ export const FRONTMATTER = {
     "Routes a request about a company system through Weldall, the access layer in front of those systems, instead of answering from memory or inventing an API call. Use when the request concerns a business record or an action on one, such as contracts, expenses, employees, customers, invoices or licences. Reads what this user is currently permitted to do from Weldall's live catalog, then follows the skill document Weldall returns. Not for the local repository, for general knowledge, or for anything on the user's own machine.",
 };
 
+// Claude Code and pi read the same two frontmatter fields, so every host gets the same file.
 export const assembleSkill = (procedure) =>
   `---\nname: ${FRONTMATTER.name}\ndescription: ${FRONTMATTER.description}\n---\n\n${procedure}`;
 

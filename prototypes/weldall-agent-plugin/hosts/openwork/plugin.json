@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "weldall",
+  "version": "0.1.0",
+  "description": "Routes company-system requests through Weldall's live, per-user skill catalog instead of general knowledge or an invented API call.",
+  "author": {
+    "name": "Seibert Group"
+  },
+  "homepage": "https://github.com/seibert-external/weldall",
+  "repository": "https://github.com/seibert-external/weldall",
+  "license": "FSL-1.1-ALv2",
+  "keywords": ["weldall", "oauth", "skills", "company-systems"]
+}

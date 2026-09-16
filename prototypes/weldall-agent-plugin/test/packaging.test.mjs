@@ -22,8 +22,9 @@ test("the frontmatter survives being written as unquoted YAML", () => {
   assert.ok(!FRONTMATTER.description.includes("\n"), "the description must be one line");
 });
 
-// The strictest host limit seen so far: a skill name of lowercase and hyphens, a description
-// of at most 1024 characters. Every host shares one generated file, so the tightest rule wins.
+// pi refuses a skill name outside lowercase and hyphens and caps the description at 1024
+// characters. Claude Code takes both without complaint, so the stricter host sets the limit
+// for the one file they share.
 test("the frontmatter stays inside the strictest host's limits", () => {
   assert.match(FRONTMATTER.name, /^[a-z][a-z0-9-]{0,63}$/u);
   assert.ok(
@@ -61,6 +62,40 @@ test("the Claude Code manifest and the skill agree on the plugin name", async ()
   assert.equal(manifest.name, "weldall");
   assert.equal(FRONTMATTER.name, "weldall");
   assert.ok(manifest.description.length > 0);
+});
+
+// pi reads a package's skill directories from the pi key, and its gallery lists a package by
+// the pi-package keyword. private keeps a parked prototype off npm until we choose to publish.
+test("the pi manifest declares its skills and stays unpublishable", async () => {
+  const manifest = JSON.parse(await manifestOf("pi"));
+  assert.deepEqual(manifest.pi.skills, ["./skills"]);
+  assert.ok(manifest.keywords.includes("pi-package"), "the gallery lists packages by this keyword");
+  assert.equal(manifest.private, true);
+});
+
+// The Agent Plugins 1.0.0 schema permits these ten fields and nothing else. mcp.json is
+// deliberately absent: the skill drives the CLI, not an MCP server, and OpenWork installs this
+// folder through its skills directory. Its GitHub importer, which does demand an mcp.json, is a
+// route that stays closed until Weldall speaks MCP.
+const AGENT_PLUGIN_FIELDS = [
+  "$schema",
+  "name",
+  "version",
+  "description",
+  "author",
+  "homepage",
+  "repository",
+  "license",
+  "keywords",
+  "extensions",
+];
+
+test("the OpenWork manifest carries only what the Agent Plugins schema defines", async () => {
+  const manifest = JSON.parse(await manifestOf("openwork"));
+  assert.equal(manifest.$schema, "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json");
+  assert.equal(manifest.name, FRONTMATTER.name, "the bundle and the skill are one plugin");
+  for (const field of Object.keys(manifest))
+    assert.ok(AGENT_PLUGIN_FIELDS.includes(field), `the schema defines no ${field} field`);
 });
 
 test("the hosts wrap one procedure, so they carry one version", async () => {
