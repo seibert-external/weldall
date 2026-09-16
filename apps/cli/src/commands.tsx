@@ -571,11 +571,12 @@ export const formatSkillWarning = (warning: SkillWarning): string => {
   );
 };
 
-const printSkills = async (asJson: boolean | undefined, asToon?: boolean | undefined) => {
+export const printSkills = async (asJson: boolean | undefined, asAgentic?: boolean | undefined) => {
+  if (asJson && asAgentic) throw new CliError("--json cannot be combined with --agentic");
   const config = await resolveWeldallConfig();
   const { result, subject } = await listSkillsWithSubject(config);
   await cacheSkills(config.issuer, result.items, subject);
-  if (asToon) {
+  if (asAgentic) {
     process.stdout.write(skillsToon(result));
     return;
   }
