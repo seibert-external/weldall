@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.14.1
+
+### Patch Changes
+
+- 47b60d1: Keep standalone credentials separate from npm sessions and update the signed binary instructions.
+
 ## 0.14.0
 
 ### Minor Changes
