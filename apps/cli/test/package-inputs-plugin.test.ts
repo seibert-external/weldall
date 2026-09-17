@@ -39,7 +39,9 @@ const bundledInstallMode = async (
     stdin: {
       contents: `import { installMode } from ${JSON.stringify(importPath)};
 export default installMode;`,
-      resolveDir: importPath.startsWith("../") ? join(cliRoot, "src", "storage") : join(cliRoot, "src"),
+      resolveDir: importPath.startsWith("../")
+        ? join(cliRoot, "src", "storage")
+        : join(cliRoot, "src"),
       sourcefile: "install-mode-entry.ts",
       loader: "ts",
     },
@@ -62,9 +64,12 @@ describe("package inputs plugin install-mode selection", () => {
     ["./install-mode.js", "standalone", "standalone"],
     ["../install-mode.js", "npm", "npm"],
     ["../install-mode.js", "standalone", "standalone"],
-  ] as const)("bakes %s as %s for bundled %s builds", async (importPath, installation, expected) => {
-    await expect(bundledInstallMode(importPath, installation)).resolves.toBe(expected);
-  });
+  ] as const)(
+    "bakes %s as %s for bundled %s builds",
+    async (importPath, installation, expected) => {
+      await expect(bundledInstallMode(importPath, installation)).resolves.toBe(expected);
+    },
+  );
 
   it("keeps baking the package version and the SDK entry alongside the install mode", () => {
     const { onResolve, onLoad } = capture("9.8.7", "npm");

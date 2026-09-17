@@ -9,9 +9,7 @@ import { installMode } from "../install-mode.js";
 import { atomicWriteFile } from "./atomic-write.js";
 
 const SERVICE =
-  installMode === "standalone"
-    ? "dev.seibert.weldall-cli.standalone"
-    : "dev.seibert.weldall-cli";
+  installMode === "standalone" ? "dev.seibert.weldall-cli.standalone" : "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 2 as const;
 // Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
 const runtimeEnvironmentValue = (name: string) => process.env[name];
