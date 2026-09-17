@@ -143,17 +143,17 @@ const writeHint = () =>
   isMacOs() ? `${credentialStoreHint} ${macOsLegacyItemHint}` : credentialStoreHint;
 
 // The credential item must be created by this process so macOS binds the item's access
-// control list (and, for Developer-ID-signed builds, its partition list) to the CLI's own
-// code signature. Earlier standalone builds delegated to `/usr/bin/security`, which left
-// items readable by any process that could spawn that tool.
+// control list (and, for Developer-ID-signed standalone builds, its partition list) to the
+// CLI's own code signature.
 //
-// Items created by those builds, or by an unsigned `node` binary of an npm install, are
-// invisible to a signed process yet still block the name with errSecDuplicateItem, and the
-// keyring addon cannot delete them. Worse, the addon's write tries to update an existing item
-// in place, which on a foreign item raises an interactive authorization prompt; approving it
-// would keep the item bound to the old owner. `security delete-generic-password` removes any
-// such item without a prompt (exit 44 = nothing there). Deleting is the only use of the
-// security tool: credentials are never read or written through it.
+// Items created under the same service by a different owner, such as an unsigned `node`
+// binary for npm installs or a replaced standalone binary, are invisible to the current
+// process yet still block the name with errSecDuplicateItem, and the keyring addon cannot
+// delete them. Worse, the addon's write tries to update an existing item in place, which on
+// a foreign item raises an interactive authorization prompt; approving it would keep the item
+// bound to the old owner. `security delete-generic-password` removes any such item without a
+// prompt (exit 44 = nothing there). Deleting is the only use of the security tool:
+// credentials are never read or written through it.
 const deleteMacOsItem = async (service: string, account: string) => {
   try {
     await execFileAsync(
