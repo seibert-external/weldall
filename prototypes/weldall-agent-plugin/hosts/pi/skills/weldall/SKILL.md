@@ -73,6 +73,12 @@ If the lookup itself fails because there is no session or the credential store i
 none of the rows apply. Report the message the CLI printed and point the user at
 `weldall login`. Do not retry, and do not look for another route to the answer.
 
+If the lookup fails because the command itself was not found, none of that applies either.
+The CLI is not installed, or it sits where the shell running this agent cannot see it, and
+signing in changes neither case. Say the command was not found and say the CLI has to be
+installed or put on that shell's PATH. Do not build it from a source checkout, do not run it
+out of a repository, and do not read a missing command as proof that the user has no skills.
+
 ## Load and follow the skill
 
 Substitute the slug from the lookup:

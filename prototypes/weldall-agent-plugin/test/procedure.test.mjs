@@ -111,6 +111,20 @@ test("a failed lookup routes to weldall login instead of a workaround", () => {
   assert.match(procedure, /`weldall login`\.\s+Do not retry/);
 });
 
+// The failure the prototype hit in practice: the CLI was installed and signed in, but invisible
+// to the non-interactive shell a desktop host spawns. Without a branch of its own, the agent
+// read the missing command as a sign-in problem and proposed building the CLI from a checkout.
+test("a command that was not found is separated from a missing session", () => {
+  const section = procedure.match(
+    /If the lookup fails because the command itself was not found([\s\S]*?)\n## /,
+  );
+  assert.ok(section, "procedure.md must branch on the CLI being absent from the PATH");
+  assert.match(section[1], /not installed/);
+  assert.match(section[1], /PATH/);
+  assert.match(section[1], /Do not build it from a source checkout/);
+  assert.match(section[1], /no skills/);
+});
+
 test("the placeholder rule names a concrete placeholder", () => {
   assert.match(procedure, /placeholder/);
   assert.ok(procedure.includes("<contract-id>"));
