@@ -5,9 +5,13 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { JWK } from "jose";
 import { CliError } from "../errors.js";
+import { installMode } from "../install-mode.js";
 import { atomicWriteFile } from "./atomic-write.js";
 
-const SERVICE = "dev.seibert.weldall-cli";
+const SERVICE =
+  installMode === "standalone"
+    ? "dev.seibert.weldall-cli.standalone"
+    : "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 2 as const;
 // Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
 const runtimeEnvironmentValue = (name: string) => process.env[name];

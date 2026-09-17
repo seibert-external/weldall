@@ -2,4 +2,4 @@
 "@weldall/cli": patch
 ---
 
-Update the standalone archive instructions for signed and notarized macOS binaries.
+Keep standalone credentials separate from npm sessions and update the signed binary instructions.

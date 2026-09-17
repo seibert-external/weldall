@@ -85,6 +85,42 @@ const expectSecurityDelete = (
   ]);
 };
 
+describe("install-specific credential store", () => {
+  afterEach(() => {
+    vi.doUnmock("../src/install-mode.js");
+    vi.doUnmock("@napi-rs/keyring");
+  });
+
+  it.each([
+    ["npm", "dev.seibert.weldall-cli"],
+    ["standalone", "dev.seibert.weldall-cli.standalone"],
+  ] as const)("uses a separate service for the %s installation", async (installMode, service) => {
+    const entries: Array<{ service: string; account: string }> = [];
+    vi.doMock("../src/install-mode.js", () => ({ installMode }));
+    vi.doMock("@napi-rs/keyring", () => ({
+      AsyncEntry: class {
+        constructor(entryService: string, account: string) {
+          entries.push({ service: entryService, account });
+        }
+
+        async getPassword() {
+          return null;
+        }
+      },
+      findCredentialsAsync: async () => [],
+    }));
+
+    const { keychain } = await import("../src/storage/keychain.js");
+    await expect(keychain.get(issuer)).resolves.toBeNull();
+    expect(entries).toEqual([
+      {
+        service,
+        account: `session-${createHash("sha256").update(issuer).digest("base64url")}`,
+      },
+    ]);
+  });
+});
+
 describe("native credential store", () => {
   afterEach(() => {
     vi.doUnmock("node:child_process");
