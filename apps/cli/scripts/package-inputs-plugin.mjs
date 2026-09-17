@@ -4,7 +4,7 @@ const sdkEntry = fileURLToPath(new URL("../../../packages/sdk/src/index.ts", imp
 
 // Injects build-time constants for the CLI bundle: the package version (baked
 // where the source imports ../package.json) and the install mode (baked where
-// the source imports ./install-mode.js). Both are also resolved as real files
+// the source imports install-mode.js). Both are also resolved as real files
 // so typecheck, dev, and tests keep working; only the compiled artifacts use
 // the injected values.
 export function packageInputsPlugin(version, installation) {
@@ -20,7 +20,7 @@ export function packageInputsPlugin(version, installation) {
         contents: `export default ${JSON.stringify({ version })};`,
         loader: "js",
       }));
-      build.onResolve({ filter: /^\.\/install-mode\.js$/ }, () => ({
+      build.onResolve({ filter: /^\.\.?\/install-mode\.js$/ }, () => ({
         path: "install-mode",
         namespace: "weldall",
       }));
