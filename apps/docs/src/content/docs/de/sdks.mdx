@@ -20,14 +20,12 @@ weldall --version
 
 ### Experimentelle Standalone-Binaries
 
-Standalone-Binaries benötigen kein Node.js, npm oder Bun. Unterstützt werden zunächst Linux x64, Windows x64 und macOS ARM64/x64. Die macOS-Binaries sind mit einem Developer-ID-Zertifikat signiert und von Apple notarisiert, Gatekeeper startet sie ohne Warnung; die Linux- und Windows-Binaries sind nicht signiert. Lade das passende Archiv aus den [GitHub Releases](https://github.com/seibert-external/weldall/releases).
+Standalone-Binaries benötigen kein Node.js, npm oder Bun. Unterstützt werden zunächst Linux x64, Windows x64 und macOS ARM64/x64. Die macOS-Binaries sind mit einem Developer-ID-Zertifikat signiert und von Apple notarisiert, Gatekeeper startet sie ohne Warnung. Die Linux- und Windows-Binaries sind noch nicht signiert; daran wird gearbeitet. Lade das passende Archiv aus den [GitHub Releases](https://github.com/seibert-external/weldall/releases).
 
 ```sh
 # macOS und Linux
 chmod +x ./weldall
 ```
-
-Unter macOS bindet die Signatur auch die gespeicherte Sitzung an die CLI: Das Keychain-Item kann nur ein von Seibert signiertes Weldall-Binary lesen, andere Programme lösen eine Keychain-Nachfrage aus. Nach einem Wechsel von der npm-Installation oder einem älteren, unsignierten Build einmal `weldall login` ausführen.
 
 Windows PowerShell: `Unblock-File .\weldall.exe`.
 
