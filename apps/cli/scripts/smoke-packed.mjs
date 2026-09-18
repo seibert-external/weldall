@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -120,36 +119,16 @@ async function main() {
           label: "Packed npm CLI",
         });
 
-      for (const [index, [shim, launch]] of launchers.entries()) {
+      for (const [shim, launch] of launchers) {
         await runBlackBoxHarness({
           version: packageJson.version,
           launch,
           interruptLaunch: terminalLaunch,
           expectRuntime: "node",
           expectSystemCa: true,
-          authenticated: !omitOptional && index === 0,
+          expectCredentialStore: omitOptional ? "unavailable" : "available",
         });
         console.log(`${shim} full black-box harness passed (${name})`);
-      }
-
-      const secureStoreLaunch = launchers[0][1];
-      const secureStoreEnvironment = omitOptional
-        ? { WELDALL_TEST_KEYCHAIN_GET: "https://missing-keyring.example.com" }
-        : { WELDALL_TEST_KEYRING_SMOKE: randomUUID().replaceAll("-", "") };
-      const secureStore = await secureStoreLaunch([], {
-        cwd: consumer,
-        env: { NODE_ENV: "test", ...secureStoreEnvironment },
-      });
-      if (omitOptional) {
-        assert.equal(secureStore.status, 1, secureStore.stderr);
-        assert.match(
-          secureStore.stderr,
-          /Unable to read the Weldall session from the secure credential store/,
-        );
-        assert.match(secureStore.stderr, /Install the optional @napi-rs\/keyring dependency/);
-      } else {
-        assert.equal(secureStore.status, 0, secureStore.stderr);
-        assert.equal(JSON.parse(secureStore.stdout).keyringRoundTrip, true);
       }
     }
 
