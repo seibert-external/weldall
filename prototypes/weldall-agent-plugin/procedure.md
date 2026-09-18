@@ -25,7 +25,7 @@ the conversation: a grant may have been revoked since.
 Replace the command in this block to change the lookup strategy.
 
 ```sh
-weldall skills list --json
+weldall skills list --agentic
 ```
 
 <!-- /lookup -->
@@ -38,6 +38,11 @@ Do not use `weldall skills find`. After its first run it answers from a local sn
 it can report that no skill exists when the snapshot is days old. The CLI's own error hint
 on an unknown skill suggests `skills find` too. The prohibition still holds.
 
+The output's first line declares how many item rows follow. Count the rows you actually
+received and compare the two. A smaller number means the output was cut on its way to you,
+so you hold part of the catalog rather than the catalog. Say so and run the lookup again.
+Never match a skill from a short read, and never conclude from one that no skill exists.
+
 ## If there is no request yet
 
 Someone may run this procedure on its own, to find out what Weldall can do for them. Run the
@@ -47,7 +52,7 @@ skill and do not call anything. Finish by asking what they want to do.
 
 ## Match a skill
 
-Read the `title`, `preview` and `meta.tags` of every returned item and pick by judgement.
+Read the `title`, `preview` and `tags` of every returned item and pick by judgement.
 Every item, including the ones that look unrelated at a glance. There is no search string to
 get right, and the user's wording does not have to match the skill author's.
 

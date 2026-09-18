@@ -20,7 +20,7 @@ const tableCells = procedure
 test("the lookup block holds exactly one command, and it is the live one", () => {
   const block = procedure.match(/<!-- lookup -->\n([\s\S]*?)<!-- \/lookup -->/);
   assert.ok(block, "procedure.md must delimit the lookup block with lookup comments");
-  assert.match(block[1], /```sh\nweldall skills list --json\n```/);
+  assert.match(block[1], /```sh\nweldall skills list --agentic\n```/);
   assert.equal(
     block[1].match(/```sh/gu)?.length,
     1,
@@ -52,6 +52,17 @@ test("the lookup is live on every run and never reused", () => {
 test("skills find is ruled out, with the reason", () => {
   assert.match(procedure, /Do not use `weldall skills find`/);
   assert.match(procedure, /snapshot/);
+});
+
+// The declared row count is the reason the agentic rendering exists at all. Every deviation
+// measured while testing this procedure was the agent working from a subset it did not know was
+// a subset: once a self-chosen search word, once a tool result the harness truncated. Swapping
+// the flag without this paragraph buys a cheaper prompt and drops the safety property.
+test("a truncated catalog is detectable, because the declared count is compared", () => {
+  assert.match(procedure, /first line declares how many item rows follow/);
+  assert.match(procedure, /Count the rows you actually\s+received/);
+  assert.match(procedure, /Never match a skill from a short read/);
+  assert.match(procedure, /never conclude from one that no skill exists/);
 });
 
 // A run with no request matches nothing, so without this section the no-match row fires and
