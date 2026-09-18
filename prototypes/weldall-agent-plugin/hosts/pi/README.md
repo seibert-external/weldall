@@ -35,8 +35,8 @@ reads it on every run rather than remembering it between turns. A skill the user
 for is reported along with the scopes it needs, never attempted anyway. A catalog that came
 back incomplete is reported as incomplete, never as proof that a capability is absent.
 
-The procedure is one file in the repository, `prototypes/weldall-agent-plugin/procedure.md`.
-Every host package is generated from it, so the text does not fork per host.
+The procedure is one file in the repository, and every host package is generated from it, so
+the text does not fork per host.
 
 ## License
 
