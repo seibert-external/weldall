@@ -1,5 +1,15 @@
 # @weldall/cli
 
+## 0.15.0
+
+### Minor Changes
+
+- 6c10a61: Hide the IaC commands (`init`, `validate`, `plan`, `up`, `import`, `unmanage`, `state`) from `weldall --help` and the bare `weldall` output unless a machine client is configured. They authenticate with `WELDALL_M2M_*`, so a browser login alone never makes them usable. The commands stay runnable while hidden.
+
+### Patch Changes
+
+- 80344af: Remove test-only credential, preferences, browser, HTTP bridge, and runtime hooks from published npm and standalone CLI artifacts. E2E coverage now uses explicitly instrumented test builds instead.
+
 ## 0.14.1
 
 ### Patch Changes
