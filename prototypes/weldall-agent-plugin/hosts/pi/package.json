@@ -1,6 +1,6 @@
 {
   "name": "@weldall/pi",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Routes company-system requests through Weldall's live, per-user skill catalog instead of general knowledge or an invented API call.",
   "keywords": [
     "pi-package",

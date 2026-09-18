@@ -65,6 +65,18 @@ test("a truncated catalog is detectable, because the declared count is compared"
   assert.match(procedure, /never conclude from one that no skill exists/);
 });
 
+// A tester's agent stopped dead on a read that was whole: it miscounted 44 tab-separated rows
+// against a declared 44, and the retry sentence gave it nowhere to go. pi caps a tool result at
+// 50 KB and 2000 lines, announces it when it truncates, and the catalog is 18.8 KB over 46 lines,
+// so this check will misfire more often than it catches a real cut. It stays, because the cut it
+// catches is silent, but it has to end somewhere other than the agent waiting.
+test("the short-read retry is bounded and has an exit", () => {
+  assert.match(procedure, /Run the lookup again once for this reason, not repeatedly/);
+  assert.match(procedure, /report both numbers/);
+  assert.match(procedure, /as likely to be your own miscount/);
+  assert.match(procedure, /Do not run the lookup a third time/);
+});
+
 // A run with no request matches nothing, so without this section the no-match row fires and
 // the person who ran the procedure to find out what Weldall does is told it cannot help.
 test("a run with no request lists the catalog instead of reaching the outcome table", () => {

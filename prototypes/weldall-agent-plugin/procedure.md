@@ -43,6 +43,13 @@ received and compare the two. A smaller number means the output was cut on its w
 so you hold part of the catalog rather than the catalog. Say so and run the lookup again.
 Never match a skill from a short read, and never conclude from one that no skill exists.
 
+Run the lookup again once for this reason, not repeatedly. If the second read counts short
+too, stop and report both numbers, the count the first line declared and the count you
+reached, together with the skills the read did contain. Counting long rows by eye is itself
+unreliable, so a second disagreement is as likely to be your own miscount as a real
+truncation. Do not run the lookup a third time and do not stall. Hand the user what you have
+and let them decide.
+
 ## If there is no request yet
 
 Someone may run this procedure on its own, to find out what Weldall can do for them. Run the
