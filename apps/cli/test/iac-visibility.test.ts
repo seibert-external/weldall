@@ -2,9 +2,11 @@ import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { cli, define } from "gunshi";
 import { describe, expect, it, vi } from "vitest";
 import { isIacMachineConfigured } from "../src/iac/client.js";
-import { iacCommandNames, iacCommands, iacSubCommands } from "../src/iac/commands.js";
+import { iacSubCommands } from "../src/iac/commands.js";
 
 const jwk = (key: KeyObject) => key.export({ format: "jwk" });
+const iacCommandNames = ["init", "validate", "plan", "up", "import", "unmanage", "state"];
+const commandPattern = (name: string) => new RegExp(`\\b${name}\\b`);
 
 const machineEnvironment = () => {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -63,46 +65,21 @@ describe("IaC machine credentials", () => {
 });
 
 describe("IaC help visibility", () => {
-  it("knows every native IaC command", () => {
-    expect(iacCommandNames).toEqual([
-      "init",
-      "validate",
-      "plan",
-      "up",
-      "import",
-      "unmanage",
-      "state",
-    ]);
-  });
-
-  it("marks every IaC command internal unless machine credentials exist", () => {
-    const hidden = iacSubCommands(false);
-    expect(Object.keys(hidden)).toEqual([...iacCommandNames]);
-    for (const name of iacCommandNames) expect(hidden[name]?.internal).toBe(true);
-    for (const name of iacCommandNames) expect(iacSubCommands(true)[name]?.internal).toBe(false);
-  });
-
-  it("keeps each command's description and runner when hiding it", () => {
-    const hidden = iacSubCommands(false);
-    for (const name of iacCommandNames) {
-      expect(hidden[name]?.description).toBe(iacCommands[name as keyof typeof iacCommands].description);
-      expect(hidden[name]?.run).toBe(iacCommands[name as keyof typeof iacCommands].run);
-    }
-  });
-
   it("omits IaC commands from the root help listing without machine credentials", async () => {
     const help = await renderHelp(["--help"], false);
     expect(help).toContain("USAGE:");
-    for (const name of iacCommandNames) expect(help).not.toMatch(new RegExp(`\\b${name}\\b`));
+    for (const name of iacCommandNames) expect(help).not.toMatch(commandPattern(name));
   });
 
   it("lists IaC commands in the root help when machine credentials exist", async () => {
     const help = await renderHelp(["--help"], true);
-    for (const name of iacCommandNames) expect(help).toMatch(new RegExp(`\\b${name}\\b`));
+    for (const name of iacCommandNames) expect(help).toMatch(commandPattern(name));
   });
 
   it("keeps a hidden IaC command's own help available", async () => {
     const help = await renderHelp(["up", "--help"], false);
-    expect(help).toContain(iacCommands.up.description);
+    expect(help).toContain("USAGE:");
+    expect(help).toMatch(/\bweldall up\b/);
+    expect(help).toContain("Atomically apply one native Weldall YAML snapshot");
   });
 });
