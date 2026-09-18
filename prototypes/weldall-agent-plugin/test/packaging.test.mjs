@@ -65,12 +65,24 @@ test("the Claude Code manifest and the skill agree on the plugin name", async ()
 });
 
 // pi reads a package's skill directories from the pi key, and its gallery lists a package by
-// the pi-package keyword. private keeps a parked prototype off npm until we choose to publish.
-test("the pi manifest declares its skills and stays unpublishable", async () => {
+// the pi-package keyword. npm refuses a private package outright, and a scoped package defaults
+// to restricted access, which fails without a paid org, so publishConfig has to say public.
+test("the pi manifest declares its skills and publishes publicly", async () => {
   const manifest = JSON.parse(await manifestOf("pi"));
   assert.deepEqual(manifest.pi.skills, ["./skills"]);
   assert.ok(manifest.keywords.includes("pi-package"), "the gallery lists packages by this keyword");
-  assert.equal(manifest.private, true);
+  assert.ok(!("private" in manifest), "npm refuses to publish a private package");
+  assert.equal(manifest.publishConfig.access, "public");
+});
+
+// The procedure carries no fallback to an older lookup flag: that was traded away deliberately,
+// on the understanding that testers are told the floor out of band. This README is that telling,
+// and it is the npm landing page, so the floor has to stay written down where they will land.
+test("the pi README names the CLI version the lookup needs", async () => {
+  const readme = await readFile(join(root, "hosts", "pi", "README.md"), "utf8");
+  assert.match(readme, /0\.14\.0 or newer/);
+  assert.match(readme, /weldall skills list --agentic/);
+  assert.match(readme, /pi install npm:@weldall\/pi/);
 });
 
 // The Agent Plugins 1.0.0 schema permits these ten fields and nothing else. mcp.json is

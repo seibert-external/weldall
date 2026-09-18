@@ -1,7 +1,7 @@
 {
   "name": "weldall",
   "description": "Routes company-system requests through Weldall's live, per-user skill catalog instead of general knowledge or an invented API call.",
-  "version": "0.1.3",
+  "version": "0.3.0",
   "author": {
     "name": "Seibert Group"
   },
