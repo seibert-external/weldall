@@ -12,18 +12,17 @@ const SERVICE =
   installMode === "standalone" ? "dev.seibert.weldall-cli.standalone" : "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 2 as const;
 const runtimeEnvironmentValue = (name: string) => process.env[name];
+const resolveTestCredentialsFile = () => {
+  const path = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
+  if (path && runtimeEnvironmentValue("NODE_ENV") !== "test")
+    throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
+  return path;
+};
+
 const testCredentialsFile =
   typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__
-    ? runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE")
+    ? resolveTestCredentialsFile()
     : undefined;
-
-if (
-  typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
-  __WELDALL_TEST_BUILD__ &&
-  testCredentialsFile &&
-  runtimeEnvironmentValue("NODE_ENV") !== "test"
-)
-  throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
 
 export interface StoredIdentity {
   subject?: string;
@@ -201,11 +200,7 @@ export const nativeCredentialStore = {
 export const keychain = {
   async get(issuer: string): Promise<StoredCredentials | null> {
     const account = accountFor(issuer);
-    if (
-      typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
-      __WELDALL_TEST_BUILD__ &&
-      testCredentialsFile
-    ) {
+    if (testCredentialsFile) {
       const stored = readTestKeychain()[account];
       return stored ? parseCredentials(JSON.stringify(stored), issuer) : null;
     }
@@ -228,11 +223,7 @@ export const keychain = {
       issuer,
       ...credentials,
     };
-    if (
-      typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
-      __WELDALL_TEST_BUILD__ &&
-      testCredentialsFile
-    ) {
+    if (testCredentialsFile) {
       const value = readTestKeychain();
       value[accountFor(issuer)] = stored;
       await writeTestKeychain(value);
@@ -250,11 +241,7 @@ export const keychain = {
 
   async clear(issuer: string) {
     const account = accountFor(issuer);
-    if (
-      typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
-      __WELDALL_TEST_BUILD__ &&
-      testCredentialsFile
-    ) {
+    if (testCredentialsFile) {
       const value = readTestKeychain();
       delete value[account];
       if (Object.keys(value).length === 0) rmSync(testCredentialsFile, { force: true });
