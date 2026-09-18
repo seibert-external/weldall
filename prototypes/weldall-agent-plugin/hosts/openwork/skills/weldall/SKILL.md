@@ -49,11 +49,11 @@ so you hold part of the catalog rather than the catalog. Say so and run the look
 Never match a skill from a short read, and never conclude from one that no skill exists.
 
 Run the lookup again once for this reason, not repeatedly. If the second read counts short
-too, stop and report both numbers, the count the first line declared and the count you
-reached, together with the skills the read did contain. Counting long rows by eye is itself
-unreliable, so a second disagreement is as likely to be your own miscount as a real
-truncation. Do not run the lookup a third time and do not stall. Hand the user what you have
-and let them decide.
+too, the cut is real and repeating the command will not clear it. Stop and report both
+numbers, the count the first line declared and the count you reached, together with the
+sources the rows you did receive came from, so the user can see which part of the catalog is
+missing from your view. Do not run the lookup a third time, and do not answer the original
+request from a catalog you already know is partial.
 
 ## If there is no request yet
 

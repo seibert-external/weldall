@@ -65,15 +65,16 @@ test("a truncated catalog is detectable, because the declared count is compared"
   assert.match(procedure, /never conclude from one that no skill exists/);
 });
 
-// A tester's agent stopped dead on a read that was whole: it miscounted 44 tab-separated rows
-// against a declared 44, and the retry sentence gave it nowhere to go. pi caps a tool result at
-// 50 KB and 2000 lines, announces it when it truncates, and the catalog is 18.8 KB over 46 lines,
-// so this check will misfire more often than it catches a real cut. It stays, because the cut it
-// catches is silent, but it has to end somewhere other than the agent waiting.
+// A tester hit this for real: 45 declared, 29 received, stable across three runs. The CLI is not
+// the source, a piped run delivers every row it declares, so the cut is in the host between the
+// command and the model. The agent was right to refuse, and right to be unable to proceed. What it
+// lacked was an end: the paragraph said to run the lookup again and never to match from a short
+// read, with no bound and no way to hand the problem back.
 test("the short-read retry is bounded and has an exit", () => {
   assert.match(procedure, /Run the lookup again once for this reason, not repeatedly/);
-  assert.match(procedure, /report both numbers/);
-  assert.match(procedure, /as likely to be your own miscount/);
+  assert.match(procedure, /the cut is real and repeating the command will not clear it/);
+  assert.match(procedure, /report both\s+numbers/);
+  assert.match(procedure, /which part of the catalog is\s+missing/);
   assert.match(procedure, /Do not run the lookup a third time/);
 });
 
