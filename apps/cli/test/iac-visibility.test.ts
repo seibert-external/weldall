@@ -52,7 +52,10 @@ describe("IaC machine credentials", () => {
       false,
     );
     expect(
-      isIacMachineConfigured({ ...environment, WELDALL_M2M_PUBLIC_JWK: JSON.stringify({ kty: "RSA" }) }),
+      isIacMachineConfigured({
+        ...environment,
+        WELDALL_M2M_PUBLIC_JWK: JSON.stringify({ kty: "RSA" }),
+      }),
     ).toBe(false);
     const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
     expect(
