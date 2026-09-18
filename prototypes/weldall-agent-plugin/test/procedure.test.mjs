@@ -113,6 +113,17 @@ test("the warning branch never concludes the capability is absent", () => {
   assert.match(response, /Never conclude the capability is absent/);
 });
 
+// Measured on a live pi run: a skill matched and was available while `brand` was unavailable, so
+// rows one and four both applied. The agent reported both, but by judgement, which is exactly what
+// the table exists to remove. A model that reads the rows as exclusive drops the warning, and a
+// partial catalog then reads as a complete one.
+test("a warning applies alongside a match, not instead of it", () => {
+  assert.match(procedure, /not an alternative to the first two/);
+  assert.match(procedure, /both apply/);
+  assert.match(procedure, /report the incomplete catalog in the same\s+answer/);
+  assert.match(procedure, /confident wrong answer/);
+});
+
 test("all three catalog warning codes are named", () => {
   for (const code of ["catalog_pending", "catalog_temporarily_unavailable", "catalog_expired"])
     assert.ok(procedure.includes(code), `procedure.md must name ${code}`);

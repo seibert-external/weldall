@@ -70,6 +70,11 @@ get right, and the user's wording does not have to match the skill author's.
 | No match, `warnings` empty         | Say Weldall has no skill for this, then ask before falling back to any other route                              |
 | `warnings` non-empty               | Say the catalog is incomplete and offer to retry. Never conclude the capability is absent                       |
 
+The last row is not an alternative to the first two. When `warnings` is non-empty and a skill
+also matched, both apply. Act on the match and report the incomplete catalog in the same
+answer. Dropping the warning because something matched is how a partial catalog produces a
+confident wrong answer.
+
 The warning codes are `catalog_pending`, `catalog_temporarily_unavailable` and
 `catalog_expired`. For this decision all three mean the same thing: what you are looking
 at is not the whole catalog.
