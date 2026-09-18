@@ -85,6 +85,34 @@ test("the pi README names the CLI version the lookup needs", async () => {
   assert.match(readme, /pi install npm:@weldall\/pi/);
 });
 
+// opencode never scans an installed package for skills. Measured against 1.18.4: a package whose
+// only content was .opencode/skill/weldall/SKILL.md installed cleanly, logged nothing, and left
+// the skill invisible to `opencode debug skill`. The directory is only read once something puts
+// it on config.skills.paths, which is what plugin.js exists to do, so main has to point at it.
+test("the opencode manifest ships the entry point that registers the skills", async () => {
+  const manifest = JSON.parse(await manifestOf("opencode"));
+  assert.equal(manifest.type, "module", "plugin.js uses import.meta.url");
+  assert.equal(manifest.main, "plugin.js");
+  for (const path of ["plugin.js", "skills"])
+    assert.ok(manifest.files.includes(path), `npm would leave ${path} out of the tarball`);
+  assert.ok(!("private" in manifest), "npm refuses to publish a private package");
+  assert.equal(manifest.publishConfig.access, "public");
+});
+
+test("the opencode plugin puts its own skills directory on the config", async () => {
+  const plugin = await read("hosts", "opencode", "plugin.js");
+  assert.match(plugin, /config\.skills\.paths/);
+  assert.match(plugin, /join\(dirname\(fileURLToPath\(import\.meta\.url\)\), "skills"\)/);
+});
+
+// Same reasoning as the pi README: the floor is told out of band, and this is the npm landing page.
+test("the opencode README names the CLI version the lookup needs", async () => {
+  const readme = await read("hosts", "opencode", "README.md");
+  assert.match(readme, /0\.14\.0 or newer/);
+  assert.match(readme, /weldall skills list --agentic/);
+  assert.match(readme, /opencode plugin @weldall\/opencode/);
+});
+
 // The Agent Plugins 1.0.0 schema permits these ten fields and nothing else. mcp.json is
 // deliberately absent: the skill drives the CLI, not an MCP server, and OpenWork installs this
 // folder through its skills directory. Its GitHub importer, which does demand an mcp.json, is a

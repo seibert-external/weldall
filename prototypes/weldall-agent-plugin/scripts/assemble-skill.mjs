@@ -11,6 +11,7 @@ export const HOSTS = [
   { id: "claude-code", manifest: join("hosts", "claude-code", ".claude-plugin", "plugin.json") },
   { id: "pi", manifest: join("hosts", "pi", "package.json") },
   { id: "openwork", manifest: join("hosts", "openwork", "plugin.json") },
+  { id: "opencode", manifest: join("hosts", "opencode", "package.json") },
 ];
 
 export const skillPath = (host) => join(root, "hosts", host.id, "skills", "weldall", "SKILL.md");
