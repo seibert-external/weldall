@@ -113,10 +113,15 @@ test("the opencode README names the CLI version the lookup needs", async () => {
   assert.match(readme, /opencode plugin @weldall\/opencode/);
 });
 
-// The Agent Plugins 1.0.0 schema permits these ten fields and nothing else. mcp.json is
-// deliberately absent: the skill drives the CLI, not an MCP server, and OpenWork installs this
-// folder through its skills directory. Its GitHub importer, which does demand an mcp.json, is a
-// route that stays closed until Weldall speaks MCP.
+// The Agent Plugins 1.0.0 schema permits these ten fields and nothing else. mcp.json is absent
+// because the skill drives the CLI, not an MCP server.
+//
+// An earlier note here said OpenWork's GitHub importer demands an mcp.json and that the route was
+// therefore shut. Read out of the shipped app bundle at 0.18.42, it does not. The importer
+// resolves a Claude Code plugin: it requires `.claude-plugin/plugin.json`, defaults its skill
+// search to `<root>skills/**/SKILL.md`, and reads `.mcp.json` only `if (inTree(dotMcpPath))`.
+// agent-plugins.org appears nowhere in that bundle. So the host OpenWork can install from GitHub
+// is hosts/claude-code, and this manifest is for whoever reads the vendor-neutral schema instead.
 const AGENT_PLUGIN_FIELDS = [
   "$schema",
   "name",
