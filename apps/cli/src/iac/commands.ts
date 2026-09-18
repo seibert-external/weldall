@@ -424,3 +424,30 @@ export const iacStateCommand = define({
   subCommands: { pull: statePull, mv: stateMove },
   run: () => console.log("Run `weldall state --help`."),
 });
+
+/** Native IaC commands keyed by the name users type. */
+export const iacCommands = {
+  init: iacInitCommand,
+  validate: iacValidateCommand,
+  plan: iacPlanCommand,
+  up: iacUpCommand,
+  import: iacImportCommand,
+  unmanage: iacUnmanageCommand,
+  state: iacStateCommand,
+} as const;
+
+export const iacCommandNames: readonly string[] = Object.keys(iacCommands);
+
+/**
+ * Registers the IaC commands for gunshi. They authenticate with a machine
+ * client, so without `WELDALL_M2M_*` credentials they stay invokable but
+ * `internal`, which keeps them out of every help listing, including the bare
+ * `weldall` output.
+ */
+export const iacSubCommands = (advertised: boolean) =>
+  Object.fromEntries(
+    Object.entries(iacCommands).map(([name, command]) => [
+      name,
+      { ...command, internal: !advertised },
+    ]),
+  );

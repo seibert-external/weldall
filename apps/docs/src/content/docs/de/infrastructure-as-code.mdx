@@ -37,6 +37,8 @@ export WELDALL_M2M_PRIVATE_JWK='<privater P-256-JWK als JSON>'
 export WELDALL_M2M_PUBLIC_JWK='<öffentlicher P-256-JWK als JSON>'
 ```
 
+Diese Variablen bestimmen auch, was die Hilfe zeigt: Die IaC-Befehle erscheinen nur dann in `weldall --help`, wenn sie gesetzt sind – eine reine Browser-Anmeldung macht sie nicht nutzbar.
+
 <Aside type="caution" title="Privaten Schlüssel schützen">
   Der private Schlüssel gehört weder in die YAML-Konfiguration noch ins Git-Repository.
 </Aside>
