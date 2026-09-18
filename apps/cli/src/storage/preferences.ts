@@ -228,12 +228,26 @@ export function createIssuerPreferences(
 }
 
 const runtimeEnvironmentValue = (name: string) => process.env[name];
-const testPreferencesFile = runtimeEnvironmentValue("WELDALL_TEST_PREFERENCES_FILE");
-if (testPreferencesFile && runtimeEnvironmentValue("NODE_ENV") !== "test")
+const testPreferencesFile =
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__
+    ? runtimeEnvironmentValue("WELDALL_TEST_PREFERENCES_FILE")
+    : undefined;
+if (
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
+  __WELDALL_TEST_BUILD__ &&
+  testPreferencesFile &&
+  runtimeEnvironmentValue("NODE_ENV") !== "test"
+)
   throw new ConfigurationError("WELDALL_TEST_PREFERENCES_FILE is only allowed when NODE_ENV=test");
-if (testPreferencesFile && !isAbsolute(testPreferencesFile))
+if (
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
+  __WELDALL_TEST_BUILD__ &&
+  testPreferencesFile &&
+  !isAbsolute(testPreferencesFile)
+)
   throw new ConfigurationError("WELDALL_TEST_PREFERENCES_FILE must be an absolute path");
 
-export const issuerPreferences = testPreferencesFile
-  ? new FileIssuerPreferences(testPreferencesFile)
-  : createIssuerPreferences();
+export const issuerPreferences =
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__ && testPreferencesFile
+    ? new FileIssuerPreferences(testPreferencesFile)
+    : createIssuerPreferences();

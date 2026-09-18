@@ -6,6 +6,7 @@ import { inkReactDevtoolsPlugin } from "./ink-react-devtools-plugin.mjs";
 import { canonicalOutputDirectory } from "./output-paths.mjs";
 import { packageInputsPlugin } from "./package-inputs-plugin.mjs";
 import { getNativeStandaloneTarget, getStandaloneTarget } from "./standalone-targets.mjs";
+import { assertNoTestHooksInArtifact, assertTestHooksInArtifact } from "./test-hook-artifact.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const cliRoot = resolve(scriptDirectory, "..");
@@ -61,6 +62,7 @@ if (globalThis.Bun?.version !== pinnedBunVersion)
     `Bun ${pinnedBunVersion} is required; running ${globalThis.Bun?.version ?? "not Bun"}`,
   );
 
+const testHooks = process.argv.includes("--test-hooks");
 const targetArgument = argument("--target");
 const target = targetArgument
   ? getStandaloneTarget(targetArgument)
@@ -91,7 +93,8 @@ try {
   const result = await Bun.build({
     entrypoints: [join(cliRoot, "src", "index.ts")],
     target: "bun",
-    minify: false,
+    define: { __WELDALL_TEST_BUILD__: String(testHooks) },
+    minify: { syntax: true, identifiers: false, whitespace: false },
     sourcemap: "none",
     bytecode: false,
     plugins: [inkReactDevtoolsPlugin(), packageInputsPlugin(packageJson.version, "standalone")],
@@ -109,6 +112,8 @@ try {
 }
 
 if (process.platform !== "win32") await chmod(output, 0o755);
+if (testHooks) await assertTestHooksInArtifact(output);
+else await assertNoTestHooksInArtifact(output);
 
 // Bun's compile step keeps the signature of the bun executable it copies (Oven's Developer ID)
 // on darwin-x64 and only re-signs ad hoc on darwin-arm64, where macOS requires a valid
@@ -155,4 +160,6 @@ if (versionRun.exitCode !== 0 || reportedVersion !== packageJson.version)
     `Built executable version mismatch: expected ${packageJson.version}, got ${JSON.stringify(reportedVersion)} (${versionRun.stderr.toString().trim()})`,
   );
 
-console.log(`Built ${target.id} ${packageJson.version}: ${output}`);
+console.log(
+  `Built ${target.id} ${packageJson.version}${testHooks ? " with test hooks" : ""}: ${output}`,
+);

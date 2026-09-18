@@ -76,8 +76,10 @@ export async function runCli(argv = process.argv.slice(2)) {
   let localHeader: Promise<LocalHeader> | undefined;
 
   try {
-    installTestHttpBridge();
-    if (await runTestRuntimeHook()) return;
+    if (typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__) {
+      installTestHttpBridge();
+      if (await runTestRuntimeHook()) return;
+    }
     await cli(normalizedArgv.length === 0 ? ["--help"] : normalizedArgv, mainCommand, {
       name: "weldall",
       version: packageJson.version,

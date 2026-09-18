@@ -66,9 +66,15 @@ export function createBrowserOpener(
 ): BrowserOpener {
   const e2eUrlFile = options.e2eUrlFile;
   const nodeEnv = options.nodeEnv;
-  if (e2eUrlFile && nodeEnv !== "test")
+  if (
+    typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
+    __WELDALL_TEST_BUILD__ &&
+    e2eUrlFile &&
+    nodeEnv !== "test"
+  )
     throw new CliError("WELDALL_E2E_BROWSER_URL_FILE is only allowed when NODE_ENV=test");
-  if (e2eUrlFile) return (url) => writeBrowserUrl(e2eUrlFile, url);
+  if (typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__ && e2eUrlFile)
+    return (url) => writeBrowserUrl(e2eUrlFile, url);
 
   const platform = options.platform ?? process.platform;
   const runner = options.runner ?? runBrowserCommand;
@@ -78,10 +84,15 @@ export function createBrowserOpener(
   };
 }
 
-// Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
 const runtimeEnvironmentValue = (name: string) => process.env[name];
-const e2eBrowserUrlFile = runtimeEnvironmentValue("WELDALL_E2E_BROWSER_URL_FILE");
-const nodeEnvironment = runtimeEnvironmentValue("NODE_ENV");
+const e2eBrowserUrlFile =
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__
+    ? runtimeEnvironmentValue("WELDALL_E2E_BROWSER_URL_FILE")
+    : undefined;
+const nodeEnvironment =
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__
+    ? runtimeEnvironmentValue("NODE_ENV")
+    : undefined;
 export const browserOpener = createBrowserOpener({
   ...(e2eBrowserUrlFile === undefined ? {} : { e2eUrlFile: e2eBrowserUrlFile }),
   ...(nodeEnvironment === undefined ? {} : { nodeEnv: nodeEnvironment }),

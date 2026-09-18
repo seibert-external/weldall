@@ -261,11 +261,12 @@ jobs:
           git diff --exit-code
           test -z "$(git status --porcelain --untracked-files=all)"
           node apps/cli/scripts/assert-no-package-debris.mjs
-      - name: Build native standalone into runner.temp
+      - name: Build production and test-enabled native standalones into runner.temp
         run: |
-          OUTPUT_DIR="$RUNNER_TEMP/weldall-standalone" ARCHIVE_DIR="$RUNNER_TEMP/weldall-archive" node -e 'const fs = require("node:fs"); for (const path of [process.env.OUTPUT_DIR, process.env.ARCHIVE_DIR]) { fs.rmSync(path, { recursive: true, force: true }); fs.mkdirSync(path, { recursive: true }); }'
+          OUTPUT_DIR="$RUNNER_TEMP/weldall-standalone" TEST_OUTPUT_DIR="$RUNNER_TEMP/weldall-standalone-test" ARCHIVE_DIR="$RUNNER_TEMP/weldall-archive" node -e 'const fs = require("node:fs"); for (const path of [process.env.OUTPUT_DIR, process.env.TEST_OUTPUT_DIR, process.env.ARCHIVE_DIR]) { fs.rmSync(path, { recursive: true, force: true }); fs.mkdirSync(path, { recursive: true }); }'
           bun apps/cli/scripts/build-standalone.mjs --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/weldall-standalone"
-      - name: Smoke copied standalone on Linux with secure-store diagnostics
+          bun apps/cli/scripts/build-standalone.mjs --test-hooks --target "${{ matrix.target }}" --output-dir "$RUNNER_TEMP/weldall-standalone-test"
+      - name: Smoke production and test-enabled standalones on Linux
         if: matrix.target == 'linux-x64'
         run: |
           dbus-run-session -- bash -euxo pipefail -c '
@@ -273,10 +274,13 @@ jobs:
             gnome-keyring-daemon --start --components=secrets
             busctl --user list
             node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/weldall-standalone/weldall"
+            node apps/cli/scripts/smoke-standalone.mjs --test-hooks --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/weldall-standalone-test/weldall"
           '
-      - name: Smoke copied standalone with file, architecture, secure-store, and system-CA diagnostics
+      - name: Smoke production and test-enabled copied standalones
         if: matrix.target != 'linux-x64'
-        run: node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/weldall-standalone/${{ matrix.executable }}"
+        run: |
+          node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/weldall-standalone/${{ matrix.executable }}"
+          node apps/cli/scripts/smoke-standalone.mjs --test-hooks --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/weldall-standalone-test/${{ matrix.executable }}"
       - name: Create, extract, checksum, and verify native archive
         run: |
           VERSION="$(node -p "require('./apps/cli/package.json').version")"

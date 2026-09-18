@@ -73,7 +73,11 @@ export const createHttpsDeadlineFetch = (timeoutMs: number): typeof fetch => {
     if (remaining <= 0) throw timeoutError();
     // The test-only global bridge must also cover bounded help-header discovery.
     // Normal production traffic keeps the direct HTTPS implementation below.
-    if (process.env["WELDALL_E2E_HTTP_BRIDGE"] !== undefined) {
+    if (
+      typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
+      __WELDALL_TEST_BUILD__ &&
+      process.env["WELDALL_E2E_HTTP_BRIDGE"] !== undefined
+    ) {
       if (process.env["NODE_ENV"] !== "test")
         throw new CliError("WELDALL_E2E_HTTP_BRIDGE is only allowed when NODE_ENV=test");
       const sourceSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
