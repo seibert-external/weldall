@@ -6,7 +6,7 @@ Connector V1 lets administrators configure one or more Google OAuth clients and 
 
 1. In Google Cloud, enable the Gmail API and/or Google Calendar API.
 2. Configure the OAuth consent screen and request only the scopes needed by the installation. Gmail scopes can require Google verification.
-3. Create a Web application OAuth client with this exact redirect URI:
+3. Create a Web application OAuth client with the callback URL for the installation's `WELDALL_ISSUER`. Public docs and examples use:
 
    ```text
    https://weldall.example.com/api/connectors/google/callback
