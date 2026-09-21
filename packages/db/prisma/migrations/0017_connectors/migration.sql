@@ -76,3 +76,29 @@ CREATE INDEX "ConnectorAuthorization_expiresAt_idx" ON "ConnectorAuthorization"(
 ALTER TABLE "ConnectorConnection" ADD CONSTRAINT "ConnectorConnection_connectorId_fkey" FOREIGN KEY ("connectorId") REFERENCES "Connector"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "ConnectorConnection" ADD CONSTRAINT "ConnectorConnection_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ConnectorAuthorization" ADD CONSTRAINT "ConnectorAuthorization_connectionId_fkey" FOREIGN KEY ("connectionId") REFERENCES "ConnectorConnection"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "AuditEvent" DROP CONSTRAINT "AuditEvent_event_type";
+ALTER TABLE "AuditEvent"
+  ADD CONSTRAINT "AuditEvent_event_type" CHECK (
+    "eventType" IN (
+      'login.installation.completed', 'login.provider.saved', 'id_jag.issued',
+      'id_jag.denied', 'id_jag.failed', 'machine_client.created',
+      'machine_client.updated', 'machine_client.deactivated', 'machine_client.deleted',
+      'machine_key.registered', 'machine_key.revoked', 'machine_access.replaced',
+      'machine_token.issued', 'machine_token.denied', 'machine_token.failed',
+      'user_scopes.created', 'user_scopes.replaced', 'user_scopes.deleted',
+      'resource_scopes.created', 'resource_scopes.replaced', 'resource_scopes.deleted',
+      'cli_settings.updated', 'skill.created', 'skill.updated',
+      'skill.deleted', 'group_provider.created', 'group_provider.updated',
+      'group_provider.deleted', 'group_provider.tested', 'group_scopes.created',
+      'group_scopes.replaced', 'group_scopes.deleted', 'connector.created',
+      'connector.updated', 'connector.deleted', 'connection.authorization_started',
+      'connection.connected', 'connection.authorization_failed', 'connection.reconnected',
+      'connection.disconnected', 'connection.enabled', 'connection.disabled',
+      'connection.reconnect_required', 'connection_credential.refreshed',
+      'connection_credential.refresh_failed', 'connection_lease.issued',
+      'connection_lease.denied', 'connection_lease.failed', 'iac.plan.generated',
+      'iac.apply.succeeded', 'iac.apply.denied', 'iac.apply.failed',
+      'iac.object.imported', 'iac.object.unmanaged', 'iac.state.moved'
+    )
+  );
