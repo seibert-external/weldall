@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "slug": "expenses.review",
+      "title": "Review expenses",
+      "preview": "Use this skill to list the expenses this user may see.",
+      "requiredScopes": ["expenses:read"],
+      "visibility": "DEFAULT",
+      "available": true,
+      "missingScopes": [],
+      "updatedAt": "2026-09-01T09:00:00.000Z",
+      "lastUpdatedAt": "2026-09-01T09:00:00.000Z",
+      "meta": {
+        "tags": ["expenses", "review"],
+        "owner": "dev-finance-owner",
+        "appearance": { "icon": "receipt", "from": "#1d4ed8", "to": "#7c3aed" }
+      },
+      "source": { "type": "resource", "key": "expenses", "name": "Expenses demo" }
+    },
+    {
+      "slug": "contracts.manage",
+      "title": "Manage contracts",
+      "preview": "Search contracts and change a review date.",
+      "requiredScopes": ["contracts:read", "contracts:update"],
+      "visibility": "DEFAULT",
+      "available": false,
+      "missingScopes": ["contracts:update"],
+      "updatedAt": "2026-09-02T09:00:00.000Z",
+      "meta": { "tags": ["contracts", "review"] },
+      "source": { "type": "resource", "key": "contracts", "name": "Contracts demo" }
+    }
+  ],
+  "warnings": [{ "source": "contracts", "code": "catalog_expired" }]
+}
