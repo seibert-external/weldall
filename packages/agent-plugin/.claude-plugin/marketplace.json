@@ -1,13 +1,13 @@
 {
-  "name": "weldall-prototypes",
+  "name": "weldall",
   "owner": {
     "name": "Seibert Group"
   },
-  "description": "Parked agent-plugin prototypes from the Weldall repository. Locations here are provisional.",
+  "description": "The Weldall agent plugin, for installing the skill from a local checkout of this repository.",
   "plugins": [
     {
       "name": "weldall",
-      "source": "./weldall-agent-plugin/hosts/claude-code",
+      "source": "./hosts/claude-code",
       "description": "Routes company-system requests through Weldall's live, per-user skill catalog.",
       "author": {
         "name": "Seibert Group"

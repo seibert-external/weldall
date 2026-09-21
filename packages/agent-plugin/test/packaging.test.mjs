@@ -113,34 +113,29 @@ test("the opencode README names the CLI version the lookup needs", async () => {
   assert.match(readme, /opencode plugin @weldall\/opencode/);
 });
 
-// The Agent Plugins 1.0.0 schema permits these ten fields and nothing else. mcp.json is absent
-// because the skill drives the CLI, not an MCP server.
+// OpenWork installs hosts/claude-code, not a host of its own. Its GitHub importer resolves a
+// Claude Code plugin: it requires `.claude-plugin/plugin.json`, defaults its skill search to
+// `<root>skills/**/SKILL.md`, and reads `.mcp.json` only `if (inTree(dotMcpPath))`, so having no
+// MCP server costs nothing. Confirmed on 2026-09-21 by importing this directory from a branch URL
+// into OpenWork 0.18.42: it wrote the one skill and recorded the source blob's own git sha.
 //
-// An earlier note here said OpenWork's GitHub importer demands an mcp.json and that the route was
-// therefore shut. Read out of the shipped app bundle at 0.18.42, it does not. The importer
-// resolves a Claude Code plugin: it requires `.claude-plugin/plugin.json`, defaults its skill
-// search to `<root>skills/**/SKILL.md`, and reads `.mcp.json` only `if (inTree(dotMcpPath))`.
-// agent-plugins.org appears nowhere in that bundle. So the host OpenWork can install from GitHub
-// is hosts/claude-code, and this manifest is for whoever reads the vendor-neutral schema instead.
-const AGENT_PLUGIN_FIELDS = [
-  "$schema",
-  "name",
-  "version",
-  "description",
-  "author",
-  "homepage",
-  "repository",
-  "license",
-  "keywords",
-  "extensions",
-];
-
-test("the OpenWork manifest carries only what the Agent Plugins schema defines", async () => {
-  const manifest = JSON.parse(await manifestOf("openwork"));
-  assert.equal(manifest.$schema, "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json");
-  assert.equal(manifest.name, FRONTMATTER.name, "the bundle and the skill are one plugin");
-  for (const field of Object.keys(manifest))
-    assert.ok(AGENT_PLUGIN_FIELDS.includes(field), `the schema defines no ${field} field`);
+// A vendor-neutral hosts/openwork/ wrapper built to the Agent Plugins 1.0.0 schema used to sit
+// beside this, on the belief that OpenWork read that schema. Nothing ever consumed it, so it is
+// gone. What this test pins is what OpenWork needs from hosts/claude-code: move either path and
+// that install breaks with no failure here to warn you.
+test("the Claude Code host keeps the layout OpenWork's importer requires", async () => {
+  const claudeCode = HOSTS.find((host) => host.id === "claude-code");
+  assert.equal(
+    claudeCode.manifest,
+    join("hosts", "claude-code", ".claude-plugin", "plugin.json"),
+    "without this manifest the importer fails with plugin_manifest_not_found",
+  );
+  assert.equal(
+    skillPath(claudeCode),
+    join(root, "hosts", "claude-code", "skills", "weldall", "SKILL.md"),
+    "the importer globs <root>skills/**/SKILL.md",
+  );
+  assert.ok(JSON.parse(await manifestOf("claude-code")).name, "the importer reads the name");
 });
 
 test("the hosts wrap one procedure, so they carry one version", async () => {
@@ -153,10 +148,10 @@ test("the hosts wrap one procedure, so they carry one version", async () => {
 
 test("the local marketplace points at the Claude Code host", async () => {
   const marketplace = JSON.parse(
-    await readFile(join(root, "..", ".claude-plugin", "marketplace.json"), "utf8"),
+    await readFile(join(root, ".claude-plugin", "marketplace.json"), "utf8"),
   );
-  assert.equal(marketplace.name, "weldall-prototypes");
+  assert.equal(marketplace.name, "weldall");
   const entry = marketplace.plugins.find((plugin) => plugin.name === "weldall");
   assert.ok(entry, "marketplace.json must list the weldall plugin");
-  assert.equal(entry.source, "./weldall-agent-plugin/hosts/claude-code");
+  assert.equal(entry.source, "./hosts/claude-code");
 });

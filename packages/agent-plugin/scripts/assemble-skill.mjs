@@ -8,9 +8,12 @@ const root = join(import.meta.dirname, "..");
 // new host is an entry here, its manifest, and nothing else. `manifest` is relative to the
 // prototype root and carries the version the wrapper ships.
 export const HOSTS = [
+  // OpenWork installs this host as well, so it serves two agents. Its GitHub importer resolves
+  // a Claude Code plugin: it requires `.claude-plugin/plugin.json` and defaults its skill search
+  // to `<root>skills/**/SKILL.md`. Verified on 2026-09-21 against OpenWork 0.18.42 by importing
+  // this directory from a branch URL. See test/packaging.test.mjs for what must not move.
   { id: "claude-code", manifest: join("hosts", "claude-code", ".claude-plugin", "plugin.json") },
   { id: "pi", manifest: join("hosts", "pi", "package.json") },
-  { id: "openwork", manifest: join("hosts", "openwork", "plugin.json") },
   { id: "opencode", manifest: join("hosts", "opencode", "package.json") },
 ];
 
