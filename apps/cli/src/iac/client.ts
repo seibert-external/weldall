@@ -41,6 +41,20 @@ function credentials(env: NodeJS.ProcessEnv = process.env): Credentials {
   return { clientId, kid, privateJwk, publicJwk };
 }
 
+/**
+ * Whether this process holds a complete machine-client credential set. IaC
+ * commands authenticate with `WELDALL_M2M_*` rather than a browser login, so
+ * this also decides whether they are worth advertising in help.
+ */
+export function isIacMachineConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    credentials(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class IacClient {
   private constructor(
     private discovery: Discovery,

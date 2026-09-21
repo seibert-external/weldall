@@ -17,14 +17,12 @@ weldall --version
 
 ### Experimental standalone binaries
 
-Standalone binaries require no Node.js, npm, or Bun. Initial targets are Linux x64, Windows x64, and macOS ARM64/x64. The macOS binaries are signed with a Developer ID certificate and notarized by Apple, so Gatekeeper runs them without a warning; the Linux and Windows binaries are unsigned. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases), then:
+Standalone binaries require no Node.js, npm, or Bun. Initial targets are Linux x64, Windows x64, and macOS ARM64/x64. The macOS binaries are signed with a Developer ID certificate and notarized by Apple, so Gatekeeper runs them without a warning. Linux and Windows binaries are not signed yet; that work is in progress. Download the appropriate asset from [GitHub Releases](https://github.com/seibert-external/weldall/releases), then:
 
 ```sh
 # macOS and Linux
 chmod +x ./weldall
 ```
-
-On macOS the signature also binds the saved session to the CLI: the keychain item can only be read by a Weldall binary signed by Seibert, and other programs trigger a keychain prompt. After upgrading from an npm install or an older unsigned build, run `weldall login` once more.
 
 On Windows PowerShell, after downloading the trusted binary:
 
@@ -91,6 +89,8 @@ weldall unmanage scope.expenses_read --yes
 weldall state pull
 weldall state mv scope.old scope.new
 ```
+
+These commands appear in `weldall --help` only while `WELDALL_M2M_CLIENT_ID`, `WELDALL_M2M_KID`, and the `WELDALL_M2M_PRIVATE_JWK`/`WELDALL_M2M_PUBLIC_JWK` pair are set, because a browser login never makes them usable.
 
 ## Commands
 

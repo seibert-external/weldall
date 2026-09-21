@@ -212,7 +212,7 @@ export async function createStandaloneArchive({ target, version, executable, out
     { name: "LICENSE", content: await readFile(join(cliRoot, "LICENSE")), mode: 0o100644 },
     {
       name: "README.md",
-      content: await readFile(join(cliRoot, "STANDALONE_README.md")),
+      content: await readFile(join(cliRoot, "README.md")),
       mode: 0o100644,
     },
     {

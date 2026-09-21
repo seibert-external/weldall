@@ -5,16 +5,24 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { JWK } from "jose";
 import { CliError } from "../errors.js";
+import { installMode } from "../install-mode.js";
 import { atomicWriteFile } from "./atomic-write.js";
 
-const SERVICE = "dev.seibert.weldall-cli";
+const SERVICE =
+  installMode === "standalone" ? "dev.seibert.weldall-cli.standalone" : "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 2 as const;
-// Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
 const runtimeEnvironmentValue = (name: string) => process.env[name];
-const testCredentialsFile = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
+const resolveTestCredentialsFile = () => {
+  const path = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
+  if (path && runtimeEnvironmentValue("NODE_ENV") !== "test")
+    throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
+  return path;
+};
 
-if (testCredentialsFile && runtimeEnvironmentValue("NODE_ENV") !== "test")
-  throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
+const testCredentialsFile =
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__
+    ? resolveTestCredentialsFile()
+    : undefined;
 
 export interface StoredIdentity {
   subject?: string;
@@ -140,18 +148,8 @@ const isBun = () => (globalThis as typeof globalThis & { Bun?: unknown }).Bun !=
 const writeHint = () =>
   isMacOs() ? `${credentialStoreHint} ${macOsLegacyItemHint}` : credentialStoreHint;
 
-// The credential item must be created by this process so macOS binds the item's access
-// control list (and, for Developer-ID-signed builds, its partition list) to the CLI's own
-// code signature. Earlier standalone builds delegated to `/usr/bin/security`, which left
-// items readable by any process that could spawn that tool.
-//
-// Items created by those builds, or by an unsigned `node` binary of an npm install, are
-// invisible to a signed process yet still block the name with errSecDuplicateItem, and the
-// keyring addon cannot delete them. Worse, the addon's write tries to update an existing item
-// in place, which on a foreign item raises an interactive authorization prompt; approving it
-// would keep the item bound to the old owner. `security delete-generic-password` removes any
-// such item without a prompt (exit 44 = nothing there). Deleting is the only use of the
-// security tool: credentials are never read or written through it.
+// macOS can hide items owned by another signature while still reporting duplicates.
+// The security tool removes those items without an authorization prompt.
 const deleteMacOsItem = async (service: string, account: string) => {
   try {
     await execFileAsync(
@@ -183,24 +181,13 @@ export const nativeCredentialStore = {
 
   async set(service: string, account: string, password: string) {
     const { AsyncEntry } = await import("@napi-rs/keyring");
-    // On macOS, drop any pre-existing item first so the addon always performs a clean insert
-    // that binds the new item to this process's signature, never an in-place update of a
-    // foreign item (see deleteMacOsItem). There is no prompt-free way to tell our own item from
-    // a foreign one beforehand: a read of a foreign item raises the same authorization prompt
-    // as a write (verified 2026-09-14 against a signed build and a `security`-created item).
-    // Two consequences are accepted: a concurrent unlocked read can land in the brief
-    // delete-to-insert window (SessionManager retries such a miss under withCredentialLock),
-    // and an insert that fails after the delete succeeded costs the session, so the user logs
-    // in again.
+    // Recreate macOS items so the current binary owns their access controls.
     if (isMacOs()) await deleteMacOsItem(service, account);
     await new AsyncEntry(service, account).setPassword(password);
   },
 
   async clear(service: string, account: string) {
-    // On macOS the addon's delete raises an authorization prompt for an item owned by a
-    // different signature (a legacy `security`/`node` item) and then only reports false, so
-    // logout would prompt and, if declined, leave the item behind. `security
-    // delete-generic-password` removes any item, ours or foreign, without a prompt.
+    // The addon cannot delete an item owned by another signature without prompting.
     if (isMacOs()) {
       await deleteMacOsItem(service, account);
       return;

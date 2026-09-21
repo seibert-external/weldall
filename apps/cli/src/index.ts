@@ -13,15 +13,8 @@ import {
   whoamiCommand,
 } from "./commands.js";
 import { selectIssuer } from "./config.js";
-import {
-  iacImportCommand,
-  iacInitCommand,
-  iacPlanCommand,
-  iacStateCommand,
-  iacUnmanageCommand,
-  iacUpCommand,
-  iacValidateCommand,
-} from "./iac/commands.js";
+import { isIacMachineConfigured } from "./iac/client.js";
+import { iacCommandNames, iacSubCommands } from "./iac/commands.js";
 import { CliError, errorMessage } from "./errors.js";
 import { brandHeading, helpHeader, printError, terminalDocument } from "./output.js";
 import { appendixCache, type CliHeaderSnapshot } from "./storage/appendix.js";
@@ -79,14 +72,14 @@ export async function runCli(argv = process.argv.slice(2)) {
   const rootHelp =
     normalizedArgv.length === 0 ||
     (normalizedArgv.length === 1 && (normalizedArgv[0] === "--help" || normalizedArgv[0] === "-h"));
-  const iacCommand = ["init", "validate", "plan", "up", "import", "unmanage", "state"].includes(
-    normalizedArgv[0] ?? "",
-  );
+  const iacCommand = iacCommandNames.includes(normalizedArgv[0] ?? "");
   let localHeader: Promise<LocalHeader> | undefined;
 
   try {
-    installTestHttpBridge();
-    if (await runTestRuntimeHook()) return;
+    if (typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__) {
+      installTestHttpBridge();
+      if (await runTestRuntimeHook()) return;
+    }
     await cli(normalizedArgv.length === 0 ? ["--help"] : normalizedArgv, mainCommand, {
       name: "weldall",
       version: packageJson.version,
@@ -101,13 +94,7 @@ export async function runCli(argv = process.argv.slice(2)) {
         skills: skillsCommand,
         request: requestCommand,
         config: configCommand,
-        init: iacInitCommand,
-        validate: iacValidateCommand,
-        plan: iacPlanCommand,
-        up: iacUpCommand,
-        import: iacImportCommand,
-        unmanage: iacUnmanageCommand,
-        state: iacStateCommand,
+        ...iacSubCommands(isIacMachineConfigured()),
       },
       renderHeader: async (context) => {
         if ((context.values as Record<string, unknown>).help !== true) return "";

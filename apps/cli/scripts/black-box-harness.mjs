@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -17,6 +17,30 @@ function assertRun(result, expectedCode, label) {
 async function seedPreference(path, issuer) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify({ issuer }, null, 2)}\n`, { mode: 0o600 });
+}
+
+async function seedConfigCache(home, issuer) {
+  const directory = join(home, ".weldall");
+  const name = `discovery-${createHash("sha256").update(issuer).digest("base64url")}.json`;
+  const config = {
+    issuer,
+    resource: `${issuer}/api`,
+    authorize: `${issuer}/api/auth/oauth2/authorize`,
+    token: `${issuer}/api/auth/oauth2/token`,
+    revoke: `${issuer}/api/auth/oauth2/revoke`,
+    jwks: `${issuer}/api/oauth/jwks`,
+    cli: `${issuer}/api/me/cli`,
+    grants: `${issuer}/api/me/grants`,
+    scopes: `${issuer}/api/me/scopes`,
+    skills: `${issuer}/api/me/skills`,
+    userInfo: `${issuer}/api/auth/oauth2/userinfo`,
+  };
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(
+    join(directory, name),
+    JSON.stringify({ version: 1, issuer, validatedAt: Date.now(), config }),
+    { mode: 0o600 },
+  );
 }
 
 const exists = (path) =>
@@ -390,6 +414,8 @@ export async function runBlackBoxHarness({
   keyringEnvironment = {},
   hostileCwd,
   authenticated = false,
+  testHooks = false,
+  expectCredentialStore,
 }) {
   let root;
   let mock;
@@ -400,6 +426,8 @@ export async function runBlackBoxHarness({
     const workspace = join(root, "workspace with spaces 日本語");
     await mkdir(home, { recursive: true });
     await mkdir(workspace, { recursive: true });
+    if (authenticated && !testHooks)
+      throw new Error("Authenticated black-box smoke requires a test-enabled CLI build");
     mock = authenticated ? await startControlledMockServer() : null;
     const issuer = mock?.issuer ?? `https://black-box-${randomUUID()}.example.com`;
     const preferencesFile =
@@ -412,18 +440,24 @@ export async function runBlackBoxHarness({
       upload: join(root, "upload source ü 日本語.bin"),
       download: join(root, "download destination ü 日本語.bin"),
     };
-    if (!mock) await seedPreference(preferencesFile, issuer);
+    if (!mock && testHooks) await seedPreference(preferencesFile, issuer);
     const defaultCwd = hostileCwd ?? root;
     const environment = {
-      NODE_ENV: "test",
-      ...(process.platform === "darwin" ? { WELDALL_TEST_PREFERENCES_FILE: preferencesFile } : {}),
-      ...(mock
+      ...(testHooks
         ? {
-            WELDALL_E2E_BROWSER_URL_FILE: paths.browser,
-            WELDALL_E2E_CREDENTIALS_FILE: paths.credentials,
-            WELDALL_E2E_HTTP_BRIDGE: mock.bridgeEnvironment,
+            NODE_ENV: "test",
+            ...(process.platform === "darwin"
+              ? { WELDALL_TEST_PREFERENCES_FILE: preferencesFile }
+              : {}),
+            ...(mock
+              ? {
+                  WELDALL_E2E_BROWSER_URL_FILE: paths.browser,
+                  WELDALL_E2E_CREDENTIALS_FILE: paths.credentials,
+                  WELDALL_E2E_HTTP_BRIDGE: mock.bridgeEnvironment,
+                }
+              : {}),
           }
-        : {}),
+        : { NODE_ENV: "production", WELDALL_ISSUER: issuer }),
       HOME: home,
       USERPROFILE: home,
       XDG_CONFIG_HOME: join(home, ".config"),
@@ -456,7 +490,7 @@ export async function runBlackBoxHarness({
     assert.match(initHelp.stdout, /Create a native Weldall YAML workspace/);
     assertRun(await run(["definitely-not-a-command"]), 2, "unknown command");
 
-    if (!mock) {
+    if (!mock && testHooks) {
       const getPreference = assertRun(
         await run(["config", "get-issuer", "--json"]),
         0,
@@ -485,28 +519,46 @@ export async function runBlackBoxHarness({
     });
     assert.ok((await readFile(join(workspace, "weldall.yml"), "utf8")).includes(workspaceName));
 
-    const rejectedHook = await run([], {
-      env: { NODE_ENV: "production", WELDALL_TEST_RUNTIME_DIAGNOSTICS: "1" },
-    });
-    assert.equal(rejectedHook.status, 1, "runtime hook must fail outside NODE_ENV=test");
-    assert.match(rejectedHook.stderr, /only allowed when NODE_ENV=test/);
+    if (expectCredentialStore !== undefined) {
+      await seedConfigCache(home, issuer);
+      const credentialRead = await run(["status"], { env: { WELDALL_ISSUER: issuer } });
+      assert.equal(credentialRead.status, 1, credentialRead.stderr);
+      if (expectCredentialStore === "available")
+        assert.match(credentialRead.stderr, /not logged in/i);
+      else if (expectCredentialStore === "unavailable") {
+        assert.match(
+          credentialRead.stderr,
+          /Unable to read the Weldall session from the secure credential store/,
+        );
+        assert.match(credentialRead.stderr, /Install the optional @napi-rs\/keyring dependency/);
+      } else throw new Error(`Unknown credential-store expectation: ${expectCredentialStore}`);
+    }
 
-    const diagnosticsEnvironment = {
-      ...keyringEnvironment,
-      WELDALL_TEST_RUNTIME_DIAGNOSTICS: "1",
-      ...(keyringSmoke ? { WELDALL_TEST_KEYRING_SMOKE: randomUUID().replaceAll("-", "") } : {}),
-    };
-    const diagnosticsRun = assertRun(
-      await run([], { cwd: hostileCwd ?? workspace, env: diagnosticsEnvironment }),
-      0,
-      "runtime diagnostics",
-    );
-    const diagnostics = JSON.parse(diagnosticsRun.stdout);
-    assert.equal(diagnostics.runtime.name, expectRuntime);
-    assert.equal(diagnostics.autoloadSentinels.dotenv, false);
-    assert.equal(diagnostics.autoloadSentinels.bunfig, false);
-    if (expectSystemCa) assert.ok(diagnostics.execArgv.includes("--use-system-ca"));
-    if (keyringSmoke) assert.equal(diagnostics.keyringRoundTrip, true);
+    let diagnostics;
+    if (testHooks) {
+      const rejectedHook = await run([], {
+        env: { NODE_ENV: "production", WELDALL_TEST_RUNTIME_DIAGNOSTICS: "1" },
+      });
+      assert.equal(rejectedHook.status, 1, "runtime hook must fail outside NODE_ENV=test");
+      assert.match(rejectedHook.stderr, /only allowed when NODE_ENV=test/);
+
+      const diagnosticsEnvironment = {
+        ...keyringEnvironment,
+        WELDALL_TEST_RUNTIME_DIAGNOSTICS: "1",
+        ...(keyringSmoke ? { WELDALL_TEST_KEYRING_SMOKE: randomUUID().replaceAll("-", "") } : {}),
+      };
+      const diagnosticsRun = assertRun(
+        await run([], { cwd: hostileCwd ?? workspace, env: diagnosticsEnvironment }),
+        0,
+        "runtime diagnostics",
+      );
+      diagnostics = JSON.parse(diagnosticsRun.stdout);
+      assert.equal(diagnostics.runtime.name, expectRuntime);
+      assert.equal(diagnostics.autoloadSentinels.dotenv, false);
+      assert.equal(diagnostics.autoloadSentinels.bunfig, false);
+      if (expectSystemCa) assert.ok(diagnostics.execArgv.includes("--use-system-ca"));
+      if (keyringSmoke) assert.equal(diagnostics.keyringRoundTrip, true);
+    }
 
     if (mock)
       await authenticatedFlow({

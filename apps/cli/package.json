@@ -1,6 +1,6 @@
 {
   "name": "@weldall/cli",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Secure cross-platform CLI for Weldall APIs and infrastructure as code",
   "license": "FSL-1.1-ALv2",
   "repository": {
@@ -31,6 +31,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:e2e": "node scripts/build.mjs --e2e",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

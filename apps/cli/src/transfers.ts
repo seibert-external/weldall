@@ -49,6 +49,8 @@ const fileBlob = async (path: string, contentType: string) => {
       // Request. Only the guarded test transport rewrites requests; production keeps
       // Bun's streaming file-backed Blob.
       if (
+        typeof __WELDALL_TEST_BUILD__ !== "undefined" &&
+        __WELDALL_TEST_BUILD__ &&
         process.env["NODE_ENV"] === "test" &&
         process.env["WELDALL_E2E_HTTP_BRIDGE"] !== undefined
       )

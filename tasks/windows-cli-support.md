@@ -267,7 +267,7 @@ It should cover as much of the real command flow as possible without opening a r
 - logout and local cleanup,
 - JSON/plain/TTY output behavior and error codes.
 
-Reuse existing secure test hooks such as `WELDALL_E2E_CREDENTIALS_FILE` only under `NODE_ENV=test`; do not add a production plaintext-credential mode. Prefer explicit dependency injection for browser opening and preferences over manipulating shell `PATH` on every platform.
+Reuse existing secure test hooks such as `WELDALL_E2E_CREDENTIALS_FILE` only in explicit test builds under `NODE_ENV=test`; do not add a production plaintext-credential mode. Prefer explicit dependency injection for browser opening and preferences over manipulating shell `PATH` on every platform.
 
 The existing Docker/Playwright test in `apps/e2e/test/system.spec.ts` remains the full real server/browser product E2E on Linux. The new native matrix is responsible for proving that the client artifact behaves correctly on each OS.
 

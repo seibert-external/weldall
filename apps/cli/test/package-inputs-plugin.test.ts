@@ -1,3 +1,7 @@
+import { Buffer } from "node:buffer";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
 import { packageInputsPlugin } from "../scripts/package-inputs-plugin.mjs";
 
@@ -25,29 +29,47 @@ const capture = (version: string, installation: string): CapturedHook => {
   return captured;
 };
 
-describe("package inputs plugin install-mode selection", () => {
-  it("bakes the npm install mode for the npm package build", () => {
-    const { onResolve, onLoad } = capture("0.10.0", "npm");
-    const resolve = onResolve.find(({ filter }) => filter.test("./install-mode.js"));
-    expect(resolve?.callback({ path: "./install-mode.js" })).toEqual({
-      path: "install-mode",
-      namespace: "weldall",
-    });
-    const load = onLoad.find(({ filter }) => filter.test("install-mode"));
-    expect(load?.callback()).toEqual({
-      contents: 'export const installMode = "npm";',
-      loader: "js",
-    });
-  });
+const cliRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-  it("bakes the standalone install mode for compiled binaries", () => {
-    const { onLoad } = capture("0.10.0", "standalone");
-    const load = onLoad.find(({ filter }) => filter.test("install-mode"));
-    expect(load?.callback()).toEqual({
-      contents: 'export const installMode = "standalone";',
-      loader: "js",
-    });
+const bundledInstallMode = async (
+  importPath: "./install-mode.js" | "../install-mode.js",
+  installation: "npm" | "standalone",
+) => {
+  const result = await build({
+    stdin: {
+      contents: `import { installMode } from ${JSON.stringify(importPath)};
+export default installMode;`,
+      resolveDir: importPath.startsWith("../")
+        ? join(cliRoot, "src", "storage")
+        : join(cliRoot, "src"),
+      sourcefile: "install-mode-entry.ts",
+      loader: "ts",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "esm",
+    plugins: [packageInputsPlugin("0.10.0", installation)],
   });
+  const bundled = result.outputFiles[0]?.text;
+  expect(bundled).toBeDefined();
+  const moduleUrl = `data:text/javascript;base64,${Buffer.from(bundled!).toString("base64")}`;
+  const module = (await import(moduleUrl)) as { default: string };
+  return module.default;
+};
+
+describe("package inputs plugin install-mode selection", () => {
+  it.each([
+    ["./install-mode.js", "npm", "npm"],
+    ["./install-mode.js", "standalone", "standalone"],
+    ["../install-mode.js", "npm", "npm"],
+    ["../install-mode.js", "standalone", "standalone"],
+  ] as const)(
+    "bakes %s as %s for bundled %s builds",
+    async (importPath, installation, expected) => {
+      await expect(bundledInstallMode(importPath, installation)).resolves.toBe(expected);
+    },
+  );
 
   it("keeps baking the package version and the SDK entry alongside the install mode", () => {
     const { onResolve, onLoad } = capture("9.8.7", "npm");
