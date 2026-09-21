@@ -21,9 +21,8 @@ vi.mock("@weldall/db", () => ({
   },
 }));
 
-const { consumeAuthorizationCredentials } = await import(
-  "../src/server/connectors/user-service.js"
-);
+const { consumeAuthorizationCredentials } =
+  await import("../src/server/connectors/user-service.js");
 
 const ownerId = "user-1";
 const deviceId = "device-id-123456789012";
