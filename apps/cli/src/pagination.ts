@@ -11,6 +11,7 @@ export const MAX_PAGINATED_RESPONSE_BYTES = 50 * 1024 * 1024;
 export interface OffsetPaginationOptions {
   url: string;
   scopes: string[];
+  client?: Pick<PreparedResourceClient, "request">;
   headers?: Record<string, string>;
   pageSize: number;
   totalPagesPointer: string;
@@ -107,7 +108,7 @@ const pageObject = async (response: Response, addBytes: (count: number) => void)
 };
 
 const requestPage = async (
-  client: PreparedResourceClient,
+  client: Pick<PreparedResourceClient, "request">,
   options: OffsetPaginationOptions,
   page: number,
   limitParameter: string,
@@ -164,7 +165,7 @@ export async function paginateOffset(
   if (limitParameter === offsetParameter)
     throw new CliError("Limit and offset parameter names must differ");
   const firstUrl = pageUrl(options.url, 0, options.pageSize, limitParameter, offsetParameter);
-  const client = await prepareResourceClient(config, firstUrl, options.scopes);
+  const client = options.client ?? (await prepareResourceClient(config, firstUrl, options.scopes));
   const pagesStartedAt = timingNow();
   const controller = new AbortController();
   let responseBytes = 0;

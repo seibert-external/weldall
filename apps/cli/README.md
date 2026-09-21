@@ -102,6 +102,10 @@ weldall scopes
 weldall skills
 weldall skills find expense
 weldall skills expenses.review # alias for `skills show`
+weldall connectors list
+weldall connections connect google --name my-google
+weldall request --connection my-google \
+  https://www.googleapis.com/calendar/v3/users/me/calendarList
 weldall request --scope expenses:read https://expenses.example.com/api/expenses
 weldall request -X PUT --scope files:write --upload-file ./report.pdf \
   -H 'Content-Type: application/pdf' https://files.example.com/api/report.pdf
@@ -116,8 +120,16 @@ scope assigned to the account, including host permissions and scopes without an 
 then groups scopes that are currently usable by enabled APIs. It explains common permission names
 such as `expenses:read` while still showing the exact scope needed by scripts and API requests.
 
-`weldall request` accepts an absolute HTTPS URL, explicit repeatable `--scope` values, an optional
-`--method`, additional headers, and text, JSON, raw file, or multipart request bodies. Use
+`weldall connectors` discovers administrator-configured provider connectors. `weldall connections`
+connects, lists, renames, reauthorizes, and disconnects personal provider accounts. Google access and
+refresh tokens remain in the operating-system secure credential store. Before every direct provider
+request, Weldall checks the account, connector status, method, and target and issues a signed,
+one-minute connection lease; the provider token is sent only after that check. Direct requests reject
+redirects and caller-supplied authorization, cookie, host, proxy, forwarding, and hop-by-hop headers.
+
+`weldall request` accepts exactly one authorization mode: `--connection <name-or-id>` for a configured
+provider account, or explicit repeatable `--scope` values for a registered Weldall resource. It also
+accepts an optional `--method`, additional headers, and text, JSON, raw file, or multipart request bodies. Use
 `-T, --upload-file <path>` for a binary-safe raw upload. It defaults to `application/octet-stream`;
 set a more specific `Content-Type` with `--header` when the API requires one. Use repeatable
 `-F, --form 'name=value'` and `-F, --form 'name=@path;type=MIME'` arguments for multipart fields and
@@ -154,7 +166,7 @@ weldall request \
 
 Pagination is GET-only, manages `limit` and `offset`, emits pages in deterministic JSON Lines order only after all pages succeed, and enforces page-count, concurrency, and 50 MiB aggregate response limits. It does not follow server-provided next links or retry failed pages.
 
-Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. Human-facing
+Use `--json` with `status`, `whoami`, `scopes`, `skills`, `connectors`, and `connections` for machine-readable output. Human-facing
 output is rendered with Ink in bordered account, access, skill, notice, and configuration panels. ANSI
 colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON, documents, response
 bodies, and piped scope lists remain plain output. Help shows a rounded purple Weldall panel with the

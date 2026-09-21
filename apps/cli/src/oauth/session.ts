@@ -166,6 +166,44 @@ export async function validateLoginResponse(
   };
 }
 
+export async function validateConnectionLease(
+  config: WeldallConfig,
+  token: string,
+  expected: {
+    subject: string;
+    connectionId: string;
+    deviceId: string;
+    method: string;
+    target: URL;
+  },
+): Promise<void> {
+  const result = await verifyWeldallJwt(config, token, {
+    algorithms: ["ES256"],
+    issuer: config.issuer,
+    audience: "weldall:connection-lease",
+    typ: "weldall-connection-lease+jwt",
+    requiredClaims: ["iss", "aud", "sub", "exp", "iat", "jti"],
+    maxTokenAge: "2m",
+    clockTolerance: 5,
+  });
+  const claims = result.payload;
+  if (
+    claims.sub !== expected.subject ||
+    claims.connection_id !== expected.connectionId ||
+    claims.device_id !== expected.deviceId ||
+    claims.method !== expected.method ||
+    claims.target !== `${expected.target.origin}${expected.target.pathname}` ||
+    typeof claims.jti !== "string" ||
+    !claims.jti ||
+    !Number.isInteger(claims.iat) ||
+    !Number.isInteger(claims.exp) ||
+    (claims.exp as number) <= (claims.iat as number) ||
+    (claims.exp as number) - (claims.iat as number) > 60
+  ) {
+    throw new CliError("Weldall returned an invalid connection lease");
+  }
+}
+
 export async function validateIdJagResponse(
   config: WeldallConfig,
   result: Record<string, unknown>,

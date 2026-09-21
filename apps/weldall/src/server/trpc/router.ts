@@ -55,6 +55,16 @@ import {
   updateGroupProvider,
 } from "../group-providers/service";
 import { refreshResourceCatalog } from "../skills/catalogs";
+import {
+  createConnector,
+  deleteConnector,
+  getConnector,
+  listAdminConnections,
+  listConnectors,
+  testConnector,
+  updateConnectionStatus,
+  updateConnector,
+} from "../connectors/admin-service";
 import { errorForLog, logger } from "../observability/logger";
 import {
   createMachineClient,
@@ -491,6 +501,126 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) => mapDomainErrors(() => deleteSkill(input, ctx.adminActor))),
+    }),
+    connectors: trpc.router({
+      list: adminProcedure.query(() => mapDomainErrors(listConnectors)),
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getConnector(input.id))),
+      create: adminProcedure
+        .input(
+          z
+            .object({
+              key: z.string().max(120),
+              name: z.string().max(200),
+              type: z.literal("google"),
+              enabled: z.boolean(),
+              enabledApis: z
+                .array(z.enum(["gmail", "calendar"]))
+                .min(1)
+                .max(2),
+              oauthScopes: z.array(z.string().min(1).max(500)).min(1).max(20),
+              oauthClientId: z.string().min(1).max(500),
+              oauthClientSecret: z.string().min(1).max(10_000),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => createConnector(input, ctx.adminActor)),
+        ),
+      test: adminProcedure
+        .input(
+          z.union([
+            z
+              .object({
+                id: z.string().min(1).max(191),
+                enabledApis: z
+                  .array(z.enum(["gmail", "calendar"]))
+                  .min(1)
+                  .max(2),
+                oauthScopes: z.array(z.string().min(1).max(500)).min(1).max(20),
+                oauthClientId: z.string().min(1).max(500),
+                oauthClientSecret: z.string().max(10_000).optional(),
+              })
+              .strict(),
+            z
+              .object({
+                enabledApis: z
+                  .array(z.enum(["gmail", "calendar"]))
+                  .min(1)
+                  .max(2),
+                oauthScopes: z.array(z.string().min(1).max(500)).min(1).max(20),
+                oauthClientId: z.string().min(1).max(500),
+                oauthClientSecret: z.string().min(1).max(10_000),
+              })
+              .strict(),
+          ]),
+        )
+        .mutation(({ input }) => mapDomainErrors(() => testConnector(input))),
+      update: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              name: z.string().max(200),
+              enabled: z.boolean(),
+              enabledApis: z
+                .array(z.enum(["gmail", "calendar"]))
+                .min(1)
+                .max(2),
+              oauthScopes: z.array(z.string().min(1).max(500)).min(1).max(20),
+              oauthClientId: z.string().min(1).max(500),
+              oauthClientSecret: z.string().max(10_000).optional(),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => updateConnector(input, ctx.adminActor)),
+        ),
+      delete: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => deleteConnector(input, ctx.adminActor)),
+        ),
+    }),
+    connections: trpc.router({
+      list: adminProcedure
+        .input(
+          z
+            .object({
+              ...pageInput,
+              status: z
+                .enum(["pending", "ready", "reconnect_required", "disabled", "disconnected"])
+                .optional(),
+              connectorId: z.string().min(1).max(191).optional(),
+              sort: z
+                .enum(["updatedAt.asc", "updatedAt.desc", "name.asc", "name.desc"])
+                .default("updatedAt.desc"),
+            })
+            .strict(),
+        )
+        .query(({ input }) => mapDomainErrors(() => listAdminConnections(input))),
+      setStatus: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().min(1).max(191),
+              status: z.enum(["ready", "disabled", "reconnect_required"]),
+              expectedVersion: z.number().int().positive(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => updateConnectionStatus(input, ctx.adminActor)),
+        ),
     }),
     groupProviders: trpc.router({
       list: adminProcedure.query(() => mapDomainErrors(listGroupProviders)),

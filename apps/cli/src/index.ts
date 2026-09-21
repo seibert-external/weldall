@@ -3,6 +3,8 @@ import { cli } from "gunshi";
 import packageJson from "../package.json" with { type: "json" };
 import {
   configCommand,
+  connectionsCommand,
+  connectorsCommand,
   loginCommand,
   logoutCommand,
   mainCommand,
@@ -92,6 +94,8 @@ export async function runCli(argv = process.argv.slice(2)) {
         whoami: whoamiCommand,
         scopes: scopesCommand,
         skills: skillsCommand,
+        connectors: connectorsCommand,
+        connections: connectionsCommand,
         request: requestCommand,
         config: configCommand,
         ...iacSubCommands(isIacMachineConfigured()),

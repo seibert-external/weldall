@@ -92,6 +92,20 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 isSelected={selected("/admin/resources")}
               />
               <SectionNavItem
+                route="connectors"
+                label="Connectors"
+                href="/admin/connectors"
+                icon={ConnectorIcon}
+                isSelected={selected("/admin/connectors")}
+              />
+              <SectionNavItem
+                route="connections"
+                label="Connections"
+                href="/admin/connections"
+                icon={ConnectionIcon}
+                isSelected={selected("/admin/connections")}
+              />
+              <SectionNavItem
                 route="scopes"
                 label="Scopes"
                 href="/admin/scopes"
@@ -287,6 +301,25 @@ function MachineIcon(props: IconProps) {
     <IconBase {...props}>
       <rect x="4" y="6" width="16" height="12" rx="2" />
       <path d="M8 10h.01M12 10h4M8 14h8M12 3v3" />
+    </IconBase>
+  );
+}
+
+function ConnectorIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M8 12h8M6 8v8M18 8v8" />
+      <rect x="3" y="5" width="3" height="6" rx="1" />
+      <rect x="18" y="13" width="3" height="6" rx="1" />
+    </IconBase>
+  );
+}
+
+function ConnectionIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M8 12a4 4 0 0 1 4-4h3M16 12a4 4 0 0 1-4 4H9" />
+      <path d="M14 5h5v5M10 19H5v-5" />
     </IconBase>
   );
 }

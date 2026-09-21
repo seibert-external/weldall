@@ -1,3 +1,4 @@
+import { createInterface } from "node:readline/promises";
 import { define } from "gunshi";
 import { Box } from "ink";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
@@ -24,6 +25,19 @@ import {
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
 import { getCliAppendix } from "./services/settings.js";
+import {
+  connectAccount,
+  disconnectConnection,
+  listConnections,
+  listConnectors,
+  prepareConnectionClient,
+  reconnectAccount,
+  renameConnection,
+  showConnection,
+  showConnector,
+  type ConnectionSummary,
+  type ConnectorSummary,
+} from "./services/connectors.js";
 import {
   listScopes,
   listScopesWithSubject,
@@ -298,6 +312,215 @@ export const scopesCommand = define({
   },
 });
 
+const connectorFields = (connector: ConnectorSummary) =>
+  [
+    ["Key", connector.key],
+    ["Name", connector.name],
+    [
+      "Enabled APIs",
+      connector.enabledApis
+        .map((api) => (api === "gmail" ? "Gmail" : "Google Calendar"))
+        .join(", "),
+    ],
+    ["Credential modes", connector.credentialModes.join(", ")],
+    ["Allowed targets", connector.allowedTargetPrefixes.join("\n")],
+  ] as const;
+
+const connectionFields = (connection: ConnectionSummary) =>
+  [
+    ["Name", connection.name],
+    ["ID", connection.id],
+    ["Connector", connection.connectorName],
+    ["Account", connection.account?.displayName ?? "Not connected"],
+    ["Status", connection.status],
+    ["Credential mode", "Local on this device"],
+    [
+      "Enabled APIs",
+      connection.enabledApis
+        .map((api) => (api === "gmail" ? "Gmail" : "Google Calendar"))
+        .join(", "),
+    ],
+    ["Allowed targets", connection.allowedTargetPrefixes.join("\n")],
+    ["Connected", connection.connectedAt ?? "Not connected"],
+    ["Last used", connection.lastUsedAt ?? "Never"],
+  ] as const;
+
+async function printConnectors(asJson: boolean | undefined) {
+  const connectors = await listConnectors(await resolveWeldallConfig());
+  if (asJson) return jsonOutput({ connectors });
+  if (connectors.length === 0) return info("No connectors are available.");
+  for (const connector of connectors) printFields(connectorFields(connector), connector.name);
+}
+
+const connectorsListCommand = define({
+  name: "list",
+  description: "List available connectors",
+  args: { json: jsonArgument },
+  examples: "weldall connectors list\nweldall connectors list --json",
+  run: (context) => printConnectors(context.values.json),
+});
+
+const connectorsShowCommand = define({
+  name: "show",
+  description: "Show one connector",
+  args: {
+    connector: { type: "positional", required: true, description: "Connector key or ID" },
+    json: jsonArgument,
+  },
+  examples: "weldall connectors show google",
+  run: async (context) => {
+    const connector = await showConnector(await resolveWeldallConfig(), context.values.connector);
+    if (context.values.json) jsonOutput(connector);
+    else printFields(connectorFields(connector), connector.name);
+  },
+});
+
+export const connectorsCommand = define({
+  name: "connectors",
+  description: "Discover configured external-service connectors",
+  args: { json: jsonArgument },
+  subCommands: { list: connectorsListCommand, show: connectorsShowCommand },
+  run: (context) => printConnectors(context.values.json),
+});
+
+async function printConnections(asJson: boolean | undefined) {
+  const connections = await listConnections(await resolveWeldallConfig());
+  if (asJson) return jsonOutput({ connections });
+  if (connections.length === 0) return info("No connected accounts.");
+  for (const connection of connections) printFields(connectionFields(connection), connection.name);
+}
+
+const connectionsListCommand = define({
+  name: "list",
+  description: "List your connected accounts",
+  args: { json: jsonArgument },
+  examples: "weldall connections list\nweldall connections list --json",
+  run: (context) => printConnections(context.values.json),
+});
+
+const connectionsShowCommand = define({
+  name: "show",
+  description: "Show one connected account",
+  args: {
+    connection: { type: "positional", required: true, description: "Connection name or ID" },
+    json: jsonArgument,
+  },
+  examples: "weldall connections show mein-google",
+  run: async (context) => {
+    const connection = await showConnection(
+      await resolveWeldallConfig(),
+      context.values.connection,
+    );
+    if (context.values.json) jsonOutput(connection);
+    else printFields(connectionFields(connection), "Connection");
+  },
+});
+
+const connectionsConnectCommand = define({
+  name: "connect",
+  description: "Connect a provider account through your browser",
+  args: {
+    connector: { type: "positional", required: true, description: "Connector key or ID" },
+    name: { type: "string", required: true, description: "Local connection name" },
+  },
+  examples: "weldall connections connect google --name mein-google",
+  run: async (context) => {
+    const config = await resolveWeldallConfig();
+    info("Opening Google authorization in your browser…");
+    const connection = await connectAccount(config, {
+      connector: context.values.connector,
+      name: context.values.name,
+    });
+    success(`Connection ${JSON.stringify(connection.name)} is ready.`);
+    if (connection.account) console.log(`Account: ${terminalText(connection.account.displayName)}`);
+  },
+});
+
+const connectionsReconnectCommand = define({
+  name: "reconnect",
+  description: "Authorize a connection again without changing its ID",
+  args: {
+    connection: { type: "positional", required: true, description: "Connection name or ID" },
+  },
+  examples: "weldall connections reconnect mein-google",
+  run: async (context) => {
+    const config = await resolveWeldallConfig();
+    info("Opening Google authorization in your browser…");
+    const connection = await reconnectAccount(config, context.values.connection);
+    success(`Connection ${JSON.stringify(connection.name)} was reconnected.`);
+  },
+});
+
+const connectionsRenameCommand = define({
+  name: "rename",
+  description: "Rename a connection",
+  args: {
+    connection: { type: "positional", required: true, description: "Connection name or ID" },
+    name: { type: "positional", required: true, description: "New connection name" },
+  },
+  examples: "weldall connections rename mein-google google-arbeit",
+  run: async (context) => {
+    const connection = await renameConnection(
+      await resolveWeldallConfig(),
+      context.values.connection,
+      context.values.name,
+    );
+    success(`Renamed connection to ${JSON.stringify(connection.name)}.`);
+  },
+});
+
+async function confirmDisconnect(connection: ConnectionSummary): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(
+      `Disconnect ${JSON.stringify(connection.name)} from ${connection.account?.displayName ?? "Google"}? (y/N) `,
+    );
+    return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+  } finally {
+    prompt.close();
+  }
+}
+
+const connectionsDisconnectCommand = define({
+  name: "disconnect",
+  description: "Revoke local credentials and disconnect an account",
+  args: {
+    connection: { type: "positional", required: true, description: "Connection name or ID" },
+    yes: { type: "boolean", short: "y", description: "Skip the confirmation prompt" },
+  },
+  examples:
+    "weldall connections disconnect mein-google\nweldall connections disconnect mein-google --yes",
+  run: async (context) => {
+    const config = await resolveWeldallConfig();
+    const current = await showConnection(config, context.values.connection);
+    if (!context.values.yes && !(await confirmDisconnect(current))) {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new CliError("Non-interactive disconnect requires --yes");
+      }
+      info("Connection was not disconnected.");
+      return;
+    }
+    const connection = await disconnectConnection(config, current.id);
+    success(`Connection ${JSON.stringify(connection.name)} was disconnected.`);
+  },
+});
+
+export const connectionsCommand = define({
+  name: "connections",
+  description: "Manage your connected provider accounts",
+  args: { json: jsonArgument },
+  subCommands: {
+    list: connectionsListCommand,
+    show: connectionsShowCommand,
+    connect: connectionsConnectCommand,
+    reconnect: connectionsReconnectCommand,
+    rename: connectionsRenameCommand,
+    disconnect: connectionsDisconnectCommand,
+  },
+  run: (context) => printConnections(context.values.json),
+});
+
 const HTTP_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
 
 const parseMethod = (value: string) => {
@@ -355,7 +578,27 @@ const parseHeaders = (values: string[] | undefined): Record<string, string> => {
     if (separator < 1 || !/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(name)) {
       throw new CliError(`Invalid header ${JSON.stringify(value)}`);
     }
-    if (["authorization", "dpop", "host", "content-length", "cookie"].includes(name)) {
+    if (
+      [
+        "authorization",
+        "proxy-authorization",
+        "proxy-authenticate",
+        "dpop",
+        "host",
+        "content-length",
+        "cookie",
+        "connection",
+        "keep-alive",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+      ].includes(name)
+    ) {
       throw new CliError(`Header ${JSON.stringify(name)} is managed by Weldall`);
     }
     headers[name] = headerValue;
@@ -365,7 +608,7 @@ const parseHeaders = (values: string[] | undefined): Record<string, string> => {
 
 export const requestCommand = define({
   name: "request",
-  description: "Send a DPoP-authenticated HTTP request",
+  description: "Send a request through a Weldall resource or connected account",
   args: {
     url: {
       type: "positional",
@@ -379,12 +622,16 @@ export const requestCommand = define({
       parse: parseMethod,
       description: "HTTP method; defaults to GET",
     },
+    connection: {
+      type: "string",
+      short: "c",
+      description: "Connected provider account to use",
+    },
     scope: {
       type: "string",
       short: "s",
       multiple: true,
-      required: true,
-      description: "Permission to request; repeat for more than one",
+      description: "Weldall resource permission; incompatible with --connection",
     },
     header: {
       type: "string",
@@ -465,6 +712,7 @@ export const requestCommand = define({
     },
   },
   examples:
+    "weldall request --connection mein-google https://www.googleapis.com/calendar/v3/users/me/calendarList\n" +
     "weldall request --scope expenses:read https://expenses.example/api/expenses\n" +
     "weldall request -X POST --scope expenses:create --json '{\"amount\":24}' https://expenses.example/api/expenses\n" +
     "weldall request -X PUT --scope files:write -T ./report.pdf -H 'Content-Type: application/pdf' https://files.example/api/report.pdf\n" +
@@ -472,6 +720,13 @@ export const requestCommand = define({
     "weldall request --scope personio:read --paginate offset --page-size 100 --total-pages-pointer /metadata/total_pages --max-pages 20 --concurrency 3 --page-output jsonl https://gateway.example/personio/employees",
   run: async (context) => {
     const headers = parseHeaders(context.values.header);
+    const scopes = context.values.scope ?? [];
+    if (context.values.connection && scopes.length > 0) {
+      throw new CliError("--connection cannot be combined with --scope");
+    }
+    if (!context.values.connection && scopes.length === 0) {
+      throw new CliError("Choose --connection or at least one --scope");
+    }
     if (context.values.paginate !== undefined) {
       if (context.values.method !== "GET")
         throw new CliError("Offset pagination is allowed only for GET requests");
@@ -488,9 +743,14 @@ export const requestCommand = define({
       )
         throw new CliError("Pagination cannot be combined with request bodies or --output");
       const config = await resolveWeldallConfig();
+      const requestUrl = parseRequestUrl(context.values.url);
+      const connectionClient = context.values.connection
+        ? await prepareConnectionClient(config, context.values.connection, requestUrl)
+        : undefined;
       const pages = await paginateOffset(config, {
-        url: parseRequestUrl(context.values.url),
-        scopes: context.values.scope,
+        url: requestUrl,
+        scopes,
+        ...(connectionClient ? { client: connectionClient } : {}),
         headers,
         pageSize: context.values.pageSize ?? 100,
         totalPagesPointer: context.values.totalPagesPointer,
@@ -533,17 +793,23 @@ export const requestCommand = define({
       headers["content-type"] = "application/octet-stream";
     }
 
-    const response = await resourceRequest(await resolveWeldallConfig(), {
-      url: parseRequestUrl(context.values.url),
+    const config = await resolveWeldallConfig();
+    const url = parseRequestUrl(context.values.url);
+    const preparedRequest = {
+      url,
       method: context.values.method,
-      scopes: context.values.scope,
       headers,
       ...(payload.kind === "json"
         ? { json: payload.value }
         : payload.kind === "text" || payload.kind === "file" || payload.kind === "form"
           ? { body: payload.body }
           : {}),
-    });
+    };
+    const response = context.values.connection
+      ? await (
+          await prepareConnectionClient(config, context.values.connection, url)
+        ).request(preparedRequest)
+      : await resourceRequest(config, { ...preparedRequest, scopes });
     if (context.values.output !== undefined) {
       await writeResponseBody(response, context.values.output);
       return;

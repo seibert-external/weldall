@@ -8,16 +8,17 @@ datasource db {
 }
 
 model User {
-  id                          String              @id
+  id                          String                @id
   name                        String
-  email                       String              @unique
+  email                       String                @unique
   emailVerified               Boolean
   image                       String?
-  createdAt                   DateTime            @default(now())
-  updatedAt                   DateTime            @updatedAt
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
   sessions                    Session[]
   accounts                    Account[]
   completedLoginInstallations LoginInstallation[]
+  connectorConnections        ConnectorConnection[]
 }
 
 model Scope {
@@ -64,6 +65,79 @@ model EmailScopeGrant {
 
   @@unique([assignmentId, scopeId])
   @@index([scopeId])
+}
+
+enum ConnectorStatus {
+  PENDING
+  READY
+  RECONNECT_REQUIRED
+  DISABLED
+  DISCONNECTED
+}
+
+model Connector {
+  id                         String                @id @default(cuid())
+  key                        String                @unique
+  name                       String
+  type                       String
+  enabled                    Boolean               @default(true)
+  enabledApis                String[]
+  oauthScopes                String[]
+  oauthClientId              String
+  encryptedOAuthClientSecret String
+  version                    Int                   @default(1)
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+  createdBy                  String
+  updatedBy                  String
+  connections                ConnectorConnection[]
+
+  @@index([enabled])
+  @@index([updatedAt])
+}
+
+model ConnectorConnection {
+  id                 String                  @id @default(cuid())
+  connectorId        String
+  ownerId            String
+  name               String
+  providerAccountId  String?
+  accountDisplayName String?
+  grantedScopes      String[]                @default([])
+  credentialMode     String                  @default("local")
+  deviceId           String
+  status             ConnectorStatus         @default(PENDING)
+  version            Int                     @default(1)
+  connectedAt        DateTime?
+  lastLeaseAt        DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  connector          Connector               @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  owner              User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  authorization      ConnectorAuthorization?
+
+  @@unique([ownerId, name])
+  @@unique([connectorId, ownerId, providerAccountId])
+  @@index([connectorId])
+  @@index([ownerId, status])
+  @@index([updatedAt])
+}
+
+model ConnectorAuthorization {
+  id                    String              @id @default(cuid())
+  connectionId          String              @unique
+  stateHash             String              @unique
+  encryptedPayload      String
+  encryptedCredentials  String?
+  mode                  String
+  expiresAt             DateTime
+  callbackConsumedAt    DateTime?
+  credentialsConsumedAt DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime            @default(now())
+  connection            ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 model GroupProvider {

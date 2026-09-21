@@ -58,10 +58,28 @@ export type StoredCredentialsInput = Omit<StoredCredentialsBase, "issuer"> & {
   accessSession?: StoredAccessSession;
 };
 
-type TestKeychain = Record<string, StoredCredentials>;
+export interface StoredConnectionCredentials {
+  version: 1;
+  issuer: string;
+  connectionId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  grantedScopes: string[];
+  tokenType: "Bearer";
+}
+
+export type StoredConnectionCredentialsInput = Omit<
+  StoredConnectionCredentials,
+  "version" | "issuer" | "connectionId"
+>;
+
+type TestKeychain = Record<string, unknown>;
 
 const accountFor = (issuer: string) =>
   `session-${createHash("sha256").update(issuer).digest("base64url")}`;
+const connectionAccountFor = (issuer: string, connectionId: string) =>
+  `connection-${createHash("sha256").update(`${issuer}\0${connectionId}`).digest("base64url")}`;
 
 const validAccessSession = (value: unknown): value is StoredAccessSession =>
   typeof value === "object" &&
@@ -113,6 +131,40 @@ const parseCredentials = (raw: string, issuer: string): StoredCredentials => {
       hint: "Run `weldall logout` and log in again.",
     });
   return value as StoredCredentials;
+};
+
+const parseConnectionCredentials = (
+  raw: string,
+  issuer: string,
+  connectionId: string,
+): StoredConnectionCredentials => {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new CliError("The stored connection credential is corrupted", { cause: error });
+  }
+  const stored = value as Partial<StoredConnectionCredentials>;
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    stored.version !== 1 ||
+    stored.issuer !== issuer ||
+    stored.connectionId !== connectionId ||
+    typeof stored.accessToken !== "string" ||
+    !stored.accessToken ||
+    typeof stored.refreshToken !== "string" ||
+    !stored.refreshToken ||
+    !Number.isInteger(stored.expiresAt) ||
+    (stored.expiresAt ?? 0) <= 0 ||
+    stored.tokenType !== "Bearer" ||
+    !Array.isArray(stored.grantedScopes) ||
+    stored.grantedScopes.some((scope) => typeof scope !== "string" || !scope)
+  ) {
+    throw new CliError("The stored connection credential has an unsupported format");
+  }
+  return stored as StoredConnectionCredentials;
 };
 
 const readTestKeychain = (): TestKeychain => {
@@ -194,6 +246,73 @@ export const nativeCredentialStore = {
     }
     const { AsyncEntry } = await import("@napi-rs/keyring");
     await new AsyncEntry(service, account).deletePassword();
+  },
+};
+
+export const connectionKeychain = {
+  async get(issuer: string, connectionId: string): Promise<StoredConnectionCredentials | null> {
+    const account = connectionAccountFor(issuer, connectionId);
+    if (testCredentialsFile) {
+      const stored = readTestKeychain()[account];
+      return stored
+        ? parseConnectionCredentials(JSON.stringify(stored), issuer, connectionId)
+        : null;
+    }
+    try {
+      const raw = (await nativeCredentialStore.get(SERVICE, account)) ?? null;
+      return raw ? parseConnectionCredentials(raw, issuer, connectionId) : null;
+    } catch (error) {
+      throw new CliError("Unable to read connection credentials from the secure credential store", {
+        cause: error,
+        hint: credentialStoreHint,
+      });
+    }
+  },
+
+  async set(issuer: string, connectionId: string, credentials: StoredConnectionCredentialsInput) {
+    const stored: StoredConnectionCredentials = {
+      version: 1,
+      issuer,
+      connectionId,
+      ...credentials,
+    };
+    const account = connectionAccountFor(issuer, connectionId);
+    if (testCredentialsFile) {
+      const value = readTestKeychain();
+      value[account] = stored;
+      await writeTestKeychain(value);
+      return;
+    }
+    try {
+      await nativeCredentialStore.set(SERVICE, account, JSON.stringify(stored));
+    } catch (error) {
+      throw new CliError("Unable to save connection credentials in the secure credential store", {
+        cause: error,
+        hint: writeHint(),
+      });
+    }
+  },
+
+  async clear(issuer: string, connectionId: string) {
+    const account = connectionAccountFor(issuer, connectionId);
+    if (testCredentialsFile) {
+      const value = readTestKeychain();
+      delete value[account];
+      if (Object.keys(value).length === 0) rmSync(testCredentialsFile, { force: true });
+      else await writeTestKeychain(value);
+      return;
+    }
+    try {
+      await nativeCredentialStore.clear(SERVICE, account);
+    } catch (error) {
+      throw new CliError(
+        "Unable to remove connection credentials from the secure credential store",
+        {
+          cause: error,
+          hint: writeHint(),
+        },
+      );
+    }
   },
 };
 

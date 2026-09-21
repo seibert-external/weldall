@@ -261,6 +261,47 @@ const groupScopesMetadata = z
     versionAfter: z.number().int().positive(),
   })
   .strict();
+const connectorMetadata = z
+  .object({
+    connectorKey: z.string().min(1).max(120),
+    connectorType: z.literal("google"),
+    enabled: z.boolean(),
+    enabledApis: z
+      .array(z.enum(["gmail", "calendar"]))
+      .min(1)
+      .max(2),
+    oauthScopes: scopeArray,
+    version: z.number().int().positive(),
+    secretChanged: z.boolean(),
+  })
+  .strict();
+const connectionMetadata = z
+  .object({
+    connectorId: z.string().min(1).max(191),
+    connectorKey: z.string().min(1).max(120),
+    connectionId: z.string().min(1).max(191),
+    ownerId: z.string().min(1).max(191),
+    credentialMode: z.literal("local"),
+    status: z.enum(["pending", "ready", "reconnect_required", "disabled", "disconnected"]),
+    providerAccountId: z.string().min(1).max(500).optional(),
+    grantedScopes: scopeArray,
+    revocationAttempted: z.boolean().optional(),
+    revocationConfirmed: z.boolean().optional(),
+  })
+  .strict();
+const leaseMetadata = z
+  .object({
+    connectorId: z.string().min(1).max(191),
+    connectionId: z.string().min(1).max(191),
+    ownerId: z.string().min(1).max(191),
+    method: z
+      .string()
+      .regex(/^[A-Z]+$/)
+      .max(20),
+    host: z.string().min(1).max(253),
+    path: z.string().min(1).max(2_000),
+  })
+  .strict();
 
 const metadataSchemas = {
   "id_jag.issued": idJagIssuedMetadata,
@@ -306,6 +347,22 @@ const metadataSchemas = {
   "group_scopes.created": groupScopesMetadata,
   "group_scopes.replaced": groupScopesMetadata,
   "group_scopes.deleted": groupScopesMetadata,
+  "connector.created": connectorMetadata,
+  "connector.updated": connectorMetadata,
+  "connector.deleted": connectorMetadata,
+  "connection.authorization_started": connectionMetadata,
+  "connection.connected": connectionMetadata,
+  "connection.authorization_failed": connectionMetadata,
+  "connection.reconnected": connectionMetadata,
+  "connection.disconnected": connectionMetadata,
+  "connection.enabled": connectionMetadata,
+  "connection.disabled": connectionMetadata,
+  "connection.reconnect_required": connectionMetadata,
+  "connection_credential.refreshed": connectionMetadata,
+  "connection_credential.refresh_failed": connectionMetadata,
+  "connection_lease.issued": leaseMetadata,
+  "connection_lease.denied": leaseMetadata,
+  "connection_lease.failed": leaseMetadata,
   "iac.plan.generated": iacMetadata,
   "iac.apply.succeeded": iacMetadata,
   "iac.apply.denied": iacMetadata,

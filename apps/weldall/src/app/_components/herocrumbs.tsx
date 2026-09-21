@@ -30,6 +30,8 @@ function toPair(tuple: readonly [string, string]) {
 type AdminRoute =
   | "audit"
   | "cli"
+  | "connectors"
+  | "connections"
   | "resources"
   | "machines"
   | "scopes"
@@ -49,6 +51,16 @@ export const adminSectionDesigns = {
     title: "CLI",
     light: toPair(corporateGradients.pineApple.light),
     dark: toPair(corporateGradients.pineApple.dark),
+  },
+  connectors: {
+    title: "Connectors",
+    light: toPair(corporateGradients.lake.light),
+    dark: toPair(corporateGradients.lake.dark),
+  },
+  connections: {
+    title: "Connections",
+    light: toPair(corporateGradients.teal.light),
+    dark: toPair(corporateGradients.teal.dark),
   },
   machines: {
     title: "Machine clients",
@@ -107,6 +119,8 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
   const route = useMemo<AdminRoute>(() => {
     if (pathname.startsWith("/admin/audit")) return "audit";
     if (pathname.startsWith("/admin/cli")) return "cli";
+    if (pathname.startsWith("/admin/connectors")) return "connectors";
+    if (pathname.startsWith("/admin/connections")) return "connections";
     if (pathname.startsWith("/admin/machines")) return "machines";
     if (pathname.startsWith("/admin/resources")) return "resources";
     if (pathname.startsWith("/admin/assignments")) return "assignments";

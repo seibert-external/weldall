@@ -98,7 +98,7 @@ weldall request --scope expenses:read \
   https://expenses.example.com/api/expenses
 ```
 
-Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI checks the target against the registered resources before sending anything.
+Every request requires an absolute HTTPS URL and exactly one authorization mode: one or more `--scope` values for a registered resource, or `--connection` for an administrator-configured provider account. In both modes, the CLI checks the target before sending credentials or request data.
 
 ## What's in the box
 
@@ -149,6 +149,7 @@ Full documentation lives at **[docs.weldall.ai](https://docs.weldall.ai)**
 - [How to integrate a service](apps/docs/src/content/docs/service-configuration.md) — protect your API with the SDK.
 - [Machine authentication](apps/docs/src/content/docs/machine-authentication.mdx) — machines as first-class identities.
 - [Group providers](apps/docs/src/content/docs/group-provider-http-interface.md) — read groups and memberships from LDAP or Active Directory environments.
+- [Google connectors](docs/connectors.md) — configure Gmail and Calendar accounts with local credentials.
 - [`@weldall/sdk` reference](packages/sdk/README.md) — TypeScript route protection, skill catalogs, framework adapters.
 - [`weldall-sdk` reference](packages/python-sdk/README.md) — Python core, FastAPI/Django adapters, and machine client.
 - [Local development](apps/docs/src/content/docs/local-development.md) — set up the full stack on your machine.
