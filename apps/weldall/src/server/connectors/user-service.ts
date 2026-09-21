@@ -513,8 +513,16 @@ export async function consumeAuthorizationCredentials(
       410,
     );
   }
+  if (!authorization.completedAt || !authorization.encryptedCredentials) {
+    throw new ConnectorUserError("authorization_pending", "Authorization has not completed.", 202);
+  }
   const claimed = await db.connectorAuthorization.updateMany({
-    where: { id: authorization.id, credentialsConsumedAt: null },
+    where: {
+      id: authorization.id,
+      completedAt: { not: null },
+      encryptedCredentials: { not: null },
+      credentialsConsumedAt: null,
+    },
     data: { credentialsConsumedAt: new Date(), encryptedCredentials: null },
   });
   if (claimed.count !== 1) {
@@ -523,9 +531,6 @@ export async function consumeAuthorizationCredentials(
       "Authorization credentials were already retrieved.",
       410,
     );
-  }
-  if (!authorization.encryptedCredentials) {
-    throw new ConnectorUserError("authorization_pending", "Authorization has not completed.", 202);
   }
   const credentials = localCredentialsSchema.parse(
     JSON.parse(
