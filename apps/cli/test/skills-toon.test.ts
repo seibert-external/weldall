@@ -1,3 +1,4 @@
+import { decode } from "@toon-format/toon";
 import { describe, expect, it } from "vitest";
 import type { SkillDetail, SkillList, SkillSummary } from "../src/services/skills.js";
 import { skillDetailToon, skillMatchesToon, skillsToon } from "../src/skills-toon.js";
@@ -79,7 +80,8 @@ describe("skillsToon", () => {
     expect(cells).toHaveLength(7);
     expect(cells[3]).toBe("invite|events");
     expect(cells[4]).toBe("false");
-    expect(cells[5]).toBe("invite:read|invite:write");
+    // A colon forces quotes; a pipe does not, because tab is the declared delimiter here.
+    expect(cells[5]).toBe('"invite:read|invite:write"');
   });
 
   it("names the resource a skill came from, and calls an admin skill admin", () => {
@@ -112,6 +114,17 @@ describe("skillsToon", () => {
   it("says nothing at all when the catalog is empty, without losing either field", () => {
     const output = skillsToon(list({ items: [] }));
     expect(output).toBe("items: []\nwarnings: []\n");
+  });
+
+  it("round-trips a preview holding a comma, a tab, and a line break", () => {
+    const decoded = decode(
+      skillsToon(
+        list({ items: [skill({ preview: 'Contracts, expenses\tand "invoices"\nfiled' })] }),
+      ),
+      { delimiter: "\t" },
+    ) as { items: { preview: string; available: boolean }[] };
+    expect(decoded.items[0].preview).toBe('Contracts, expenses\tand "invoices"\nfiled');
+    expect(decoded.items[0].available).toBe(true);
   });
 });
 
@@ -161,6 +174,16 @@ describe("skillDetailToon", () => {
     expect(output).toContain("missingScopes: []");
   });
 
+  it("round-trips the document, line breaks and all", () => {
+    const document = '# Review\n\nBody "text", with a comma.\n';
+    const decoded = decode(skillDetailToon(detail({ document })), { delimiter: "\t" }) as {
+      document: string;
+      missingScopes: string[];
+    };
+    expect(decoded.document).toBe(document);
+    expect(decoded.missingScopes).toEqual([]);
+  });
+
   it("names the resource a skill came from, and calls an admin skill admin", () => {
     expect(
       skillDetailToon(detail({ source: { type: "resource", key: "expenses", name: "Expenses" } })),
@@ -206,5 +229,14 @@ describe("skillMatchesToon", () => {
 
   it("says nothing at all when the search matched nothing", () => {
     expect(skillMatchesToon([])).toBe("items: []\n");
+  });
+
+  it("round-trips through the reference decoder", () => {
+    const decoded = decode(skillMatchesToon([cached()]), { delimiter: "\t" }) as {
+      items: { slug: string; source: string }[];
+    };
+    expect(decoded.items).toHaveLength(1);
+    expect(decoded.items[0].slug).toBe("expenses.review");
+    expect(decoded.items[0].source).toBe("Expenses");
   });
 });

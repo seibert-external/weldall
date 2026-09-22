@@ -1,3 +1,4 @@
+import { decode } from "@toon-format/toon";
 import { describe, expect, it } from "vitest";
 import { scopesToon } from "../src/scopes-toon.js";
 import type { ResourceGrant } from "../src/services/resources.js";
@@ -31,7 +32,8 @@ const rows = (output: string) =>
 describe("scopesToon", () => {
   it("declares how many scopes the account holds, inline", () => {
     const output = scopesToon(permissions({ assignedScopes: ["expenses:read", "expenses:write"] }));
-    expect(output).toContain("assignedScopes[2\t]: expenses:read\texpenses:write");
+    // The reference encoder quotes any value holding a colon, so a scope is never bare.
+    expect(output).toContain('assignedScopes[2\t]: "expenses:read"\t"expenses:write"');
   });
 
   it("declares how many resources follow, which is why this output exists", () => {
@@ -47,8 +49,8 @@ describe("scopesToon", () => {
   it("joins each scope list with a pipe, inside one column", () => {
     const cells = rows(scopesToon(permissions()))[0].split("\t");
     expect(cells).toHaveLength(5);
-    expect(cells[2]).toBe("expenses:read");
-    expect(cells[3]).toBe("expenses:read|expenses:write");
+    expect(cells[2]).toBe('"expenses:read"');
+    expect(cells[3]).toBe('"expenses:read|expenses:write"');
   });
 
   it("drops the OAuth plumbing an agent never acts on", () => {
@@ -61,5 +63,16 @@ describe("scopesToon", () => {
   it("emits an empty array as `key: []`, the only form a TOON encoder may write", () => {
     const output = scopesToon({ assignedScopes: [], resources: [] });
     expect(output).toBe("assignedScopes: []\nresources: []\n");
+  });
+
+  it("round-trips through the reference decoder, which is what the agent reads with", () => {
+    const decoded = decode(scopesToon(permissions()), { delimiter: "\t" }) as {
+      assignedScopes: string[];
+      resources: { key: string; supportedScopes: string }[];
+    };
+    expect(decoded.assignedScopes).toEqual(["expenses:read"]);
+    expect(decoded.resources).toHaveLength(1);
+    expect(decoded.resources[0].key).toBe("expenses");
+    expect(decoded.resources[0].supportedScopes).toBe("expenses:read|expenses:write");
   });
 });
