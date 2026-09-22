@@ -1,5 +1,73 @@
+:root {
+  --weldall-purple: #555bd6;
+  --weldall-purple-hover: #4449b6;
+}
+
 .site-title img.logo {
   width: auto;
   height: 32px;
   max-width: none;
+}
+
+html body :is(.nav-bar, .links-nav) a[data-cta] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--weldall-purple);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+html body :is(.nav-bar, .links-nav) a[data-cta]::after {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  background: currentColor;
+  content: "";
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+html body :is(.nav-bar, .links-nav) a[data-cta="calendar"]::after {
+  mask-image: url("../assets/calendar.svg");
+}
+
+html body :is(.nav-bar, .links-nav) a[data-cta="discord"]::after {
+  mask-image: url("../assets/discord.svg");
+}
+
+html body :is(.nav-bar, .links-nav) a[data-cta]:hover {
+  background: var(--weldall-purple-hover);
+  color: #fff;
+}
+
+html body :is(.nav-bar, .links-nav) a[data-cta]:focus-visible {
+  outline: 2px solid var(--weldall-purple);
+  outline-offset: 2px;
+}
+
+.links-nav {
+  align-items: flex-end;
+}
+
+@media (min-width: 768px) {
+  .site-title-wrapper {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  body .site-title-wrapper .nav-bar {
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+
+  body .header-right.header-right {
+    flex: 0 1 auto;
+  }
 }

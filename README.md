@@ -20,6 +20,7 @@
   <a href="https://www.rfc-editor.org/rfc/rfc9449.html"><img alt="RFC 9449 DPoP" src="https://img.shields.io/badge/RFC-9449%20DPoP-2563eb" /></a>
   <a href="https://www.rfc-editor.org/rfc/rfc8252.html"><img alt="RFC 8252" src="https://img.shields.io/badge/RFC-8252%20Native%20Apps-2563eb" /></a>
   <a href="https://docs.weldall.ai"><img alt="Docs" src="https://img.shields.io/badge/docs-docs.weldall.ai-6366f1" /></a>
+  <a href="https://seibert.link/weldalldiscord"><img alt="Join our Discord" src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white" /></a>
 </p>
 
 ---
