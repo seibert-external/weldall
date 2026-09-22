@@ -703,19 +703,46 @@ export async function refreshUserConnection(
         grantedScopes: connection.grantedScopes,
       },
     );
+    const current = await db.personalConnection.updateMany({
+      where: {
+        id: connection.id,
+        ownerId,
+        deviceId: connection.deviceId,
+        version: connection.version,
+        status: "READY",
+        connector: { enabled: true },
+      },
+      data: { updatedAt: new Date() },
+    });
+    if (current.count !== 1) {
+      throw new ConnectorUserError(
+        "authorization_required",
+        "Connection changed while credentials were refreshing. Retry authorization.",
+        409,
+      );
+    }
     await prismaAuditWriter.write(
       connectionAudit(actor, "connection_credential.refreshed", connection),
     );
     return credentials;
   } catch (error) {
+    if (error instanceof ConnectorUserError) throw error;
     const reconnectRequired =
       error instanceof ConnectorAuthorizationError && error.reconnectRequired;
     await db.$transaction(async (tx) => {
       if (reconnectRequired) {
-        await tx.personalConnection.update({
-          where: { id: connection.id },
+        const updated = await tx.personalConnection.updateMany({
+          where: {
+            id: connection.id,
+            ownerId,
+            deviceId: connection.deviceId,
+            version: connection.version,
+            status: "READY",
+            connector: { enabled: true },
+          },
           data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
         });
+        if (updated.count !== 1) return;
       }
       await prismaAuditWriter.write(
         {
@@ -784,6 +811,29 @@ export async function issueConnectionLease(
     throw new ConnectorUserError("invalid_request", "Target is not allowed for this connection.");
   }
   try {
+    await db.$transaction(async (tx) => {
+      const usable = await tx.personalConnection.updateMany({
+        where: {
+          id: connection.id,
+          ownerId: actor.id,
+          deviceId: connection.deviceId,
+          version: connection.version,
+          status: "READY",
+          connector: { enabled: true },
+        },
+        data: { lastLeaseAt: new Date() },
+      });
+      if (usable.count !== 1) {
+        throw new ConnectorUserError("not_found", "Connection is no longer available.", 404);
+      }
+      await prismaAuditWriter.write(
+        {
+          ...leaseAudit(actor, connection, method, target),
+          eventType: "connection_lease.issued",
+        },
+        tx,
+      );
+    });
     const now = Math.floor(Date.now() / 1_000);
     const expiresAt = now + LEASE_TTL_SECONDS;
     const lease = await signWeldallJwt(
@@ -801,27 +851,6 @@ export async function issueConnectionLease(
       },
       "weldall-connection-lease+jwt",
     );
-    await db.$transaction(async (tx) => {
-      const usable = await tx.personalConnection.updateMany({
-        where: {
-          id: connection.id,
-          ownerId: actor.id,
-          status: "READY",
-          connector: { enabled: true },
-        },
-        data: { lastLeaseAt: new Date() },
-      });
-      if (usable.count !== 1) {
-        throw new ConnectorUserError("not_found", "Connection is no longer available.", 404);
-      }
-      await prismaAuditWriter.write(
-        {
-          ...leaseAudit(actor, connection, method, target),
-          eventType: "connection_lease.issued",
-        },
-        tx,
-      );
-    });
     return {
       lease,
       expiresAt,

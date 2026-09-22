@@ -21,8 +21,10 @@ const mocks = vi.hoisted(() => ({
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
   },
+  signWeldallJwt: vi.fn(async () => "connection-lease"),
 }));
 
 vi.mock("@weldall/db", () => ({
@@ -31,11 +33,13 @@ vi.mock("@weldall/db", () => ({
     sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
   },
 }));
+vi.mock("../src/server/oauth/jwt.js", () => ({ signWeldallJwt: mocks.signWeldallJwt }));
 
 const {
   consumeAuthorizationCredentials,
   disconnectUserConnection,
   getUserConnection,
+  issueConnectionLease,
   listAvailableConnectors,
   listUserConnections,
   refreshUserConnection,
@@ -238,6 +242,20 @@ describe("connector authorization lifecycle", () => {
 });
 
 describe("personal connection refresh", () => {
+  function configuredConnection() {
+    return {
+      ...connection,
+      connector: {
+        ...connection.connector,
+        encryptedOAuthClientSecret: sealConnectorValue(
+          "connector-config",
+          connection.connector.id,
+          "client-secret",
+        ),
+      },
+    };
+  }
+
   it("rejects a refresh from a different device before provider calls or mutation", async () => {
     mocks.db.personalConnectionAuthorization.deleteMany.mockResolvedValue({ count: 0 });
     mocks.db.personalConnection.findFirst.mockResolvedValue(connection);
@@ -247,6 +265,103 @@ describe("personal connection refresh", () => {
     ).rejects.toMatchObject({ code: "authorization_required", status: 409 });
     expect(mocks.db.auditEvent.create).not.toHaveBeenCalled();
     expect(mocks.db.personalConnection.update).not.toHaveBeenCalled();
+  });
+
+  it("does not return refreshed credentials after the device binding changes", async () => {
+    vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    const ready = configuredConnection();
+    mocks.db.personalConnectionAuthorization.deleteMany.mockResolvedValue({ count: 0 });
+    mocks.db.personalConnection.findFirst.mockResolvedValue(ready);
+    mocks.db.personalConnection.updateMany.mockResolvedValue({ count: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          access_token: "fresh-access-token",
+          expires_in: 3600,
+          token_type: "Bearer",
+        }),
+      ),
+    );
+
+    await expect(
+      refreshUserConnection(ownerId, ready.id, deviceId, "refresh-token", actor),
+    ).rejects.toMatchObject({ code: "authorization_required", status: 409 });
+    expect(mocks.db.personalConnection.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: ready.id,
+        ownerId,
+        deviceId,
+        version: ready.version,
+        status: "READY",
+        connector: { enabled: true },
+      },
+      data: { updatedAt: expect.any(Date) },
+    });
+    expect(mocks.db.auditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("does not mark a reconnected row stale after an old refresh fails", async () => {
+    vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    const ready = configuredConnection();
+    mocks.db.$transaction.mockImplementation(async (operation) => operation(mocks.db));
+    mocks.db.personalConnectionAuthorization.deleteMany.mockResolvedValue({ count: 0 });
+    mocks.db.personalConnection.findFirst.mockResolvedValue(ready);
+    mocks.db.personalConnection.updateMany.mockResolvedValue({ count: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error: "invalid_grant" }, { status: 400 })),
+    );
+
+    await expect(
+      refreshUserConnection(ownerId, ready.id, deviceId, "refresh-token", actor),
+    ).rejects.toMatchObject({ code: "authorization_required", status: 409 });
+    expect(mocks.db.personalConnection.update).not.toHaveBeenCalled();
+    expect(mocks.db.personalConnection.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: ready.id,
+        ownerId,
+        deviceId,
+        version: ready.version,
+        status: "READY",
+        connector: { enabled: true },
+      },
+      data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
+    });
+    expect(mocks.db.auditEvent.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("personal connection leases", () => {
+  it("does not sign a lease after the device binding changes", async () => {
+    mocks.db.$transaction.mockImplementation(async (operation) => operation(mocks.db));
+    mocks.db.personalConnectionAuthorization.deleteMany.mockResolvedValue({ count: 0 });
+    mocks.db.personalConnection.findFirst.mockResolvedValue(connection);
+    mocks.db.personalConnection.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      issueConnectionLease(
+        ownerId,
+        connection.id,
+        {
+          method: "GET",
+          url: "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+        },
+        actor,
+      ),
+    ).rejects.toMatchObject({ code: "not_found", status: 404 });
+    expect(mocks.signWeldallJwt).not.toHaveBeenCalled();
+    expect(mocks.db.personalConnection.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: connection.id,
+        ownerId,
+        deviceId,
+        version: connection.version,
+        status: "READY",
+        connector: { enabled: true },
+      },
+      data: { lastLeaseAt: expect.any(Date) },
+    });
   });
 });
 
