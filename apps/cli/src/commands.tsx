@@ -36,7 +36,8 @@ import {
   showSkillWithSubject,
   type SkillWarning,
 } from "./services/skills.js";
-import { skillsToon } from "./skills-toon.js";
+import { scopesToon } from "./scopes-toon.js";
+import { skillDetailToon, skillMatchesToon, skillsToon } from "./skills-toon.js";
 import { appendixCache, type CachedSkillPreview } from "./storage/appendix.js";
 import { weldallConfigCache } from "./storage/config-cache.js";
 import { keychain } from "./storage/keychain.js";
@@ -225,8 +226,14 @@ const jsonArgument = {
 // to be retuned as models change, and nothing should be written against it that must keep working.
 const agenticArgument = {
   type: "boolean",
-  description: "Print the catalog shaped for an agent (TOON; unstable, may change without notice)",
+  description: "Print output shaped for an agent (TOON; unstable, may change without notice)",
 } as const;
+
+// Shared so that no command carrying both flags can reach the network before rejecting the
+// combination, which is what makes the rejection testable without a session.
+const exclusiveOutputFlags = (json: boolean | undefined, agentic: boolean | undefined) => {
+  if (json && agentic) throw new CliError("--json cannot be combined with --agentic");
+};
 
 export const statusCommand = define({
   name: "status",
@@ -277,15 +284,20 @@ export const whoamiCommand = define({
 export const scopesCommand = define({
   name: "scopes",
   description: "Explain what the signed-in account is allowed to do",
-  args: { json: jsonArgument },
-  examples: "weldall scopes\nweldall scopes --json",
+  args: { json: jsonArgument, agentic: agenticArgument },
+  examples: "weldall scopes\nweldall scopes --json\nweldall scopes --agentic",
   run: async (context) => {
+    exclusiveOutputFlags(context.values.json, context.values.agentic);
     const config = await resolveWeldallConfig();
     const { result: permissions, subject } = await listScopesWithSubject(config);
     await updateSnapshotBestEffort(config.issuer, {
       scopes: permissions.assignedScopes,
       subject,
     });
+    if (context.values.agentic) {
+      process.stdout.write(scopesToon(permissions));
+      return;
+    }
     if (context.values.json) {
       jsonOutput(permissions);
       return;
@@ -572,7 +584,7 @@ export const formatSkillWarning = (warning: SkillWarning): string => {
 };
 
 export const printSkills = async (asJson: boolean | undefined, asAgentic?: boolean | undefined) => {
-  if (asJson && asAgentic) throw new CliError("--json cannot be combined with --agentic");
+  exclusiveOutputFlags(asJson, asAgentic);
   const config = await resolveWeldallConfig();
   const { result, subject } = await listSkillsWithSubject(config);
   await cacheSkills(config.issuer, result.items, subject);
@@ -620,9 +632,12 @@ const skillsShowCommand = define({
       description: "Skill ID from `weldall skills list`",
     },
     json: jsonArgument,
+    agentic: agenticArgument,
   },
-  examples: "weldall skills show expenses.review\nweldall skills show expenses.review --json",
+  examples:
+    "weldall skills show expenses.review\nweldall skills show expenses.review --json\nweldall skills show expenses.review --agentic",
   run: async (context) => {
+    exclusiveOutputFlags(context.values.json, context.values.agentic);
     const config = await resolveWeldallConfig();
     const { result: skill, subject } = await showSkillWithSubject(config, context.values.skill);
     const snapshot = await appendixCache.readSnapshotForSubject(config.issuer, subject);
@@ -632,7 +647,8 @@ const skillsShowCommand = define({
       skills: [...previews.values()].sort((left, right) => left.slug.localeCompare(right.slug)),
       subject,
     });
-    if (context.values.json) jsonOutput(skill);
+    if (context.values.agentic) process.stdout.write(skillDetailToon(skill));
+    else if (context.values.json) jsonOutput(skill);
     else process.stdout.write(terminalDocument(skill.document));
   },
 });
@@ -647,10 +663,12 @@ const skillsFindCommand = define({
       description: "Text to match in skill IDs, titles, previews, tags, owners, or resources",
     },
     json: jsonArgument,
+    agentic: agenticArgument,
   },
   examples:
-    'weldall skills find employee\nweldall skills find "contract review date"\nweldall skills find personio --json',
+    'weldall skills find employee\nweldall skills find "contract review date"\nweldall skills find personio --json\nweldall skills find personio --agentic',
   run: async (context) => {
+    exclusiveOutputFlags(context.values.json, context.values.agentic);
     const selection = await selectIssuer({ allowPrompt: false });
     if (!selection)
       throw new CliError("No Weldall issuer is configured", {
@@ -669,8 +687,9 @@ const skillsFindCommand = define({
     const keyword = context.values.keywords.trim().toLocaleLowerCase();
     if (!keyword) throw new CliError("Skill search keyword must not be empty");
     const matches = findCachedSkills(snapshot.skills, keyword);
-    if (context.values.json) {
-      jsonOutput(matches);
+    if (context.values.agentic || context.values.json) {
+      if (context.values.agentic) process.stdout.write(skillMatchesToon(matches));
+      else jsonOutput(matches);
       if (matches.length === 0) {
         printWarning(
           `No cached skills match ${JSON.stringify(context.values.keywords)}.`,

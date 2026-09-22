@@ -1,70 +1,62 @@
-import type { SkillList, SkillSummary, SkillWarning } from "./services/skills.js";
-
-// Token-Oriented Object Notation, tabular subset: a header declaring the row count and the field
-// names, then one row per item. The declared count is the reason this output exists. An agent that
-// reads a truncated catalog can see that it did, which a bare JSON array never tells it.
-//
-// Tab is the delimiter because previews contain commas. TOON declares a non-default delimiter
-// inside the bracket segment, so the tab sits between the length and the closing bracket and
-// separates the field names too.
-const TAB = "\t";
-const ITEM_FIELDS = [
-  "slug",
-  "title",
-  "preview",
-  "tags",
-  "available",
-  "missingScopes",
-  "source",
-] as const;
-const WARNING_FIELDS = ["source", "code"] as const;
-
-const escape = (value: string) =>
-  value
-    .replace(/\\/gu, "\\\\")
-    .replace(/"/gu, '\\"')
-    .replace(/\t/gu, "\\t")
-    .replace(/\r?\n/gu, "\\n");
-
-// Quote only where the value would otherwise forge a column, a row, or an empty field.
-const cell = (value: string) =>
-  value === "" || value !== value.trim() || /[\t\n\r"\\]/u.test(value)
-    ? `"${escape(value)}"`
-    : value;
+import { encode } from "@toon-format/toon";
+import type { CachedSkillPreview } from "./storage/appendix.js";
+import type { SkillDetail, SkillList, SkillSummary, SkillWarning } from "./services/skills.js";
+import { TOON_OPTIONS, joined } from "./toon.js";
 
 // The resource key is already the slug's prefix, so the column carries the name a person reads.
 const sourceOf = (skill: SkillSummary) =>
   skill.source.type === "resource" ? skill.source.name : "admin";
 
-const itemRow = (skill: SkillSummary) =>
-  [
-    skill.slug,
-    skill.title,
-    skill.preview,
-    (skill.meta?.tags ?? []).join("|"),
-    String(skill.available),
-    skill.missingScopes.join("|"),
-    sourceOf(skill),
-  ]
-    .map(cell)
-    .join(TAB);
+const itemRow = (skill: SkillSummary) => ({
+  slug: skill.slug,
+  title: skill.title,
+  preview: skill.preview,
+  tags: joined(skill.meta?.tags),
+  available: skill.available,
+  missingScopes: joined(skill.missingScopes),
+  source: sourceOf(skill),
+});
 
-const warningRow = (warning: SkillWarning) => [warning.source, warning.code].map(cell).join(TAB);
+const warningRow = (warning: SkillWarning) => ({ source: warning.source, code: warning.code });
 
-// An encoder must emit `key: []` for an empty array; the `key[0]:` header form is decode-only.
-const block = (name: string, fields: readonly string[], rows: string[]) =>
-  rows.length === 0
-    ? `${name}: []`
-    : [
-        `${name}[${rows.length}${TAB}]{${fields.join(TAB)}}:`,
-        ...rows.map((row) => `  ${row}`),
-      ].join("\n");
+// The cache behind `skills find` never holds missingScopes, and an empty column there would read
+// as "nothing is missing", which is the one thing the cache cannot promise.
+const matchRow = (skill: CachedSkillPreview) => ({
+  slug: skill.slug,
+  title: skill.title,
+  preview: skill.preview ?? "",
+  tags: joined(skill.tags),
+  available: skill.available,
+  owner: skill.owner ?? "",
+  source: skill.sourceName ?? skill.sourceKey ?? "",
+});
 
 export function skillsToon(list: SkillList): string {
-  return [
-    block("items", ITEM_FIELDS, list.items.map(itemRow)),
-    block("warnings", WARNING_FIELDS, list.warnings.map(warningRow)),
-  ]
-    .join("\n")
-    .concat("\n");
+  return encode(
+    { items: list.items.map(itemRow), warnings: list.warnings.map(warningRow) },
+    TOON_OPTIONS,
+  ).concat("\n");
+}
+
+// One skill is an object, not an array of one, so it is encoded as TOON objects are: a line per
+// field. `content` is left out because the document already contains it, and `preview` because
+// the document supersedes it. Both would otherwise ship the skill body two or three times over,
+// which is what makes the `--json` shape of this command roughly twice the size.
+export function skillDetailToon(skill: SkillDetail): string {
+  return encode(
+    {
+      slug: skill.slug,
+      title: skill.title,
+      tags: skill.meta?.tags ?? [],
+      available: skill.available,
+      missingScopes: skill.missingScopes,
+      source: sourceOf(skill),
+      document: skill.document,
+    },
+    TOON_OPTIONS,
+  ).concat("\n");
+}
+
+export function skillMatchesToon(matches: readonly CachedSkillPreview[]): string {
+  return encode({ items: matches.map(matchRow) }, TOON_OPTIONS).concat("\n");
 }
