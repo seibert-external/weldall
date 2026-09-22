@@ -24,7 +24,7 @@ Disconnect deletes the personal connection server-side before best-effort Google
 
 4. Open **Administration → Connectors**, create a Google connector, select its enabled APIs and scopes, and enter the OAuth client ID and secret. **Test configuration** validates the selected values and Google's published OAuth endpoints; the first user authorization verifies that the client ID, secret, and redirect URI belong together.
 
-The client secret is encrypted with `WELDALL_CREDENTIAL_ENCRYPTION_KEY` and is write-only after creation. Disabling a connector blocks new authorization flows and leases for every associated connection. A connector with connection history cannot be deleted.
+The client secret is encrypted with `WELDALL_CREDENTIAL_ENCRYPTION_KEY` and is write-only after creation. Disabling a connector blocks new authorization flows and leases for every associated connection. A connector with existing personal connections cannot be deleted.
 
 - **Gmail target:** `https://gmail.googleapis.com/gmail/v1/`
 - **Calendar target:** `https://www.googleapis.com/calendar/v3/`
