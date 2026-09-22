@@ -1,0 +1,26 @@
+{
+  "name": "@weldall/pi",
+  "version": "0.3.2",
+  "description": "Routes company-system requests through Weldall's live, per-user skill catalog instead of general knowledge or an invented API call.",
+  "keywords": [
+    "pi-package",
+    "weldall",
+    "oauth",
+    "skills",
+    "company-systems"
+  ],
+  "license": "FSL-1.1-ALv2",
+  "homepage": "https://github.com/seibert-external/weldall",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seibert-external/weldall.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "skills": [
+      "./skills"
+    ]
+  }
+}

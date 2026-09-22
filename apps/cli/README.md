@@ -90,6 +90,8 @@ weldall state pull
 weldall state mv scope.old scope.new
 ```
 
+These commands appear in `weldall --help` only while `WELDALL_M2M_CLIENT_ID`, `WELDALL_M2M_KID`, and the `WELDALL_M2M_PRIVATE_JWK`/`WELDALL_M2M_PUBLIC_JWK` pair are set, because a browser login never makes them usable.
+
 ## Commands
 
 ```sh

@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readPackedManifest } from "./packed-manifest.mjs";
 import { resolvePnpmInvocation } from "./pnpm-invocation.mjs";
+import { assertNoTestHooksInArtifact } from "./test-hook-artifact.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
@@ -42,6 +43,7 @@ assert.equal(packageJson.optionalDependencies?.["@napi-rs/keyring"], "1.3.0");
 assert.doesNotMatch(bundle, /@weldall\/oauth/);
 assert.doesNotMatch(bundle, /(?:from|import\()\s*["']@weldall\/sdk/);
 assert.doesNotMatch(bundle, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+await assertNoTestHooksInArtifact(join(root, "dist", "index.js"));
 if (process.platform !== "win32") await access(join(root, "dist", "index.js"), constants.X_OK);
 
 console.log(`Verified pnpm publication artifact ${packed.name}: ${files.join(", ")}`);

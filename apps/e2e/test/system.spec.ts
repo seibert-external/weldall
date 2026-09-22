@@ -6,7 +6,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 const workspace = process.env.WELDALL_E2E_WORKSPACE ?? "/workspace";
 const credentialsFile = "/tmp/weldall-e2e-credentials.json";
 const browserUrlFile = "/tmp/weldall-e2e-browser-url";
-const cli = join(workspace, "apps/cli/dist/index.js");
+const cli = join(workspace, "apps/cli/dist/e2e/index.js");
 const cliEnv = {
   ...process.env,
   NODE_ENV: "test",

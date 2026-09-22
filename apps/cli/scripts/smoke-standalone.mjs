@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ import { smokeNativeTerminal, terminalLauncher } from "./native-terminal.mjs";
 import { verifyBinary } from "./binary-format.mjs";
 import { runBlackBoxHarness } from "./black-box-harness.mjs";
 import { getNativeStandaloneTarget, getStandaloneTarget } from "./standalone-targets.mjs";
+import { assertNoTestHooksInArtifact, assertTestHooksInArtifact } from "./test-hook-artifact.mjs";
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -16,6 +17,7 @@ function argument(name) {
 
 const cliRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await readFile(join(cliRoot, "package.json"), "utf8"));
+const testHooks = process.argv.includes("--test-hooks");
 const target = argument("--target")
   ? getStandaloneTarget(argument("--target"))
   : getNativeStandaloneTarget();
@@ -28,6 +30,8 @@ if (!source)
 const expectedFormat =
   target.platform === "linux" ? "ELF" : target.platform === "win32" ? "PE" : "Mach-O";
 await verifyBinary(resolve(source), { format: expectedFormat, arch: target.arch });
+if (testHooks) await assertTestHooksInArtifact(resolve(source));
+else await assertNoTestHooksInArtifact(resolve(source));
 
 const root = await mkdtemp(join(tmpdir(), "weldall standalone copied ü "));
 const copiedDirectory = join(root, "copy away from repository 日本語");
@@ -44,9 +48,10 @@ await writeFile(
   join(hostileCwd, "bunfig.toml"),
   'preload = ["./preload.js"]\n[define]\n"process.env.WELDALL_TEST_BUNFIG_SENTINEL" = "\\"loaded\\""\n',
 );
+const preloadSentinel = join(hostileCwd, "preload-sentinel");
 await writeFile(
   join(hostileCwd, "preload.js"),
-  'process.env.WELDALL_TEST_BUNFIG_SENTINEL = "loaded";\n',
+  `require("node:fs").writeFileSync(${JSON.stringify(preloadSentinel)}, "loaded");\n`,
 );
 
 const baseEnvironment = Object.fromEntries(
@@ -84,18 +89,21 @@ try {
     interruptLaunch: terminalLaunch,
     expectRuntime: "bun",
     expectSystemCa: true,
-    keyringSmoke: true,
+    hostileCwd,
+    expectCredentialStore: "available",
+    testHooks,
+    keyringSmoke: testHooks,
     keyringEnvironment:
-      process.platform === "darwin"
+      testHooks && process.platform === "darwin"
         ? { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
         : {},
-    hostileCwd,
-    authenticated: true,
   });
-  assert.equal(
-    result.diagnostics.runtime.version,
-    (await readFile(resolve(cliRoot, "../..", ".bun-version"), "utf8")).trim(),
-  );
+  if (testHooks)
+    assert.equal(
+      result.diagnostics.runtime.version,
+      (await readFile(resolve(cliRoot, "../..", ".bun-version"), "utf8")).trim(),
+    );
+  await assert.rejects(access(preloadSentinel));
   console.log(`Copied standalone smoke passed: ${target.id} ${expectedFormat} ${target.arch}`);
 } finally {
   // ConPTY can briefly retain the copied executable after its child exits on

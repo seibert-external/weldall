@@ -11,12 +11,18 @@ import { atomicWriteFile } from "./atomic-write.js";
 const SERVICE =
   installMode === "standalone" ? "dev.seibert.weldall-cli.standalone" : "dev.seibert.weldall-cli";
 const CREDENTIALS_VERSION = 2 as const;
-// Bracketed runtime lookup prevents standalone compilation from folding test-only environment seams.
 const runtimeEnvironmentValue = (name: string) => process.env[name];
-const testCredentialsFile = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
+const resolveTestCredentialsFile = () => {
+  const path = runtimeEnvironmentValue("WELDALL_E2E_CREDENTIALS_FILE");
+  if (path && runtimeEnvironmentValue("NODE_ENV") !== "test")
+    throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
+  return path;
+};
 
-if (testCredentialsFile && runtimeEnvironmentValue("NODE_ENV") !== "test")
-  throw new CliError("WELDALL_E2E_CREDENTIALS_FILE is only allowed when NODE_ENV=test");
+const testCredentialsFile =
+  typeof __WELDALL_TEST_BUILD__ !== "undefined" && __WELDALL_TEST_BUILD__
+    ? resolveTestCredentialsFile()
+    : undefined;
 
 export interface StoredIdentity {
   subject?: string;
