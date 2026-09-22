@@ -139,6 +139,67 @@ describe("connection deletion cleanup", () => {
     expect(mocks.keychain.clear).toHaveBeenCalledWith(config.issuer, connection.id);
   });
 
+  it("disconnects server-side when local credentials cannot be read", async () => {
+    mocks.keychain.get.mockRejectedValue(new Error("credential store unavailable"));
+    const fetcher = vi.fn(async () =>
+      json({
+        id: connection.id,
+        name: connection.name,
+        providerRevocation: "not_requested",
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(disconnectConnection(config, connection)).resolves.toEqual({
+      id: connection.id,
+      name: connection.name,
+      providerRevocation: "not_requested",
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      `${config.issuer}/api/me/connections/${connection.id}/disconnect`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(mocks.keychain.clear).toHaveBeenCalledWith(config.issuer, connection.id);
+  });
+
+  it("disconnects server-side when local credentials are corrupted", async () => {
+    mocks.keychain.get.mockRejectedValue(new Error("invalid connection credentials"));
+    const fetcher = vi.fn(async () =>
+      json({
+        id: connection.id,
+        name: connection.name,
+        providerRevocation: "not_requested",
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(disconnectConnection(config, connection)).resolves.toMatchObject({
+      providerRevocation: "not_requested",
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      `${config.issuer}/api/me/connections/${connection.id}/disconnect`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    );
+  });
+
+  it("still reports server disconnect failures after local credential read failure", async () => {
+    mocks.keychain.get.mockRejectedValue(new Error("credential store unavailable"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ error: "conflict", error_description: "Disconnect failed." }, 409)),
+    );
+
+    await expect(disconnectConnection(config, connection)).rejects.toThrow("Disconnect failed.");
+    expect(mocks.keychain.clear).not.toHaveBeenCalled();
+  });
+
   it("clears stale local credentials when a prepared client learns the connection was deleted", async () => {
     mocks.keychain.get.mockResolvedValue(credentials);
     const fetcher = vi

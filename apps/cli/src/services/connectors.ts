@@ -271,7 +271,9 @@ export async function disconnectConnection(
   config: WeldallConfig,
   connection: PersonalConnectionSummary,
 ): Promise<DisconnectResult> {
-  const credentials = await personalConnectionKeychain.get(config.issuer, connection.id);
+  const credentials = await personalConnectionKeychain
+    .get(config.issuer, connection.id)
+    .catch(() => null);
   let value: unknown;
   try {
     value = await authenticatedJson(
