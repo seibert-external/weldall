@@ -239,6 +239,29 @@ describe("responsive Ink layout", () => {
     expect(output).toContain("Issuer");
     expect(output).toContain("Source");
   });
+
+  it("renders multiple multiline fields without corrupting or de-indenting values", () => {
+    const output = renderUi(
+      createElement(
+        Card,
+        { title: "Connector" },
+        createElement(FieldList, {
+          fields: [
+            ["Allowed targets", "https://calendar.example/v3/\nhttps://gmail.example/v1/"],
+            ["Granted scopes", "calendar.readonly\ngmail.metadata"],
+          ],
+        }),
+      ),
+      32,
+    );
+
+    expect(output).not.toContain("�");
+    expect(output).toContain("https://calendar.example/v3/");
+    expect(output).toContain("https://gmail.example/v1/");
+    expect(output).toContain("calendar.readonly");
+    expect(output).toContain("gmail.metadata");
+    expect(output.split("\n").every((line) => line.length <= 32)).toBe(true);
+  });
 });
 
 describe("CLI appendix", () => {

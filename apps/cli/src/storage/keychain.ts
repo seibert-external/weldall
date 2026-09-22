@@ -58,7 +58,7 @@ export type StoredCredentialsInput = Omit<StoredCredentialsBase, "issuer"> & {
   accessSession?: StoredAccessSession;
 };
 
-export interface StoredConnectionCredentials {
+export interface StoredPersonalConnectionCredentials {
   version: 1;
   issuer: string;
   connectionId: string;
@@ -69,8 +69,8 @@ export interface StoredConnectionCredentials {
   tokenType: "Bearer";
 }
 
-export type StoredConnectionCredentialsInput = Omit<
-  StoredConnectionCredentials,
+export type StoredPersonalConnectionCredentialsInput = Omit<
+  StoredPersonalConnectionCredentials,
   "version" | "issuer" | "connectionId"
 >;
 
@@ -79,7 +79,7 @@ type TestKeychain = Record<string, unknown>;
 const accountFor = (issuer: string) =>
   `session-${createHash("sha256").update(issuer).digest("base64url")}`;
 const connectionAccountFor = (issuer: string, connectionId: string) =>
-  `connection-${createHash("sha256").update(`${issuer}\0${connectionId}`).digest("base64url")}`;
+  `personal-connection-${createHash("sha256").update(`${issuer}\0${connectionId}`).digest("base64url")}`;
 
 const validAccessSession = (value: unknown): value is StoredAccessSession =>
   typeof value === "object" &&
@@ -137,14 +137,14 @@ const parseConnectionCredentials = (
   raw: string,
   issuer: string,
   connectionId: string,
-): StoredConnectionCredentials => {
+): StoredPersonalConnectionCredentials => {
   let value: unknown;
   try {
     value = JSON.parse(raw) as unknown;
   } catch (error) {
     throw new CliError("The stored connection credential is corrupted", { cause: error });
   }
-  const stored = value as Partial<StoredConnectionCredentials>;
+  const stored = value as Partial<StoredPersonalConnectionCredentials>;
   if (
     typeof value !== "object" ||
     value === null ||
@@ -164,7 +164,7 @@ const parseConnectionCredentials = (
   ) {
     throw new CliError("The stored connection credential has an unsupported format");
   }
-  return stored as StoredConnectionCredentials;
+  return stored as StoredPersonalConnectionCredentials;
 };
 
 const readTestKeychain = (): TestKeychain => {
@@ -249,8 +249,11 @@ export const nativeCredentialStore = {
   },
 };
 
-export const connectionKeychain = {
-  async get(issuer: string, connectionId: string): Promise<StoredConnectionCredentials | null> {
+export const personalConnectionKeychain = {
+  async get(
+    issuer: string,
+    connectionId: string,
+  ): Promise<StoredPersonalConnectionCredentials | null> {
     const account = connectionAccountFor(issuer, connectionId);
     if (testCredentialsFile) {
       const stored = readTestKeychain()[account];
@@ -269,8 +272,12 @@ export const connectionKeychain = {
     }
   },
 
-  async set(issuer: string, connectionId: string, credentials: StoredConnectionCredentialsInput) {
-    const stored: StoredConnectionCredentials = {
+  async set(
+    issuer: string,
+    connectionId: string,
+    credentials: StoredPersonalConnectionCredentialsInput,
+  ) {
+    const stored: StoredPersonalConnectionCredentials = {
       version: 1,
       issuer,
       connectionId,

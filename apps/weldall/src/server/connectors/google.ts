@@ -4,7 +4,7 @@ import type {
   AuthorizationResult,
   ConnectorImplementation,
   GoogleConnectorConfig,
-  LocalCredentials,
+  OAuthCredentials,
 } from "./types";
 import { ConnectorAuthorizationError } from "./types";
 
@@ -122,11 +122,11 @@ export async function testGoogleConfiguration(): Promise<void> {
   void metadata;
 }
 
-function localCredentials(
+function oauthCredentials(
   response: z.infer<typeof tokenResponseSchema>,
   refreshToken: string,
   grantedScopes: string[],
-): LocalCredentials {
+): OAuthCredentials {
   if (response.token_type.toLowerCase() !== "bearer") {
     throw new Error("Google returned an unsupported token type");
   }
@@ -144,7 +144,6 @@ export const googleConnector: ConnectorImplementation<GoogleConnectorConfig> = {
     type: "google",
     name: "Google",
     configurationVersion: "1",
-    credentialModes: ["local"],
     availableApis: ["gmail", "calendar"],
   },
 
@@ -220,7 +219,7 @@ export const googleConnector: ConnectorImplementation<GoogleConnectorConfig> = {
             ? verified.payload.email
             : verified.payload.sub,
       },
-      credentials: localCredentials(response, response.refresh_token, grantedScopes),
+      credentials: oauthCredentials(response, response.refresh_token, grantedScopes),
     } satisfies AuthorizationResult;
   },
 
@@ -233,7 +232,7 @@ export const googleConnector: ConnectorImplementation<GoogleConnectorConfig> = {
         client_secret: config.clientSecret,
       }),
     );
-    return localCredentials(response, response.refresh_token ?? refreshToken, grantedScopes);
+    return oauthCredentials(response, response.refresh_token ?? refreshToken, grantedScopes);
   },
 
   async revokeCredentials({ token }) {
@@ -244,6 +243,10 @@ export const googleConnector: ConnectorImplementation<GoogleConnectorConfig> = {
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) throw new Error(`Google revocation returned HTTP ${response.status}`);
+    // RFC 7009 allows providers to treat an unknown or already-revoked token as a
+    // successful revocation. Google can report that terminal state as HTTP 400.
+    if (!response.ok && response.status !== 400) {
+      throw new Error(`Google revocation returned HTTP ${response.status}`);
+    }
   },
 };

@@ -7,7 +7,7 @@ import {
 import {
   listUserConnections,
   startConnectionAuthorization,
-} from "@/server/connectors/user-service";
+} from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
 const createSchema = z

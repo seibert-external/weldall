@@ -1,5 +1,5 @@
 import { connectorActor, connectorErrorResponse } from "@/server/connectors/http";
-import { listAvailableConnectors } from "@/server/connectors/user-service";
+import { listAvailableConnectors } from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
 async function get(request: Request) {

@@ -6,9 +6,9 @@ import { isRecord, responseValue, successfulResponseStream } from "../http.js";
 import { validateConnectionLease } from "../oauth/session.js";
 import { withCredentialLock } from "../storage/lock.js";
 import {
-  connectionKeychain,
-  type StoredConnectionCredentials,
-  type StoredConnectionCredentialsInput,
+  personalConnectionKeychain,
+  type StoredPersonalConnectionCredentials,
+  type StoredPersonalConnectionCredentialsInput,
 } from "../storage/keychain.js";
 import { browserOpener, type BrowserOpener } from "./browser.js";
 import { withAccess } from "./auth.js";
@@ -25,31 +25,39 @@ export interface ConnectorSummary {
   type: "google";
   enabledApis: string[];
   oauthScopes: string[];
-  credentialModes: ["local"];
   allowedTargetPrefixes: string[];
 }
 
-export interface ConnectionSummary {
+/** The /api/me/connections contract is personal-only, never a shared credential transport. */
+export interface PersonalConnectionSummary {
   id: string;
   name: string;
   connectorId: string;
   connectorKey: string;
   connectorName: string;
-  account: { id: string; displayName: string } | null;
-  credentialMode: "local";
+  account: { id: string; displayName: string };
   deviceId: string;
-  status: "pending" | "ready" | "reconnect_required" | "disabled" | "disconnected";
+  status: "ready" | "reconnect_required";
   enabledApis: string[];
   grantedScopes: string[];
   allowedTargetPrefixes: string[];
-  connectedAt: string | null;
+  connectedAt: string;
   lastUsedAt: string | null;
   version: number;
 }
 
 interface AuthorizationStart {
-  connection: ConnectionSummary;
+  authorizationId: string;
+  connectionId: string;
+  connectionName: string;
+  mode: "connect" | "reconnect";
   authorizationUrl: string;
+}
+
+export interface DisconnectResult {
+  id: string;
+  name: string;
+  providerRevocation: "confirmed" | "failed" | "not_requested";
 }
 
 const endpoint = (config: WeldallConfig, path: string) => `${config.issuer}${path}`;
@@ -94,6 +102,17 @@ async function authenticatedJson(
   return value;
 }
 
+class ConnectorApiError extends CliError {
+  constructor(
+    message: string,
+    readonly code: string | undefined,
+    hint?: string,
+  ) {
+    super(message, { ...(hint ? { hint } : {}) });
+    this.name = "ConnectorApiError";
+  }
+}
+
 function apiError(status: number, value: unknown): CliError {
   const record = isRecord(value) ? value : undefined;
   const description =
@@ -103,12 +122,15 @@ function apiError(status: number, value: unknown): CliError {
         ? record.error
         : `HTTP ${status}`;
   const code = typeof record?.error === "string" ? record.error : undefined;
-  return new CliError(description, {
-    ...(code === "not_found" ? { hint: "Run `weldall connections list`." } : {}),
-    ...(code === "authorization_required"
-      ? { hint: "Run `weldall connections reconnect <connection>`." }
-      : {}),
-  });
+  return new ConnectorApiError(
+    description,
+    code,
+    code === "not_found"
+      ? "Run `weldall connections list`."
+      : code === "authorization_required"
+        ? "Run `weldall connections reconnect <connection>`."
+        : undefined,
+  );
 }
 
 export async function listConnectors(config: WeldallConfig): Promise<ConnectorSummary[]> {
@@ -131,7 +153,7 @@ export async function showConnector(
   );
 }
 
-export async function listConnections(config: WeldallConfig): Promise<ConnectionSummary[]> {
+export async function listConnections(config: WeldallConfig): Promise<PersonalConnectionSummary[]> {
   const value = await authenticatedJson(config, endpoint(config, "/api/me/connections"));
   if (!isRecord(value) || !Array.isArray(value.connections)) {
     throw new CliError("Weldall returned an invalid connection list");
@@ -142,7 +164,7 @@ export async function listConnections(config: WeldallConfig): Promise<Connection
 export async function showConnection(
   config: WeldallConfig,
   selector: string,
-): Promise<ConnectionSummary> {
+): Promise<PersonalConnectionSummary> {
   return parseConnection(
     await authenticatedJson(
       config,
@@ -161,7 +183,7 @@ export async function connectAccount(
   config: WeldallConfig,
   input: { connector: string; name: string },
   openBrowser: BrowserOpener = browserOpener,
-): Promise<ConnectionSummary> {
+): Promise<PersonalConnectionSummary> {
   const started = parseAuthorizationStart(
     await authenticatedJson(config, endpoint(config, "/api/me/connections"), {
       method: "POST",
@@ -175,7 +197,7 @@ export async function reconnectAccount(
   config: WeldallConfig,
   selector: string,
   openBrowser: BrowserOpener = browserOpener,
-): Promise<ConnectionSummary> {
+): Promise<PersonalConnectionSummary> {
   const connection = await showConnection(config, selector);
   const started = parseAuthorizationStart(
     await authenticatedJson(
@@ -191,7 +213,7 @@ async function completeInBrowser(
   config: WeldallConfig,
   started: AuthorizationStart,
   openBrowser: BrowserOpener,
-): Promise<ConnectionSummary> {
+): Promise<PersonalConnectionSummary> {
   try {
     await openBrowser(started.authorizationUrl);
   } catch (error) {
@@ -201,7 +223,7 @@ async function completeInBrowser(
   while (Date.now() < deadline) {
     const url = endpoint(
       config,
-      `/api/me/connections/${selectorPath(started.connection.id)}/credentials`,
+      `/api/me/connection-authorizations/${selectorPath(started.authorizationId)}/credentials`,
     );
     const response = await authenticatedResponse(config, url, {
       method: "POST",
@@ -215,12 +237,15 @@ async function completeInBrowser(
     if (!response.ok) throw apiError(response.status, value);
     if (!isRecord(value)) throw new CliError("Weldall returned invalid connection credentials");
     const connection = parseConnection(value.connection);
-    const credentials = parseLocalCredentials(value.credentials);
-    await connectionKeychain.set(config.issuer, connection.id, credentials);
+    const credentials = parseOAuthCredentials(value.credentials);
+    await personalConnectionKeychain.set(config.issuer, connection.id, credentials);
     return connection;
   }
   throw new CliError("Google authorization timed out", {
-    hint: `Run \`weldall connections reconnect ${started.connection.name}\` to try again.`,
+    hint:
+      started.mode === "reconnect"
+        ? `Run \`weldall connections reconnect ${started.connectionName}\` to try again.`
+        : "Run the `weldall connections connect` command again.",
   });
 }
 
@@ -228,7 +253,7 @@ export async function renameConnection(
   config: WeldallConfig,
   selector: string,
   name: string,
-): Promise<ConnectionSummary> {
+): Promise<PersonalConnectionSummary> {
   const connection = await showConnection(config, selector);
   return parseConnection(
     await authenticatedJson(
@@ -244,23 +269,40 @@ export async function renameConnection(
 
 export async function disconnectConnection(
   config: WeldallConfig,
-  selector: string,
-): Promise<ConnectionSummary> {
-  const connection = await showConnection(config, selector);
-  const credentials = await connectionKeychain.get(config.issuer, connection.id);
-  const url = endpoint(config, `/api/me/connections/${selectorPath(connection.id)}/disconnect`);
-  const result = parseConnection(
-    await authenticatedJson(config, url, {
-      method: "POST",
-      json: credentials ? { token: credentials.refreshToken } : {},
-    }),
-  );
-  await connectionKeychain.clear(config.issuer, connection.id);
+  connection: PersonalConnectionSummary,
+): Promise<DisconnectResult> {
+  const credentials = await personalConnectionKeychain.get(config.issuer, connection.id);
+  let value: unknown;
+  try {
+    value = await authenticatedJson(
+      config,
+      endpoint(config, `/api/me/connections/${selectorPath(connection.id)}/disconnect`),
+      {
+        method: "POST",
+        json: credentials ? { token: credentials.refreshToken } : {},
+      },
+    );
+  } catch (error) {
+    if (error instanceof ConnectorApiError && error.code === "not_found") {
+      await personalConnectionKeychain.clear(config.issuer, connection.id);
+      return {
+        id: connection.id,
+        name: connection.name,
+        providerRevocation: "not_requested",
+      };
+    }
+    throw error;
+  }
+  const result = parseDisconnectResult(value);
+  if (result.id !== connection.id) {
+    throw new CliError("Weldall returned an invalid disconnect result");
+  }
+  await personalConnectionKeychain.clear(config.issuer, connection.id);
   return result;
 }
 
 export interface PreparedConnectionClient {
-  connection: ConnectionSummary;
+  connection: PersonalConnectionSummary;
   request(input: PreparedRequest): Promise<Response>;
 }
 
@@ -280,17 +322,26 @@ export async function prepareConnectionClient(
 
 async function connectionRequest(
   config: WeldallConfig,
-  connection: ConnectionSummary,
+  connection: PersonalConnectionSummary,
   input: PreparedRequest,
 ): Promise<Response> {
   const target = assertAllowedTarget(input.url, connection.allowedTargetPrefixes, connection.name);
   const method = input.method.toUpperCase();
   const deviceId = await currentDevice(config);
-  const leaseValue = await authenticatedJson(
-    config,
-    endpoint(config, `/api/me/connections/${selectorPath(connection.id)}/lease`),
-    { method: "POST", json: { url: target.toString(), method } },
-  );
+  let leaseValue: unknown;
+  try {
+    leaseValue = await authenticatedJson(
+      config,
+      endpoint(config, `/api/me/connections/${selectorPath(connection.id)}/lease`),
+      { method: "POST", json: { url: target.toString(), method } },
+    );
+  } catch (error) {
+    if (error instanceof ConnectorApiError && error.code === "not_found") {
+      await personalConnectionKeychain.clear(config.issuer, connection.id);
+      throw new CliError(`Connection ${JSON.stringify(connection.name)} was removed`);
+    }
+    throw error;
+  }
   if (
     !isRecord(leaseValue) ||
     typeof leaseValue.lease !== "string" ||
@@ -367,10 +418,10 @@ function boundedProviderResponse(response: Response): Response {
 
 async function currentConnectionCredentials(
   config: WeldallConfig,
-  connection: ConnectionSummary,
-): Promise<StoredConnectionCredentials> {
+  connection: PersonalConnectionSummary,
+): Promise<StoredPersonalConnectionCredentials> {
   return withCredentialLock(`${config.issuer}\0connection:${connection.id}`, async () => {
-    const credentials = await connectionKeychain.get(config.issuer, connection.id);
+    const credentials = await personalConnectionKeychain.get(config.issuer, connection.id);
     if (!credentials) {
       throw new CliError(
         `Connection ${JSON.stringify(connection.name)} has no credentials on this device`,
@@ -384,24 +435,21 @@ async function currentConnectionCredentials(
 
 async function refreshConnectionCredentials(
   config: WeldallConfig,
-  connection: ConnectionSummary,
-  credentials: StoredConnectionCredentials,
-): Promise<StoredConnectionCredentials> {
-  const value = parseLocalCredentials(
+  connection: PersonalConnectionSummary,
+  credentials: StoredPersonalConnectionCredentials,
+): Promise<StoredPersonalConnectionCredentials> {
+  const value = parseOAuthCredentials(
     await authenticatedJson(
       config,
       endpoint(config, `/api/me/connections/${selectorPath(connection.id)}/refresh`),
       { method: "POST", json: { refreshToken: credentials.refreshToken } },
     ),
   );
-  await connectionKeychain.set(config.issuer, connection.id, value);
+  await personalConnectionKeychain.set(config.issuer, connection.id, value);
   return { version: 1, issuer: config.issuer, connectionId: connection.id, ...value };
 }
 
-function assertConnectionReady(connection: ConnectionSummary): void {
-  if (connection.status === "disabled") {
-    throw new CliError(`Connection ${JSON.stringify(connection.name)} is disabled`);
-  }
+function assertConnectionReady(connection: PersonalConnectionSummary): void {
   if (connection.status !== "ready") {
     throw new CliError(`Connection ${JSON.stringify(connection.name)} requires authorization`, {
       hint: `Run \`weldall connections reconnect ${connection.name}\`.`,
@@ -444,14 +492,27 @@ export function assertAllowedTarget(
 }
 
 function parseAuthorizationStart(value: unknown): AuthorizationStart {
-  if (!isRecord(value) || typeof value.authorizationUrl !== "string") {
+  if (
+    !isRecord(value) ||
+    typeof value.authorizationId !== "string" ||
+    typeof value.connectionId !== "string" ||
+    typeof value.connectionName !== "string" ||
+    (value.mode !== "connect" && value.mode !== "reconnect") ||
+    typeof value.authorizationUrl !== "string"
+  ) {
     throw new CliError("Weldall returned an invalid authorization start");
   }
   const url = new URL(value.authorizationUrl);
   if (url.protocol !== "https:" || url.hostname !== "accounts.google.com") {
     throw new CliError("Weldall returned an unsafe authorization URL");
   }
-  return { connection: parseConnection(value.connection), authorizationUrl: url.toString() };
+  return {
+    authorizationId: value.authorizationId,
+    connectionId: value.connectionId,
+    connectionName: value.connectionName,
+    mode: value.mode,
+    authorizationUrl: url.toString(),
+  };
 }
 
 function parseConnector(value: unknown): ConnectorSummary {
@@ -463,17 +524,14 @@ function parseConnector(value: unknown): ConnectorSummary {
     value.type !== "google" ||
     !stringArray(value.enabledApis) ||
     !stringArray(value.oauthScopes) ||
-    !stringArray(value.allowedTargetPrefixes) ||
-    !Array.isArray(value.credentialModes) ||
-    value.credentialModes.length !== 1 ||
-    value.credentialModes[0] !== "local"
+    !stringArray(value.allowedTargetPrefixes)
   ) {
     throw new CliError("Weldall returned an invalid connector");
   }
   return value as unknown as ConnectorSummary;
 }
 
-function parseConnection(value: unknown): ConnectionSummary {
+function parseConnection(value: unknown): PersonalConnectionSummary {
   if (
     !isRecord(value) ||
     typeof value.id !== "string" ||
@@ -481,26 +539,35 @@ function parseConnection(value: unknown): ConnectionSummary {
     typeof value.connectorId !== "string" ||
     typeof value.connectorKey !== "string" ||
     typeof value.connectorName !== "string" ||
-    value.credentialMode !== "local" ||
     typeof value.deviceId !== "string" ||
-    !["pending", "ready", "reconnect_required", "disabled", "disconnected"].includes(
-      String(value.status),
-    ) ||
+    !["ready", "reconnect_required"].includes(String(value.status)) ||
     !stringArray(value.enabledApis) ||
     !stringArray(value.grantedScopes) ||
     !stringArray(value.allowedTargetPrefixes) ||
     typeof value.version !== "number" ||
-    (value.account !== null &&
-      (!isRecord(value.account) ||
-        typeof value.account.id !== "string" ||
-        typeof value.account.displayName !== "string"))
+    !isRecord(value.account) ||
+    typeof value.account.id !== "string" ||
+    typeof value.account.displayName !== "string" ||
+    typeof value.connectedAt !== "string"
   ) {
     throw new CliError("Weldall returned an invalid connection");
   }
-  return value as unknown as ConnectionSummary;
+  return value as unknown as PersonalConnectionSummary;
 }
 
-function parseLocalCredentials(value: unknown): StoredConnectionCredentialsInput {
+function parseDisconnectResult(value: unknown): DisconnectResult {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    !["confirmed", "failed", "not_requested"].includes(String(value.providerRevocation))
+  ) {
+    throw new CliError("Weldall returned an invalid disconnect result");
+  }
+  return value as unknown as DisconnectResult;
+}
+
+function parseOAuthCredentials(value: unknown): StoredPersonalConnectionCredentialsInput {
   if (
     !isRecord(value) ||
     typeof value.accessToken !== "string" ||
@@ -513,7 +580,7 @@ function parseLocalCredentials(value: unknown): StoredConnectionCredentialsInput
   ) {
     throw new CliError("Weldall returned invalid connection credentials");
   }
-  return value as unknown as StoredConnectionCredentialsInput;
+  return value as unknown as StoredPersonalConnectionCredentialsInput;
 }
 
 const stringArray = (value: unknown): value is string[] =>

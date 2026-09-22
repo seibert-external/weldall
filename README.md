@@ -98,7 +98,7 @@ weldall request --scope expenses:read \
   https://expenses.example.com/api/expenses
 ```
 
-Every request requires an absolute HTTPS URL and exactly one authorization mode: one or more `--scope` values for a registered resource, or `--connection` for an administrator-configured provider account. In both modes, the CLI checks the target before sending credentials or request data.
+Every request requires an absolute HTTPS URL and exactly one authorization mode: one or more `--scope` values for a registered resource, or `--connection` for a personal provider account connected through an administrator-configured connector. In both modes, the CLI checks the target before sending credentials or request data.
 
 ## What's in the box
 

@@ -1,5 +1,5 @@
 import { connectorActor, connectorErrorResponse } from "@/server/connectors/http";
-import { getAvailableConnector } from "@/server/connectors/user-service";
+import { getAvailableConnector } from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
 async function get(request: Request, context: { params: Promise<{ selector: string }> }) {

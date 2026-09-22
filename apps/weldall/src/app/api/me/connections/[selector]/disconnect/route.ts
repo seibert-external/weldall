@@ -4,7 +4,7 @@ import {
   connectorErrorResponse,
   connectorJsonBody,
 } from "@/server/connectors/http";
-import { disconnectUserConnection } from "@/server/connectors/user-service";
+import { disconnectUserConnection } from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
 const schema = z.object({ token: z.string().min(1).max(20_000).optional() }).strict();

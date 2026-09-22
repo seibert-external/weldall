@@ -15,9 +15,11 @@ import {
 import {
   ConnectorAuthorizationError,
   type AuthorizationResult,
-  type LocalCredentials,
+  type OAuthCredentials,
 } from "./types";
 
+// Personal connections are owner-only and device-local. SharedConnection will have
+// its own authorization, credential storage, and execution lifecycle.
 const AUTHORIZATION_TTL_MS = 5 * 60_000;
 const LEASE_TTL_SECONDS = 60;
 const connectionNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -40,26 +42,38 @@ export interface UserConnectorDto {
   type: "google";
   enabledApis: string[];
   oauthScopes: string[];
-  credentialModes: ["local"];
   allowedTargetPrefixes: string[];
 }
 
-export interface UserConnectionDto {
+export interface PersonalConnectionDto {
   id: string;
   name: string;
   connectorId: string;
   connectorKey: string;
   connectorName: string;
-  account: { id: string; displayName: string } | null;
-  credentialMode: "local";
+  account: { id: string; displayName: string };
   deviceId: string;
-  status: "pending" | "ready" | "reconnect_required" | "disabled" | "disconnected";
+  status: "ready" | "reconnect_required";
   enabledApis: string[];
   grantedScopes: string[];
   allowedTargetPrefixes: string[];
-  connectedAt: string | null;
+  connectedAt: string;
   lastUsedAt: string | null;
   version: number;
+}
+
+export interface UserAuthorizationStartDto {
+  authorizationId: string;
+  connectionId: string;
+  connectionName: string;
+  mode: "connect" | "reconnect";
+  authorizationUrl: string;
+}
+
+export interface UserDisconnectResult {
+  id: string;
+  name: string;
+  providerRevocation: "confirmed" | "failed" | "not_requested";
 }
 
 export class ConnectorUserError extends Error {
@@ -80,21 +94,26 @@ export class ConnectorUserError extends Error {
   }
 }
 
+const connectorConfigurationSelect = {
+  id: true,
+  key: true,
+  name: true,
+  type: true,
+  enabled: true,
+  enabledApis: true,
+  oauthScopes: true,
+  oauthClientId: true,
+  encryptedOAuthClientSecret: true,
+} as const;
+
 const userConnectionInclude = {
   owner: { select: { email: true } },
-  connector: {
-    select: {
-      id: true,
-      key: true,
-      name: true,
-      type: true,
-      enabled: true,
-      enabledApis: true,
-      oauthScopes: true,
-      oauthClientId: true,
-      encryptedOAuthClientSecret: true,
-    },
-  },
+  connector: { select: connectorConfigurationSelect },
+} as const;
+
+const userAuthorizationInclude = {
+  owner: { select: { email: true } },
+  connector: { select: connectorConfigurationSelect },
 } as const;
 
 export async function listAvailableConnectors(): Promise<UserConnectorDto[]> {
@@ -113,9 +132,9 @@ export async function getAvailableConnector(selector: string): Promise<UserConne
   return serializeUserConnector(row);
 }
 
-export async function listUserConnections(ownerId: string): Promise<UserConnectionDto[]> {
+export async function listUserConnections(ownerId: string): Promise<PersonalConnectionDto[]> {
   await pruneExpiredAuthorizations();
-  const rows = await db.connectorConnection.findMany({
+  const rows = await db.personalConnection.findMany({
     where: { ownerId },
     orderBy: [{ name: "asc" }, { id: "asc" }],
     include: userConnectionInclude,
@@ -126,7 +145,7 @@ export async function listUserConnections(ownerId: string): Promise<UserConnecti
 export async function getUserConnection(
   ownerId: string,
   selector: string,
-): Promise<UserConnectionDto> {
+): Promise<PersonalConnectionDto> {
   return serializeUserConnection(await loadUserConnection(ownerId, selector));
 }
 
@@ -137,46 +156,47 @@ export async function startConnectionAuthorization(
     deviceId: string;
   },
   actor: ConnectorUserActor,
-): Promise<{ connection: UserConnectionDto; authorizationUrl: string }> {
+): Promise<UserAuthorizationStartDto> {
   await pruneExpiredAuthorizations();
-  const name = parseConnectionName(input.name);
+  const connectionName = parseConnectionName(input.name);
   const deviceId = parseDeviceId(input.deviceId);
   const connector = await db.connector.findFirst({
     where: { enabled: true, OR: [{ id: input.connector }, { key: input.connector }] },
+    select: connectorConfigurationSelect,
   });
   if (!connector) throw new ConnectorUserError("not_found", "Connector was not found.", 404);
-  let connection;
+  const existing = await db.personalConnection.findFirst({
+    where: { ownerId: actor.id, name: connectionName },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new ConnectorUserError(
+      "conflict",
+      `Connection ${JSON.stringify(connectionName)} already exists.`,
+      409,
+    );
+  }
   try {
-    connection = await db.connectorConnection.create({
-      data: {
-        connectorId: connector.id,
+    return await createAuthorization(
+      {
+        connectionId: randomUUID(),
+        connectionName,
+        connectionVersion: null,
+        connector,
+        mode: "connect",
         ownerId: actor.id,
-        name,
-        deviceId,
-        credentialMode: "local",
       },
-      include: userConnectionInclude,
-    });
+      deviceId,
+      actor,
+    );
   } catch (error) {
     if (isPrismaError(error, "P2002")) {
       throw new ConnectorUserError(
         "conflict",
-        `Connection ${JSON.stringify(name)} already exists.`,
+        `Connection ${JSON.stringify(connectionName)} is already being connected.`,
         409,
       );
     }
-    throw error;
-  }
-  try {
-    const authorizationUrl = await createAuthorization(
-      connection,
-      "connect",
-      connection.deviceId,
-      actor,
-    );
-    return { connection: serializeUserConnection(connection), authorizationUrl };
-  } catch (error) {
-    await db.connectorConnection.delete({ where: { id: connection.id } }).catch(() => undefined);
     throw error;
   }
 }
@@ -186,45 +206,88 @@ export async function restartConnectionAuthorization(
   selector: string,
   deviceId: string,
   actor: ConnectorUserActor,
-): Promise<{ connection: UserConnectionDto; authorizationUrl: string }> {
+): Promise<UserAuthorizationStartDto> {
   const connection = await loadUserConnection(ownerId, selector);
-  if (!connection.connector.enabled || connection.status === "DISABLED") {
-    throw new ConnectorUserError("disabled", "The connector or connection is disabled.", 409);
+  if (!connection.connector.enabled) {
+    throw new ConnectorUserError("disabled", "The connector is disabled.", 409);
   }
-  const parsedDeviceId = parseDeviceId(deviceId);
-  return {
-    connection: serializeUserConnection(connection),
-    authorizationUrl: await createAuthorization(connection, "reconnect", parsedDeviceId, actor),
-  };
+  return createAuthorization(
+    {
+      connectionId: connection.id,
+      connectionName: connection.name,
+      connectionVersion: connection.version,
+      connector: connection.connector,
+      mode: "reconnect",
+      ownerId,
+    },
+    parseDeviceId(deviceId),
+    actor,
+  );
 }
 
 async function createAuthorization(
-  connection: Awaited<ReturnType<typeof loadUserConnection>>,
-  mode: "connect" | "reconnect",
+  input: {
+    connectionId: string;
+    connectionName: string;
+    connectionVersion: number | null;
+    connector: {
+      id: string;
+      key: string;
+      name: string;
+      type: string;
+      enabled: boolean;
+      enabledApis: string[];
+      oauthScopes: string[];
+      oauthClientId: string;
+      encryptedOAuthClientSecret: string;
+    };
+    mode: "connect" | "reconnect";
+    ownerId: string;
+  },
   deviceId: string,
   actor: ConnectorUserActor,
-): Promise<string> {
+): Promise<UserAuthorizationStartDto> {
   const state = randomValue();
   const nonce = randomValue();
   const codeVerifier = randomValue(64);
   const codeChallenge = hash(codeVerifier);
   const expiresAt = new Date(Date.now() + AUTHORIZATION_TTL_MS);
-  const implementation = connectorImplementation(connection.connector.type);
+  const implementation = connectorImplementation(input.connector.type);
   const authorization = await db.$transaction(async (tx) => {
-    await tx.$queryRaw(
-      Prisma.sql`SELECT "id" FROM "ConnectorConnection" WHERE "id" = ${connection.id} FOR UPDATE`,
-    );
-    await tx.connectorAuthorization.deleteMany({ where: { connectionId: connection.id } });
-    const pending = await tx.connectorAuthorization.create({
+    if (input.mode === "reconnect") {
+      if (input.connectionVersion === null) throw new Error("Missing connection version");
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "PersonalConnection" WHERE "id" = ${input.connectionId} FOR UPDATE`,
+      );
+      const current = await tx.personalConnection.findFirst({
+        where: {
+          id: input.connectionId,
+          connectorId: input.connector.id,
+          ownerId: input.ownerId,
+          version: input.connectionVersion,
+        },
+        select: { id: true },
+      });
+      if (!current) {
+        throw new ConnectorUserError("conflict", "Connection changed. Reload and try again.", 409);
+      }
+      await tx.personalConnectionAuthorization.deleteMany({
+        where: { connectionId: input.connectionId },
+      });
+    }
+    const pending = await tx.personalConnectionAuthorization.create({
       data: {
-        connectionId: connection.id,
+        connectionId: input.connectionId,
+        connectorId: input.connector.id,
+        ownerId: input.ownerId,
+        connectionName: input.connectionName,
         stateHash: hash(state),
         encryptedPayload: "pending",
-        mode,
+        mode: input.mode,
         expiresAt,
       },
     });
-    const created = await tx.connectorAuthorization.update({
+    const created = await tx.personalConnectionAuthorization.update({
       where: { id: pending.id },
       data: {
         encryptedPayload: sealConnectorValue(
@@ -234,31 +297,41 @@ async function createAuthorization(
             nonce,
             codeVerifier,
             deviceId,
-            connectionVersion: connection.version,
+            connectionVersion: input.connectionVersion,
           }),
         ),
       },
     });
     await prismaAuditWriter.write(
-      connectionAudit(actor, "connection.authorization_started", connection),
+      authorizationAudit(actor, "connection.authorization_started", input),
       tx,
     );
     return created;
   });
-  const started = await implementation.startAuthorization({
-    config: connectorConfig(connection.connector),
-    redirectUri,
-    state,
-    nonce,
-    codeChallenge,
-  });
-  if (!started.url.startsWith("https://accounts.google.com/")) {
-    await db.connectorAuthorization
+  try {
+    const started = await implementation.startAuthorization({
+      config: connectorConfig(input.connector),
+      redirectUri,
+      state,
+      nonce,
+      codeChallenge,
+    });
+    if (!started.url.startsWith("https://accounts.google.com/")) {
+      throw new Error("Connector returned an unsafe authorization URL");
+    }
+    return {
+      authorizationId: authorization.id,
+      connectionId: input.connectionId,
+      connectionName: input.connectionName,
+      mode: input.mode,
+      authorizationUrl: started.url,
+    };
+  } catch (error) {
+    await db.personalConnectionAuthorization
       .delete({ where: { id: authorization.id } })
       .catch(() => undefined);
-    throw new Error("Connector returned an unsafe authorization URL");
+    throw error;
   }
-  return started.url;
 }
 
 export async function rejectAuthorizationCallback(
@@ -266,21 +339,21 @@ export async function rejectAuthorizationCallback(
   request: { requestId: string; correlationId?: string | undefined },
 ): Promise<void> {
   if (!state || state.length > 1_000) return;
-  const authorization = await db.connectorAuthorization.findUnique({
+  const authorization = await db.personalConnectionAuthorization.findUnique({
     where: { stateHash: hash(state) },
-    include: { connection: { include: userConnectionInclude } },
+    include: userAuthorizationInclude,
   });
   if (!authorization || authorization.callbackConsumedAt || authorization.expiresAt <= new Date()) {
     return;
   }
-  const consumed = await db.connectorAuthorization.updateMany({
+  const consumed = await db.personalConnectionAuthorization.updateMany({
     where: { id: authorization.id, callbackConsumedAt: null, expiresAt: { gt: new Date() } },
     data: { callbackConsumedAt: new Date() },
   });
   if (consumed.count !== 1) return;
   await failAuthorization(authorization, {
-    id: authorization.connection.ownerId,
-    email: authorization.connection.owner.email,
+    id: authorization.ownerId,
+    email: authorization.owner.email,
     ...request,
   });
 }
@@ -292,14 +365,14 @@ export async function completeAuthorizationCallback(
   if (!input.state || input.state.length > 1_000 || !input.code || input.code.length > 10_000) {
     throw new ConnectorUserError("invalid_request", "Invalid authorization callback.");
   }
-  const authorization = await db.connectorAuthorization.findUnique({
+  const authorization = await db.personalConnectionAuthorization.findUnique({
     where: { stateHash: hash(input.state) },
-    include: { connection: { include: userConnectionInclude } },
+    include: userAuthorizationInclude,
   });
   if (!authorization || authorization.callbackConsumedAt || authorization.expiresAt <= new Date()) {
     throw new ConnectorUserError("invalid_request", "Authorization state is invalid or expired.");
   }
-  const consumed = await db.connectorAuthorization.updateMany({
+  const consumed = await db.personalConnectionAuthorization.updateMany({
     where: { id: authorization.id, callbackConsumedAt: null, expiresAt: { gt: new Date() } },
     data: { callbackConsumedAt: new Date() },
   });
@@ -307,24 +380,21 @@ export async function completeAuthorizationCallback(
     throw new ConnectorUserError("invalid_request", "Authorization state was already used.");
   }
   const actor: ConnectorUserActor = {
-    id: authorization.connection.ownerId,
-    email: authorization.connection.owner.email,
+    id: authorization.ownerId,
+    email: authorization.owner.email,
     ...request,
   };
   let result: AuthorizationResult | undefined;
   try {
-    if (
-      !authorization.connection.connector.enabled ||
-      authorization.connection.status === "DISABLED"
-    ) {
-      throw new ConnectorUserError("disabled", "The connector or connection is disabled.", 409);
+    if (!authorization.connector.enabled) {
+      throw new ConnectorUserError("disabled", "The connector is unavailable.", 409);
     }
     const payload = z
       .object({
         nonce: z.string().min(20),
         codeVerifier: z.string().min(43),
         deviceId: z.string().regex(deviceIdPattern),
-        connectionVersion: z.number().int().positive(),
+        connectionVersion: z.number().int().positive().nullable(),
       })
       .strict()
       .parse(
@@ -332,10 +402,17 @@ export async function completeAuthorizationCallback(
           unsealConnectorValue("authorization", authorization.id, authorization.encryptedPayload),
         ),
       );
+    if (
+      !["connect", "reconnect"].includes(authorization.mode) ||
+      (authorization.mode === "connect" && payload.connectionVersion !== null) ||
+      (authorization.mode === "reconnect" && payload.connectionVersion === null)
+    ) {
+      throw new ConnectorUserError("invalid_request", "Invalid authorization state.");
+    }
     const completed = await connectorImplementation(
-      authorization.connection.connector.type,
+      authorization.connector.type,
     ).completeAuthorization({
-      config: connectorConfig(authorization.connection.connector),
+      config: connectorConfig(authorization.connector),
       redirectUri,
       code: input.code,
       nonce: payload.nonce,
@@ -343,37 +420,65 @@ export async function completeAuthorizationCallback(
     });
     result = completed;
     await db.$transaction(async (tx) => {
-      const current = await tx.connectorAuthorization.findUniqueOrThrow({
+      const current = await tx.personalConnectionAuthorization.findUniqueOrThrow({
         where: { id: authorization.id },
       });
       if (current.completedAt || current.encryptedCredentials) {
         throw new ConnectorUserError("conflict", "Authorization was already completed.", 409);
       }
-      const activated = await tx.connectorConnection.updateMany({
-        where: {
-          id: authorization.connection.id,
-          version: payload.connectionVersion,
-          status: authorization.connection.status,
-          connector: { enabled: true },
-        },
-        data: {
-          providerAccountId: completed.account.id,
-          accountDisplayName: completed.account.displayName,
-          grantedScopes: completed.credentials.grantedScopes,
-          deviceId: payload.deviceId,
-          status: "READY",
-          connectedAt: new Date(),
-          version: { increment: 1 },
-        },
+      const connector = await tx.connector.findUnique({
+        where: { id: authorization.connectorId },
+        select: { enabled: true },
       });
-      if (activated.count !== 1) {
-        throw new ConnectorUserError(
-          "conflict",
-          "Connection changed while authorization was in progress. Retry from the CLI.",
-          409,
-        );
+      if (!connector?.enabled) {
+        throw new ConnectorUserError("disabled", "The connector is unavailable.", 409);
       }
-      await tx.connectorAuthorization.update({
+      if (authorization.mode === "connect") {
+        await tx.personalConnection.create({
+          data: {
+            id: authorization.connectionId,
+            connectorId: authorization.connectorId,
+            ownerId: authorization.ownerId,
+            name: authorization.connectionName,
+            providerAccountId: completed.account.id,
+            accountDisplayName: completed.account.displayName,
+            grantedScopes: completed.credentials.grantedScopes,
+            deviceId: payload.deviceId,
+            status: "READY",
+            connectedAt: new Date(),
+          },
+        });
+      } else {
+        if (payload.connectionVersion === null) {
+          throw new ConnectorUserError("invalid_request", "Invalid authorization state.");
+        }
+        const activated = await tx.personalConnection.updateMany({
+          where: {
+            id: authorization.connectionId,
+            connectorId: authorization.connectorId,
+            ownerId: authorization.ownerId,
+            version: payload.connectionVersion,
+            connector: { enabled: true },
+          },
+          data: {
+            providerAccountId: completed.account.id,
+            accountDisplayName: completed.account.displayName,
+            grantedScopes: completed.credentials.grantedScopes,
+            deviceId: payload.deviceId,
+            status: "READY",
+            connectedAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        if (activated.count !== 1) {
+          throw new ConnectorUserError(
+            "conflict",
+            "Connection changed while authorization was in progress. Retry from the CLI.",
+            409,
+          );
+        }
+      }
+      await tx.personalConnectionAuthorization.update({
         where: { id: authorization.id },
         data: {
           encryptedCredentials: sealConnectorValue(
@@ -385,16 +490,15 @@ export async function completeAuthorizationCallback(
           expiresAt: new Date(Date.now() + AUTHORIZATION_TTL_MS),
         },
       });
+      const connection = await tx.personalConnection.findUniqueOrThrow({
+        where: { id: authorization.connectionId },
+        include: userConnectionInclude,
+      });
       await prismaAuditWriter.write(
         connectionAudit(
           actor,
           authorization.mode === "reconnect" ? "connection.reconnected" : "connection.connected",
-          {
-            ...authorization.connection,
-            providerAccountId: completed.account.id,
-            grantedScopes: completed.credentials.grantedScopes,
-            status: "READY",
-          },
+          connection,
         ),
         tx,
       );
@@ -402,9 +506,9 @@ export async function completeAuthorizationCallback(
     scheduleAuthorizationCleanup(authorization.id);
   } catch (error) {
     if (result?.credentials.refreshToken) {
-      await connectorImplementation(authorization.connection.connector.type)
+      await connectorImplementation(authorization.connector.type)
         .revokeCredentials({
-          config: connectorConfig(authorization.connection.connector),
+          config: connectorConfig(authorization.connector),
           token: result.credentials.refreshToken,
         })
         .catch(() => undefined);
@@ -413,7 +517,7 @@ export async function completeAuthorizationCallback(
     if (isPrismaError(error, "P2002")) {
       throw new ConnectorUserError(
         "conflict",
-        "That Google account is already connected through this connector.",
+        "That connection name or Google account is already connected.",
         409,
       );
     }
@@ -421,68 +525,69 @@ export async function completeAuthorizationCallback(
   }
   if (!result) throw new Error("Authorization result was lost");
   return {
-    connectionName: authorization.connection.name,
+    connectionName: authorization.connectionName,
     accountDisplayName: result.account.displayName,
   };
 }
 
 async function failAuthorization(
   authorization: {
+    id: string;
+    connectionId: string;
+    connectionName: string;
+    connectorId: string;
+    ownerId: string;
     mode: string;
-    connection: Awaited<ReturnType<typeof loadUserConnection>>;
+    connector: { id: string; key: string };
   },
   actor: ConnectorUserActor,
 ) {
   await db.$transaction(async (tx) => {
-    if (authorization.mode === "connect") {
-      await tx.connectorConnection.updateMany({
-        where: { id: authorization.connection.id, status: "PENDING" },
-        data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
-      });
-    }
-    const current = await tx.connectorConnection.findUniqueOrThrow({
-      where: { id: authorization.connection.id },
-      include: userConnectionInclude,
-    });
     await prismaAuditWriter.write(
       {
-        ...connectionAudit(actor, "connection.authorization_failed", current),
+        ...authorizationAudit(actor, "connection.authorization_failed", authorization),
         outcome: "failed",
         reasonCode: "invalid_grant",
       },
       tx,
     );
+    await tx.personalConnectionAuthorization.deleteMany({ where: { id: authorization.id } });
   });
 }
 
 export async function consumeAuthorizationCredentials(
   ownerId: string,
-  selector: string,
+  authorizationId: string,
   deviceId: string,
-): Promise<{ connection: UserConnectionDto; credentials: LocalCredentials }> {
-  const connection = await loadUserConnection(ownerId, selector);
-  if (connection.deviceId !== parseDeviceId(deviceId)) {
-    throw new ConnectorUserError(
-      "authorization_required",
-      "Connection credentials belong to another device.",
-      409,
-    );
-  }
-  const authorization = await db.connectorAuthorization.findFirst({
-    where: { connectionId: connection.id, expiresAt: { gt: new Date() } },
-    orderBy: { createdAt: "desc" },
+): Promise<{ connection: PersonalConnectionDto; credentials: OAuthCredentials }> {
+  await pruneExpiredAuthorizations();
+  const authorization = await db.personalConnectionAuthorization.findFirst({
+    where: { id: authorizationId, ownerId, expiresAt: { gt: new Date() } },
   });
   if (!authorization) {
-    if (connection.status === "PENDING") {
-      throw new ConnectorUserError(
-        "authorization_pending",
-        "Authorization has not completed.",
-        202,
-      );
-    }
     throw new ConnectorUserError(
       "authorization_required",
       "Authorization is no longer active. Retry the connection flow.",
+      409,
+    );
+  }
+  const payload = z
+    .object({
+      nonce: z.string().min(20),
+      codeVerifier: z.string().min(43),
+      deviceId: z.string().regex(deviceIdPattern),
+      connectionVersion: z.number().int().positive().nullable(),
+    })
+    .strict()
+    .parse(
+      JSON.parse(
+        unsealConnectorValue("authorization", authorization.id, authorization.encryptedPayload),
+      ),
+    );
+  if (payload.deviceId !== parseDeviceId(deviceId)) {
+    throw new ConnectorUserError(
+      "authorization_required",
+      "Connection credentials belong to another device.",
       409,
     );
   }
@@ -490,19 +595,6 @@ export async function consumeAuthorizationCredentials(
     throw new ConnectorUserError(
       "authorization_required",
       "Authorization was not completed. Retry the connection flow.",
-      409,
-    );
-  }
-  if (
-    authorization.completedAt &&
-    (!connection.connector.enabled || connection.status !== "READY")
-  ) {
-    await db.connectorAuthorization.delete({ where: { id: authorization.id } });
-    throw new ConnectorUserError(
-      connection.status === "DISABLED" || !connection.connector.enabled
-        ? "disabled"
-        : "authorization_required",
-      "Connection credentials are no longer available. Retry authorization.",
       409,
     );
   }
@@ -516,7 +608,24 @@ export async function consumeAuthorizationCredentials(
   if (!authorization.completedAt || !authorization.encryptedCredentials) {
     throw new ConnectorUserError("authorization_pending", "Authorization has not completed.", 202);
   }
-  const claimed = await db.connectorAuthorization.updateMany({
+  const connection = await db.personalConnection.findFirst({
+    where: {
+      id: authorization.connectionId,
+      connectorId: authorization.connectorId,
+      ownerId,
+      status: "READY",
+    },
+    include: userConnectionInclude,
+  });
+  if (!connection?.connector.enabled) {
+    await db.personalConnectionAuthorization.delete({ where: { id: authorization.id } });
+    throw new ConnectorUserError(
+      connection ? "disabled" : "authorization_required",
+      "Connection credentials are no longer available. Retry authorization.",
+      409,
+    );
+  }
+  const claimed = await db.personalConnectionAuthorization.updateMany({
     where: {
       id: authorization.id,
       completedAt: { not: null },
@@ -532,7 +641,7 @@ export async function consumeAuthorizationCredentials(
       410,
     );
   }
-  const credentials = localCredentialsSchema.parse(
+  const credentials = oauthCredentialsSchema.parse(
     JSON.parse(
       unsealConnectorValue("handoff", authorization.id, authorization.encryptedCredentials),
     ),
@@ -545,14 +654,14 @@ export async function renameUserConnection(
   selector: string,
   name: string,
   expectedVersion: number,
-): Promise<UserConnectionDto> {
+): Promise<PersonalConnectionDto> {
   const connection = await loadUserConnection(ownerId, selector);
   if (connection.version !== expectedVersion) {
     throw new ConnectorUserError("conflict", "Connection changed. Reload and try again.", 409);
   }
   try {
     return await db.$transaction(async (tx) => {
-      const write = await tx.connectorConnection.updateMany({
+      const write = await tx.personalConnection.updateMany({
         where: { id: connection.id, ownerId, version: expectedVersion },
         data: { name: parseConnectionName(name), version: { increment: 1 } },
       });
@@ -560,7 +669,7 @@ export async function renameUserConnection(
         throw new ConnectorUserError("conflict", "Connection changed. Reload and try again.", 409);
       }
       return serializeUserConnection(
-        await tx.connectorConnection.findUniqueOrThrow({
+        await tx.personalConnection.findUniqueOrThrow({
           where: { id: connection.id },
           include: userConnectionInclude,
         }),
@@ -583,7 +692,7 @@ export async function refreshUserConnection(
   selector: string,
   refreshToken: string,
   actor: ConnectorUserActor,
-): Promise<LocalCredentials> {
+): Promise<OAuthCredentials> {
   const connection = await loadUsableConnection(ownerId, selector);
   try {
     const credentials = await connectorImplementation(connection.connector.type).refreshCredentials(
@@ -602,7 +711,7 @@ export async function refreshUserConnection(
       error instanceof ConnectorAuthorizationError && error.reconnectRequired;
     await db.$transaction(async (tx) => {
       if (reconnectRequired) {
-        await tx.connectorConnection.update({
+        await tx.personalConnection.update({
           where: { id: connection.id },
           data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
         });
@@ -661,8 +770,8 @@ export async function issueConnectionLease(
             : "invalid_resource",
       });
     }
-    if (connection.status === "DISABLED" || !connection.connector.enabled) {
-      throw new ConnectorUserError("disabled", "Connection is disabled.", 403);
+    if (!connection.connector.enabled) {
+      throw new ConnectorUserError("disabled", "Connector is disabled.", 403);
     }
     if (connection.status !== "READY") {
       throw new ConnectorUserError(
@@ -692,7 +801,7 @@ export async function issueConnectionLease(
       "weldall-connection-lease+jwt",
     );
     await db.$transaction(async (tx) => {
-      const usable = await tx.connectorConnection.updateMany({
+      const usable = await tx.personalConnection.updateMany({
         where: {
           id: connection.id,
           ownerId: actor.id,
@@ -702,7 +811,7 @@ export async function issueConnectionLease(
         data: { lastLeaseAt: new Date() },
       });
       if (usable.count !== 1) {
-        throw new ConnectorUserError("disabled", "Connection is no longer available.", 403);
+        throw new ConnectorUserError("not_found", "Connection is no longer available.", 404);
       }
       await prismaAuditWriter.write(
         {
@@ -739,56 +848,68 @@ export async function disconnectUserConnection(
   selector: string,
   token: string | undefined,
   actor: ConnectorUserActor,
-): Promise<UserConnectionDto> {
+): Promise<UserDisconnectResult> {
+  const parsedToken = token ? parseToken(token) : undefined;
   const connection = await loadUserConnection(ownerId, selector);
-  if (connection.status === "DISCONNECTED") return serializeUserConnection(connection);
-  const revocationAttempted = Boolean(token);
-  let revocationConfirmed = false;
-  if (token) {
-    revocationConfirmed = await connectorImplementation(connection.connector.type)
-      .revokeCredentials({
-        config: connectorConfig(connection.connector),
-        token: parseToken(token),
-      })
-      .then(() => true)
-      .catch(() => false);
-  }
-  return db.$transaction(async (tx) => {
-    await tx.connectorAuthorization.deleteMany({ where: { connectionId: connection.id } });
-    const row = await tx.connectorConnection.update({
+  const deleted = await db.$transaction(async (tx) => {
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "PersonalConnection" WHERE "id" = ${connection.id} FOR UPDATE`,
+    );
+    const current = await tx.personalConnection.findUnique({
       where: { id: connection.id },
-      data: { status: "DISCONNECTED", version: { increment: 1 } },
       include: userConnectionInclude,
     });
+    if (!current || current.ownerId !== ownerId) {
+      throw new ConnectorUserError("not_found", "Connection was not found.", 404);
+    }
+    await tx.personalConnectionAuthorization.deleteMany({ where: { connectionId: current.id } });
+    const removed = await tx.personalConnection.deleteMany({
+      where: { id: current.id, ownerId },
+    });
+    if (removed.count !== 1) {
+      throw new ConnectorUserError("not_found", "Connection was not found.", 404);
+    }
     await prismaAuditWriter.write(
-      {
-        ...connectionAudit(actor, "connection.disconnected", row),
-        metadata: {
-          ...connectionMetadata(row),
-          revocationAttempted,
-          revocationConfirmed,
-        },
-      },
+      connectionAudit(actor, "connection.disconnected", current, {
+        revocationAttempted: Boolean(parsedToken),
+      }),
       tx,
     );
-    return serializeUserConnection(row);
+    return current;
   });
+
+  if (!parsedToken) {
+    return { id: deleted.id, name: deleted.name, providerRevocation: "not_requested" };
+  }
+  const providerRevocation = await connectorImplementation(deleted.connector.type)
+    .revokeCredentials({
+      config: connectorConfig(deleted.connector),
+      token: parsedToken,
+    })
+    .then(() => "confirmed" as const)
+    .catch(() => "failed" as const);
+  return { id: deleted.id, name: deleted.name, providerRevocation };
 }
 
 async function loadUserConnection(ownerId: string, selector: string) {
   await pruneExpiredAuthorizations();
-  const row = await db.connectorConnection.findFirst({
-    where: { ownerId, OR: [{ id: selector }, { name: selector }] },
-    include: userConnectionInclude,
-  });
+  const row =
+    (await db.personalConnection.findFirst({
+      where: { ownerId, id: selector },
+      include: userConnectionInclude,
+    })) ??
+    (await db.personalConnection.findFirst({
+      where: { ownerId, name: selector },
+      include: userConnectionInclude,
+    }));
   if (!row) throw new ConnectorUserError("not_found", "Connection was not found.", 404);
   return row;
 }
 
 async function loadUsableConnection(ownerId: string, selector: string) {
   const row = await loadUserConnection(ownerId, selector);
-  if (!row.connector.enabled || row.status === "DISABLED") {
-    throw new ConnectorUserError("disabled", "Connection is disabled.", 403);
+  if (!row.connector.enabled) {
+    throw new ConnectorUserError("disabled", "Connector is disabled.", 403);
   }
   if (row.status !== "READY") {
     throw new ConnectorUserError(
@@ -816,7 +937,6 @@ function serializeUserConnector(row: {
     type: row.type,
     enabledApis: row.enabledApis,
     oauthScopes: row.oauthScopes,
-    credentialModes: ["local"],
     allowedTargetPrefixes: allowedTargetPrefixes(row.enabledApis),
   };
 }
@@ -825,13 +945,12 @@ function serializeUserConnection(row: {
   id: string;
   name: string;
   connectorId: string;
-  providerAccountId: string | null;
-  accountDisplayName: string | null;
-  credentialMode: string;
+  providerAccountId: string;
+  accountDisplayName: string;
   deviceId: string;
   status: string;
   grantedScopes: string[];
-  connectedAt: Date | null;
+  connectedAt: Date;
   lastLeaseAt: Date | null;
   version: number;
   connector: {
@@ -839,25 +958,20 @@ function serializeUserConnection(row: {
     name: string;
     enabledApis: string[];
   };
-}): UserConnectionDto {
-  if (row.credentialMode !== "local") throw new Error("Unsupported credential mode");
+}): PersonalConnectionDto {
   return {
     id: row.id,
     name: row.name,
     connectorId: row.connectorId,
     connectorKey: row.connector.key,
     connectorName: row.connector.name,
-    account:
-      row.providerAccountId && row.accountDisplayName
-        ? { id: row.providerAccountId, displayName: row.accountDisplayName }
-        : null,
-    credentialMode: "local",
+    account: { id: row.providerAccountId, displayName: row.accountDisplayName },
     deviceId: row.deviceId,
     status: statusForApi(row.status),
     enabledApis: enabledApisForScopes(row.connector.enabledApis, row.grantedScopes),
     grantedScopes: row.grantedScopes,
     allowedTargetPrefixes: allowedTargetPrefixes(row.connector.enabledApis, row.grantedScopes),
-    connectedAt: row.connectedAt?.toISOString() ?? null,
+    connectedAt: row.connectedAt.toISOString(),
     lastUsedAt: row.lastLeaseAt?.toISOString() ?? null,
     version: row.version,
   };
@@ -866,14 +980,13 @@ function serializeUserConnection(row: {
 function connectionAudit(
   actor: ConnectorUserActor,
   eventType:
-    | "connection.authorization_started"
     | "connection.connected"
-    | "connection.authorization_failed"
     | "connection.reconnected"
     | "connection.disconnected"
     | "connection_credential.refreshed"
     | "connection_credential.refresh_failed",
   row: Parameters<typeof connectionMetadata>[0],
+  extra: { revocationAttempted?: boolean } = {},
 ) {
   return {
     eventType,
@@ -885,16 +998,52 @@ function connectionAudit(
     outcome: "success" as const,
     subjectType: "connection",
     subjectId: row.id,
-    metadata: connectionMetadata(row),
+    metadata: { ...connectionMetadata(row), ...extra },
+  };
+}
+
+function authorizationAudit(
+  actor: ConnectorUserActor,
+  eventType: "connection.authorization_started" | "connection.authorization_failed",
+  authorization: {
+    connectionId: string;
+    connectionName: string;
+    ownerId: string;
+    mode: string;
+    connector: { id: string; key: string };
+  },
+) {
+  if (authorization.mode !== "connect" && authorization.mode !== "reconnect") {
+    throw new Error("Unsupported authorization mode");
+  }
+  return {
+    eventType,
+    actorType: "user" as const,
+    actorId: actor.id,
+    actorEmail: actor.email,
+    requestId: actor.requestId,
+    ...(actor.correlationId ? { correlationId: actor.correlationId } : {}),
+    outcome: "success" as const,
+    subjectType: "connection",
+    subjectId: authorization.connectionId,
+    metadata: {
+      connectorId: authorization.connector.id,
+      connectorKey: authorization.connector.key,
+      connectionId: authorization.connectionId,
+      connectionName: authorization.connectionName,
+      ownerId: authorization.ownerId,
+      authorizationMode: authorization.mode,
+    },
   };
 }
 
 function connectionMetadata(row: {
   id: string;
+  name: string;
   ownerId: string;
-  providerAccountId: string | null;
+  providerAccountId: string;
+  accountDisplayName: string;
   grantedScopes: string[];
-  credentialMode: string;
   status: string;
   connector: { id: string; key: string };
 }) {
@@ -902,10 +1051,11 @@ function connectionMetadata(row: {
     connectorId: row.connector.id,
     connectorKey: row.connector.key,
     connectionId: row.id,
+    connectionName: row.name,
     ownerId: row.ownerId,
-    credentialMode: row.credentialMode,
     status: statusForApi(row.status),
-    ...(row.providerAccountId ? { providerAccountId: row.providerAccountId } : {}),
+    providerAccountId: row.providerAccountId,
+    accountDisplayName: row.accountDisplayName,
     grantedScopes: row.grantedScopes,
   };
 }
@@ -971,7 +1121,7 @@ function safeAuditTarget(raw: string): URL | null {
   }
 }
 
-const localCredentialsSchema = z
+const oauthCredentialsSchema = z
   .object({
     accessToken: z.string().min(1).max(20_000),
     refreshToken: z.string().min(1).max(20_000),
@@ -982,12 +1132,14 @@ const localCredentialsSchema = z
   .strict();
 
 async function pruneExpiredAuthorizations(): Promise<void> {
-  await db.connectorAuthorization.deleteMany({ where: { expiresAt: { lte: new Date() } } });
+  await db.personalConnectionAuthorization.deleteMany({
+    where: { expiresAt: { lte: new Date() } },
+  });
 }
 
 function scheduleAuthorizationCleanup(id: string): void {
   const timer = setTimeout(() => {
-    void db.connectorAuthorization
+    void db.personalConnectionAuthorization
       .deleteMany({ where: { id, expiresAt: { lte: new Date() } } })
       .catch(() => undefined);
   }, AUTHORIZATION_TTL_MS + 1_000);

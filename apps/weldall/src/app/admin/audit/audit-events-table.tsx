@@ -49,7 +49,15 @@ const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 type AuditRow = Omit<AuditEventDto, "metadata"> & { metadata?: unknown };
 const emptyAuditEvents: AuditRow[] = [];
 
-export function AuditEventsTable({ userId }: { userId?: string } = {}) {
+export function AuditEventsTable({
+  userId,
+  subjectId,
+  subjectType,
+}: {
+  userId?: string;
+  subjectId?: string;
+  subjectType?: string;
+} = {}) {
   const trpc = useTRPC();
   const [selectedEvent, setSelectedEvent] = useState<AuditRow | null>(null);
   const [{ from, to, eventType, outcome, actorEmail, page, sort: sorting }, setTableQuery] =
@@ -99,6 +107,7 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
       ...(selectedEventType ? { eventType: selectedEventType } : {}),
       ...(selectedOutcome ? { outcome: selectedOutcome } : {}),
       ...(userId ? { userId } : actorEmail ? { email: actorEmail } : {}),
+      ...(subjectId && subjectType ? { subjectId, subjectType } : {}),
       sort: sortingToAuditSort(sorting),
     }),
   );
@@ -246,7 +255,13 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
         <Banner
           container="card"
           status="error"
-          title={userId ? "Could not load user audit events" : "Could not load audit events"}
+          title={
+            userId
+              ? "Could not load user audit events"
+              : subjectId
+                ? "Could not load subject audit events"
+                : "Could not load audit events"
+          }
           description={auditQuery.error.message}
         />
       ) : null}
@@ -300,7 +315,9 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
                       <Text color="secondary">
                         {userId
                           ? "No audit events for this user match these filters."
-                          : "No audit events match these filters."}
+                          : subjectId
+                            ? "No audit events for this subject match these filters."
+                            : "No audit events match these filters."}
                       </Text>
                     </TableCell>
                   </TableRow>
@@ -318,7 +335,13 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination
-            label={userId ? "User audit event pages" : "Audit event pages"}
+            label={
+              userId
+                ? "User audit event pages"
+                : subjectId
+                  ? "Subject audit event pages"
+                  : "Audit event pages"
+            }
             onChange={(nextPage) => table.setPageIndex(nextPage - 1)}
             page={pagination.pageIndex + 1}
             pageSize={pagination.pageSize}

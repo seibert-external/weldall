@@ -8,17 +8,18 @@ datasource db {
 }
 
 model User {
-  id                          String                @id
-  name                        String
-  email                       String                @unique
-  emailVerified               Boolean
-  image                       String?
-  createdAt                   DateTime              @default(now())
-  updatedAt                   DateTime              @updatedAt
-  sessions                    Session[]
-  accounts                    Account[]
-  completedLoginInstallations LoginInstallation[]
-  connectorConnections        ConnectorConnection[]
+  id                               String                            @id
+  name                             String
+  email                            String                            @unique
+  emailVerified                    Boolean
+  image                            String?
+  createdAt                        DateTime                          @default(now())
+  updatedAt                        DateTime                          @updatedAt
+  sessions                         Session[]
+  accounts                         Account[]
+  completedLoginInstallations      LoginInstallation[]
+  personalConnections              PersonalConnection[]
+  personalConnectionAuthorizations PersonalConnectionAuthorization[]
 }
 
 model Scope {
@@ -67,54 +68,51 @@ model EmailScopeGrant {
   @@index([scopeId])
 }
 
-enum ConnectorStatus {
-  PENDING
+enum PersonalConnectionStatus {
   READY
   RECONNECT_REQUIRED
-  DISABLED
-  DISCONNECTED
 }
 
 model Connector {
-  id                         String                @id @default(cuid())
-  key                        String                @unique
-  name                       String
-  type                       String
-  enabled                    Boolean               @default(true)
-  enabledApis                String[]
-  oauthScopes                String[]
-  oauthClientId              String
-  encryptedOAuthClientSecret String
-  version                    Int                   @default(1)
-  createdAt                  DateTime              @default(now())
-  updatedAt                  DateTime              @updatedAt
-  createdBy                  String
-  updatedBy                  String
-  connections                ConnectorConnection[]
+  id                               String                            @id @default(cuid())
+  key                              String                            @unique
+  name                             String
+  type                             String
+  enabled                          Boolean                           @default(true)
+  enabledApis                      String[]
+  oauthScopes                      String[]
+  oauthClientId                    String
+  encryptedOAuthClientSecret       String
+  version                          Int                               @default(1)
+  createdAt                        DateTime                          @default(now())
+  updatedAt                        DateTime                          @updatedAt
+  createdBy                        String
+  updatedBy                        String
+  personalConnections              PersonalConnection[]
+  personalConnectionAuthorizations PersonalConnectionAuthorization[]
 
   @@index([enabled])
   @@index([updatedAt])
 }
 
-model ConnectorConnection {
-  id                 String                  @id @default(cuid())
+/// User-owned, device-local connection. Future SharedConnection is a separate primitive.
+model PersonalConnection {
+  id                 String                   @id @default(cuid())
   connectorId        String
   ownerId            String
   name               String
-  providerAccountId  String?
-  accountDisplayName String?
-  grantedScopes      String[]                @default([])
-  credentialMode     String                  @default("local")
+  providerAccountId  String
+  accountDisplayName String
+  grantedScopes      String[]                 @default([])
   deviceId           String
-  status             ConnectorStatus         @default(PENDING)
-  version            Int                     @default(1)
-  connectedAt        DateTime?
+  status             PersonalConnectionStatus @default(READY)
+  version            Int                      @default(1)
+  connectedAt        DateTime                 @default(now())
   lastLeaseAt        DateTime?
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
-  connector          Connector               @relation(fields: [connectorId], references: [id], onDelete: Restrict)
-  owner              User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  authorization      ConnectorAuthorization?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  connector          Connector                @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  owner              User                     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@unique([ownerId, name])
   @@unique([connectorId, ownerId, providerAccountId])
@@ -123,10 +121,15 @@ model ConnectorConnection {
   @@index([updatedAt])
 }
 
-model ConnectorAuthorization {
-  id                    String              @id @default(cuid())
-  connectionId          String              @unique
-  stateHash             String              @unique
+/// Temporary OAuth handoff for a personal connection, not a managed credential store.
+model PersonalConnectionAuthorization {
+  id                    String    @id @default(cuid())
+  // Reserves the eventual connection ID; initial authorization exists before that row does.
+  connectionId          String    @unique
+  connectorId           String
+  ownerId               String
+  connectionName        String
+  stateHash             String    @unique
   encryptedPayload      String
   encryptedCredentials  String?
   mode                  String
@@ -134,9 +137,11 @@ model ConnectorAuthorization {
   callbackConsumedAt    DateTime?
   credentialsConsumedAt DateTime?
   completedAt           DateTime?
-  createdAt             DateTime            @default(now())
-  connection            ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  createdAt             DateTime  @default(now())
+  connector             Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  owner                 User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
+  @@unique([ownerId, connectionName])
   @@index([expiresAt])
 }
 

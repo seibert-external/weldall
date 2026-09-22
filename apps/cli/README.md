@@ -121,14 +121,17 @@ then groups scopes that are currently usable by enabled APIs. It explains common
 such as `expenses:read` while still showing the exact scope needed by scripts and API requests.
 
 `weldall connectors` discovers administrator-configured provider connectors. `weldall connections`
-connects, lists, renames, reauthorizes, and disconnects personal provider accounts. Google access and
+connects, lists, renames, reauthorizes, and disconnects personal provider accounts (`PersonalConnection`).
+These are owner/device-local connections, not a mode of a shared account. Future `SharedConnection`
+will be a separate primitive with server-held credentials and access grants; it is not implemented here.
+Google access and
 refresh tokens remain in the operating-system secure credential store. Before every direct provider
 request, Weldall checks the account, connector status, method, and target and issues a signed,
 one-minute connection lease; the provider token is sent only after that check. Direct requests reject
 redirects and caller-supplied authorization, cookie, host, proxy, forwarding, and hop-by-hop headers.
 
-`weldall request` accepts exactly one authorization mode: `--connection <name-or-id>` for a configured
-provider account, or explicit repeatable `--scope` values for a registered Weldall resource. It also
+`weldall request` accepts exactly one authorization mode: `--connection <name-or-id>` for a personal
+provider connection, or explicit repeatable `--scope` values for a registered Weldall resource. It also
 accepts an optional `--method`, additional headers, and text, JSON, raw file, or multipart request bodies. Use
 `-T, --upload-file <path>` for a binary-safe raw upload. It defaults to `application/octet-stream`;
 set a more specific `Content-Type` with `--header` when the API requires one. Use repeatable

@@ -1,11 +1,9 @@
-export type CredentialMode = "local";
 export type GoogleApi = "gmail" | "calendar";
 
 export interface ConnectorDefinition {
   type: "google";
   name: string;
   configurationVersion: "1";
-  credentialModes: readonly ["local"];
   availableApis: readonly GoogleApi[];
 }
 
@@ -26,7 +24,8 @@ export class ConnectorAuthorizationError extends Error {
   }
 }
 
-export interface LocalCredentials {
+/** Provider token format, independent of where the caller stores it. */
+export interface OAuthCredentials {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
@@ -36,7 +35,7 @@ export interface LocalCredentials {
 
 export interface AuthorizationResult {
   account: { id: string; displayName: string };
-  credentials: LocalCredentials;
+  credentials: OAuthCredentials;
 }
 
 export interface ConnectorImplementation<TConfig> {
@@ -60,6 +59,6 @@ export interface ConnectorImplementation<TConfig> {
     config: TConfig;
     refreshToken: string;
     grantedScopes: string[];
-  }): Promise<LocalCredentials>;
+  }): Promise<OAuthCredentials>;
   revokeCredentials(input: { config: TConfig; token: string }): Promise<void>;
 }

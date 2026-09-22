@@ -58,11 +58,12 @@ import { refreshResourceCatalog } from "../skills/catalogs";
 import {
   createConnector,
   deleteConnector,
+  disconnectAdminConnection,
+  getAdminConnection,
   getConnector,
   listAdminConnections,
   listConnectors,
   testConnector,
-  updateConnectionStatus,
   updateConnector,
 } from "../connectors/admin-service";
 import { errorForLog, logger } from "../observability/logger";
@@ -214,6 +215,8 @@ export const appRouter = trpc.router({
               outcome: z.enum(["success", "denied", "failed"]).optional(),
               email: z.string().max(320).optional(),
               userId: z.string().min(1).max(191).optional(),
+              subjectType: z.string().min(1).max(100).optional(),
+              subjectId: z.string().min(1).max(2_000).optional(),
               sort: z.enum(["occurredAt.asc", "occurredAt.desc"]).default("occurredAt.desc"),
             })
             .strict()
@@ -222,12 +225,23 @@ export const appRouter = trpc.router({
             })
             .refine((input) => !input.email || !input.userId, {
               message: "Choose either an email filter or a user, not both.",
-            }),
+            })
+            .refine(
+              (input) => (input.subjectType === undefined) === (input.subjectId === undefined),
+              { message: "Subject type and ID must be provided together." },
+            ),
         )
         .query(({ input }) => {
-          const { userId, ...auditInput } = input;
+          const { userId, subjectType, subjectId, ...auditInput } = input;
           return mapDomainErrors(() =>
-            userId ? listUserAuditEvents(userId, auditInput) : listAuditEvents(auditInput),
+            userId
+              ? listUserAuditEvents(userId, auditInput)
+              : listAuditEvents({
+                  ...auditInput,
+                  ...(subjectType && subjectId
+                    ? { subject: { type: subjectType, id: subjectId } }
+                    : {}),
+                }),
           );
         }),
       get: adminProcedure
@@ -597,9 +611,7 @@ export const appRouter = trpc.router({
           z
             .object({
               ...pageInput,
-              status: z
-                .enum(["pending", "ready", "reconnect_required", "disabled", "disconnected"])
-                .optional(),
+              status: z.enum(["ready", "reconnect_required"]).optional(),
               connectorId: z.string().min(1).max(191).optional(),
               sort: z
                 .enum(["updatedAt.asc", "updatedAt.desc", "name.asc", "name.desc"])
@@ -608,18 +620,20 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .query(({ input }) => mapDomainErrors(() => listAdminConnections(input))),
-      setStatus: adminProcedure
+      get: adminProcedure
+        .input(z.object({ id: z.string().min(1).max(191) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getAdminConnection(input.id))),
+      disconnect: adminProcedure
         .input(
           z
             .object({
               id: z.string().min(1).max(191),
-              status: z.enum(["ready", "disabled", "reconnect_required"]),
               expectedVersion: z.number().int().positive(),
             })
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => updateConnectionStatus(input, ctx.adminActor)),
+          mapDomainErrors(() => disconnectAdminConnection(input, ctx.adminActor)),
         ),
     }),
     groupProviders: trpc.router({

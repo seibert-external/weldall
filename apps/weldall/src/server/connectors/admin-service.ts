@@ -25,26 +25,25 @@ export interface ConnectorDto {
   updatedAt: string;
 }
 
-export interface AdminConnectionDto {
+export interface AdminPersonalConnectionDto {
   id: string;
   name: string;
   owner: { id: string; name: string; email: string };
   connector: { id: string; key: string; name: string };
-  accountDisplayName: string | null;
-  providerAccountId: string | null;
+  accountDisplayName: string;
+  providerAccountId: string;
   grantedScopes: string[];
   enabledApis: GoogleApi[];
-  credentialMode: "local";
   deviceId: string;
-  status: "pending" | "ready" | "reconnect_required" | "disabled" | "disconnected";
-  connectedAt: string | null;
+  status: "ready" | "reconnect_required";
+  connectedAt: string;
   lastLeaseAt: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
 }
 
-const connectorInclude = { _count: { select: { connections: true } } } as const;
+const connectorInclude = { _count: { select: { personalConnections: true } } } as const;
 const connectionInclude = {
   owner: { select: { id: true, name: true, email: true } },
   connector: {
@@ -156,8 +155,8 @@ export async function updateConnector(
       enabledApis: input.enabledApis,
       oauthScopes: input.oauthScopes,
     });
-    await tx.connectorAuthorization.deleteMany({
-      where: { connection: { connectorId: current.id } },
+    await tx.personalConnectionAuthorization.deleteMany({
+      where: { connectorId: current.id },
     });
     const write = await tx.connector.updateMany({
       where: { id: current.id, version: input.expectedVersion },
@@ -257,7 +256,7 @@ export async function deleteConnector(
     });
     if (!row) throw new AdminDomainError("NOT_FOUND", "Connector not found.");
     if (row.version !== input.expectedVersion) throw changed();
-    if (row._count.connections > 0) {
+    if (row._count.personalConnections > 0) {
       throw new AdminDomainError(
         "CONFLICT",
         "A connector with connections cannot be deleted. Disable it instead.",
@@ -276,12 +275,12 @@ export async function listAdminConnections(input: {
   page: number;
   pageSize: number;
   q?: string | undefined;
-  status?: AdminConnectionDto["status"] | undefined;
+  status?: AdminPersonalConnectionDto["status"] | undefined;
   connectorId?: string | undefined;
   sort: "updatedAt.asc" | "updatedAt.desc" | "name.asc" | "name.desc";
-}): Promise<{ items: AdminConnectionDto[]; total: number }> {
+}): Promise<{ items: AdminPersonalConnectionDto[]; total: number }> {
   const q = input.q?.trim();
-  const where: Prisma.ConnectorConnectionWhereInput = {
+  const where: Prisma.PersonalConnectionWhereInput = {
     ...(input.status ? { status: statusForDatabase(input.status) } : {}),
     ...(input.connectorId ? { connectorId: input.connectorId } : {}),
     ...(q
@@ -297,76 +296,49 @@ export async function listAdminConnections(input: {
   };
   const [field, direction] = input.sort.split(".") as ["updatedAt" | "name", "asc" | "desc"];
   const [items, total] = await Promise.all([
-    db.connectorConnection.findMany({
+    db.personalConnection.findMany({
       where,
       orderBy: [{ [field]: direction }, { id: direction }],
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
       include: connectionInclude,
     }),
-    db.connectorConnection.count({ where }),
+    db.personalConnection.count({ where }),
   ]);
   return { items: items.map(serializeAdminConnection), total };
 }
 
-export async function updateConnectionStatus(
-  input: {
-    id: string;
-    status: "ready" | "disabled" | "reconnect_required";
-    expectedVersion: number;
-  },
+export async function getAdminConnection(id: string): Promise<AdminPersonalConnectionDto> {
+  const row = await db.personalConnection.findUnique({
+    where: { id },
+    include: connectionInclude,
+  });
+  if (!row) throw new AdminDomainError("NOT_FOUND", "Connection not found.");
+  return serializeAdminConnection(row);
+}
+
+export async function disconnectAdminConnection(
+  input: { id: string; expectedVersion: number },
   actor: AdminActor,
-): Promise<AdminConnectionDto> {
+): Promise<{ id: string }> {
   return db.$transaction(async (tx) => {
-    const current = await tx.connectorConnection.findUnique({
+    const current = await tx.personalConnection.findUnique({
       where: { id: input.id },
-      include: { connector: true },
+      include: connectionInclude,
     });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Connection not found.");
     if (current.version !== input.expectedVersion) {
       throw new AdminDomainError("CONFLICT", "Connection changed. Reload and try again.");
     }
-    if (current.status === "DISCONNECTED") {
-      throw new AdminDomainError("CONFLICT", "A disconnected connection cannot be re-enabled.");
-    }
-    if (
-      input.status === "ready" &&
-      (current.status !== "DISABLED" ||
-        !current.connector.enabled ||
-        !current.providerAccountId ||
-        !current.connectedAt)
-    ) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        "Only a previously disabled connection on an enabled connector can be re-enabled.",
-      );
-    }
-    await tx.connectorAuthorization.deleteMany({ where: { connectionId: current.id } });
-    const write = await tx.connectorConnection.updateMany({
+    await tx.personalConnectionAuthorization.deleteMany({ where: { connectionId: current.id } });
+    const removed = await tx.personalConnection.deleteMany({
       where: { id: current.id, version: input.expectedVersion },
-      data: { status: statusForDatabase(input.status), version: { increment: 1 } },
     });
-    if (write.count !== 1) {
+    if (removed.count !== 1) {
       throw new AdminDomainError("CONFLICT", "Connection changed. Reload and try again.");
     }
-    const row = await tx.connectorConnection.findUniqueOrThrow({
-      where: { id: current.id },
-      include: connectionInclude,
-    });
-    const event =
-      input.status === "ready"
-        ? "connection.enabled"
-        : input.status === "disabled"
-          ? "connection.disabled"
-          : "connection.reconnect_required";
-    await prismaAuditWriter.write(
-      connectionAudit(actor, event, {
-        ...row,
-        connector: { ...current.connector, ...row.connector },
-      }),
-      tx,
-    );
-    return serializeAdminConnection(row);
+    await prismaAuditWriter.write(connectionAudit(actor, current), tx);
+    return { id: current.id };
   });
 }
 
@@ -398,7 +370,7 @@ function serializeConnector(row: {
   version: number;
   createdAt: Date;
   updatedAt: Date;
-  _count: { connections: number };
+  _count: { personalConnections: number };
 }): ConnectorDto {
   if (row.type !== "google") throw new Error("Unsupported stored connector type");
   return {
@@ -411,7 +383,7 @@ function serializeConnector(row: {
     oauthScopes: row.oauthScopes,
     oauthClientId: row.oauthClientId,
     hasClientSecret: Boolean(row.encryptedOAuthClientSecret),
-    connectionCount: row._count.connections,
+    connectionCount: row._count.personalConnections,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -421,21 +393,19 @@ function serializeConnector(row: {
 function serializeAdminConnection(row: {
   id: string;
   name: string;
-  accountDisplayName: string | null;
-  providerAccountId: string | null;
+  accountDisplayName: string;
+  providerAccountId: string;
   grantedScopes: string[];
-  credentialMode: string;
   deviceId: string;
   status: string;
-  connectedAt: Date | null;
+  connectedAt: Date;
   lastLeaseAt: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
   owner: { id: string; name: string; email: string };
   connector: { id: string; key: string; name: string; enabledApis: string[] };
-}): AdminConnectionDto {
-  if (row.credentialMode !== "local") throw new Error("Unsupported credential mode");
+}): AdminPersonalConnectionDto {
   return {
     id: row.id,
     name: row.name,
@@ -445,10 +415,9 @@ function serializeAdminConnection(row: {
     providerAccountId: row.providerAccountId,
     grantedScopes: row.grantedScopes,
     enabledApis: row.connector.enabledApis.map(parseApi),
-    credentialMode: row.credentialMode,
     deviceId: row.deviceId,
     status: statusForApi(row.status),
-    connectedAt: row.connectedAt?.toISOString() ?? null,
+    connectedAt: row.connectedAt.toISOString(),
     lastLeaseAt: row.lastLeaseAt?.toISOString() ?? null,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
@@ -480,22 +449,18 @@ function parseApi(value: string): GoogleApi {
   return value;
 }
 
-export function statusForApi(value: string): AdminConnectionDto["status"] {
+export function statusForApi(value: string): AdminPersonalConnectionDto["status"] {
   const statuses = {
-    PENDING: "pending",
     READY: "ready",
     RECONNECT_REQUIRED: "reconnect_required",
-    DISABLED: "disabled",
-    DISCONNECTED: "disconnected",
   } as const;
   const status = statuses[value as keyof typeof statuses];
   if (!status) throw new Error("Unsupported stored connection status");
   return status;
 }
 
-function statusForDatabase(value: AdminConnectionDto["status"]) {
-  return value.toUpperCase() as
-    "PENDING" | "READY" | "RECONNECT_REQUIRED" | "DISABLED" | "DISCONNECTED";
+function statusForDatabase(value: AdminPersonalConnectionDto["status"]) {
+  return value.toUpperCase() as "READY" | "RECONNECT_REQUIRED";
 }
 
 async function writeConnectorAudit(
@@ -540,19 +505,19 @@ async function writeConnectorAudit(
 
 function connectionAudit(
   actor: AdminActor,
-  eventType: "connection.enabled" | "connection.disabled" | "connection.reconnect_required",
   row: {
     id: string;
+    name: string;
     ownerId: string;
-    credentialMode: string;
+    accountDisplayName: string;
     status: string;
-    providerAccountId: string | null;
+    providerAccountId: string;
     grantedScopes: string[];
     connector: { id: string; key: string };
   },
 ) {
   return {
-    eventType,
+    eventType: "connection.disconnected" as const,
     actorType: "user" as const,
     actorId: actor.id,
     ...(actor.email ? { actorEmail: actor.email } : {}),
@@ -565,11 +530,13 @@ function connectionAudit(
       connectorId: row.connector.id,
       connectorKey: row.connector.key,
       connectionId: row.id,
+      connectionName: row.name,
       ownerId: row.ownerId,
-      credentialMode: row.credentialMode,
       status: statusForApi(row.status),
-      ...(row.providerAccountId ? { providerAccountId: row.providerAccountId } : {}),
+      providerAccountId: row.providerAccountId,
+      accountDisplayName: row.accountDisplayName,
       grantedScopes: row.grantedScopes,
+      revocationAttempted: false,
     },
   };
 }

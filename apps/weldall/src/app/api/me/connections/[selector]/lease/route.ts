@@ -4,7 +4,7 @@ import {
   connectorErrorResponse,
   connectorJsonBody,
 } from "@/server/connectors/http";
-import { issueConnectionLease } from "@/server/connectors/user-service";
+import { issueConnectionLease } from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
 const schema = z

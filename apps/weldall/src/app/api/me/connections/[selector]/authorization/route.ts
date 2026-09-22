@@ -4,7 +4,7 @@ import {
   connectorErrorResponse,
   connectorJsonBody,
 } from "@/server/connectors/http";
-import { restartConnectionAuthorization } from "@/server/connectors/user-service";
+import { restartConnectionAuthorization } from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
 const schema = z.object({ deviceId: z.string().min(20).max(128) }).strict();

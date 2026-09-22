@@ -4,7 +4,7 @@ import { authenticateCliApiRequest } from "../oauth/cli-api";
 import { loggedOauthErrorResponse } from "../oauth/error-response";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { auditRequestIdentifiers } from "../audit/service";
-import { ConnectorUserError, type ConnectorUserActor } from "./user-service";
+import { ConnectorUserError, type ConnectorUserActor } from "./personal-connection-service";
 
 const MAX_BODY_BYTES = 32_000;
 
@@ -50,7 +50,10 @@ export function connectorErrorResponse(error: unknown): Response {
   if (error instanceof WeldallAuthError) return loggedOauthErrorResponse(error);
   if (error instanceof ConnectorUserError) {
     return Response.json(
-      { error: error.code, error_description: error.message },
+      {
+        error: error.code,
+        error_description: error.message,
+      },
       { status: error.status, headers: { "cache-control": "no-store" } },
     );
   }

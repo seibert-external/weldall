@@ -35,7 +35,7 @@ import {
   renameConnection,
   showConnection,
   showConnector,
-  type ConnectionSummary,
+  type PersonalConnectionSummary,
   type ConnectorSummary,
 } from "./services/connectors.js";
 import {
@@ -322,18 +322,17 @@ const connectorFields = (connector: ConnectorSummary) =>
         .map((api) => (api === "gmail" ? "Gmail" : "Google Calendar"))
         .join(", "),
     ],
-    ["Credential modes", connector.credentialModes.join(", ")],
     ["Allowed targets", connector.allowedTargetPrefixes.join("\n")],
   ] as const;
 
-const connectionFields = (connection: ConnectionSummary) =>
+const connectionFields = (connection: PersonalConnectionSummary) =>
   [
     ["Name", connection.name],
     ["ID", connection.id],
     ["Connector", connection.connectorName],
-    ["Account", connection.account?.displayName ?? "Not connected"],
+    ["Account", connection.account.displayName],
     ["Status", connection.status],
-    ["Credential mode", "Local on this device"],
+    ["Credential location", "Local on the connected device"],
     [
       "Enabled APIs",
       connection.enabledApis
@@ -392,7 +391,7 @@ async function printConnections(asJson: boolean | undefined) {
 
 const connectionsListCommand = define({
   name: "list",
-  description: "List your connected accounts",
+  description: "List your personal provider connections",
   args: { json: jsonArgument },
   examples: "weldall connections list\nweldall connections list --json",
   run: (context) => printConnections(context.values.json),
@@ -400,7 +399,7 @@ const connectionsListCommand = define({
 
 const connectionsShowCommand = define({
   name: "show",
-  description: "Show one connected account",
+  description: "Show one personal provider connection",
   args: {
     connection: { type: "positional", required: true, description: "Connection name or ID" },
     json: jsonArgument,
@@ -469,12 +468,12 @@ const connectionsRenameCommand = define({
   },
 });
 
-async function confirmDisconnect(connection: ConnectionSummary): Promise<boolean> {
+async function confirmDisconnect(connection: PersonalConnectionSummary): Promise<boolean> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answer = await prompt.question(
-      `Disconnect ${JSON.stringify(connection.name)} from ${connection.account?.displayName ?? "Google"}? (y/N) `,
+      `Disconnect ${JSON.stringify(connection.name)} from ${connection.account.displayName}? (y/N) `,
     );
     return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
   } finally {
@@ -484,7 +483,7 @@ async function confirmDisconnect(connection: ConnectionSummary): Promise<boolean
 
 const connectionsDisconnectCommand = define({
   name: "disconnect",
-  description: "Revoke local credentials and disconnect an account",
+  description: "Delete a connection and clear its local credentials",
   args: {
     connection: { type: "positional", required: true, description: "Connection name or ID" },
     yes: { type: "boolean", short: "y", description: "Skip the confirmation prompt" },
@@ -501,14 +500,23 @@ const connectionsDisconnectCommand = define({
       info("Connection was not disconnected.");
       return;
     }
-    const connection = await disconnectConnection(config, current.id);
-    success(`Connection ${JSON.stringify(connection.name)} was disconnected.`);
+    const result = await disconnectConnection(config, current);
+    success(`Connection ${JSON.stringify(result.name)} was disconnected.`);
+    if (result.providerRevocation === "failed") {
+      warning(
+        "Google could not confirm provider-side revocation. Revoke the grant in Google if required.",
+      );
+    } else if (result.providerRevocation === "not_requested") {
+      warning(
+        "No local Google credential was available to revoke. Revoke the grant in Google if required.",
+      );
+    }
   },
 });
 
 export const connectionsCommand = define({
   name: "connections",
-  description: "Manage your connected provider accounts",
+  description: "Manage your personal provider connections",
   args: { json: jsonArgument },
   subCommands: {
     list: connectionsListCommand,
@@ -625,7 +633,7 @@ export const requestCommand = define({
     connection: {
       type: "string",
       short: "c",
-      description: "Connected provider account to use",
+      description: "Personal provider connection to use",
     },
     scope: {
       type: "string",

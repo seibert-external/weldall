@@ -89,7 +89,13 @@ export function FieldList({ fields }: { fields: ReadonlyArray<Field> }) {
           <Box {...(stacked ? {} : { width: labelWidth + 2, flexShrink: 0 })}>
             <Text dimColor>{label}</Text>
           </Box>
-          <Text>{terminalText(value)}</Text>
+          <Box flexDirection="column">
+            {terminalDocument(value)
+              .split("\n")
+              .map((line, index) => (
+                <Text key={`${label}-${index}`}>{line}</Text>
+              ))}
+          </Box>
         </Box>
       ))}
     </Box>

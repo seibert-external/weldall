@@ -340,7 +340,7 @@ describe("E2E credential store", () => {
     try {
       vi.stubEnv("NODE_ENV", "test");
       vi.stubEnv("WELDALL_E2E_CREDENTIALS_FILE", path);
-      const { connectionKeychain } = await import("../src/storage/keychain.js");
+      const { personalConnectionKeychain } = await import("../src/storage/keychain.js");
       const credentials = {
         accessToken: "access-token",
         refreshToken: "refresh-token",
@@ -349,27 +349,27 @@ describe("E2E credential store", () => {
         tokenType: "Bearer" as const,
       };
 
-      await connectionKeychain.set(issuer, "connection-a", credentials);
-      await connectionKeychain.set(issuer, "connection-b", {
+      await personalConnectionKeychain.set(issuer, "connection-a", credentials);
+      await personalConnectionKeychain.set(issuer, "connection-b", {
         ...credentials,
         refreshToken: "other-refresh-token",
       });
-      await expect(connectionKeychain.get(issuer, "connection-a")).resolves.toMatchObject({
+      await expect(personalConnectionKeychain.get(issuer, "connection-a")).resolves.toMatchObject({
         issuer,
         connectionId: "connection-a",
         refreshToken: "refresh-token",
       });
-      await expect(connectionKeychain.get(issuer, "connection-b")).resolves.toMatchObject({
+      await expect(personalConnectionKeychain.get(issuer, "connection-b")).resolves.toMatchObject({
         connectionId: "connection-b",
         refreshToken: "other-refresh-token",
       });
       await expect(
-        connectionKeychain.get("https://other.example.com", "connection-a"),
+        personalConnectionKeychain.get("https://other.example.com", "connection-a"),
       ).resolves.toBeNull();
 
-      await connectionKeychain.clear(issuer, "connection-a");
-      await expect(connectionKeychain.get(issuer, "connection-a")).resolves.toBeNull();
-      await expect(connectionKeychain.get(issuer, "connection-b")).resolves.not.toBeNull();
+      await personalConnectionKeychain.clear(issuer, "connection-a");
+      await expect(personalConnectionKeychain.get(issuer, "connection-a")).resolves.toBeNull();
+      await expect(personalConnectionKeychain.get(issuer, "connection-b")).resolves.not.toBeNull();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

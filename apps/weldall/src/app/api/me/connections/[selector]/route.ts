@@ -4,7 +4,10 @@ import {
   connectorErrorResponse,
   connectorJsonBody,
 } from "@/server/connectors/http";
-import { getUserConnection, renameUserConnection } from "@/server/connectors/user-service";
+import {
+  getUserConnection,
+  renameUserConnection,
+} from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
 const renameSchema = z

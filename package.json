@@ -13,6 +13,7 @@
     "check": "turbo run check",
     "cli:link": "pnpm --filter @weldall/cli build && ln -sf \"$PWD/apps/cli/dist/index.js\" \"$(dirname \"$(command -v node)\")/weldall\"",
     "dev": "turbo run dev --filter=@weldall/weldall --filter=@weldall/expenses --filter=@weldall/dev-idp --filter=@weldall/docs",
+    "dev:kill-caddy": "sh scripts/kill-caddy.sh",
     "docs:dev": "pnpm --filter @weldall/docs dev",
     "m2m:demo": "pnpm --filter @weldall/expenses m2m:demo",
     "format": "prettier . --write",

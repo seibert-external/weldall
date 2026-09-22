@@ -280,13 +280,14 @@ const connectionMetadata = z
     connectorId: z.string().min(1).max(191),
     connectorKey: z.string().min(1).max(120),
     connectionId: z.string().min(1).max(191),
+    connectionName: z.string().min(1).max(120),
     ownerId: z.string().min(1).max(191),
-    credentialMode: z.literal("local"),
-    status: z.enum(["pending", "ready", "reconnect_required", "disabled", "disconnected"]),
+    authorizationMode: z.enum(["connect", "reconnect"]).optional(),
+    status: z.enum(["ready", "reconnect_required"]).optional(),
     providerAccountId: z.string().min(1).max(500).optional(),
-    grantedScopes: scopeArray,
+    accountDisplayName: z.string().min(1).max(500).optional(),
+    grantedScopes: scopeArray.optional(),
     revocationAttempted: z.boolean().optional(),
-    revocationConfirmed: z.boolean().optional(),
   })
   .strict();
 const leaseMetadata = z
@@ -355,9 +356,6 @@ const metadataSchemas = {
   "connection.authorization_failed": connectionMetadata,
   "connection.reconnected": connectionMetadata,
   "connection.disconnected": connectionMetadata,
-  "connection.enabled": connectionMetadata,
-  "connection.disabled": connectionMetadata,
-  "connection.reconnect_required": connectionMetadata,
   "connection_credential.refreshed": connectionMetadata,
   "connection_credential.refresh_failed": connectionMetadata,
   "connection_lease.issued": leaseMetadata,
@@ -470,6 +468,7 @@ export async function listAuditEvents(input: {
   eventType?: AuditEventType | undefined;
   outcome?: AuditOutcome | undefined;
   email?: string | undefined;
+  subject?: { type: string; id: string } | undefined;
   relatedUser?: { actorId: string; assignmentId?: string | undefined } | undefined;
   sort: "occurredAt.asc" | "occurredAt.desc";
 }): Promise<{ items: AuditEventDto[]; total: number }> {
@@ -513,6 +512,7 @@ export async function listAuditEvents(input: {
       : {}),
     ...(input.eventType ? { eventType: input.eventType } : {}),
     ...(input.outcome ? { outcome: input.outcome } : {}),
+    ...(input.subject ? { subjectType: input.subject.type, subjectId: input.subject.id } : {}),
     ...(filters.length ? { AND: filters } : {}),
   };
   const direction = input.sort === "occurredAt.asc" ? "asc" : "desc";

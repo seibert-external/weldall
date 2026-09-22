@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { seedDevelopmentConnectors } from "./seed.dev-connectors.js";
 import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
 import { seedDevelopmentSkillRetrievals, seedDevelopmentUsers } from "./seed.dev-users.js";
 
@@ -190,6 +191,7 @@ try {
     tags: ["expenses", "review"],
   });
   await seedDevelopmentUsers(db);
+  await seedDevelopmentConnectors(db, actor);
   await seedDevelopmentSkillRetrievals(db);
 
   const publicJwk = parseDevelopmentMachinePublicJwk(process.env.DEV_M2M_SIGNING_PUBLIC_JWK);
