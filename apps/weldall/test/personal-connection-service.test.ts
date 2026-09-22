@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
       findMany: vi.fn(),
       findFirst: vi.fn(),
       findUnique: vi.fn(),
+      update: vi.fn(),
     },
   },
 }));
@@ -37,6 +38,7 @@ const {
   getUserConnection,
   listAvailableConnectors,
   listUserConnections,
+  refreshUserConnection,
   startConnectionAuthorization,
 } = await import("../src/server/connectors/personal-connection-service.js");
 
@@ -192,6 +194,59 @@ describe("connector authorization lifecycle", () => {
       },
       data: { credentialsConsumedAt: expect.any(Date), encryptedCredentials: null },
     });
+
+    vi.clearAllMocks();
+    mocks.db.personalConnectionAuthorization.deleteMany.mockResolvedValue({ count: 0 });
+    mocks.db.personalConnectionAuthorization.findFirst.mockResolvedValue({
+      id: authorizationId,
+      connectionId: connection.id,
+      ownerId,
+      encryptedPayload: authorizationPayload(),
+      callbackConsumedAt: new Date(),
+      completedAt: new Date(),
+      credentialsConsumedAt: new Date(),
+      encryptedCredentials: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    await expect(
+      consumeAuthorizationCredentials(ownerId, authorizationId, deviceId),
+    ).rejects.toMatchObject({ code: "credentials_consumed", status: 410 });
+    expect(mocks.db.personalConnectionAuthorization.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps polls pending while the callback exchange is in progress", async () => {
+    vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    mocks.db.personalConnectionAuthorization.deleteMany.mockResolvedValue({ count: 0 });
+    mocks.db.personalConnectionAuthorization.findFirst.mockResolvedValue({
+      id: authorizationId,
+      connectionId: connection.id,
+      ownerId,
+      encryptedPayload: authorizationPayload(),
+      callbackConsumedAt: new Date(),
+      completedAt: null,
+      credentialsConsumedAt: null,
+      encryptedCredentials: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    await expect(
+      consumeAuthorizationCredentials(ownerId, authorizationId, deviceId),
+    ).rejects.toMatchObject({ code: "authorization_pending", status: 202 });
+    expect(mocks.db.personalConnectionAuthorization.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("personal connection refresh", () => {
+  it("rejects a refresh from a different device before provider calls or mutation", async () => {
+    mocks.db.personalConnectionAuthorization.deleteMany.mockResolvedValue({ count: 0 });
+    mocks.db.personalConnection.findFirst.mockResolvedValue(connection);
+
+    await expect(
+      refreshUserConnection(ownerId, connection.id, "other-device-1234567890", "refresh", actor),
+    ).rejects.toMatchObject({ code: "authorization_required", status: 409 });
+    expect(mocks.db.auditEvent.create).not.toHaveBeenCalled();
+    expect(mocks.db.personalConnection.update).not.toHaveBeenCalled();
   });
 });
 

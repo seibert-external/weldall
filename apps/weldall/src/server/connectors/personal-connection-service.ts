@@ -591,13 +591,6 @@ export async function consumeAuthorizationCredentials(
       409,
     );
   }
-  if (authorization.callbackConsumedAt && !authorization.completedAt) {
-    throw new ConnectorUserError(
-      "authorization_required",
-      "Authorization was not completed. Retry the connection flow.",
-      409,
-    );
-  }
   if (authorization.credentialsConsumedAt) {
     throw new ConnectorUserError(
       "credentials_consumed",
@@ -690,10 +683,18 @@ export async function renameUserConnection(
 export async function refreshUserConnection(
   ownerId: string,
   selector: string,
+  deviceId: string,
   refreshToken: string,
   actor: ConnectorUserActor,
 ): Promise<OAuthCredentials> {
   const connection = await loadUsableConnection(ownerId, selector);
+  if (connection.deviceId !== parseDeviceId(deviceId)) {
+    throw new ConnectorUserError(
+      "authorization_required",
+      "Connection credentials belong to another device.",
+      409,
+    );
+  }
   try {
     const credentials = await connectorImplementation(connection.connector.type).refreshCredentials(
       {

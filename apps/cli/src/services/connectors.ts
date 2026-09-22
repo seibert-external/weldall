@@ -442,7 +442,10 @@ async function refreshConnectionCredentials(
     await authenticatedJson(
       config,
       endpoint(config, `/api/me/connections/${selectorPath(connection.id)}/refresh`),
-      { method: "POST", json: { refreshToken: credentials.refreshToken } },
+      {
+        method: "POST",
+        json: { deviceId: await currentDevice(config), refreshToken: credentials.refreshToken },
+      },
     ),
   );
   await personalConnectionKeychain.set(config.issuer, connection.id, value);

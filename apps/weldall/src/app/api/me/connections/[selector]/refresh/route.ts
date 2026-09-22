@@ -7,7 +7,9 @@ import {
 import { refreshUserConnection } from "@/server/connectors/personal-connection-service";
 import { withRequestLogging } from "@/server/observability/http";
 
-const schema = z.object({ refreshToken: z.string().min(1).max(20_000) }).strict();
+const schema = z
+  .object({ deviceId: z.string().min(20).max(128), refreshToken: z.string().min(1).max(20_000) })
+  .strict();
 
 async function post(request: Request, context: { params: Promise<{ selector: string }> }) {
   try {
@@ -17,6 +19,7 @@ async function post(request: Request, context: { params: Promise<{ selector: str
       await refreshUserConnection(
         actor.id,
         (await context.params).selector,
+        input.deviceId,
         input.refreshToken,
         actor,
       ),
