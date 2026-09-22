@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { SkillList, SkillSummary } from "../src/services/skills.js";
-import { skillsToon } from "../src/skills-toon.js";
+import type { SkillDetail, SkillList, SkillSummary } from "../src/services/skills.js";
+import { skillDetailToon, skillMatchesToon, skillsToon } from "../src/skills-toon.js";
+import type { CachedSkillPreview } from "../src/storage/appendix.js";
 
 const skill = (overrides: Partial<SkillSummary> = {}): SkillSummary => ({
   slug: "expenses.review",
@@ -111,5 +112,99 @@ describe("skillsToon", () => {
   it("says nothing at all when the catalog is empty, without losing either field", () => {
     const output = skillsToon(list({ items: [] }));
     expect(output).toBe("items: []\nwarnings: []\n");
+  });
+});
+
+const detail = (overrides: Partial<SkillDetail> = {}): SkillDetail => ({
+  ...skill(),
+  content: "Submitted expenses are reviewed against policy.",
+  document: "# Review expenses\n\nSubmitted expenses are reviewed against policy.\n",
+  ...overrides,
+});
+
+const fields = (output: string) =>
+  Object.fromEntries(
+    output
+      .split("\n")
+      .filter((line) => line.includes(":"))
+      .map((line) => [line.slice(0, line.indexOf(":")), line.slice(line.indexOf(":") + 1).trim()]),
+  );
+
+describe("skillDetailToon", () => {
+  it("writes one object, because a single skill is not an array", () => {
+    const output = skillDetailToon(detail());
+    expect(output).not.toContain("skill[1");
+    expect(fields(output).slug).toBe("expenses.review");
+    expect(fields(output).title).toBe("Review expenses");
+  });
+
+  it("escapes the document's line breaks, which keeps the output decodable", () => {
+    const output = skillDetailToon(detail({ document: "# Review\n\nBody text.\n" }));
+    expect(output).toContain('document: "# Review\\n\\nBody text.\\n"');
+    expect(output.split("\n").filter((line) => line !== "")).toHaveLength(7);
+  });
+
+  it("omits content, which the document already carries", () => {
+    const output = skillDetailToon(detail({ content: "Body only, no heading." }));
+    expect(output).not.toContain("content:");
+    expect(output).not.toContain("Body only, no heading.");
+  });
+
+  it("omits the preview, which the document supersedes", () => {
+    const output = skillDetailToon(detail({ preview: "A shortened preview." }));
+    expect(output).not.toContain("preview:");
+  });
+
+  it("carries tags inline and an empty scope list as `[]`", () => {
+    const output = skillDetailToon(detail({ meta: { tags: ["finance", "approvals"] } }));
+    expect(output).toContain("tags[2\t]: finance\tapprovals");
+    expect(output).toContain("missingScopes: []");
+  });
+
+  it("names the resource a skill came from, and calls an admin skill admin", () => {
+    expect(
+      skillDetailToon(detail({ source: { type: "resource", key: "expenses", name: "Expenses" } })),
+    ).toContain("source: Expenses");
+    expect(skillDetailToon(detail({ source: { type: "admin" } }))).toContain("source: admin");
+  });
+});
+
+const cached = (overrides: Partial<CachedSkillPreview> = {}): CachedSkillPreview => ({
+  slug: "expenses.review",
+  title: "Review expenses",
+  available: true,
+  preview: "Review submitted company expenses.",
+  tags: ["finance"],
+  owner: "Finance",
+  sourceKey: "expenses",
+  sourceName: "Expenses",
+  ...overrides,
+});
+
+describe("skillMatchesToon", () => {
+  it("declares how many matches follow, so a truncated read is visible", () => {
+    const output = skillMatchesToon([cached(), cached({ slug: "expenses.submit" })]);
+    expect(output).toContain("items[2\t]{slug\ttitle\tpreview\ttags\tavailable\towner\tsource}:");
+    expect(rows(output)).toHaveLength(2);
+  });
+
+  it("omits missingScopes, because the cache does not hold it", () => {
+    // An empty column here would read as `nothing is missing`, which the cache cannot promise.
+    expect(skillMatchesToon([cached()])).not.toContain("missingScopes");
+  });
+
+  it("quotes a cached field the catalog never filled, so the columns cannot shift", () => {
+    const cells = rows(
+      skillMatchesToon([
+        cached({ preview: undefined, tags: undefined, owner: undefined, sourceName: undefined }),
+      ]),
+    )[0].split("\t");
+    expect(cells).toHaveLength(7);
+    expect(cells[2]).toBe('""');
+    expect(cells[6]).toBe("expenses");
+  });
+
+  it("says nothing at all when the search matched nothing", () => {
+    expect(skillMatchesToon([])).toBe("items: []\n");
   });
 });

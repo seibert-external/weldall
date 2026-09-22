@@ -6,6 +6,7 @@ import {
   formatSkillWarning,
   printPermissions,
   printSkills,
+  scopesCommand,
   skillsCommand,
 } from "../src/commands.js";
 import {
@@ -349,6 +350,32 @@ describe("skills output flags", () => {
     expect(skillsCommand.args?.agentic).toBeDefined();
     expect(skillsCommand.subCommands?.list.args?.agentic).toBeDefined();
     expect(skillsCommand.subCommands?.list.examples).toContain("weldall skills list --agentic");
+  });
+
+  it("declares --agentic on scopes, skills show, and skills find", () => {
+    expect(scopesCommand.args?.agentic).toBeDefined();
+    expect(scopesCommand.examples).toContain("weldall scopes --agentic");
+    expect(skillsCommand.subCommands?.show.args?.agentic).toBeDefined();
+    expect(skillsCommand.subCommands?.show.examples).toContain(
+      "weldall skills show expenses.review --agentic",
+    );
+    expect(skillsCommand.subCommands?.find.args?.agentic).toBeDefined();
+    expect(skillsCommand.subCommands?.find.examples).toContain(
+      "weldall skills find personio --agentic",
+    );
+  });
+
+  it("rejects --json with --agentic before any of the three commands reaches the network", async () => {
+    const run = (command: { run?: (context: never) => unknown }) =>
+      command.run?.({ values: { json: true, agentic: true } } as never);
+
+    await expect(run(scopesCommand)).rejects.toThrow("--json cannot be combined with --agentic");
+    await expect(run(skillsCommand.subCommands?.show)).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
+    await expect(run(skillsCommand.subCommands?.find)).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
   });
 
   it("passes both output flags from parsed arguments through to printSkills", async () => {
