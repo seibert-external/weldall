@@ -36,15 +36,15 @@ Offen ist, welchen Teil davon Weldall zentral übernimmt. Beide Varianten lösen
 
 ## Vergleich
 
-| | Lokale Keychain + Lease | Connector-Pattern |
-|---|---|---|
-| **Datenweg** | CLI spricht direkt mit dem Anbieter | Requests und Antworten laufen über den Connector |
-| **Credential-Speicher** | Auf dem Gerät des Nutzers | Verschlüsselt bei Weldall oder einem externen Connector |
-| **Widerruf** | Weldall kann neue Leases stoppen, das lokale Provider-Token aber nicht verlässlich löschen oder ungültig machen | Der Connector besitzt das Credential und kann Refresh, Rotation und den Widerruf beim Provider zentral ausführen |
-| **Nutzung** | Persönlich und an das eingerichtete Gerät gebunden | Auch für Sharing, Mobilgeräte, Rovo und serverseitige Agenten geeignet |
-| **Audit und Policies** | Weldall sieht die Lease, aber nicht zuverlässig, welcher Provider-Request tatsächlich ausgeführt wurde | Der Connector kann bestimmte Requests zentral protokollieren oder verbieten, etwa das massenhafte Löschen von E-Mails |
-| **Risiko** | Weniger zentrale Secrets, dafür verteilte Credentials auf Endgeräten | Zentraler Token-Store mit größerem Schadenspotenzial und höheren Schutzanforderungen |
-| **Betrieb** | Weniger zentrale Infrastruktur | Zusätzliche Verantwortung für Verschlüsselung, Verfügbarkeit, Updates und Incident Response |
+|                         | Lokale Keychain + Lease                                                                                         | Connector-Pattern                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Datenweg**            | CLI spricht direkt mit dem Anbieter                                                                             | Requests und Antworten laufen über den Connector                                                                      |
+| **Credential-Speicher** | Auf dem Gerät des Nutzers                                                                                       | Verschlüsselt bei Weldall oder einem externen Connector                                                               |
+| **Widerruf**            | Weldall kann neue Leases stoppen, das lokale Provider-Token aber nicht verlässlich löschen oder ungültig machen | Der Connector besitzt das Credential und kann Refresh, Rotation und den Widerruf beim Provider zentral ausführen      |
+| **Nutzung**             | Persönlich und an das eingerichtete Gerät gebunden                                                              | Auch für Sharing, Mobilgeräte, Rovo und serverseitige Agenten geeignet                                                |
+| **Audit und Policies**  | Weldall sieht die Lease, aber nicht zuverlässig, welcher Provider-Request tatsächlich ausgeführt wurde          | Der Connector kann bestimmte Requests zentral protokollieren oder verbieten, etwa das massenhafte Löschen von E-Mails |
+| **Risiko**              | Weniger zentrale Secrets, dafür verteilte Credentials auf Endgeräten                                            | Zentraler Token-Store mit größerem Schadenspotenzial und höheren Schutzanforderungen                                  |
+| **Betrieb**             | Weniger zentrale Infrastruktur                                                                                  | Zusätzliche Verantwortung für Verschlüsselung, Verfügbarkeit, Updates und Incident Response                           |
 
 ## Konsequenzen der Nutzung einer lokalen Keychain
 
