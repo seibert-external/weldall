@@ -100,11 +100,18 @@ export async function ownedConnection(tx: Tx, selector: string, actor: Connector
 export async function listConnections(actor?: ConnectorActor) {
   const rows = await db.connection.findMany({
     where: actor ? { ownerId: actor.id } : {},
-    select: { ...metadataSelect, connector: true },
+    select: {
+      ...metadataSelect,
+      connector: true,
+      owner: { select: { name: true, email: true } },
+    },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  return rows.map(({ connector, ...row }) => connectionMetadata(row, connector));
+  return rows.map(({ connector, owner, ...row }) => ({
+    ...connectionMetadata(row, connector),
+    owner,
+  }));
 }
 export async function listConnectors() {
   return (await db.connector.findMany({ where: { enabled: true }, orderBy: { key: "asc" } })).map(
@@ -510,6 +517,7 @@ export async function listAuthorizations() {
       status: true,
       expiresAt: true,
       connector: { select: { key: true } },
+      owner: { select: { name: true, email: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 200,
