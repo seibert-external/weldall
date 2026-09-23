@@ -36,9 +36,10 @@ permissions:
 env:
   RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
   REGISTRY: docker.io
-  # The Docker Hub namespace (organization) the images live in. Changing it here is the
-  # only edit needed if the images move; the Docker deployment documentation will refer to it.
-  IMAGE_NAMESPACE: weldall
+  # The Docker Hub organization the images live in (its access token is the publish
+  # credential, so this must match the token's organization). Changing it here is the
+  # only edit needed if the images move; the Docker deployment documentation refers to it.
+  IMAGE_NAMESPACE: seibertmediagmbh
   PLATFORM: linux/amd64
   IMAGE_UNDER_TEST: weldall-image-under-test:local
 
