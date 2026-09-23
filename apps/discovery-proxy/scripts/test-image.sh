@@ -91,6 +91,9 @@ openssl req -newkey rsa:2048 -nodes -subj "/CN=$stub_host" \
 printf 'subjectAltName=DNS:%s\n' "$stub_host" >"$workdir/san.cnf"
 openssl x509 -req -days 1 -in "$workdir/server.csr" -CA "$workdir/ca.crt" -CAkey "$workdir/ca.key" \
   -CAcreateserial -extfile "$workdir/san.cnf" -out "$workdir/server.crt" >/dev/null 2>&1
+# The stub runs as uid 101 inside its container and reads these through a bind mount;
+# on Linux the mount keeps host permissions, and mktemp -d creates a 0700 directory.
+chmod 755 "$workdir"
 chmod 644 "$workdir/server.key" "$workdir/server.crt" "$workdir/ca.crt"
 
 mkdir -p "$workdir/www/.well-known" "$workdir/www/api/oauth"
@@ -117,6 +120,19 @@ docker run --detach --name "$stub" --network "$network" --network-alias "$stub_h
   --volume "$workdir/stub.conf:/etc/nginx/conf.d/default.conf:ro" \
   --volume "$workdir:/stub:ro" \
   nginxinc/nginx-unprivileged:1.28-alpine >/dev/null
+
+# nginx resolves proxy_pass hosts once at start-up, so the stub must be up and
+# resolvable on the network before the proxy container is created.
+attempt=0
+until docker logs "$stub" 2>&1 | grep -q "ready for start up"; do
+  attempt=$((attempt + 1))
+  status=$(docker inspect --format '{{.State.Status}}' "$stub")
+  if [ "$status" != running ] || [ "$attempt" -ge 40 ]; then
+    docker logs "$stub" >&2
+    fail "stub upstream did not come up (status $status)"
+  fi
+  sleep 0.25
+done
 
 proxied=$(docker run --detach --network "$network" --publish 127.0.0.1::8080 \
   --env WELDALL_UPSTREAM="https://$stub_host:$stub_port" \
