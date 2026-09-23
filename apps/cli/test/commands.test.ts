@@ -2,6 +2,8 @@ import { createElement } from "react";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import {
+  connectionsCommand,
+  connectorsCommand,
   findCachedSkills,
   formatSkillWarning,
   printPermissions,
@@ -16,6 +18,8 @@ import {
   helpHeader,
   FieldList,
   Notice,
+  TableCard,
+  layoutTable,
   printError,
   renderUi,
   SkillsCard,
@@ -336,6 +340,90 @@ describe("terminal output safety", () => {
     expect(output.mock.calls.flat().join("\n")).toContain("failed�]52;c;stolen�");
     expect(output.mock.calls.flat().join("\n")).toContain("retry�[2J");
     output.mockRestore();
+  });
+});
+
+describe("managed connection tables", () => {
+  it("aligns columns and keeps the table inside the available width", () => {
+    const widths = layoutTable(
+      [{ header: "Name" }, { header: "Status" }, { header: "Requests", align: "right" }],
+      [["a-very-long-connection-name", "RECONNECT_REQUIRED", "123"]],
+      32,
+    );
+
+    expect(widths.reduce((sum, width) => sum + width, 0) + 4).toBeLessThanOrEqual(32);
+    expect(widths[2]).toBeGreaterThanOrEqual("Requests".length);
+  });
+
+  it("renders aligned connection rows in the standard rounded card", () => {
+    const output = renderUi(
+      createElement(TableCard, {
+        title: "Connections",
+        columns: [
+          { header: "Name" },
+          { header: "Status" },
+          { header: "Requests", align: "right" as const },
+        ],
+        rows: [
+          ["my-google", "READY", "12"],
+          ["team-google", "RECONNECT_REQUIRED", "2"],
+        ],
+      }),
+      60,
+    );
+
+    expect(output).toContain("╭");
+    expect(output).toContain("Connections");
+    expect(output).toMatch(/Name\s+Status\s+Requests/);
+    expect(output).toMatch(/my-google\s+READY\s+12/);
+  });
+
+  it("wraps long cells instead of replacing their text with an ellipsis", () => {
+    const output = renderUi(
+      createElement(TableCard, {
+        title: "Connectors",
+        columns: [{ header: "Request prefix" }],
+        rows: [["abcdefghijklmnopqrstuvwxyz"]],
+      }),
+      16,
+    );
+
+    expect(output).toContain("abcdefghijkl");
+    expect(output).toContain("mnopqrstuvwx");
+    expect(output).toContain("yz");
+    expect(output).not.toContain("…");
+  });
+});
+
+describe("connection output flags", () => {
+  it("declares table, JSON, and agentic output on both list commands", () => {
+    expect(connectionsCommand.args?.json).toBeDefined();
+    expect(connectionsCommand.args?.agentic).toBeDefined();
+    expect(connectionsCommand.subCommands?.list.args?.json).toBeDefined();
+    expect(connectionsCommand.subCommands?.list.args?.agentic).toBeDefined();
+    expect(connectorsCommand.args?.json).toBeDefined();
+    expect(connectorsCommand.args?.agentic).toBeDefined();
+    expect(connectionsCommand.subCommands?.connectors).toBeUndefined();
+    expect(connectionsCommand.subCommands?.list.examples).toContain(
+      "weldall connections list --agentic",
+    );
+    expect(connectorsCommand.examples).toContain("weldall connectors --agentic");
+  });
+
+  it("rejects --json with --agentic before reaching the network", async () => {
+    const run = (command: { run?: (context: never) => unknown }) =>
+      command.run?.({ values: { json: true, agentic: true } } as never);
+
+    await expect(run(connectionsCommand)).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
+    await expect(run(connectorsCommand)).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
+    for (const command of ["list", "connect", "reconnect", "show", "disconnect", "status"] as const)
+      await expect(run(connectionsCommand.subCommands?.[command])).rejects.toThrow(
+        "--json cannot be combined with --agentic",
+      );
   });
 });
 

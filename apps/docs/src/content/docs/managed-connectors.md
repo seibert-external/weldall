@@ -17,7 +17,7 @@ Configuration is editable through both the UI and [IaC](./infrastructure-as-code
 ## Connect and use
 
 ```sh
-weldall connections connectors
+weldall connectors
 weldall connections connect google --name my-google
 weldall connections list
 weldall connections show my-google
@@ -29,6 +29,8 @@ weldall connections reconnect my-google
 weldall connections disconnect my-google
 weldall connections delete my-google
 ```
+
+Connection and connector lists render as terminal tables. Add `--json` for stable machine-readable output or `--agentic` for compact TOON; `connections show` and `connections status` support the same flags.
 
 The browser must be signed into the **same Weldall user** that started setup. If necessary, sign in in another tab, then reload the setup page. The ten-minute link alone is not authorization. Required identity permissions cannot be removed. Optional API permissions can be unticked, including every permission for one of the enabled services, provided another usable capability remains. The Google consent screen follows Weldall's selection form.
 

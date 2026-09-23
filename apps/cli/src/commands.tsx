@@ -1,8 +1,15 @@
 import { define } from "gunshi";
 import { Box } from "ink";
+import {
+  connectionAttemptToon,
+  connectionDetailToon,
+  connectionsToon,
+  connectorsToon,
+  disconnectToon,
+} from "./connections-toon.js";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
 import { CliError } from "./errors.js";
-import { isRecord, responseValue } from "./http.js";
+import { responseValue } from "./http.js";
 import {
   MAX_PAGE_CONCURRENCY,
   MAX_PAGE_COUNT,
@@ -13,17 +20,33 @@ import {
   IdentityCard,
   PermissionsCard,
   SkillsCard,
+  TableCard,
   info,
+  palette,
   printFields,
   printUi,
   printWarning,
+  printWideUi,
   success,
   terminalDocument,
   terminalText,
   warning,
+  type TableColumn,
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
-import { connectionApi, connectAccount, connectionRequest } from "./services/connections.js";
+import {
+  connectionApi,
+  connectAccount,
+  connectionRequest,
+  disconnectConnection,
+  listConnections,
+  listConnectors,
+  showConnection,
+  showConnectionAttempt,
+  type ConnectionAttempt,
+  type ConnectionSummary,
+  type ConnectorSummary,
+} from "./services/connections.js";
 import { getCliAppendix } from "./services/settings.js";
 import {
   listScopes,
@@ -740,111 +763,313 @@ const connectionSelector = {
   required: true,
   description: "Connection name or ID",
 } as const;
+const attemptSelector = {
+  type: "positional",
+  required: true,
+  description: "Setup attempt ID",
+} as const;
+
+const connectionColumns = [
+  { header: "Name" },
+  { header: "Connector" },
+  { header: "Account" },
+  { header: "Status" },
+  { header: "Last used" },
+  { header: "Requests", align: "right" },
+] satisfies readonly TableColumn[];
+
+const connectorColumns = [
+  { header: "Key" },
+  { header: "Name" },
+  { header: "Type" },
+  { header: "Default/All", align: "right" },
+  { header: "Request prefix" },
+] satisfies readonly TableColumn[];
+
+const shortTimestamp = (value: string | null) => {
+  if (value === null) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+};
+
+const statusColor = (status: string) => {
+  if (status === "READY") return palette.success;
+  if (status === "RECONNECT_REQUIRED" || status === "REVOCATION_PENDING") return palette.warning;
+  if (status === "DISCONNECTED") return palette.danger;
+  return undefined;
+};
+
+const connectionRows = (connections: readonly ConnectionSummary[]) =>
+  connections.map((connection) => [
+    connection.name,
+    connection.connectorKey,
+    connection.accountName,
+    connection.status,
+    shortTimestamp(connection.lastUsedAt),
+    String(connection.requestCount),
+  ]);
+
+const connectorRows = (connectors: readonly ConnectorSummary[]) =>
+  connectors.map((connector) => [
+    connector.key,
+    connector.name,
+    connector.type,
+    `${connector.defaultScopes.length}/${connector.scopes.length}`,
+    connector.requestPrefix,
+  ]);
+
+const printConnectionDetails = (connection: ConnectionSummary) => {
+  const fields: Array<readonly [string, string]> = [
+    ["Name", connection.name],
+    ["Connection ID", connection.id],
+    ["Connector", connection.connectorKey],
+    ["Status", connection.status],
+    ["Account", connection.accountName],
+    ["Account ID", connection.accountId],
+    ["Capabilities", connection.capabilities.join(", ") || "—"],
+    ["Selected scopes", connection.selectedScopes.join(", ") || "—"],
+    ["Granted scopes", connection.grantedScopes.join(", ") || "—"],
+    ["Last used", shortTimestamp(connection.lastUsedAt)],
+    ["Requests", String(connection.requestCount)],
+    ["Created", shortTimestamp(connection.createdAt)],
+    ["Updated", shortTimestamp(connection.updatedAt)],
+  ];
+  if (connection.revocationError) fields.push(["Revocation error", connection.revocationError]);
+  printFields(fields, "Connection");
+};
+
+const printConnectionAttempt = (attempt: ConnectionAttempt) => {
+  const fields: Array<readonly [string, string]> = [
+    ["Attempt", attempt.id],
+    ["Status", attempt.status],
+    ["Connector", `${attempt.connector.name} (${attempt.connector.key})`],
+    ["Expires", shortTimestamp(attempt.expiresAt)],
+    ["Selected scopes", attempt.selectedScopes.join(", ") || "—"],
+    ["Capabilities", attempt.capabilities.join(", ") || "—"],
+  ];
+  if (attempt.connection)
+    fields.push(["Connection", `${attempt.connection.name} (${attempt.connection.id})`]);
+  printFields(fields, "Connection setup");
+};
+
+export const printConnections = async (
+  asJson: boolean | undefined,
+  asAgentic: boolean | undefined,
+) => {
+  exclusiveOutputFlags(asJson, asAgentic);
+  const config = await resolveWeldallConfig();
+  const connections = await listConnections(config);
+  if (asAgentic) {
+    process.stdout.write(connectionsToon(connections, config.issuer));
+    return;
+  }
+  if (asJson) {
+    jsonOutput(connections);
+    return;
+  }
+  if (connections.length === 0) {
+    info("No connections yet. Run `weldall connections connect <connector> --name <name>`.");
+    return;
+  }
+  printWideUi(
+    <TableCard
+      title="Connections"
+      columns={connectionColumns}
+      rows={connectionRows(connections)}
+      cellColor={(_rowIndex, columnIndex, value) =>
+        columnIndex === 3 ? statusColor(value) : undefined
+      }
+    />,
+  );
+};
+
+const connectionsListCommand = define({
+  name: "list",
+  description: "List connections owned by the signed-in account",
+  args: { json: jsonArgument, agentic: agenticArgument },
+  examples:
+    "weldall connections list\nweldall connections list --json\nweldall connections list --agentic",
+  run: (context) => printConnections(context.values.json, context.values.agentic),
+});
+
+export const connectorsCommand = define({
+  name: "connectors",
+  description: "List connectors available for new connections",
+  args: { json: jsonArgument, agentic: agenticArgument },
+  examples: "weldall connectors\nweldall connectors --json\nweldall connectors --agentic",
+  run: async (context) => {
+    exclusiveOutputFlags(context.values.json, context.values.agentic);
+    const connectors = await listConnectors(await resolveWeldallConfig());
+    if (context.values.agentic) {
+      process.stdout.write(connectorsToon(connectors));
+      return;
+    }
+    if (context.values.json) {
+      jsonOutput(connectors);
+      return;
+    }
+    if (connectors.length === 0) {
+      info("No connectors are enabled on this Weldall installation.");
+      return;
+    }
+    printWideUi(
+      <TableCard title="Connectors" columns={connectorColumns} rows={connectorRows(connectors)} />,
+    );
+  },
+});
+
+const connectCommand = define({
+  name: "connect",
+  description: "Authorize an account for a connector",
+  args: {
+    connector: {
+      type: "positional",
+      required: true,
+      description: "Connector key from `weldall connectors`",
+    },
+    name: { type: "string", required: true, description: "Name for this connection" },
+    json: jsonArgument,
+    agentic: agenticArgument,
+  },
+  examples:
+    "weldall connections connect google --name my-google\nweldall connections connect google --name my-google --json\nweldall connections connect google --name my-google --agentic",
+  run: async ({ values }) => {
+    exclusiveOutputFlags(values.json, values.agentic);
+    const config = await resolveWeldallConfig();
+    const connection = await connectAccount(config, values.connector, values.name);
+    if (values.agentic) process.stdout.write(connectionDetailToon(connection, config.issuer));
+    else if (values.json) jsonOutput(connection);
+    else {
+      success(`Connected ${terminalText(connection.name)}.`);
+      printConnectionDetails(connection);
+    }
+  },
+});
+
+const reconnectCommand = define({
+  name: "reconnect",
+  description: "Re-authorize an existing connection while keeping its identity",
+  args: { connection: connectionSelector, json: jsonArgument, agentic: agenticArgument },
+  examples:
+    "weldall connections reconnect my-google\nweldall connections reconnect my-google --json\nweldall connections reconnect my-google --agentic",
+  run: async ({ values }) => {
+    exclusiveOutputFlags(values.json, values.agentic);
+    const config = await resolveWeldallConfig();
+    const current = await showConnection(config, values.connection);
+    const connection = await connectAccount(config, current.connectorKey, current.name, current.id);
+    if (values.agentic) process.stdout.write(connectionDetailToon(connection, config.issuer));
+    else if (values.json) jsonOutput(connection);
+    else {
+      success(`Reconnected ${terminalText(connection.name)}.`);
+      printConnectionDetails(connection);
+    }
+  },
+});
+
+const showConnectionCommand = define({
+  name: "show",
+  description: "Show one connection's permissions and health",
+  args: { connection: connectionSelector, json: jsonArgument, agentic: agenticArgument },
+  examples:
+    "weldall connections show my-google\nweldall connections show my-google --json\nweldall connections show my-google --agentic",
+  run: async ({ values }) => {
+    exclusiveOutputFlags(values.json, values.agentic);
+    const config = await resolveWeldallConfig();
+    const connection = await showConnection(config, values.connection);
+    if (values.agentic) process.stdout.write(connectionDetailToon(connection, config.issuer));
+    else if (values.json) jsonOutput(connection);
+    else printConnectionDetails(connection);
+  },
+});
+
+const disconnectCommand = define({
+  name: "disconnect",
+  description:
+    "Block and revoke the Google account/client grant; repeat to retry unconfirmed revocation",
+  args: { connection: connectionSelector, json: jsonArgument, agentic: agenticArgument },
+  examples:
+    "weldall connections disconnect my-google\nweldall connections disconnect my-google --json\nweldall connections disconnect my-google --agentic",
+  run: async ({ values }) => {
+    exclusiveOutputFlags(values.json, values.agentic);
+    const result = await disconnectConnection(await resolveWeldallConfig(), values.connection);
+    const confirmed = result.status === "DISCONNECTED" && result.revocationConfirmed !== false;
+    if (values.agentic) process.stdout.write(disconnectToon(result));
+    else if (values.json) jsonOutput(result);
+    else if (confirmed) success(`Disconnected ${terminalText(values.connection)}.`);
+    else
+      warning(
+        "Disconnect is pending or provider revocation is unconfirmed.",
+        result.message ?? `Run weldall connections disconnect ${values.connection} to retry.`,
+      );
+    if (!confirmed) process.exitCode = 1;
+  },
+});
+
+const deleteConnectionCommand = define({
+  name: "delete",
+  description: "Delete disconnected metadata after revocation or administrator cleanup",
+  args: { connection: connectionSelector, json: jsonArgument },
+  examples: "weldall connections delete my-google\nweldall connections delete my-google --json",
+  run: async ({ values }) => {
+    const result = await connectionApi(
+      await resolveWeldallConfig(),
+      `connections/${encodeURIComponent(values.connection)}`,
+      "DELETE",
+    );
+    if (values.json) jsonOutput(result);
+    else success(`Deleted ${terminalText(values.connection)}.`);
+  },
+});
+
+const connectionStatusCommand = define({
+  name: "status",
+  description: "Check an interrupted connection setup",
+  args: { attempt: attemptSelector, json: jsonArgument, agentic: agenticArgument },
+  examples:
+    "weldall connections status <attempt-id>\nweldall connections status <attempt-id> --json\nweldall connections status <attempt-id> --agentic",
+  run: async ({ values }) => {
+    exclusiveOutputFlags(values.json, values.agentic);
+    const attempt = await showConnectionAttempt(await resolveWeldallConfig(), values.attempt);
+    if (values.agentic) process.stdout.write(connectionAttemptToon(attempt));
+    else if (values.json) jsonOutput(attempt);
+    else printConnectionAttempt(attempt);
+  },
+});
+
+const cancelConnectionCommand = define({
+  name: "cancel",
+  description: "Cancel an attempt and revoke any retained unused Google grant",
+  args: { attempt: attemptSelector, json: jsonArgument },
+  examples:
+    "weldall connections cancel <attempt-id>\nweldall connections cancel <attempt-id> --json",
+  run: async ({ values }) => {
+    const result = await connectionApi(
+      await resolveWeldallConfig(),
+      `connection-authorizations/${encodeURIComponent(values.attempt)}`,
+      "DELETE",
+    );
+    if (values.json) jsonOutput(result);
+    else success(`Cancelled setup attempt ${terminalText(values.attempt)}.`);
+  },
+});
+
 export const connectionsCommand = define({
   name: "connections",
   description: "Manage owner-only Google connections stored by Weldall",
+  args: { json: jsonArgument, agentic: agenticArgument },
+  examples: "weldall connections\nweldall connections --json\nweldall connections --agentic",
   subCommands: {
-    list: define({
-      name: "list",
-      run: async () => jsonOutput(await connectionApi(await resolveWeldallConfig(), "connections")),
-    }),
-    connectors: define({
-      name: "connectors",
-      run: async () => jsonOutput(await connectionApi(await resolveWeldallConfig(), "connectors")),
-    }),
-    connect: define({
-      name: "connect",
-      args: {
-        connector: { type: "positional", required: true },
-        name: { type: "string", required: true },
-      },
-      run: async ({ values }) =>
-        jsonOutput(
-          await connectAccount(await resolveWeldallConfig(), values.connector, values.name),
-        ),
-    }),
-    reconnect: define({
-      name: "reconnect",
-      args: { connection: connectionSelector },
-      run: async ({ values }) => {
-        const config = await resolveWeldallConfig();
-        const row = (await connectionApi(
-          config,
-          `connections/${encodeURIComponent(values.connection)}`,
-        )) as { connectorKey: string; name: string; id: string };
-        jsonOutput(await connectAccount(config, row.connectorKey, row.name, row.id));
-      },
-    }),
-    show: define({
-      name: "show",
-      args: { connection: connectionSelector },
-      run: async ({ values }) =>
-        jsonOutput(
-          await connectionApi(
-            await resolveWeldallConfig(),
-            `connections/${encodeURIComponent(values.connection)}`,
-          ),
-        ),
-    }),
-    disconnect: define({
-      name: "disconnect",
-      description:
-        "Block and revoke the Google account/client grant; repeat to retry unconfirmed revocation",
-      args: { connection: connectionSelector },
-      run: async ({ values }) => {
-        const result = await connectionApi(
-          await resolveWeldallConfig(),
-          `connections/${encodeURIComponent(values.connection)}`,
-          "POST",
-        );
-        jsonOutput(result);
-        if (
-          !isRecord(result) ||
-          result.status !== "DISCONNECTED" ||
-          result.revocationConfirmed === false
-        )
-          process.exitCode = 1;
-      },
-    }),
-    delete: define({
-      name: "delete",
-      description: "Delete disconnected metadata after revocation or administrator cleanup",
-      args: { connection: connectionSelector },
-      run: async ({ values }) =>
-        jsonOutput(
-          await connectionApi(
-            await resolveWeldallConfig(),
-            `connections/${encodeURIComponent(values.connection)}`,
-            "DELETE",
-          ),
-        ),
-    }),
-    status: define({
-      name: "status",
-      args: { attempt: { type: "positional", required: true } },
-      run: async ({ values }) =>
-        jsonOutput(
-          await connectionApi(
-            await resolveWeldallConfig(),
-            `connection-authorizations/${encodeURIComponent(values.attempt)}`,
-          ),
-        ),
-    }),
-    cancel: define({
-      name: "cancel",
-      description: "Cancel an attempt and revoke any retained unused Google grant",
-      args: { attempt: { type: "positional", required: true } },
-      run: async ({ values }) =>
-        jsonOutput(
-          await connectionApi(
-            await resolveWeldallConfig(),
-            `connection-authorizations/${encodeURIComponent(values.attempt)}`,
-            "DELETE",
-          ),
-        ),
-    }),
+    list: connectionsListCommand,
+    connect: connectCommand,
+    reconnect: reconnectCommand,
+    show: showConnectionCommand,
+    disconnect: disconnectCommand,
+    delete: deleteConnectionCommand,
+    status: connectionStatusCommand,
+    cancel: cancelConnectionCommand,
   },
-  run: async () => jsonOutput(await connectionApi(await resolveWeldallConfig(), "connections")),
+  run: (context) => printConnections(context.values.json, context.values.agentic),
 });
 
 export const skillsCommand = define({

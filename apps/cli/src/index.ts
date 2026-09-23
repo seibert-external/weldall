@@ -4,6 +4,7 @@ import packageJson from "../package.json" with { type: "json" };
 import {
   configCommand,
   connectionsCommand,
+  connectorsCommand,
   loginCommand,
   logoutCommand,
   mainCommand,
@@ -96,6 +97,7 @@ export async function runCli(argv = process.argv.slice(2)) {
         request: requestCommand,
         config: configCommand,
         connections: connectionsCommand,
+        connectors: connectorsCommand,
         ...iacSubCommands(isIacMachineConfigured()),
       },
       renderHeader: async (context) => {
