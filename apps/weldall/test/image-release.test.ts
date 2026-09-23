@@ -22,7 +22,6 @@ describe("image release tags", () => {
       packageName: "@weldall/weldall",
       image: "weldall",
       version: "1.2.3",
-      minor: "1.2",
       context: ".",
       dockerfile: "Dockerfile",
     });
@@ -30,7 +29,6 @@ describe("image release tags", () => {
       packageName: "@weldall/discovery-proxy",
       image: "discovery-proxy",
       version: "0.1.0",
-      minor: "0.1",
       context: "apps/discovery-proxy",
       dockerfile: "apps/discovery-proxy/Dockerfile",
     });

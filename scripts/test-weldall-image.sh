@@ -17,7 +17,7 @@ app=weldall-image-test-app-$suffix
 issuer=https://weldall.image-test.invalid
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 migrations_dir=$repo_root/packages/db/prisma/migrations
-expected_migrations=${WELDALL_IMAGE_EXPECTED_MIGRATIONS:-$(find "$migrations_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')}
+expected_migrations=$(find "$migrations_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
 env_file=$(mktemp)
 chmod 600 "$env_file"
 

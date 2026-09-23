@@ -54,7 +54,6 @@ export function parseImageReleaseTag(tag) {
   return {
     packageName,
     version: `${major}.${minor}.${patch}`,
-    minor: `${major}.${minor}`,
     ...imageReleaseUnits[packageName],
   };
 }
@@ -153,10 +152,8 @@ async function validate() {
     );
   await writeOutputs({
     tag,
-    package: unit.packageName,
     image: unit.image,
     version: unit.version,
-    minor: unit.minor,
     context: unit.context,
     dockerfile: unit.dockerfile,
     title: unit.title,
