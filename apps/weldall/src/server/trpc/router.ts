@@ -67,6 +67,27 @@ import {
   updateMachineClient,
 } from "../machines/service";
 import type { TrpcContext } from "./context";
+import { ConnectorError, connectorConfig, encryptionKeyConfig } from "../connectors/contracts";
+import {
+  transaction,
+  listConfiguration,
+  mutateKey,
+  mutateConnector,
+  deleteKey,
+  deleteConnector,
+  setClientSecret,
+  reencryptConnector,
+} from "../connectors/configuration";
+import {
+  listConnections,
+  disconnect,
+  deleteConnection,
+  cleanupAttempts,
+  listAuthorizations,
+  cancelAttempt,
+  discardAuthorization,
+  discardConnection,
+} from "../connectors/connections";
 
 const trpc = initTRPC.context<TrpcContext>().create();
 const loggedProcedure = trpc.procedure.use(async ({ path, type, next }) => {
@@ -155,6 +176,136 @@ export const appRouter = trpc.router({
     }),
   }),
   admin: trpc.router({
+    managed: trpc.router({
+      configuration: adminProcedure.query(() => listConfiguration()),
+      connections: adminProcedure.query(() => listConnections()),
+      authorizations: adminProcedure.query(() => listAuthorizations()),
+      cancelAuthorization: adminProcedure
+        .input(z.object({ id: z.string() }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => cancelAttempt(ctx.adminActor, input.id, true)),
+        ),
+      discardAuthorization: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string(),
+              acknowledgement: z.literal("provider-revocation-unconfirmed"),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => discardAuthorization(ctx.adminActor, input.id)),
+        ),
+      saveKey: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().optional(),
+              version: z.number().int().positive().nullable(),
+              config: encryptionKeyConfig,
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() =>
+            transaction(async (tx) => {
+              const row = await mutateKey(
+                tx,
+                input.config,
+                input.id,
+                input.version,
+                ctx.adminActor,
+              );
+              return { id: row.id };
+            }),
+          ),
+        ),
+      saveConnector: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().optional(),
+              version: z.number().int().positive().nullable(),
+              config: connectorConfig,
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() =>
+            transaction(async (tx) => {
+              const row = await mutateConnector(
+                tx,
+                input.config,
+                input.id,
+                input.version,
+                ctx.adminActor,
+              );
+              return { id: row.id };
+            }),
+          ),
+        ),
+      deleteKey: adminProcedure
+        .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() =>
+            transaction((tx) => deleteKey(tx, input.id, input.version, ctx.adminActor)),
+          ),
+        ),
+      deleteConnector: adminProcedure
+        .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(async () => {
+            await cleanupAttempts();
+            return transaction((tx) =>
+              deleteConnector(tx, input.id, input.version, ctx.adminActor),
+            );
+          }),
+        ),
+      secret: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string(),
+              version: z.number().int().positive(),
+              secret: z.string().min(1).max(10_000),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() =>
+            setClientSecret(input.id, input.secret, input.version, ctx.adminActor),
+          ),
+        ),
+      reencrypt: adminProcedure
+        .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => reencryptConnector(input.id, input.version, ctx.adminActor)),
+        ),
+      disconnect: adminProcedure
+        .input(z.object({ id: z.string() }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => disconnect(ctx.adminActor, input.id, true)),
+        ),
+      discardConnection: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string(),
+              version: z.number().int().positive(),
+              acknowledgement: z.literal("provider-revocation-unconfirmed"),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => discardConnection(ctx.adminActor, input.id, input.version)),
+        ),
+      deleteConnection: adminProcedure
+        .input(z.object({ id: z.string() }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => deleteConnection(ctx.adminActor, input.id, true)),
+        ),
+    }),
     status: adminProcedure.query(({ ctx }) => ({
       authenticated: true as const,
       email: ctx.adminActor.email ?? null,
@@ -698,6 +849,11 @@ async function mapDomainErrors<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
+    if (error instanceof ConnectorError)
+      throw new TRPCError({
+        code: error.status === 409 ? "CONFLICT" : "BAD_REQUEST",
+        message: error.message,
+      });
     if (!(error instanceof AdminDomainError)) throw error;
     const code =
       error.code === "FORBIDDEN"

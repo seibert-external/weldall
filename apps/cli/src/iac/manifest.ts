@@ -17,6 +17,8 @@ export interface Manifest {
   workspace: { name: string; issuer: string };
   include?: string[];
   cli?: { logoUrl: string; darkLogoUrl?: string };
+  encryptionKeys?: Record<string, unknown>;
+  connectors?: Record<string, unknown>;
   scopes?: Record<string, unknown>;
   resources?: Record<string, unknown>;
   skills?: Record<string, unknown>;
@@ -35,6 +37,8 @@ export interface Lockfile {
 }
 
 const objectSections = [
+  "encryptionKeys",
+  "connectors",
   "scopes",
   "resources",
   "skills",
@@ -190,6 +194,18 @@ function validatePrimitive(
   object: Record<string, unknown>,
 ) {
   const fields: Record<typeof section, string[]> = {
+    encryptionKeys: ["key", "name", "activeVersion", "versions"],
+    connectors: [
+      "key",
+      "name",
+      "type",
+      "enabled",
+      "encryptionKey",
+      "clientId",
+      "enabledApis",
+      "allowedScopes",
+      "defaultScopes",
+    ],
     scopes: ["key", "description"],
     resources: [
       "key",
@@ -238,7 +254,42 @@ function validatePrimitive(
       throw new CliError(`Invalid ${section}.${field}`);
     return value as string[];
   };
-  if (section === "scopes") {
+  if (section === "encryptionKeys" || section === "connectors") {
+    const identity = /^[a-z0-9][a-z0-9._-]{0,119}$/;
+    text("key", 120, identity);
+    text("name", 200);
+    if (section === "encryptionKeys") {
+      text("activeVersion", 120, identity);
+      const versions = record(object.versions);
+      if (!Object.hasOwn(versions, String(object.activeVersion)))
+        throw new CliError("Active key version must be registered");
+      for (const [version, value] of Object.entries(versions)) {
+        if (!identity.test(version)) throw new CliError("Invalid key version");
+        const entry = record(value),
+          source = record(entry.source);
+        if (
+          Object.keys(entry).some((k) => k !== "source") ||
+          Object.keys(source).some((k) => !["type", "name"].includes(k)) ||
+          source.type !== "env" ||
+          typeof source.name !== "string" ||
+          !/^[A-Za-z_][A-Za-z0-9_]{0,199}$/.test(source.name)
+        )
+          throw new CliError(
+            "Encryption sources contain only an env type and approved variable name, never secret material",
+          );
+      }
+    } else {
+      text("encryptionKey", 120, identity);
+      text("clientId", 500);
+      if (object.type !== "google" || typeof object.enabled !== "boolean")
+        throw new CliError("Invalid connector type or enabled flag");
+      if (list("enabledApis", true).some((s) => !["gmail", "calendar"].includes(s)))
+        throw new CliError("Unknown Google API");
+      const allowed = list("allowedScopes", true);
+      if (list("defaultScopes").some((s) => !allowed.includes(s)))
+        throw new CliError("Default scopes must be administrator-allowed");
+    }
+  } else if (section === "scopes") {
     text("key", 160, /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/);
     text("description", 500);
   } else if (section === "resources") {
@@ -446,6 +497,13 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
           },
         }
       : {}),
+    encryptionKeys: canonicalRecords("encryptionKeys", (value) => value),
+    connectors: canonicalRecords("connectors", (value) => ({
+      ...value,
+      enabledApis: canonicalSet(value.enabledApis),
+      allowedScopes: canonicalSet(value.allowedScopes),
+      defaultScopes: canonicalSet(value.defaultScopes),
+    })),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({
       ...value,

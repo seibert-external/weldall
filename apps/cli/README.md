@@ -76,7 +76,7 @@ defaults write dev.seibert.weldall-cli Issuer -string "https://weldall.example.c
 
 ## Native YAML infrastructure as code
 
-Native Weldall YAML manages one atomic configuration snapshot through the existing CLI. See [the IaC guide](../docs/src/content/docs/en/infrastructure-as-code.mdx).
+Native Weldall YAML manages one atomic configuration snapshot through the existing CLI, including non-secret `encryptionKeys` and `connectors` definitions. UI edits remain possible; approved applies restore manifest values. See [the IaC guide](../docs/src/content/docs/en/infrastructure-as-code.mdx).
 
 ```sh
 weldall init --name platform-access --issuer https://weldall.example.com
@@ -91,6 +91,24 @@ weldall state mv scope.old scope.new
 ```
 
 These commands appear in `weldall --help` only while `WELDALL_M2M_CLIENT_ID`, `WELDALL_M2M_KID`, and the `WELDALL_M2M_PRIVATE_JWK`/`WELDALL_M2M_PUBLIC_JWK` pair are set, because a browser login never makes them usable.
+
+## Managed Google connections
+
+Provider credentials stay encrypted on Weldall, never in the CLI. Connect once and use the same owner-only connection from any signed-in device. Browser setup must use the initiating Weldall account; optional permissions can be unticked before Google consent.
+
+```sh
+weldall connections connectors
+weldall connections connect google --name my-google
+weldall connections list
+weldall request --connection my-google \
+  https://weldall.example.com/connectors/google/calendar/v3/calendars/primary/events
+weldall connections reconnect my-google
+weldall connections disconnect my-google
+```
+
+These commands use the existing Weldall API session, not downstream token exchange. Use `--connection` without `--scope`; normal resource requests still require `--scope`. Google pagination uses `pageToken` in subsequent Weldall URLs, not `--paginate offset`. Connector transfers are limited to 10 MiB and supported Google operations; no arbitrary proxying. Disconnect blocks requests before revocation and exits nonzero if revocation is unconfirmed; repeat it explicitly to retry. Google revocation may affect other authorizations for the same account/client.
+
+`connections status <attempt-id>` recovers setup status after interruption; `connections cancel <attempt-id>` cancels or retries cleanup of an unused grant. `connections show <name-or-id>` reports selected/granted permissions and health; `connections delete <name-or-id>` removes metadata after confirmed disconnect or explicitly acknowledged administrator terminal cleanup. Lists and status print JSON. See the [managed connector guide](../docs/src/content/docs/managed-connectors.md) for administration and limits. Existing Weldall login/session storage is unchanged.
 
 ## Commands
 

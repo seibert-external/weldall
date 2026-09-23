@@ -16,4 +16,11 @@ export {
   Prisma,
   SkillVisibility,
 } from "@prisma/client";
-export type { OAuthDeviceRefreshBinding } from "@prisma/client";
+export type {
+  OAuthDeviceRefreshBinding,
+  Connector,
+  Connection,
+  EncryptionKey,
+  EncryptionKeyVersion,
+  EncryptedValue,
+} from "@prisma/client";

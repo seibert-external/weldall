@@ -262,7 +262,20 @@ const groupScopesMetadata = z
   })
   .strict();
 
+const connectorMetadata = z
+  .object({
+    operation: z.string().regex(/^[a-zA-Z0-9._-]{1,100}$/),
+    connectorId: z.string().max(128).optional(),
+    accountId: z.string().max(320).optional(),
+    durationMs: z.number().nonnegative().optional(),
+    status: z.number().int().optional(),
+  })
+  .strict();
+
 const metadataSchemas = {
+  "connector.configuration": connectorMetadata,
+  "connector.lifecycle": connectorMetadata,
+  "connector.request": connectorMetadata,
   "id_jag.issued": idJagIssuedMetadata,
   "id_jag.denied": idJagDeniedMetadata,
   "id_jag.failed": idJagFailedMetadata,

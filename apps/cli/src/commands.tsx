@@ -2,7 +2,7 @@ import { define } from "gunshi";
 import { Box } from "ink";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
 import { CliError } from "./errors.js";
-import { responseValue } from "./http.js";
+import { isRecord, responseValue } from "./http.js";
 import {
   MAX_PAGE_CONCURRENCY,
   MAX_PAGE_COUNT,
@@ -23,6 +23,7 @@ import {
   warning,
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
+import { connectionApi, connectAccount, connectionRequest } from "./services/connections.js";
 import { getCliAppendix } from "./services/settings.js";
 import {
   listScopes,
@@ -395,8 +396,11 @@ export const requestCommand = define({
       type: "string",
       short: "s",
       multiple: true,
-      required: true,
-      description: "Permission to request; repeat for more than one",
+      description: "Permission to request; required for normal resources, not managed connections",
+    },
+    connection: {
+      type: "string",
+      description: "Owner-managed connection name or ID; request a Weldall /connectors/<key>/ URL",
     },
     header: {
       type: "string",
@@ -484,6 +488,15 @@ export const requestCommand = define({
     "weldall request --scope personio:read --paginate offset --page-size 100 --total-pages-pointer /metadata/total_pages --max-pages 20 --concurrency 3 --page-output jsonl https://gateway.example/personio/employees",
   run: async (context) => {
     const headers = parseHeaders(context.values.header);
+    const scopes = context.values.scope ?? [];
+    if (!context.values.connection && !scopes.length)
+      throw new CliError("--scope is required for normal resource requests");
+    if (context.values.connection && scopes.length)
+      throw new CliError("Managed connection permissions come from setup; do not pass --scope");
+    if (context.values.connection && context.values.paginate)
+      throw new CliError(
+        "Google uses pageToken pagination; pass nextPageToken in the next connector URL, not --paginate offset",
+      );
     if (context.values.paginate !== undefined) {
       if (context.values.method !== "GET")
         throw new CliError("Offset pagination is allowed only for GET requests");
@@ -502,7 +515,7 @@ export const requestCommand = define({
       const config = await resolveWeldallConfig();
       const pages = await paginateOffset(config, {
         url: parseRequestUrl(context.values.url),
-        scopes: context.values.scope,
+        scopes,
         headers,
         pageSize: context.values.pageSize ?? 100,
         totalPagesPointer: context.values.totalPagesPointer,
@@ -545,17 +558,21 @@ export const requestCommand = define({
       headers["content-type"] = "application/octet-stream";
     }
 
-    const response = await resourceRequest(await resolveWeldallConfig(), {
+    const config = await resolveWeldallConfig();
+    const input = {
       url: parseRequestUrl(context.values.url),
       method: context.values.method,
-      scopes: context.values.scope,
+      scopes,
       headers,
       ...(payload.kind === "json"
         ? { json: payload.value }
         : payload.kind === "text" || payload.kind === "file" || payload.kind === "form"
           ? { body: payload.body }
           : {}),
-    });
+    };
+    const response = context.values.connection
+      ? await connectionRequest(config, context.values.connection, input)
+      : await resourceRequest(config, input);
     if (context.values.output !== undefined) {
       await writeResponseBody(response, context.values.output);
       return;
@@ -716,6 +733,118 @@ const skillsFindCommand = define({
       />,
     );
   },
+});
+
+const connectionSelector = {
+  type: "positional",
+  required: true,
+  description: "Connection name or ID",
+} as const;
+export const connectionsCommand = define({
+  name: "connections",
+  description: "Manage owner-only Google connections stored by Weldall",
+  subCommands: {
+    list: define({
+      name: "list",
+      run: async () => jsonOutput(await connectionApi(await resolveWeldallConfig(), "connections")),
+    }),
+    connectors: define({
+      name: "connectors",
+      run: async () => jsonOutput(await connectionApi(await resolveWeldallConfig(), "connectors")),
+    }),
+    connect: define({
+      name: "connect",
+      args: {
+        connector: { type: "positional", required: true },
+        name: { type: "string", required: true },
+      },
+      run: async ({ values }) =>
+        jsonOutput(
+          await connectAccount(await resolveWeldallConfig(), values.connector, values.name),
+        ),
+    }),
+    reconnect: define({
+      name: "reconnect",
+      args: { connection: connectionSelector },
+      run: async ({ values }) => {
+        const config = await resolveWeldallConfig();
+        const row = (await connectionApi(
+          config,
+          `connections/${encodeURIComponent(values.connection)}`,
+        )) as { connectorKey: string; name: string; id: string };
+        jsonOutput(await connectAccount(config, row.connectorKey, row.name, row.id));
+      },
+    }),
+    show: define({
+      name: "show",
+      args: { connection: connectionSelector },
+      run: async ({ values }) =>
+        jsonOutput(
+          await connectionApi(
+            await resolveWeldallConfig(),
+            `connections/${encodeURIComponent(values.connection)}`,
+          ),
+        ),
+    }),
+    disconnect: define({
+      name: "disconnect",
+      description:
+        "Block and revoke the Google account/client grant; repeat to retry unconfirmed revocation",
+      args: { connection: connectionSelector },
+      run: async ({ values }) => {
+        const result = await connectionApi(
+          await resolveWeldallConfig(),
+          `connections/${encodeURIComponent(values.connection)}`,
+          "POST",
+        );
+        jsonOutput(result);
+        if (
+          !isRecord(result) ||
+          result.status !== "DISCONNECTED" ||
+          result.revocationConfirmed === false
+        )
+          process.exitCode = 1;
+      },
+    }),
+    delete: define({
+      name: "delete",
+      description: "Delete disconnected metadata after revocation or administrator cleanup",
+      args: { connection: connectionSelector },
+      run: async ({ values }) =>
+        jsonOutput(
+          await connectionApi(
+            await resolveWeldallConfig(),
+            `connections/${encodeURIComponent(values.connection)}`,
+            "DELETE",
+          ),
+        ),
+    }),
+    status: define({
+      name: "status",
+      args: { attempt: { type: "positional", required: true } },
+      run: async ({ values }) =>
+        jsonOutput(
+          await connectionApi(
+            await resolveWeldallConfig(),
+            `connection-authorizations/${encodeURIComponent(values.attempt)}`,
+          ),
+        ),
+    }),
+    cancel: define({
+      name: "cancel",
+      description: "Cancel an attempt and revoke any retained unused Google grant",
+      args: { attempt: { type: "positional", required: true } },
+      run: async ({ values }) =>
+        jsonOutput(
+          await connectionApi(
+            await resolveWeldallConfig(),
+            `connection-authorizations/${encodeURIComponent(values.attempt)}`,
+            "DELETE",
+          ),
+        ),
+    }),
+  },
+  run: async () => jsonOutput(await connectionApi(await resolveWeldallConfig(), "connections")),
 });
 
 export const skillsCommand = define({

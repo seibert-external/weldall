@@ -1,6 +1,6 @@
 ---
 title: Infrastructure as code
-description: Manage Weldall CLI settings, scopes, resources, machines, skills, and assignments from YAML.
+description: Manage Weldall settings, access primitives, encryption keys and connectors from YAML.
 sidebar:
   label: Infrastructure as code
   order: 8
@@ -181,6 +181,51 @@ skills:
 `meta.appearance.icon` accepts canonical kebab-case names from the [Lucide icon catalog](https://lucide.dev/icons/). Gradient overrides are applied only when both colors in a light or dark pair are six-digit hex colors; otherwise Weldall uses the deterministic slug-based fallback.
 
 The slug is the skill identity, so changing it replaces the skill. An IaC-managed skill remains editable in the admin UI; such edits are drift and the next apply restores the YAML state. Administrator-managed skills may override resource-published skills with the same canonical ID. Discovered skills and catalogs cannot be imported or managed.
+
+## Managed connector configuration
+
+`encryptionKeys` and `connectors` use the same plan/apply, explicit import, state move and unmanage rules as other primitives. The references below are non-secret definitions persisted in PostgreSQL, not a runtime YAML registry.
+
+```yaml
+encryptionKeys:
+  credentials:
+    key: google-credentials
+    name: Google credentials
+    activeVersion: "1"
+    versions:
+      "1":
+        source:
+          type: env
+          name: COMPANY_GOOGLE_KEY_V1
+
+connectors:
+  google:
+    key: google
+    name: Google
+    type: google
+    enabled: false
+    encryptionKey: google-credentials
+    clientId: YOUR_CLIENT_ID.apps.googleusercontent.com
+    enabledApis: [gmail, calendar]
+    allowedScopes:
+      - https://www.googleapis.com/auth/gmail.readonly
+      - https://www.googleapis.com/auth/calendar.readonly
+    defaultScopes:
+      - https://www.googleapis.com/auth/calendar.readonly
+```
+
+Provision the chosen source variable and approve its name in `WELDALL_ENCRYPTION_SOURCES` on every **server** before apply. Neither CLI nor CI resolves or uploads that material. Create a connector disabled, provision its write-only OAuth client secret in the admin UI, then apply `enabled: true`. Later configuration applies preserve the secret. Users cannot remove required account-identity permissions, but may untick optional API permissions within `allowedScopes`.
+
+UI edits remain allowed; the next approved apply restores manifest values. Version/source bindings are immutable and historical mappings must remain in the manifest. Activating a key version or reassigning a connector does not re-encrypt existing ciphertext: use the explicit synchronous admin operation. Key deletion/replacement is blocked while referenced; disconnect and remove connections/attempts before deleting a connector, then remove unused keys in a subsequent apply. Refresh and ciphertext-only re-encryption do not create configuration drift. Obtain a fresh plan after upgrading the CLI/server: new manifest sections change canonical digests.
+
+```sh
+weldall import encryptionKey google-credentials --as encryptionKey.credentials
+weldall import connector google --as connector.google
+weldall state mv encryptionKey.credentials encryptionKey.renamed
+weldall unmanage connector.google --yes # remove its declaration first
+```
+
+State moves retain database IDs, ciphertext references and provider authorizations. Unmanage removes only the IaC binding. Connections themselves, provider consent and tokens are not declarative inputs. See [managed connections](./managed-connectors/) for setup, supported operations and recovery.
 
 ## Essential CLI commands
 
