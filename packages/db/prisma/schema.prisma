@@ -8,16 +8,18 @@ datasource db {
 }
 
 model User {
-  id                          String              @id
+  id                          String                    @id
   name                        String
-  email                       String              @unique
+  email                       String                    @unique
   emailVerified               Boolean
   image                       String?
-  createdAt                   DateTime            @default(now())
-  updatedAt                   DateTime            @updatedAt
+  createdAt                   DateTime                  @default(now())
+  updatedAt                   DateTime                  @updatedAt
   sessions                    Session[]
   accounts                    Account[]
   completedLoginInstallations LoginInstallation[]
+  connections                 Connection[]
+  connectionAttempts          ConnectionAuthorization[]
 }
 
 model Scope {
@@ -315,6 +317,8 @@ enum IacPrimitiveKind {
   EMAIL_ASSIGNMENT
   GROUP_ASSIGNMENT
   SKILL
+  ENCRYPTION_KEY
+  CONNECTOR
 }
 
 enum IacOperationType {
@@ -365,6 +369,8 @@ model IacObjectBinding {
   emailAssignmentId String?               @unique
   groupAssignmentId String?               @unique
   skillId           String?               @unique
+  encryptionKeyId   String?               @unique
+  connectorId       String?               @unique
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -374,9 +380,141 @@ model IacObjectBinding {
   emailAssignment   EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
   groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
   skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  encryptionKey     EncryptionKey?        @relation(fields: [encryptionKeyId], references: [id], onDelete: SetNull)
+  connector         Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])
+}
+
+/// Configuration revision (version) is independent of the active cryptographic version.
+model EncryptionKey {
+  id            String                 @id @default(cuid())
+  key           String                 @unique
+  name          String
+  activeVersion String
+  version       Int                    @default(1)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  createdBy     String
+  updatedBy     String
+  versions      EncryptionKeyVersion[]
+  connectors    Connector[]
+  iacBinding    IacObjectBinding?
+}
+
+/// Bindings and fingerprints are immutable; retain historical versions for recovery.
+model EncryptionKeyVersion {
+  keyId       String
+  version     String
+  sourceName  String
+  fingerprint String
+  key         EncryptionKey    @relation(fields: [keyId], references: [id], onDelete: Restrict)
+  values      EncryptedValue[]
+
+  @@id([keyId, version])
+}
+
+/// Private storage. Public metadata queries must never include this relation.
+model EncryptedValue {
+  id            String                   @id @default(cuid())
+  keyId         String
+  keyVersion    String
+  formatVersion Int                      @default(1)
+  context       String
+  nonce         String
+  ciphertext    String
+  tag           String
+  version       Int                      @default(1)
+  key           EncryptionKeyVersion     @relation(fields: [keyId, keyVersion], references: [keyId, version], onDelete: Restrict)
+  connector     Connector?
+  connection    Connection?
+  attempt       ConnectionAuthorization?
+
+  @@index([keyId, keyVersion])
+}
+
+model Connector {
+  id              String                    @id @default(cuid())
+  key             String                    @unique
+  name            String
+  type            String                    @default("google")
+  enabled         Boolean                   @default(false)
+  enabledApis     String[]
+  allowedScopes   String[]
+  defaultScopes   String[]
+  clientId        String
+  encryptionKeyId String
+  secretId        String?                   @unique
+  version         Int                       @default(1)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  createdBy       String
+  updatedBy       String
+  encryptionKey   EncryptionKey             @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
+  secret          EncryptedValue?           @relation(fields: [secretId], references: [id], onDelete: Restrict)
+  connections     Connection[]
+  attempts        ConnectionAuthorization[]
+  iacBinding      IacObjectBinding?
+}
+
+enum ConnectionStatus {
+  READY
+  REFRESHING
+  RECONNECT_REQUIRED
+  REVOCATION_PENDING
+  DISCONNECTED
+}
+
+model Connection {
+  id               String                    @id @default(cuid())
+  ownerId          String
+  connectorId      String
+  name             String
+  accountId        String
+  accountName      String
+  selectedScopes   String[]
+  grantedScopes    String[]
+  status           ConnectionStatus          @default(READY)
+  version          Int                       @default(1)
+  credentialId     String?                   @unique
+  refreshStartedAt DateTime?
+  revocationError  String?
+  lastUsedAt       DateTime?
+  requestCount     Int                       @default(0)
+  rateWindow       DateTime                  @default(now())
+  rateCount        Int                       @default(0)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  owner            User                      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  connector        Connector                 @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  credential       EncryptedValue?           @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  attempts         ConnectionAuthorization[]
+
+  @@unique([ownerId, name])
+  @@index([connectorId, status])
+}
+
+model ConnectionAuthorization {
+  id                String          @id @default(cuid())
+  ownerId           String
+  connectorId       String
+  connectionId      String?
+  connectionVersion Int?
+  connectorVersion  Int
+  name              String
+  status            String          @default("SETUP")
+  selectedScopes    String[]        @default([])
+  stateHash         String?         @unique
+  payloadId         String?         @unique
+  expiresAt         DateTime
+  createdAt         DateTime        @default(now())
+  owner             User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  connector         Connector       @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  connection        Connection?     @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  payload           EncryptedValue? @relation(fields: [payloadId], references: [id], onDelete: Restrict)
+
+  @@index([expiresAt])
 }
 
 model ReplayMarker {

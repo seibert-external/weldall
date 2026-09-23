@@ -31,6 +31,8 @@ type AdminRoute =
   | "audit"
   | "cli"
   | "resources"
+  | "connectors"
+  | "connections"
   | "machines"
   | "scopes"
   | "assignments"
@@ -40,6 +42,16 @@ type AdminRoute =
   | "users"
   | "skills";
 export const adminSectionDesigns = {
+  connectors: {
+    title: "Connectors & encryption keys",
+    light: toPair(corporateGradients.teal.light),
+    dark: toPair(corporateGradients.teal.dark),
+  },
+  connections: {
+    title: "Managed connections",
+    light: toPair(corporateGradients.teal.light),
+    dark: toPair(corporateGradients.teal.dark),
+  },
   audit: {
     title: "Audit logs",
     light: toPair(corporateGradients.pineTeal.light),
@@ -105,6 +117,8 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const route = useMemo<AdminRoute>(() => {
+    if (pathname.startsWith("/admin/connectors")) return "connectors";
+    if (pathname.startsWith("/admin/connections")) return "connections";
     if (pathname.startsWith("/admin/audit")) return "audit";
     if (pathname.startsWith("/admin/cli")) return "cli";
     if (pathname.startsWith("/admin/machines")) return "machines";

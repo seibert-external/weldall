@@ -1,0 +1,130 @@
+"use client";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Button } from "@astryxdesign/core/Button";
+import { Banner } from "@astryxdesign/core/Banner";
+import type { getAttempt } from "@/server/connectors/connections";
+import type { ScopeDescriptor } from "@/server/connectors/scopes";
+
+/** Shared rendering knows no provider scope IDs; descriptions and grouping come from the connector. */
+export function ScopeChoices({
+  scopes,
+  selected,
+  onChange,
+}: {
+  scopes: ScopeDescriptor[];
+  selected: string[];
+  onChange: (value: string[]) => void;
+}) {
+  return (
+    <>
+      {[...new Set(scopes.map((s) => s.group))].map((group) => (
+        <fieldset key={group} className="my-4">
+          <legend>{group}</legend>
+          {scopes
+            .filter((s) => s.group === group)
+            .map((s) => (
+              <label key={s.id} className="my-3 block">
+                <input
+                  type="checkbox"
+                  checked={s.required || selected.includes(s.id)}
+                  disabled={s.required}
+                  onChange={(e) =>
+                    onChange(
+                      e.target.checked ? [...selected, s.id] : selected.filter((id) => id !== s.id),
+                    )
+                  }
+                />{" "}
+                {s.label}
+                {s.required ? " (required)" : " (optional)"}
+                <span className="block text-sm">{s.description}</span>
+              </label>
+            ))}
+        </fieldset>
+      ))}
+    </>
+  );
+}
+export function SetupForm({ id }: { id: string }) {
+  const [selected, setSelected] = useState<string[] | null>(null);
+  const query = useQuery({
+    queryKey: ["connection-setup", id],
+    retry: false,
+    queryFn: async () => {
+      const response = await fetch(`/api/connectors/setup/${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error_description);
+      return value as Awaited<ReturnType<typeof getAttempt>>;
+    },
+  });
+  const submit = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/connectors/setup/${encodeURIComponent(id)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-weldall-csrf": "1" },
+        body: JSON.stringify({ selectedScopes: selected ?? query.data?.selectedScopes }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error_description);
+      window.location.assign(result.url);
+    },
+  });
+  if (query.isPending) return <p>Loading connection setup…</p>;
+  if (query.error)
+    return (
+      <>
+        <Banner status="error" title="Setup unavailable" description={query.error.message} />
+        <p>
+          <a href="/login" target="_blank" rel="noreferrer">
+            Sign in to Weldall
+          </a>{" "}
+          as the initiating CLI user, then reload this page.
+        </p>
+      </>
+    );
+  const attempt = query.data!;
+  if (attempt.status !== "SETUP")
+    return <p>Authorization status: {attempt.status}. Return to the CLI.</p>;
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit.mutate();
+      }}
+    >
+      <h1>Connect your {attempt.connector.name} account</h1>
+      <p>Choose what this connection may access. Select at least one API permission.</p>
+      <ScopeChoices
+        scopes={attempt.scopes}
+        selected={selected ?? attempt.selectedScopes}
+        onChange={setSelected}
+      />
+      <p>
+        Requested capabilities:{" "}
+        {[
+          ...new Set(
+            attempt.scopes
+              .filter((s) => !s.required && (selected ?? attempt.selectedScopes).includes(s.id))
+              .flatMap((s) => s.capabilities),
+          ),
+        ].join(", ") || "None — choose at least one."}
+      </p>
+      <p>
+        Broader permissions include the capabilities described above even if narrower boxes are
+        unticked. Google may grant fewer permissions. Reconnect changes take effect only after
+        successful authorization; unchecking a box does not revoke Google's underlying grant.
+      </p>
+      {submit.error && (
+        <Banner status="error" title="Cannot continue" description={submit.error.message} />
+      )}
+      <Button
+        type="submit"
+        label="Continue to Google"
+        isLoading={submit.isPending}
+        isDisabled={submit.isPending}
+      />
+    </form>
+  );
+}

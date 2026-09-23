@@ -141,7 +141,7 @@ describe("native YAML IaC contracts", () => {
           },
         }),
       ),
-    ).toBe("990a499264dbf19bde564967075d9abaa74fbcdffec75d1141fdecf723607ff3");
+    ).toBe("34971192bdec43ee53c18cc6883f55449b5c97cf642f1278bf170f04fb5ebb75");
     expect(() =>
       parseDesiredState({
         ...manifest(),
@@ -291,7 +291,7 @@ describe("native YAML IaC contracts", () => {
         observedVersion: 4,
       }),
     ]);
-    expect(first.digest).toBe("bfde721857f189ea2f4404433c1aff5859abfb48a89d91690d2eb812199f6e15");
+    expect(first.digest).toBe("229f25c7b2fa29914166354e8a8ca3d678f0e1d2e31f0fd58a32fd6669ae5d63");
     expect(first.digest).not.toBe(second.digest);
     expect(JSON.stringify(first)).not.toContain("Admin-edited");
   });
@@ -609,7 +609,7 @@ describe("native YAML IaC contracts", () => {
       },
     });
     expect(digest(canonicalDefaults)).toBe(
-      "c2e1311af97134bca5534c104566d7efa1d873bc61d3ff8f71f2ddf3caa6a054",
+      "a5abf5a1d73625e3372227dd1de1d1740aff323aa4bc6bde56eff39f38d6c9d8",
     );
     expect(() =>
       unmanageRequestSchema.parse({

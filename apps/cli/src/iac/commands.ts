@@ -96,6 +96,8 @@ export async function writeImportedFragment(path: string, content: string) {
 
 export function declaredImportValue(manifest: any, address: string): unknown {
   const sections: Record<string, string> = {
+    encryptionKey: "encryptionKeys",
+    connector: "connectors",
     scope: "scopes",
     resource: "resources",
     machine: "machines",
@@ -168,6 +170,8 @@ export const iacValidateCommand = define({
     const value = {
       valid: true,
       objectCount: [
+        "encryptionKeys",
+        "connectors",
         "scopes",
         "resources",
         "machines",
@@ -243,7 +247,16 @@ export const iacUpCommand = define({
     console.log(`Applied revision ${result.resultingRevision}.`);
   },
 });
-const importKinds = ["scope", "resource", "machine", "emailAssignment", "groupAssignment", "skill"];
+const importKinds = [
+  "scope",
+  "resource",
+  "machine",
+  "emailAssignment",
+  "groupAssignment",
+  "skill",
+  "encryptionKey",
+  "connector",
+];
 export const iacImportCommand = define({
   name: "import",
   description: "Explicitly claim a manual primitive for this workspace",
@@ -261,6 +274,8 @@ export const iacImportCommand = define({
     if (!kind || !name)
       throw new CliError("--as must be a logical address such as scope.expenses_read");
     const sections: Record<string, string> = {
+      encryptionKey: "encryptionKeys",
+      connector: "connectors",
       scope: "scopes",
       resource: "resources",
       machine: "machines",
@@ -326,6 +341,8 @@ export const iacUnmanageCommand = define({
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
     const sections: any = {
+      encryptionKey: "encryptionKeys",
+      connector: "connectors",
       scope: "scopes",
       resource: "resources",
       machine: "machines",
