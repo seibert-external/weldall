@@ -21,4 +21,13 @@ console.log(`BETTER_AUTH_SECRET=${randomBytes(32).toString("base64url")}`);
 console.log(`WELDALL_SETUP_TOKEN=${randomBytes(32).toString("base64url")}`);
 console.log(`WELDALL_CREDENTIAL_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}`);
 console.log("WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION=1");
+const managedConnectorSources = [
+  "DEV_MANAGED_CONNECTOR_KEY_PRIMARY",
+  "DEV_MANAGED_CONNECTOR_KEY_ROTATION",
+  "DEV_MANAGED_CONNECTOR_KEY_ARCHIVE",
+];
+console.log(`WELDALL_ENCRYPTION_SOURCES=${managedConnectorSources.join(",")}`);
+for (const name of managedConnectorSources) {
+  console.log(`${name}=${randomBytes(32).toString("base64")}`);
+}
 console.log(`DEV_IDP_CLIENT_SECRET=${randomBytes(32).toString("base64url")}`);

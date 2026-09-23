@@ -1,423 +1,782 @@
 "use client";
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@astryxdesign/core/Button";
+
+import { useId, useMemo, useState } from "react";
+import type { AnyFieldApi } from "@tanstack/react-form";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
-import { useTRPC } from "@/trpc/react";
-import { scopeCatalog } from "@/server/connectors/scopes";
-import type { ConnectorConfig, KeyConfig } from "@/server/connectors/contracts";
+import { Button } from "@astryxdesign/core/Button";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { MultiSelector } from "@astryxdesign/core/MultiSelector";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Switch } from "@astryxdesign/core/Switch";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { useForm } from "@tanstack/react-form";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import type { ConnectorConfig } from "@/server/connectors/contracts";
 import type { listConfiguration } from "@/server/connectors/configuration";
+import { scopeCatalog } from "@/server/connectors/scopes";
+import { useTRPC } from "@/trpc/react";
+import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { useOperationToast } from "../../_components/use-operation-toast";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
 
 type Configuration = Awaited<ReturnType<typeof listConfiguration>>;
-const newKey: KeyConfig = {
-  key: "",
-  name: "",
-  activeVersion: "1",
-  versions: { "1": { source: { type: "env", name: "" } } },
-};
-const newConnector: ConnectorConfig = {
-  key: "",
-  name: "",
-  type: "google",
-  enabled: false,
-  encryptionKey: "",
-  clientId: "",
-  enabledApis: ["gmail", "calendar"],
-  allowedScopes: [],
-  defaultScopes: [],
-};
+type ConnectorRow = Configuration["connectors"][number];
+type ConnectorAction = { type: "delete" | "reencrypt"; connector: ConnectorRow };
+const emptyConnectors: ConnectorRow[] = [];
+const emptyKeys: Configuration["keys"] = [];
+const apiOptions = [
+  { value: "gmail", label: "Gmail" },
+  { value: "calendar", label: "Google Calendar" },
+];
+
 export function ManagedConfiguration() {
   const trpc = useTRPC();
-  const cache = useQueryClient();
-  const query = useQuery(trpc.admin.managed.configuration.queryOptions());
-  const [key, setKey] = useState<Configuration["keys"][number] | "new" | null>(null);
-  const [connector, setConnector] = useState<Configuration["connectors"][number] | "new" | null>(
-    null,
-  );
-  const refresh = () => {
-    setKey(null);
-    setConnector(null);
-    void cache.invalidateQueries({ queryKey: trpc.admin.managed.configuration.queryKey() });
+  const queryClient = useQueryClient();
+  const operationToast = useOperationToast();
+  const configurationQuery = useQuery(trpc.admin.managed.configuration.queryOptions());
+  const [editingConnector, setEditingConnector] = useState<ConnectorRow | null | undefined>();
+  const [action, setAction] = useState<ConnectorAction | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
+  const connectors = configurationQuery.data?.connectors ?? emptyConnectors;
+  const keys = configurationQuery.data?.keys ?? emptyKeys;
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: trpc.admin.managed.configuration.queryKey() });
   };
+  const deleteMutation = useMutation(
+    trpc.admin.managed.deleteConnector.mutationOptions({
+      onSuccess: async () => {
+        setAction(null);
+        operationToast.success("Connector deleted", "connector-delete");
+        await refresh();
+      },
+      onError: (error) =>
+        operationToast.error("Could not delete connector", error, "connector-delete"),
+    }),
+  );
+  const reencryptMutation = useMutation(
+    trpc.admin.managed.reencrypt.mutationOptions({
+      onSuccess: async (result) => {
+        setAction(null);
+        operationToast.success(
+          `Re-encrypted ${result.count.toLocaleString()} stored value${result.count === 1 ? "" : "s"}`,
+          "connector-reencrypt",
+        );
+        await refresh();
+      },
+      onError: (error) =>
+        operationToast.error("Could not re-encrypt connector values", error, "connector-reencrypt"),
+    }),
+  );
+  const columns = useMemo<ColumnDef<ConnectorRow>[]>(
+    () => [
+      {
+        id: "name",
+        accessorFn: (row) => row.config.name,
+        header: "Connector",
+        size: 300,
+        minSize: 180,
+        maxSize: 440,
+        cell: ({ row, getValue }) => (
+          <OverflowFade title={`${getValue<string>()} (${row.original.config.key})`}>
+            <div className="flex w-max items-center gap-2 whitespace-nowrap">
+              <span>{getValue<string>()}</span>
+              <code className="text-xs">{row.original.config.key}</code>
+            </div>
+          </OverflowFade>
+        ),
+      },
+      {
+        id: "apis",
+        accessorFn: (row) => row.config.enabledApis.join(", "),
+        header: "APIs",
+        size: 210,
+        minSize: 150,
+        maxSize: 300,
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-1">
+            {row.original.config.enabledApis.map((api) => (
+              <Badge key={api} label={api === "gmail" ? "Gmail" : "Calendar"} variant="info" />
+            ))}
+          </div>
+        ),
+      },
+      {
+        id: "permissions",
+        accessorFn: (row) => row.config.allowedScopes.length,
+        header: "Permissions",
+        size: 150,
+        minSize: 120,
+        maxSize: 190,
+        cell: ({ getValue }) => `${getValue<number>().toLocaleString()} allowed`,
+      },
+      {
+        id: "encryptionKey",
+        accessorFn: (row) => row.config.encryptionKey,
+        header: "Encryption key",
+        size: 220,
+        minSize: 150,
+        maxSize: 320,
+        cell: ({ getValue }) => (
+          <code className="whitespace-nowrap text-sm">{getValue<string>()}</code>
+        ),
+      },
+      {
+        id: "secret",
+        accessorFn: (row) => row.secretConfigured,
+        header: "Client secret",
+        size: 150,
+        minSize: 120,
+        maxSize: 200,
+        cell: ({ getValue }) => (
+          <Badge
+            label={getValue<boolean>() ? "Configured" : "Missing"}
+            variant={getValue<boolean>() ? "neutral" : "warning"}
+          />
+        ),
+      },
+      {
+        id: "enabled",
+        accessorFn: (row) => row.config.enabled,
+        header: "Status",
+        size: 130,
+        minSize: 110,
+        maxSize: 180,
+        cell: ({ row, getValue }) => (
+          <div className="flex flex-wrap gap-1">
+            <Badge
+              label={getValue<boolean>() ? "Enabled" : "Disabled"}
+              variant={getValue<boolean>() ? "success" : "neutral"}
+            />
+            {row.original.managed ? <Badge label="IaC" variant="purple" /> : null}
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    data: connectors,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    columnResizeMode: "onChange",
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
   return (
     <>
-      <p>
-        Configuration is stored in PostgreSQL. IaC-managed objects remain editable here; the next
-        approved apply restores manifest values. Key material belongs in deployment secrets, never
-        in these forms.
-      </p>
-      {query.error && (
+      <HerocrumbsActions>
+        <div className="admin-table-action-row">
+          <Button href="/admin/keys" label="Encryption keys" variant="secondary" />
+          <Button
+            label="Add connector"
+            onClick={() => setEditingConnector(null)}
+            variant="primary"
+          />
+        </div>
+      </HerocrumbsActions>
+      <Text color="secondary">
+        Configure provider clients and the permissions users may grant. Client secrets are
+        write-only.
+      </Text>
+      {configurationQuery.error ? (
         <Banner
+          container="card"
           status="error"
-          title="Configuration unavailable"
-          description={query.error.message}
+          title="Could not load connectors"
+          description={configurationQuery.error.message}
         />
-      )}
-      <h2>Encryption keys</h2>
-      <Button label="Add encryption key" onClick={() => setKey("new")} />
-      <ul>
-        {query.data?.keys.map((k) => (
-          <li key={k.id}>
-            <Button
-              variant="secondary"
-              label={`${k.config.name} (${k.config.key}) — active ${k.config.activeVersion} — ${k.available ? "available" : "unavailable"}${k.managed ? " — IaC" : ""}`}
-              onClick={() => setKey(k)}
-            />
-          </li>
-        ))}
-      </ul>
-      {key && (
-        <KeyEditor
-          key={key === "new" ? "new" : `${key.id}:${key.version}`}
-          row={key === "new" ? null : key}
-          done={refresh}
+      ) : null}
+      <ManagedTable
+        label="Connectors table"
+        table={table}
+        columns={columns}
+        isPending={configurationQuery.isPending}
+        empty="No connectors have been configured."
+        onEdit={setEditingConnector}
+      />
+      {editingConnector !== undefined ? (
+        <ConnectorDialog
+          key={editingConnector?.id ?? "new"}
+          connector={editingConnector}
+          keys={keys}
+          onClose={() => setEditingConnector(undefined)}
+          onDelete={(connector) => {
+            setEditingConnector(undefined);
+            setAction({ type: "delete", connector });
+          }}
+          onReencrypt={(connector) => {
+            setEditingConnector(undefined);
+            setAction({ type: "reencrypt", connector });
+          }}
+          onSaved={async () => {
+            setEditingConnector(undefined);
+            await refresh();
+          }}
         />
-      )}
-      <h2>Google connectors</h2>
-      <Button label="Add connector" onClick={() => setConnector("new")} />
-      <ul>
-        {query.data?.connectors.map((c) => (
-          <li key={c.id}>
-            <Button
-              variant="secondary"
-              label={`${c.config.name} — ${c.config.enabled ? "enabled" : "disabled"} — secret ${c.secretConfigured ? "configured" : "missing"}${c.managed ? " — IaC" : ""}`}
-              onClick={() => setConnector(c)}
-            />
-          </li>
-        ))}
-      </ul>
-      {connector && (
-        <ConnectorEditor
-          key={connector === "new" ? "new" : `${connector.id}:${connector.version}`}
-          row={connector === "new" ? null : connector}
-          keys={query.data?.keys ?? []}
-          done={refresh}
-        />
-      )}
-      <a href="/admin/connections">Inspect managed connections</a>
+      ) : null}
+      <AlertDialog
+        actionLabel={action?.type === "delete" ? "Delete connector" : "Re-encrypt values"}
+        description={
+          action?.type === "delete"
+            ? `Delete ${action.connector.config.name}? Connections and authorization attempts must be removed first.`
+            : action
+              ? `Synchronously re-encrypt every stored value for ${action.connector.config.name} with its selected active key version? The operation rolls back on failure.`
+              : "Confirm this connector operation."
+        }
+        isActionLoading={deleteMutation.isPending || reencryptMutation.isPending}
+        isOpen={Boolean(action)}
+        onAction={() => {
+          if (!action) return;
+          if (action.type === "delete")
+            deleteMutation.mutate({ id: action.connector.id, version: action.connector.version });
+          else
+            reencryptMutation.mutate({
+              id: action.connector.id,
+              version: action.connector.version,
+            });
+        }}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending && !reencryptMutation.isPending) setAction(null);
+        }}
+        title={action?.type === "delete" ? "Delete connector?" : "Re-encrypt stored values?"}
+      />
     </>
   );
 }
-function KeyEditor({ row, done }: { row: Configuration["keys"][number] | null; done: () => void }) {
-  const trpc = useTRPC();
-  const [value, setValue] = useState<KeyConfig>(row?.config ?? structuredClone(newKey));
-  const [version, setVersion] = useState("");
-  const save = useMutation(trpc.admin.managed.saveKey.mutationOptions({ onSuccess: done }));
-  const remove = useMutation(trpc.admin.managed.deleteKey.mutationOptions({ onSuccess: done }));
+
+function ManagedTable({
+  label,
+  table,
+  columns,
+  isPending,
+  empty,
+  onEdit,
+}: {
+  label: string;
+  table: ReturnType<typeof useReactTable<ConnectorRow>>;
+  columns: ColumnDef<ConnectorRow>[];
+  isPending: boolean;
+  empty: string;
+  onEdit: (row: ConnectorRow) => void;
+}) {
   return (
-    <form
-      className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save.mutate({
-          ...(row ? { id: row.id } : {}),
-          version: row?.version ?? null,
-          config: value,
-        });
+    <TableContext.Provider
+      value={{
+        density: "balanced",
+        dividers: "grid",
+        hasHover: false,
+        isStriped: false,
+        textOverflow: "wrap",
+        verticalAlign: "middle",
       }}
     >
-      <h3>{row ? "Edit" : "Create"} encryption key</h3>
-      <label className="block">
-        Key{" "}
-        <input
-          required
-          disabled={Boolean(row)}
-          value={value.key}
-          onChange={(e) => setValue({ ...value, key: e.target.value })}
-        />
-      </label>
-      <label className="block">
-        Name{" "}
-        <input
-          required
-          value={value.name}
-          onChange={(e) => setValue({ ...value, name: e.target.value })}
-        />
-      </label>
-      <label className="block">
-        Active version{" "}
-        <select
-          value={value.activeVersion}
-          onChange={(e) => setValue({ ...value, activeVersion: e.target.value })}
+      <div className="w-full overflow-x-auto" role="group" aria-label={label}>
+        <table
+          className="admin-resizable-table table-fixed border-collapse text-left"
+          style={{ minWidth: "100%", width: table.getTotalSize() }}
         >
-          {Object.keys(value.versions).map((v) => (
-            <option key={v}>{v}</option>
-          ))}
-        </select>
-      </label>
-      {Object.entries(value.versions).map(([v, entry]) => (
-        <label className="block" key={v}>
-          Version {v}: approved environment variable{" "}
-          <input
-            required
-            disabled={Boolean(row?.config.versions[v])}
-            value={entry.source.name}
-            onChange={(e) =>
-              setValue({
-                ...value,
-                versions: {
-                  ...value.versions,
-                  [v]: { source: { type: "env", name: e.target.value } },
-                },
-              })
-            }
-          />
-        </label>
-      ))}
-      <label>
-        New version <input value={version} onChange={(e) => setVersion(e.target.value)} />
-      </label>
-      <Button
-        type="button"
-        label="Register version in form"
-        isDisabled={!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(version) || version in value.versions}
-        onClick={() => {
-          setValue({
-            ...value,
-            versions: { ...value.versions, [version]: { source: { type: "env", name: "" } } },
-          });
-          setVersion("");
-        }}
-      />
-      <p>
-        Provision the same random key on every instance first. Activating a version does not
-        re-encrypt existing values. Retain historical versions and backup key material.
-      </p>
-      {(save.error || remove.error) && (
-        <Banner
-          status="error"
-          title="Key operation failed"
-          description={(save.error ?? remove.error)!.message}
-        />
-      )}
-      <Button type="submit" label="Save key" isDisabled={save.isPending || remove.isPending} />
-      {row && (
-        <Button
-          type="button"
-          label="Delete unused key"
-          isDisabled={save.isPending || remove.isPending}
-          onClick={() => {
-            if (
-              confirm(
-                "Delete this unused key definition? Backups still require separately retained historical mappings and material.",
-              )
-            )
-              remove.mutate({ id: row.id, version: row.version });
-          }}
-        />
-      )}
-    </form>
+          <ResizableTableHeader table={table} />
+          <TableBody>
+            {table.getRowModel().rows.map((row) => (
+              <TableRow
+                key={row.id}
+                aria-label={`Edit ${row.original.config.name}`}
+                data-clickable="true"
+                onClick={(event) => {
+                  if (!isInteractiveTableTarget(event.target, event.currentTarget))
+                    onEdit(row.original);
+                }}
+              >
+                {row.getVisibleCells().map((cell, index) => (
+                  <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                    {index === 0 ? (
+                      <TableRowAction
+                        label={`Edit ${row.original.config.name}`}
+                        onActivate={() => onEdit(row.original)}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableRowAction>
+                    ) : (
+                      flexRender(cell.column.columnDef.cell, cell.getContext())
+                    )}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+            {!isPending && table.getRowModel().rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={columns.length}>
+                  <Text color="secondary">{empty}</Text>
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {isPending ? (
+              <TableRow>
+                <TableCell colSpan={columns.length}>
+                  <Text color="secondary">Loading connectors…</Text>
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </table>
+      </div>
+    </TableContext.Provider>
   );
 }
-function ConnectorEditor({
-  row,
+
+function ConnectorDialog({
+  connector,
   keys,
-  done,
+  onClose,
+  onDelete,
+  onReencrypt,
+  onSaved,
 }: {
-  row: Configuration["connectors"][number] | null;
+  connector: ConnectorRow | null;
   keys: Configuration["keys"];
-  done: () => void;
+  onClose: () => void;
+  onDelete: (connector: ConnectorRow) => void;
+  onReencrypt: (connector: ConnectorRow) => void;
+  onSaved: () => Promise<void>;
 }) {
   const trpc = useTRPC();
-  const [value, setValue] = useState<ConnectorConfig>(row?.config ?? structuredClone(newConnector));
-  const [secret, setSecret] = useState("");
-  const save = useMutation(trpc.admin.managed.saveConnector.mutationOptions({ onSuccess: done }));
-  const provision = useMutation(
-    trpc.admin.managed.secret.mutationOptions({
-      onSuccess: () => {
-        setSecret("");
-        done();
-      },
+  const formId = useId();
+  const secretFormId = useId();
+  const operationToast = useOperationToast();
+  const saveMutation = useMutation(
+    trpc.admin.managed.saveConnector.mutationOptions({
+      onSuccess: () =>
+        operationToast.success(
+          connector ? "Connector saved" : "Connector created",
+          "connector-save",
+        ),
+      onError: (error) => operationToast.error("Could not save connector", error, "connector-save"),
     }),
   );
-  const rotate = useMutation(trpc.admin.managed.reencrypt.mutationOptions({ onSuccess: done }));
-  const remove = useMutation(
-    trpc.admin.managed.deleteConnector.mutationOptions({ onSuccess: done }),
+  const secretMutation = useMutation(
+    trpc.admin.managed.secret.mutationOptions({
+      onSuccess: () => operationToast.success("Client secret provisioned", "connector-secret"),
+      onError: (error) =>
+        operationToast.error("Could not provision client secret", error, "connector-secret"),
+    }),
   );
-  const busy = save.isPending || provision.isPending || rotate.isPending || remove.isPending;
-  const error = save.error ?? provision.error ?? rotate.error ?? remove.error;
+  const config = connector?.config;
+  const form = useForm({
+    defaultValues: {
+      key: config?.key ?? "",
+      name: config?.name ?? "",
+      clientId: config?.clientId ?? "",
+      encryptionKey: config?.encryptionKey ?? "",
+      enabledApis: config?.enabledApis ?? (["gmail", "calendar"] as ("gmail" | "calendar")[]),
+      allowedScopes: config?.allowedScopes ?? [],
+      defaultScopes: config?.defaultScopes ?? [],
+      enabled: config?.enabled ?? false,
+    },
+    onSubmit: async ({ value }) => {
+      await saveMutation.mutateAsync({
+        ...(connector ? { id: connector.id } : {}),
+        version: connector?.version ?? null,
+        config: { ...value, type: "google" } satisfies ConnectorConfig,
+      });
+      await onSaved();
+    },
+  });
+  const secretForm = useForm({
+    defaultValues: { secret: "" },
+    onSubmit: async ({ value }) => {
+      if (!connector) return;
+      await secretMutation.mutateAsync({
+        id: connector.id,
+        version: connector.version,
+        secret: value.secret,
+      });
+      await onSaved();
+    },
+  });
+  const busy = saveMutation.isPending || secretMutation.isPending;
+  const changeOpen = (open: boolean) => {
+    if (!open && !busy) onClose();
+  };
+
   return (
-    <form
-      className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save.mutate({
-          ...(row ? { id: row.id } : {}),
-          version: row?.version ?? null,
-          config: value,
-        });
-      }}
-    >
-      <h3>{row ? "Edit" : "Create"} Google connector</h3>
-      <label className="block">
-        Key{" "}
-        <input
-          required
-          disabled={Boolean(row)}
-          value={value.key}
-          onChange={(e) => setValue({ ...value, key: e.target.value })}
-        />
-      </label>
-      <label className="block">
-        Name{" "}
-        <input
-          required
-          value={value.name}
-          onChange={(e) => setValue({ ...value, name: e.target.value })}
-        />
-      </label>
-      <label className="block">
-        OAuth client ID{" "}
-        <input
-          required
-          value={value.clientId}
-          onChange={(e) => setValue({ ...value, clientId: e.target.value })}
-        />
-      </label>
-      <label className="block">
-        Encryption key{" "}
-        <select
-          required
-          value={value.encryptionKey}
-          onChange={(e) => setValue({ ...value, encryptionKey: e.target.value })}
-        >
-          <option value="">Choose a key</option>
-          {keys.map((k) => (
-            <option key={k.id} value={k.config.key}>
-              {k.config.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="block">
-        <input
-          type="checkbox"
-          disabled={!row?.secretConfigured}
-          checked={value.enabled}
-          onChange={(e) => setValue({ ...value, enabled: e.target.checked })}
-        />{" "}
-        Enabled (requires provisioned client secret)
-      </label>
-      {(["gmail", "calendar"] as const).map((api) => (
-        <label className="block" key={api}>
-          <input
-            type="checkbox"
-            checked={value.enabledApis.includes(api)}
-            onChange={(e) => {
-              const enabledApis = e.target.checked
-                ? [...value.enabledApis, api]
-                : value.enabledApis.filter((a) => a !== api);
-              const allowedScopes = value.allowedScopes.filter((s) =>
-                enabledApis.includes(
-                  scopeCatalog.find((d) => d.id === s)!.group.toLowerCase() as "gmail" | "calendar",
-                ),
-              );
-              setValue({
-                ...value,
-                enabledApis,
-                allowedScopes,
-                defaultScopes: value.defaultScopes.filter((s) => allowedScopes.includes(s)),
-              });
-            }}
-          />{" "}
-          {api}
-        </label>
-      ))}
-      <fieldset>
-        <legend>Allowed permissions and explicit defaults</legend>
-        {scopeCatalog
-          .filter(
-            (s) =>
-              !s.required &&
-              value.enabledApis.includes(s.group.toLowerCase() as "gmail" | "calendar"),
-          )
-          .map((s) => (
-            <div key={s.id} className="my-3">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={value.allowedScopes.includes(s.id)}
-                  onChange={(e) =>
-                    setValue({
-                      ...value,
-                      allowedScopes: e.target.checked
-                        ? [...value.allowedScopes, s.id]
-                        : value.allowedScopes.filter((id) => id !== s.id),
-                      defaultScopes: value.defaultScopes.filter((id) => id !== s.id),
-                    })
+    <Dialog isOpen onOpenChange={changeOpen} purpose="form" width="min(760px, calc(100vw - 32px))">
+      <Layout
+        header={
+          <DialogHeader
+            hasDivider
+            onOpenChange={changeOpen}
+            subtitle="Google OAuth configuration, permission policy, and encryption binding."
+            title={connector ? "Edit connector" : "Add connector"}
+          />
+        }
+        content={
+          <LayoutContent>
+            <form
+              className="admin-dialog-form"
+              id={formId}
+              onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void form.handleSubmit();
+              }}
+            >
+              <FormLayout>
+                <form.Field
+                  name="key"
+                  validators={{
+                    onBlur: ({ value }) => validateIdentity(value, "Connector key"),
+                    onChange: ({ value }) => validateIdentity(value, "Connector key"),
+                    onSubmit: ({ value }) => validateIdentity(value, "Connector key"),
+                  }}
+                >
+                  {(field) => (
+                    <TextInput
+                      isDisabled={Boolean(connector)}
+                      isRequired
+                      label="Connector key"
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      placeholder="google-workspace"
+                      {...fieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Field
+                  name="name"
+                  validators={{
+                    onBlur: ({ value }) => validateName(value),
+                    onSubmit: ({ value }) => validateName(value),
+                  }}
+                >
+                  {(field) => (
+                    <TextInput
+                      isRequired
+                      label="Name"
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      placeholder="Company Google Workspace"
+                      {...fieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Field
+                  name="clientId"
+                  validators={{
+                    onBlur: ({ value }) => validateRequired(value, "OAuth client ID", 500),
+                    onSubmit: ({ value }) => validateRequired(value, "OAuth client ID", 500),
+                  }}
+                >
+                  {(field) => (
+                    <TextInput
+                      isRequired
+                      label="OAuth client ID"
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      placeholder="123456.apps.googleusercontent.com"
+                      {...fieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Field
+                  name="encryptionKey"
+                  validators={{
+                    onChange: ({ value }) => (value ? undefined : "Choose an encryption key."),
+                    onSubmit: ({ value }) => (value ? undefined : "Choose an encryption key."),
+                  }}
+                >
+                  {(field) => (
+                    <Selector
+                      hasClear
+                      isRequired
+                      label="Encryption key"
+                      onChange={(value) => field.handleChange(value ?? "")}
+                      options={keys.map((key) => ({
+                        value: key.config.key,
+                        label: `${key.config.name}${key.available ? "" : " (unavailable)"}`,
+                      }))}
+                      placeholder="Choose a key…"
+                      {...fieldStatusProps(field)}
+                      value={field.state.value || null}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Field
+                  name="enabledApis"
+                  validators={{
+                    onChange: ({ value }) =>
+                      value.length ? undefined : "Enable at least one API.",
+                    onSubmit: ({ value }) =>
+                      value.length ? undefined : "Enable at least one API.",
+                  }}
+                >
+                  {(field) => (
+                    <MultiSelector
+                      label="Enabled APIs"
+                      onChange={(values) => {
+                        const enabledApis = values as ("gmail" | "calendar")[];
+                        field.handleChange(enabledApis);
+                        const allowed = form.state.values.allowedScopes.filter((id) =>
+                          scopeBelongsToEnabledApi(id, enabledApis),
+                        );
+                        form.setFieldValue("allowedScopes", allowed);
+                        form.setFieldValue(
+                          "defaultScopes",
+                          form.state.values.defaultScopes.filter((id) => allowed.includes(id)),
+                        );
+                      }}
+                      options={apiOptions}
+                      {...fieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Subscribe
+                  selector={(state) =>
+                    [state.values.enabledApis, state.values.allowedScopes] as const
                   }
-                />{" "}
-                Allow {s.label}
-              </label>{" "}
-              <label>
-                <input
-                  type="checkbox"
-                  disabled={!value.allowedScopes.includes(s.id)}
-                  checked={value.defaultScopes.includes(s.id)}
-                  onChange={(e) =>
-                    setValue({
-                      ...value,
-                      defaultScopes: e.target.checked
-                        ? [...value.defaultScopes, s.id]
-                        : value.defaultScopes.filter((id) => id !== s.id),
-                    })
-                  }
-                />{" "}
-                Selected by default
-              </label>
-              <p>{s.description}</p>
+                >
+                  {([enabledApis, allowedScopes]) => {
+                    const allowedScopeOptions = scopeCatalog
+                      .filter(
+                        (scope) =>
+                          !scope.required &&
+                          enabledApis.includes(scope.group.toLowerCase() as "gmail" | "calendar"),
+                      )
+                      .map((scope) => ({
+                        value: scope.id,
+                        label: `${scope.group}: ${scope.label}`,
+                      }));
+                    const defaultScopeOptions = allowedScopeOptions.filter((option) =>
+                      allowedScopes.includes(option.value),
+                    );
+                    return (
+                      <>
+                        <form.Field
+                          name="allowedScopes"
+                          validators={{
+                            onChange: ({ value }) =>
+                              value.length ? undefined : "Allow at least one permission.",
+                            onSubmit: ({ value }) =>
+                              value.length ? undefined : "Allow at least one permission.",
+                          }}
+                        >
+                          {(field) => (
+                            <MultiSelector
+                              hasSearch
+                              label="Allowed permissions"
+                              onChange={(values) => {
+                                field.handleChange(values);
+                                form.setFieldValue(
+                                  "defaultScopes",
+                                  form.state.values.defaultScopes.filter((id) =>
+                                    values.includes(id),
+                                  ),
+                                );
+                              }}
+                              options={allowedScopeOptions}
+                              placeholder="Choose permissions…"
+                              {...fieldStatusProps(field)}
+                              triggerDisplay="badges"
+                              value={field.state.value}
+                              width="100%"
+                            />
+                          )}
+                        </form.Field>
+                        <form.Field name="defaultScopes">
+                          {(field) => (
+                            <MultiSelector
+                              hasClear
+                              hasSearch
+                              label="Selected by default"
+                              onChange={field.handleChange}
+                              options={defaultScopeOptions}
+                              placeholder="No optional defaults"
+                              triggerDisplay="badges"
+                              value={field.state.value}
+                              width="100%"
+                            />
+                          )}
+                        </form.Field>
+                      </>
+                    );
+                  }}
+                </form.Subscribe>
+                <form.Field name="enabled">
+                  {(field) => (
+                    <Switch
+                      description={
+                        connector?.secretConfigured
+                          ? "Users may create and use connections through this connector."
+                          : "Provision a client secret before enabling this connector."
+                      }
+                      isDisabled={!connector?.secretConfigured}
+                      label="Enabled"
+                      labelPosition="start"
+                      labelSpacing="spread"
+                      onChange={field.handleChange}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+              </FormLayout>
+            </form>
+            {connector ? (
+              <>
+                <hr className="border-border my-5 border-0 border-t" />
+                <form
+                  className="admin-dialog-form"
+                  id={secretFormId}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void secretForm.handleSubmit();
+                  }}
+                >
+                  <FormLayout>
+                    <secretForm.Field
+                      name="secret"
+                      validators={{
+                        onSubmit: ({ value }) => validateRequired(value, "Client secret", 10_000),
+                      }}
+                    >
+                      {(field) => (
+                        <TextInput
+                          isRequired
+                          label={
+                            connector.secretConfigured
+                              ? "Replacement client secret"
+                              : "Client secret"
+                          }
+                          onChange={field.handleChange}
+                          type="password"
+                          {...fieldStatusProps(field)}
+                          value={field.state.value}
+                          width="100%"
+                        />
+                      )}
+                    </secretForm.Field>
+                    <div className="flex justify-end">
+                      <secretForm.Subscribe selector={(state) => state.canSubmit}>
+                        <Button
+                          form={secretFormId}
+                          isDisabled={!secretForm.state.values.secret}
+                          isLoading={secretMutation.isPending}
+                          label={connector.secretConfigured ? "Replace secret" : "Provision secret"}
+                          type="submit"
+                          variant="secondary"
+                        />
+                      </secretForm.Subscribe>
+                    </div>
+                  </FormLayout>
+                </form>
+              </>
+            ) : null}
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter hasDivider>
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
+              {connector ? (
+                <>
+                  <Button
+                    className="mr-auto"
+                    isDisabled={busy}
+                    label="Delete connector"
+                    onClick={() => onDelete(connector)}
+                    type="button"
+                    variant="destructive"
+                  />
+                  <Button
+                    isDisabled={busy}
+                    label="Re-encrypt values"
+                    onClick={() => onReencrypt(connector)}
+                    type="button"
+                    variant="secondary"
+                  />
+                </>
+              ) : null}
+              <Button label="Cancel" onClick={onClose} type="button" variant="secondary" />
+              <form.Subscribe selector={(state) => state.canSubmit}>
+                {(canSubmit) => (
+                  <Button
+                    form={formId}
+                    isDisabled={!canSubmit || busy || keys.length === 0}
+                    isLoading={saveMutation.isPending}
+                    label={connector ? "Save connector" : "Add connector"}
+                    type="submit"
+                    variant="primary"
+                  />
+                )}
+              </form.Subscribe>
             </div>
-          ))}
-      </fieldset>
-      {error && (
-        <Banner status="error" title="Connector operation failed" description={error.message} />
-      )}
-      <Button type="submit" label="Save connector" isDisabled={busy} />
-      {row && (
-        <>
-          <label className="block">
-            Write-only client secret{" "}
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-            />
-          </label>
-          <Button
-            type="button"
-            label="Provision secret"
-            isDisabled={busy || !secret}
-            onClick={() => provision.mutate({ id: row.id, version: row.version, secret })}
-          />
-          <Button
-            type="button"
-            label="Re-encrypt existing values"
-            isDisabled={busy}
-            onClick={() => {
-              if (
-                confirm(
-                  "Synchronously re-encrypt this connector's stored values using its saved key selection? All changes roll back on failure.",
-                )
-              )
-                rotate.mutate({ id: row.id, version: row.version });
-            }}
-          />
-          <Button
-            type="button"
-            label="Delete unused connector"
-            isDisabled={busy}
-            onClick={() => {
-              if (
-                confirm(
-                  "Delete this connector? Connections and authorizations must be removed first.",
-                )
-              )
-                remove.mutate({ id: row.id, version: row.version });
-            }}
-          />
-        </>
-      )}
-    </form>
+          </LayoutFooter>
+        }
+      />
+    </Dialog>
   );
+}
+
+function scopeBelongsToEnabledApi(id: string, enabledApis: ("gmail" | "calendar")[]) {
+  const scope = scopeCatalog.find((candidate) => candidate.id === id);
+  return Boolean(scope && enabledApis.includes(scope.group.toLowerCase() as "gmail" | "calendar"));
+}
+function validateIdentity(value: unknown, label: string) {
+  const key = String(value).trim();
+  if (!key) return `${label} is required.`;
+  if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(key))
+    return "Use lowercase letters, numbers, dots, dashes, or underscores (120 characters maximum).";
+}
+function validateName(value: unknown) {
+  return validateRequired(value, "Name", 200);
+}
+function validateRequired(value: unknown, label: string, max: number) {
+  const text = String(value).trim();
+  if (!text) return `${label} is required.`;
+  if (text.length > max) return `${label} must be ${max.toLocaleString()} characters or less.`;
+}
+function fieldStatusProps(field: AnyFieldApi) {
+  const status = fieldStatus(field);
+  return status ? { status } : {};
+}
+function fieldStatus(field: AnyFieldApi): { type: "error"; message: string } | undefined {
+  const messages = field.state.meta.errors
+    .map(errorMessage)
+    .filter((message): message is string => Boolean(message));
+  return field.state.meta.isValid || messages.length === 0
+    ? undefined
+    : { type: "error", message: messages.join(", ") };
+}
+function errorMessage(error: unknown) {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string")
+    return error.message;
 }
