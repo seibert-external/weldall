@@ -12,7 +12,7 @@ Weldall executes supported Gmail and Google Calendar requests on behalf of the c
 3. Create a disabled Google connector with a stable key such as `google`, its OAuth client ID, enabled APIs, allowed permissions, explicit default permissions and encryption-key selection. Provision its client secret using the separate write-only control, then enable it. Configure a Google **Web application** OAuth client with the exact redirect URI `https://weldall.example.com/api/connectors/google/callback` for your installation.
 4. Enable the Gmail and Calendar APIs in the Google project. Before production rollout, verify Google's OAuth verification, restricted Gmail scope/security-assessment requirements, Limited Use policy and your server-side data-handling obligations. This implementation is not Google approval.
 
-Configuration is editable through both the UI and [IaC](./infrastructure-as-code/). PostgreSQL is the runtime authority. UI changes to IaC-managed objects take effect immediately; the next approved apply restores manifest values. The OAuth client secret is never a manifest field and is preserved by non-secret applies. First create disabled, provision the secret, then enable.
+Configuration is editable through both the UI and [IaC](./infrastructure-as-code/). PostgreSQL is the runtime authority. UI changes to IaC-managed objects take effect immediately; the next approved apply restores manifest values. The OAuth client secret is never a manifest field and is preserved by non-secret applies unless the OAuth client ID changes. To replace the OAuth client, first remove connections and attempts, save the connector disabled with the new client ID, provision the new write-only secret, then enable it.
 
 ## Connect and use
 
