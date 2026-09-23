@@ -1,0 +1,216 @@
+name: Release Docker images
+
+# Builds, tests and publishes the two customer-facing linux/amd64 images:
+#   docker.io/<namespace>/weldall          from the root Dockerfile
+#   docker.io/<namespace>/discovery-proxy  from apps/discovery-proxy/Dockerfile
+# A Changesets release of @weldall/weldall or @weldall/discovery-proxy is the trigger;
+# the tag decides which image is built, so a proxy release never rebuilds the server.
+#
+# The tested bytes are what gets published: the image is built once, tested, saved as an
+# artifact, and only the publish job (guarded by the `release` environment) pushes. The
+# immutable commit-SHA tag is written and verified before any floating tag (X.Y.Z, X.Y,
+# latest) moves, and floating tags only ever move forward.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact scoped release tag (@weldall/weldall@X.Y.Z or @weldall/discovery-proxy@X.Y.Z)
+        required: true
+        type: string
+      publish:
+        description: Push to Docker Hub (false builds and tests only)
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: docker-images-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  REGISTRY: docker.io
+  # The Docker Hub namespace (organization) the images live in. Changing it here is the
+  # only edit needed if the images move; the Docker deployment documentation will refer to it.
+  IMAGE_NAMESPACE: weldall
+  PLATFORM: linux/amd64
+  IMAGE_UNDER_TEST: weldall-image-under-test:local
+
+jobs:
+  prepare:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, '@weldall/weldall@') ||
+      startsWith(github.event.release.tag_name, '@weldall/discovery-proxy@')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      image: ${{ steps.identity.outputs.image }}
+      version: ${{ steps.identity.outputs.version }}
+      context: ${{ steps.identity.outputs.context }}
+      dockerfile: ${{ steps.identity.outputs.dockerfile }}
+      title: ${{ steps.identity.outputs.title }}
+      description: ${{ steps.identity.outputs.description }}
+      license: ${{ steps.identity.outputs.license }}
+      repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.identity.outputs.image }}
+      sha: ${{ steps.commit.outputs.sha }}
+      floating-tags: ${{ steps.plan.outputs.tags }}
+    steps:
+      # Fetch main through checkout while its short-lived token is available; later steps get no Git credentials.
+      - name: Check out main with full history for ancestry validation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out exact release tag with full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+      - name: Validate scoped tag and package identity
+        id: identity
+        run: node scripts/image-release.mjs validate --tag "$RELEASE_TAG"
+      - name: Require the exact tag commit to belong to main
+        run: |
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          git merge-base --is-ancestor HEAD origin/main
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Export the immutable release commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Read-only lookup of what Docker Hub already serves, so a re-release of an older
+      # line never moves X.Y or latest backwards. A dry run reports the plan too.
+      - name: Plan the floating tags against what Docker Hub already publishes
+        id: plan
+        env:
+          IMAGE: ${{ steps.identity.outputs.image }}
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: node scripts/image-release.mjs plan-tags --repository "$IMAGE_NAMESPACE/$IMAGE" --version "$VERSION"
+
+  build-and-test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Compose OCI labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ needs.prepare.outputs.repository }}
+          tags: type=raw,value=${{ needs.prepare.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=${{ needs.prepare.outputs.title }}
+            org.opencontainers.image.description=${{ needs.prepare.outputs.description }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
+            org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}
+            org.opencontainers.image.vendor=Seibert
+      - name: Build the image into the local Docker engine
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ needs.prepare.outputs.context }}
+          file: ${{ needs.prepare.outputs.dockerfile }}
+          platforms: ${{ env.PLATFORM }}
+          load: true
+          push: false
+          provenance: false
+          tags: ${{ env.IMAGE_UNDER_TEST }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - name: Verify platform, entrypoint and OCI labels
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: node scripts/image-release.mjs check-image --image "$IMAGE_UNDER_TEST" --unit "$IMAGE" --platform "$PLATFORM" --version "$VERSION" --revision "$SHA"
+      - name: Test the Weldall server image against a throwaway PostgreSQL
+        if: needs.prepare.outputs.image == 'weldall'
+        run: sh scripts/test-weldall-image.sh "$IMAGE_UNDER_TEST"
+      - name: Test the discovery proxy endpoint allowlist, unprivileged user and upstream validation
+        if: needs.prepare.outputs.image == 'discovery-proxy'
+        run: sh apps/discovery-proxy/scripts/test-image.sh "$IMAGE_UNDER_TEST"
+      - name: Save the tested image for the publish job
+        if: github.event_name == 'release' || inputs.publish == true
+        run: docker save --output "$RUNNER_TEMP/image.tar" "$IMAGE_UNDER_TEST"
+      - name: Upload the tested image
+        if: github.event_name == 'release' || inputs.publish == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-${{ needs.prepare.outputs.image }}
+          path: ${{ runner.temp }}/image.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    if: github.event_name == 'release' || inputs.publish == true
+    needs: [prepare, build-and-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The Docker Hub token lives in this environment; its required reviewers are the gate
+    # between "can dispatch a workflow" and "can publish an image customers pull".
+    environment: release
+    env:
+      REPOSITORY: ${{ needs.prepare.outputs.repository }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Download exactly the tested image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-${{ needs.prepare.outputs.image }}
+          path: ${{ runner.temp }}/images
+      - name: Load the tested image under its immutable commit-SHA tag
+        run: |
+          docker load --input "$RUNNER_TEMP/images/image.tar"
+          docker tag "$IMAGE_UNDER_TEST" "$REPOSITORY:$SHA"
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push the immutable commit-SHA tag first
+        run: docker push "$REPOSITORY:$SHA"
+      - name: Verify the pushed commit-SHA tag is the tested linux/amd64 image
+        run: |
+          docker buildx imagetools inspect "$REPOSITORY:$SHA" | tee "$RUNNER_TEMP/manifest.txt"
+          grep -q "$PLATFORM" "$RUNNER_TEMP/manifest.txt"
+      - name: Move the floating tags onto the verified commit-SHA image
+        env:
+          FLOATING_TAGS: ${{ needs.prepare.outputs.floating-tags }}
+        run: |
+          digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$REPOSITORY:$SHA")"
+          echo "Publishing $FLOATING_TAGS -> $digest"
+          for tag in $(echo "$FLOATING_TAGS" | tr ',' ' '); do
+            docker buildx imagetools create --tag "$REPOSITORY:$tag" "$REPOSITORY@$digest"
+            actual="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$REPOSITORY:$tag")"
+            test "$actual" = "$digest"
+            echo "$REPOSITORY:$tag -> $actual"
+          done
+
+# Changesets publishes with RELEASE_GITHUB_TOKEN (a PAT/App token), not the
+# default workflow token, so its release.published event can trigger this workflow.
