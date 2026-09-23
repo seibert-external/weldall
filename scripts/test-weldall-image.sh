@@ -148,6 +148,29 @@ unfinished=$(docker exec "$database" psql --username postgres --tuples-only --no
 [ "$unfinished" = 0 ] || fail "$unfinished migrations are unfinished or rolled back"
 echo "All $applied migrations applied"
 
+# Start-up order from the container log: migrations finish, then deployment
+# initialization completes, and only then does the server report itself initialized.
+line_of() {
+  docker logs "$app" 2>&1 | grep -n -m 1 "$1" | cut -d: -f1
+}
+migrated=$(line_of "All migrations have been successfully applied")
+initialized=$(line_of '"event":"deployment_init.completed"')
+serving=$(line_of '"event":"application.initialized"')
+[ -n "$migrated" ] || { docker logs "$app" >&2; fail "log shows no completed migration run"; }
+[ -n "$initialized" ] || { docker logs "$app" >&2; fail "log shows no completed deployment initialization"; }
+[ -n "$serving" ] || { docker logs "$app" >&2; fail "log shows no initialized server"; }
+[ "$migrated" -lt "$initialized" ] && [ "$initialized" -lt "$serving" ] ||
+  fail "start-up order wrong: migrations line $migrated, initialization line $initialized, server line $serving"
+echo "Migrations and deployment initialization completed before the server started"
+
+# A failed start must never reach deployment initialization or the server.
+assert_never_served() {
+  if docker logs "$1" 2>&1 | grep -q -e '"event":"deployment_init.started"' -e '"event":"application.initialized"'; then
+    docker logs "$1" >&2
+    fail "$2: container got past the migration step"
+  fi
+}
+
 wait_for_exit() {
   attempt=0
   while [ "$(docker inspect --format '{{.State.Status}}' "$1")" = running ]; do
@@ -168,6 +191,30 @@ docker run --detach --name "$app-negative" --network "$network" \
   "$image" >/dev/null
 wait_for_exit "$app-negative" "unreachable database"
 docker logs "$app-negative" 2>&1 | grep -q "P1001" || fail "unreachable database: no Prisma P1001 error in logs"
+assert_never_served "$app-negative" "unreachable database"
+docker rm --force "$app-negative" >/dev/null
+
+# A reachable database on which a migration itself fails: the baseline migration
+# creates table "User", so a pre-existing "User" table makes it fail mid-run. The
+# empty _prisma_migrations table gets past Prisma's non-empty-schema pre-check
+# (P3005), so migrate deploy really starts applying 0001_baseline and fails there.
+echo "Negative test: failing migration"
+docker exec "$database" psql --username postgres --quiet --command "create database migration_conflict" >/dev/null
+docker exec "$database" psql --username postgres --dbname migration_conflict --quiet --command '
+  create table "_prisma_migrations" (
+    id varchar(36) primary key, checksum varchar(64) not null, finished_at timestamptz,
+    migration_name varchar(255) not null, logs text, rolled_back_at timestamptz,
+    started_at timestamptz not null default now(), applied_steps_count integer not null default 0);
+  create table "User" (id text primary key);' >/dev/null
+docker run --detach --name "$app-negative" --network "$network" \
+  --env-file "$env_file" \
+  --env POSTGRES_URL="postgresql://postgres:postgres@$database:5432/migration_conflict" \
+  --env WELDALL_ISSUER="$issuer" \
+  "$image" >/dev/null
+wait_for_exit "$app-negative" "failing migration"
+docker logs "$app-negative" 2>&1 | grep -q "P3018" ||
+  { docker logs "$app-negative" >&2; fail "failing migration: no Prisma P3018 error in logs"; }
+assert_never_served "$app-negative" "failing migration"
 docker rm --force "$app-negative" >/dev/null
 
 echo "Negative test: missing required variable"

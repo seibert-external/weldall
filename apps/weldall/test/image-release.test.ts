@@ -213,4 +213,25 @@ describe("release-docker-images workflow", () => {
     expect(pushSha).toBeGreaterThan(-1);
     expect(moveFloating).toBeGreaterThan(pushSha);
   });
+
+  it("proves the loaded artifact and the pushed tag are the tested image before floating tags move", () => {
+    const build = workflow.slice(
+      workflow.indexOf("\n  build-and-test:"),
+      workflow.indexOf("\n  publish:"),
+    );
+    const publish = workflow.slice(workflow.indexOf("\n  publish:"));
+    expect(build).toContain("image-id: ${{ steps.tested.outputs.id }}");
+    expect(build.indexOf("Record the tested image identity")).toBeGreaterThan(
+      build.indexOf("Test the Weldall server image"),
+    );
+    expect(publish).toContain("TESTED_ID: ${{ needs.build-and-test.outputs.image-id }}");
+    const loadCheck = publish.indexOf('"$loaded" != "$TESTED_ID"');
+    const pushSha = publish.indexOf("Push the immutable commit-SHA tag first");
+    const pushedCheck = publish.indexOf("Verify the pushed commit-SHA tag is the tested image");
+    const moveFloating = publish.indexOf("Move the floating tags");
+    expect(loadCheck).toBeGreaterThan(-1);
+    expect(pushSha).toBeGreaterThan(loadCheck);
+    expect(pushedCheck).toBeGreaterThan(pushSha);
+    expect(moveFloating).toBeGreaterThan(pushedCheck);
+  });
 });
