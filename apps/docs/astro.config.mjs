@@ -15,7 +15,24 @@ export default defineConfig({
         alt: "Weldall",
         replacesTitle: true,
       },
-      plugins: [lucode()],
+      plugins: [
+        lucode({
+          navLinks: [
+            {
+              label: "Talk to an engineer",
+              translations: { de: "Mit einem Engineer sprechen" },
+              link: "https://meeting.seibert.group/weldall-cli/weldallcli?overlayCalendar=true",
+              attrs: { "data-cta": "calendar" },
+            },
+            {
+              label: "Join our Discord",
+              translations: { de: "Unserem Discord beitreten" },
+              link: "https://seibert.link/weldalldiscord",
+              attrs: { "data-cta": "discord" },
+            },
+          ],
+        }),
+      ],
       customCss: ["./src/styles/logo.css"],
       sidebar: [
         {
