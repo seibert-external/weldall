@@ -6,7 +6,7 @@
 # Proves what the Docker image release promises: migrations run at start-up, the
 # Docker HEALTHCHECK turns healthy, the OAuth discovery document is served, the
 # process runs unprivileged, and the container refuses to start when the database
-# is unreachable or a required variable is missing. Needs docker and curl.
+# is unreachable or a required variable is missing. Needs docker, curl and node.
 set -eu
 
 image=${1:?usage: test-weldall-image.sh <image>}
