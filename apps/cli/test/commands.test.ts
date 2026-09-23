@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { cli } from "gunshi";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -6,6 +7,7 @@ import {
   connectorsCommand,
   findCachedSkills,
   formatSkillWarning,
+  mainCommand,
   printPermissions,
   printSkills,
   scopesCommand,
@@ -27,6 +29,26 @@ import {
   terminalText,
 } from "../src/output.js";
 import { printFriendlyValidation } from "../src/validation.js";
+
+const runConnectionCli = async (args: string[]) =>
+  cli(args, mainCommand, {
+    name: "weldall",
+    version: "0.0.0",
+    description: "test",
+    strict: true,
+    subCommands: { connections: connectionsCommand, connectors: connectorsCommand },
+    renderValidationErrors: null,
+  });
+
+const renderConnectionHelp = async (args: string[]) => {
+  const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  try {
+    await runConnectionCli(args);
+    return output.mock.calls.flat().join("\n");
+  } finally {
+    output.mockRestore();
+  }
+};
 
 describe("friendly resource output", () => {
   it("shows assigned scopes even when no enabled resource exposes them", () => {
@@ -396,18 +418,21 @@ describe("managed connection tables", () => {
 });
 
 describe("connection output flags", () => {
-  it("declares table, JSON, and agentic output on both list commands", () => {
-    expect(connectionsCommand.args?.json).toBeDefined();
-    expect(connectionsCommand.args?.agentic).toBeDefined();
-    expect(connectionsCommand.subCommands?.list.args?.json).toBeDefined();
-    expect(connectionsCommand.subCommands?.list.args?.agentic).toBeDefined();
-    expect(connectorsCommand.args?.json).toBeDefined();
-    expect(connectorsCommand.args?.agentic).toBeDefined();
-    expect(connectionsCommand.subCommands?.connectors).toBeUndefined();
-    expect(connectionsCommand.subCommands?.list.examples).toContain(
-      "weldall connections list --agentic",
-    );
-    expect(connectorsCommand.examples).toContain("weldall connectors --agentic");
+  it("advertises both output modes on the public connection help surfaces", async () => {
+    const connectionsHelp = await renderConnectionHelp(["connections", "--help"]);
+    const connectionsListHelp = await renderConnectionHelp(["connections", "list", "--help"]);
+    const connectorsHelp = await renderConnectionHelp(["connectors", "--help"]);
+
+    expect(connectionsHelp).toContain("--json");
+    expect(connectionsHelp).toContain("--agentic");
+    expect(connectionsHelp).toContain("weldall connections --agentic");
+    expect(connectionsListHelp).toContain("--json");
+    expect(connectionsListHelp).toContain("--agentic");
+    expect(connectionsListHelp).toContain("weldall connections list --agentic");
+    expect(connectorsHelp).toContain("--json");
+    expect(connectorsHelp).toContain("--agentic");
+    expect(connectorsHelp).toContain("weldall connectors --agentic");
+    await expect(runConnectionCli(["connections", "connectors", "--help"])).rejects.toThrow();
   });
 
   it("rejects --json with --agentic before reaching the network", async () => {
