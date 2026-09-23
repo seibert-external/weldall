@@ -7,9 +7,23 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [],
+  "ignore": [
+    "@weldall/db",
+    "@weldall/dev-idp",
+    "@weldall/docs",
+    "@weldall/e2e",
+    "@weldall/eslint-config",
+    "@weldall/example-astro",
+    "@weldall/example-basic",
+    "@weldall/example-hono",
+    "@weldall/example-next",
+    "@weldall/example-starlight-weldall-search",
+    "@weldall/expenses",
+    "@weldall/prettier-config",
+    "@weldall/tsconfig"
+  ],
   "privatePackages": {
-    "version": false,
-    "tag": false
+    "version": true,
+    "tag": true
   }
 }
