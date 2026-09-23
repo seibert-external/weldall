@@ -94,6 +94,46 @@ case $discovery in
   *) fail "discovery document does not name issuer $issuer: $discovery" ;;
 esac
 
+# Focused authentication/API smoke test: the signing key from the environment is
+# published, a protected API demands DPoP, and the token endpoint speaks OAuth errors.
+node - "$env_file" "$base" <<'EOF' || fail "authentication/API smoke test failed"
+const { readFileSync } = require("node:fs");
+const [envFile, base] = process.argv.slice(2);
+const env = Object.fromEntries(
+  readFileSync(envFile, "utf8").split("\n").filter(Boolean).map((line) => {
+    const index = line.indexOf("=");
+    return [line.slice(0, index), line.slice(index + 1)];
+  }),
+);
+const expectedJwk = JSON.parse(env.WELDALL_SIGNING_PUBLIC_JWK);
+const check = (condition, message) => { if (!condition) throw new Error(message); };
+(async () => {
+  const jwks = await fetch(`${base}/api/oauth/jwks`);
+  check(jwks.status === 200, `jwks: HTTP ${jwks.status}`);
+  const key = (await jwks.json()).keys?.find((entry) => entry.kid === env.WELDALL_SIGNING_KID);
+  check(key, "jwks: configured WELDALL_SIGNING_KID not published");
+  check(key.x === expectedJwk.x && key.y === expectedJwk.y, "jwks: published key differs from WELDALL_SIGNING_PUBLIC_JWK");
+  check(key.alg === "ES256" && key.use === "sig", "jwks: key is not an ES256 signing key");
+  console.log("JWKS publishes the configured signing key");
+
+  const protectedApi = await fetch(`${base}/api/me/skills`);
+  const denied = await protectedApi.json();
+  check(protectedApi.status === 401, `protected API: HTTP ${protectedApi.status}`);
+  check(denied.error === "invalid_token", `protected API: error ${JSON.stringify(denied.error)}`);
+  console.log("Protected API rejects unauthenticated requests with an OAuth error");
+
+  const token = await fetch(`${base}/api/auth/oauth2/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "grant_type=authorization_code&code=bogus&client_id=bogus&redirect_uri=https%3A%2F%2Fexample.invalid%2Fcb",
+  });
+  const rejected = await token.json();
+  check(token.status === 400, `token endpoint: HTTP ${token.status}`);
+  check(rejected.error === "invalid_request", `token endpoint: error ${JSON.stringify(rejected.error)}`);
+  console.log("Token endpoint rejects a bogus grant with an OAuth error");
+})().catch((error) => { console.error(error.message); process.exit(1); });
+EOF
+
 uid=$(docker exec "$app" id -u)
 [ "$uid" != 0 ] || fail "process runs as root"
 user=$(docker inspect --format '{{.Config.User}}' "$app")
