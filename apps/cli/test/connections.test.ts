@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   connectionApi,
   connectionRequest,
+  listConnectors,
   validateConnectionTarget,
 } from "../src/services/connections.js";
 import type { WeldallConfig } from "../src/config.js";
@@ -57,6 +58,37 @@ describe("managed connection CLI", () => {
     );
     expect(fetcher.mock.calls[0]![1].headers.authorization).toBe("DPoP weldall-token");
   });
+  it("accepts the server's rich connector scope descriptors", async () => {
+    const connector = {
+      key: "google",
+      name: "Google Workspace",
+      type: "google",
+      scopes: [
+        {
+          id: "openid",
+          label: "Identify your Google account",
+          description: "Required identity scope.",
+          group: "Identity",
+          required: true,
+          capabilities: [],
+        },
+        {
+          id: "https://www.googleapis.com/auth/calendar.events",
+          label: "Read and edit events",
+          description: "Manage calendar events.",
+          group: "Calendar",
+          required: false,
+          capabilities: ["Read calendar events"],
+        },
+      ],
+      defaultScopes: ["https://www.googleapis.com/auth/calendar.events"],
+      requestPrefix: `${config.issuer}/connectors/google/`,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([connector])));
+
+    await expect(listConnectors(config)).resolves.toEqual([connector]);
+  });
+
   it("canonicalizes source references without resolving deployment secrets locally", () => {
     const manifest = {
       apiVersion: "weldall.dev/v1" as const,

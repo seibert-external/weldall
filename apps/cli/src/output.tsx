@@ -12,10 +12,17 @@ export const palette = {
   brand: "magenta",
 } as const;
 
-type Accent = (typeof palette)[keyof typeof palette];
+export type Accent = (typeof palette)[keyof typeof palette];
 type NoticeKind = "success" | "info" | "warning" | "error";
 type OutputStream = "stdout" | "stderr";
 type Field = readonly [label: string, value: string];
+
+export interface TableColumn {
+  header: string;
+  align?: "left" | "right";
+}
+
+const TABLE_GAP = 2;
 
 const LayoutContext = createContext(80);
 const outputStream = (stream: OutputStream) => process[stream];
@@ -32,12 +39,7 @@ export const terminalDocument = (value: string) =>
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "�");
 
-export const renderUi = (
-  node: ReactNode,
-  columns = terminalColumns(),
-  stream: OutputStream = "stdout",
-) => {
-  const width = frameColumns(columns);
+const renderUiAtWidth = (node: ReactNode, width: number, stream: OutputStream) => {
   if (width === 1) return "…";
   const previousColorLevel = chalk.level;
   chalk.level = colorsEnabled(stream) ? 1 : 0;
@@ -52,7 +54,15 @@ export const renderUi = (
   }
 };
 
+export const renderUi = (
+  node: ReactNode,
+  columns = terminalColumns(),
+  stream: OutputStream = "stdout",
+) => renderUiAtWidth(node, frameColumns(columns), stream);
+
 export const printUi = (node: ReactNode) => console.log(renderUi(node));
+export const printWideUi = (node: ReactNode) =>
+  console.log(renderUiAtWidth(node, Math.max(1, terminalColumns()), "stdout"));
 
 export function Card({
   title,
@@ -75,6 +85,133 @@ export function Card({
         {children}
       </Box>
     </Box>
+  );
+}
+
+export const layoutTable = (
+  columns: readonly TableColumn[],
+  rows: readonly (readonly string[])[],
+  available: number,
+): number[] => {
+  if (columns.length === 0) return [];
+  const gaps = TABLE_GAP * (columns.length - 1);
+  const widths = columns.map((column, columnIndex) =>
+    Math.max(
+      column.header.length,
+      ...rows.map((row) => terminalText(row[columnIndex] ?? "").length),
+    ),
+  );
+  const floors = columns.map((column) => column.header.length);
+  let total = widths.reduce((sum, width) => sum + width, 0) + gaps;
+  while (total > available) {
+    let target = -1;
+    for (let columnIndex = 0; columnIndex < widths.length; columnIndex += 1) {
+      const width = widths[columnIndex]!;
+      if (width <= floors[columnIndex]!) continue;
+      if (target === -1 || width > widths[target]!) target = columnIndex;
+    }
+    if (target === -1) {
+      target = widths.indexOf(Math.max(...widths));
+      if (widths[target] === 0) break;
+    }
+    widths[target] = widths[target]! - 1;
+    total--;
+  }
+  return widths;
+};
+
+const wrapTableCell = (value: string, width: number) => {
+  const text = terminalText(value);
+  if (width <= 0 || text.length <= width) return [text];
+  const lines: string[] = [];
+  let remaining = text;
+  while (remaining.length > width) {
+    const whitespace = remaining.lastIndexOf(" ", width);
+    const breakAt = whitespace >= Math.ceil(width / 2) ? whitespace : width;
+    lines.push(remaining.slice(0, breakAt));
+    remaining = remaining.slice(breakAt).trimStart();
+  }
+  lines.push(remaining);
+  return lines;
+};
+
+export function DataTable({
+  columns,
+  rows,
+  accent = palette.primary,
+  cellColor,
+}: {
+  columns: readonly TableColumn[];
+  rows: readonly (readonly string[])[];
+  accent?: Accent;
+  cellColor?: (rowIndex: number, columnIndex: number, value: string) => Accent | undefined;
+}) {
+  const frameWidth = useContext(LayoutContext);
+  const widths = layoutTable(columns, rows, Math.max(columns.length, frameWidth - 4));
+  const gap = " ".repeat(TABLE_GAP);
+  const cell = (value: string, columnIndex: number) => {
+    const width = widths[columnIndex] ?? 0;
+    return columns[columnIndex]?.align === "right" ? value.padStart(width) : value.padEnd(width);
+  };
+  const tableWidth =
+    widths.reduce((sum, width) => sum + width, 0) + TABLE_GAP * (widths.length - 1);
+
+  return (
+    <Box flexDirection="column">
+      <Text bold color={accent}>
+        {columns.map((column, columnIndex) => cell(column.header, columnIndex)).join(gap)}
+      </Text>
+      <Text dimColor>{"─".repeat(Math.max(1, tableWidth))}</Text>
+      {rows.map((row, rowIndex) => {
+        const wrappedCells = columns.map((_, columnIndex) =>
+          wrapTableCell(row[columnIndex] ?? "", widths[columnIndex] ?? 0),
+        );
+        const rowHeight = Math.max(...wrappedCells.map((lines) => lines.length));
+        return (
+          <Box key={rowIndex} flexDirection="column">
+            {Array.from({ length: rowHeight }, (_, lineIndex) => (
+              <Text key={lineIndex}>
+                {columns.map((_, columnIndex) => {
+                  const value = row[columnIndex] ?? "";
+                  const color = cellColor?.(rowIndex, columnIndex, value);
+                  return (
+                    <Text key={columnIndex} {...(color === undefined ? {} : { color })}>
+                      {cell(wrappedCells[columnIndex]?.[lineIndex] ?? "", columnIndex)}
+                      {columnIndex === columns.length - 1 ? "" : gap}
+                    </Text>
+                  );
+                })}
+              </Text>
+            ))}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+export function TableCard({
+  title,
+  columns,
+  rows,
+  accent = palette.primary,
+  cellColor,
+}: {
+  title: string;
+  columns: readonly TableColumn[];
+  rows: readonly (readonly string[])[];
+  accent?: Accent;
+  cellColor?: (rowIndex: number, columnIndex: number, value: string) => Accent | undefined;
+}) {
+  return (
+    <Card title={title} accent={accent}>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        accent={accent}
+        {...(cellColor === undefined ? {} : { cellColor })}
+      />
+    </Card>
   );
 }
 
