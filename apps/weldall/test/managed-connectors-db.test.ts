@@ -199,6 +199,34 @@ describe.skipIf(!approvedTarget)(
         "referenced",
       );
     });
+    it("de-provisions stale client secrets when the OAuth client changes", async () => {
+      const f = await fixture();
+      const originalSecretId = f.connector.secretId!;
+      await expect(
+        transaction((tx) =>
+          mutateConnector(
+            tx,
+            { ...config(f.key), enabled: true, clientId: "replacement.apps.googleusercontent.com" },
+            f.connector.id,
+            f.connector.version,
+            actor,
+          ),
+        ),
+      ).rejects.toThrow("new OAuth client secret");
+      const changed = await transaction((tx) =>
+        mutateConnector(
+          tx,
+          { ...config(f.key), clientId: "replacement.apps.googleusercontent.com" },
+          f.connector.id,
+          f.connector.version,
+          actor,
+        ),
+      );
+      expect(changed.secretId).toBeNull();
+      await expect(
+        db.encryptedValue.findUniqueOrThrow({ where: { id: originalSecretId } }),
+      ).rejects.toThrow();
+    });
     it("re-encrypts explicitly and rolls back on unavailable old material", async () => {
       const f = await ready();
       const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });

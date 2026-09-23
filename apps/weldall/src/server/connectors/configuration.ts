@@ -134,15 +134,22 @@ export async function mutateConnector(
   checkVersion(current, expected);
   if (current && current.key !== config.key)
     throw new ConnectorError("immutable_identity", "Connector identity cannot change.", 409);
+  const clientIdChanged = Boolean(current && current.clientId !== config.clientId);
   if (
     current &&
-    current.clientId !== config.clientId &&
+    clientIdChanged &&
     ((await tx.connection.count({ where: { connectorId: current.id } })) ||
       (await tx.connectionAuthorization.count({ where: { connectorId: current.id } })))
   )
     throw new ConnectorError(
       "in_use",
       "Disconnect and delete connections and attempts before changing the OAuth client.",
+      409,
+    );
+  if (clientIdChanged && config.enabled)
+    throw new ConnectorError(
+      "missing_secret",
+      "Provision the new OAuth client secret before enabling the connector.",
       409,
     );
   const key = await tx.encryptionKey.findUnique({ where: { key: config.encryptionKey } });
@@ -166,6 +173,7 @@ export async function mutateConnector(
         data: {
           ...fields,
           encryptionKeyId: key.id,
+          ...(clientIdChanged ? { secretId: null } : {}),
           version: { increment: 1 },
           updatedBy: actor.id,
         },
@@ -173,6 +181,8 @@ export async function mutateConnector(
     : await tx.connector.create({
         data: { ...fields, encryptionKeyId: key.id, createdBy: actor.id, updatedBy: actor.id },
       });
+  if (clientIdChanged && current?.secretId)
+    await tx.encryptedValue.delete({ where: { id: current.secretId } });
   await connectorAudit(tx, actor, "configuration", row.id, "connector.saved");
   return row;
 }
