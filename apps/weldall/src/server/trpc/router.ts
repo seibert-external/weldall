@@ -38,6 +38,9 @@ import {
   MAX_SKILL_RETRIEVAL_WINDOW_DAYS,
   getVisibleSkillRetrievalSummary,
 } from "../skills/retrieval-metrics";
+import { canViewStatistics } from "../statistics/access";
+import { STATISTICS_INTERVALS } from "../statistics/interval";
+import { getUsageStatistics } from "../statistics/service";
 import {
   createGroupAssignments,
   createGroupProvider,
@@ -110,6 +113,7 @@ const skillRetrievalSummaryInput = z
       .default(DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS),
   })
   .strict();
+const statisticsSummaryInput = z.object({ interval: z.enum(STATISTICS_INTERVALS) }).strict();
 
 const adminProcedure = loggedProcedure.use(async ({ ctx, next }) => {
   const userId = ctx.session?.user.id;
@@ -128,6 +132,25 @@ const adminProcedure = loggedProcedure.use(async ({ ctx, next }) => {
     ...(ctx.correlationId ? { correlationId: ctx.correlationId } : {}),
   };
   return next({ ctx: { ...ctx, adminActor: actor } });
+});
+
+// Read-only like skillRetrievalMetrics.summary, so it skips the browser-request check that
+// guards admin mutations.
+const statisticsProcedure = loggedProcedure.use(async ({ ctx, next }) => {
+  const email = ctx.session?.user.email;
+  if (!email) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Sign in is required.",
+    });
+  }
+  if (!(await canViewStatistics(email))) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Statistics access is required.",
+    });
+  }
+  return next();
 });
 
 export const appRouter = trpc.router({
@@ -153,6 +176,11 @@ export const appRouter = trpc.router({
       }
       return summary;
     }),
+  }),
+  statistics: trpc.router({
+    summary: statisticsProcedure
+      .input(statisticsSummaryInput)
+      .query(({ input }) => getUsageStatistics(input.interval)),
   }),
   admin: trpc.router({
     status: adminProcedure.query(({ ctx }) => ({
