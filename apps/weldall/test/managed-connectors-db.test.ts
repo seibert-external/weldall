@@ -212,9 +212,7 @@ describe.skipIf(!approvedTarget)(
         context: "test-purpose",
       });
       const envelope = await db.encryptedValue.create({ data });
-      await expect(
-        decrypt({ tx: db, envelope, context: "wrong-purpose" }),
-      ).rejects.toThrow();
+      await expect(decrypt({ tx: db, envelope, context: "wrong-purpose" })).rejects.toThrow();
       const next = {
         ...keyConfig(f.key),
         activeVersion: "2",
