@@ -731,7 +731,7 @@
 
   .statistics-active {
     display: grid;
-    grid-template-columns: minmax(10rem, max-content) minmax(0, 1fr);
+    grid-template-columns: 16rem minmax(0, 1fr);
     gap: 1.5rem;
   }
 
@@ -745,6 +745,7 @@
 
   .statistics-active .statistics-count {
     font-size: 4rem;
+    text-align: center;
   }
 
   .statistics-people {
