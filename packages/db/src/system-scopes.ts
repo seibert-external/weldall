@@ -4,6 +4,7 @@ export const ADMIN_SCOPE_KEY = "weldall:administer";
 export const LOGIN_SCOPE_KEY = "weldall:login";
 export const IAC_SCOPE_KEY = "weldall:iac";
 export const SUBJECT_SCOPES_CHECK_SCOPE_KEY = "weldall:subject-scopes-check";
+export const STATISTICS_SCOPE_KEY = "weldall:statistics";
 
 export const MACHINE_ONLY_SYSTEM_SCOPE_KEYS = [
   IAC_SCOPE_KEY,
@@ -34,6 +35,11 @@ export const SYSTEM_SCOPE_DEFINITIONS = [
     id: "scope-weldall-subject-scopes-check",
     key: SUBJECT_SCOPES_CHECK_SCOPE_KEY,
     description: "Check user scopes supported by an allowed downstream resource.",
+  },
+  {
+    id: "scope-weldall-statistics",
+    key: STATISTICS_SCOPE_KEY,
+    description: "View org-wide Weldall usage statistics.",
   },
 ] as const;
 
