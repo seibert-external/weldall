@@ -295,7 +295,7 @@ export const appRouter = trpc.router({
             saveConnectorClientSecret({
               id: input.id,
               secret: input.secret,
-              version: input.version,
+              expectedVersion: input.version,
               actor: ctx.adminActor,
             }),
           ),
@@ -305,8 +305,8 @@ export const appRouter = trpc.router({
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() =>
             reencryptConnectorSecrets({
-              id: input.id,
-              version: input.version,
+              connectorId: input.id,
+              expectedVersion: input.version,
               actor: ctx.adminActor,
             }),
           ),

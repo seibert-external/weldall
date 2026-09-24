@@ -46,6 +46,151 @@
         "type": "string"
       }
     },
+    "encryptionKeys": {
+      "type": "object",
+      "maxProperties": 1000,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "name", "activeVersion", "versions"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "activeVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "versions": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 1000,
+            "propertyNames": {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source"],
+              "properties": {
+                "source": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "variable"],
+                  "properties": {
+                    "type": {
+                      "const": "local-env"
+                    },
+                    "variable": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,199}$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "connectors": {
+      "type": "object",
+      "maxProperties": 1000,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "name",
+          "type",
+          "enabled",
+          "encryptionKey",
+          "clientId",
+          "enabledApis",
+          "allowedScopes",
+          "defaultScopes"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "const": "google"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "encryptionKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "enabledApis": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["gmail", "calendar"]
+            }
+          },
+          "allowedScopes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          },
+          "defaultScopes": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          }
+        }
+      }
+    },
     "scopes": {
       "type": "object",
       "maxProperties": 1000,

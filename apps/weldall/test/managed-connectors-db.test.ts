@@ -212,9 +212,7 @@ describe.skipIf(!approvedTarget)(
         context: "test-purpose",
       });
       const envelope = await db.encryptedValue.create({ data });
-      await expect(
-        decrypt({ tx: db, value: envelope, context: "wrong-purpose" }),
-      ).rejects.toThrow();
+      await expect(decrypt({ tx: db, envelope, context: "wrong-purpose" })).rejects.toThrow();
       const next = {
         ...keyConfig(f.key),
         activeVersion: "2",
@@ -232,7 +230,7 @@ describe.skipIf(!approvedTarget)(
           actor,
         }),
       );
-      expect(await decrypt({ tx: db, value: envelope, context: "test-purpose" })).toBe("plaintext");
+      expect(await decrypt({ tx: db, envelope, context: "test-purpose" })).toBe("plaintext");
       expect(
         (
           await encrypt({
@@ -245,7 +243,7 @@ describe.skipIf(!approvedTarget)(
       ).toBe("2");
       const original = process.env.MANAGED_TEST_A;
       process.env.MANAGED_TEST_A = randomBytes(32).toString("base64");
-      await expect(decrypt({ tx: db, value: envelope, context: "test-purpose" })).rejects.toThrow(
+      await expect(decrypt({ tx: db, envelope, context: "test-purpose" })).rejects.toThrow(
         "unavailable",
       );
       process.env.MANAGED_TEST_A = original!;

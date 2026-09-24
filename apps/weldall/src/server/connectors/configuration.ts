@@ -234,19 +234,19 @@ export async function saveConnectorConfiguration({
 export async function saveConnectorClientSecret({
   id,
   secret,
-  version,
+  expectedVersion,
   actor,
 }: {
   id: string;
   secret: string;
-  version: number;
+  expectedVersion: number;
   actor: ConnectorActor;
 }) {
   if (!secret.trim() || secret.length > 10_000)
     throw new ConnectorError("invalid_secret", "A client secret is required.");
   return runConnectorTransaction(async (tx) => {
     const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
-    assertConfigurationVersion({ current: connector, expected: version });
+    assertConfigurationVersion({ current: connector, expected: expectedVersion });
     const encrypted = await saveSecret({
       tx,
       keyId: connector.encryptionKeyId,
@@ -255,7 +255,7 @@ export async function saveConnectorClientSecret({
       id: connector.secretId,
     });
     await tx.connector.update({
-      where: { id, version },
+      where: { id, version: expectedVersion },
       data: { secretId: encrypted.id, version: { increment: 1 }, updatedBy: actor.id },
     });
     await writeConnectorAuditLog({
@@ -334,23 +334,23 @@ export async function deleteEncryptionKeyConfiguration({
  * serializable conflicts roll back the complete ciphertext rewrite.
  */
 export async function reencryptConnectorSecrets({
-  id,
-  version,
+  connectorId,
+  expectedVersion,
   actor,
 }: {
-  id: string;
-  version: number;
+  connectorId: string;
+  expectedVersion: number;
   actor: ConnectorActor;
 }) {
   return runConnectorTransaction(async (tx) => {
-    const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
-    assertConfigurationVersion({ current: connector, expected: version });
+    const connector = await tx.connector.findUniqueOrThrow({ where: { id: connectorId } });
+    assertConfigurationVersion({ current: connector, expected: expectedVersion });
     const values = await tx.encryptedValue.findMany({
       where: {
         OR: [
-          { connector: { id } },
-          { connection: { connectorId: id } },
-          { attempt: { connectorId: id } },
+          { connector: { id: connectorId } },
+          { connection: { connectorId } },
+          { attempt: { connectorId } },
         ],
       },
       take: 1001,
@@ -380,7 +380,7 @@ export async function reencryptConnectorSecrets({
       tx,
       actor,
       event: "configuration",
-      subjectId: id,
+      subjectId: connectorId,
       operation: "connector.reencrypted",
     });
     return { count: values.length };
