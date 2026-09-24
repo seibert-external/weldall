@@ -729,8 +729,44 @@
     color: var(--color-text-secondary);
   }
 
+  .statistics-active {
+    display: grid;
+    grid-template-columns: minmax(10rem, max-content) minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  .statistics-active-total {
+    display: grid;
+    align-content: start;
+    gap: 0.5rem;
+    padding-inline-end: 1.5rem;
+    border-inline-end: 1px solid var(--color-border);
+  }
+
+  .statistics-active .statistics-count {
+    font-size: 4rem;
+  }
+
+  .statistics-people {
+    display: grid;
+    align-content: start;
+    gap: 0.75rem;
+  }
+
   .statistics-people .skill-retriever-list {
     grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    margin: 0;
+  }
+
+  @media (max-width: 40rem) {
+    .statistics-active {
+      grid-template-columns: 1fr;
+    }
+
+    .statistics-active-total {
+      padding-inline-end: 0;
+      border-inline-end: 0;
+    }
   }
 
   .statistics-charts {

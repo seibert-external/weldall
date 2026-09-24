@@ -148,14 +148,17 @@ describe("statistics dashboard", () => {
     expect(html).not.toContain("compared with");
   });
 
-  it("hides the comparison when the previous period had nobody", () => {
+  it("says nobody was active when the previous period had nobody", () => {
     const fresh = {
       ...statistics,
       activeHumans: { ...statistics.activeHumans, previousCount: 0 },
     };
     mocks.useQuery.mockReturnValue({ data: fresh, error: null, isFetching: false });
 
-    expect(render(fresh)).not.toContain("compared with");
+    const html = render(fresh);
+
+    expect(html).toContain("Nobody was active in the previous 7 days.");
+    expect(html).not.toContain("compared with");
   });
 
   it("keeps the last numbers when a refetch fails", () => {

@@ -129,20 +129,20 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
             title={`No active people in the last ${period}.`}
           />
         ) : (
-          <>
-            <p className="statistics-count">{activeHumans.count}</p>
-            {activeHumans.previousCount > 0 ? (
+          <div className="statistics-active">
+            <div className="statistics-active-total">
+              <p className="statistics-count">{activeHumans.count}</p>
               <p className="statistics-muted">
-                {comparisonLabel(activeHumans.count - activeHumans.previousCount, period)}
+                {comparisonLabel(activeHumans.count, activeHumans.previousCount, period)}
               </p>
-            ) : null}
+            </div>
             <div className="statistics-people">
               <SkillRetrieverList retrievers={activeHumans.users} />
+              {remainingHumans > 0 ? (
+                <p className="statistics-muted">{`and ${remainingHumans} more`}</p>
+              ) : null}
             </div>
-            {remainingHumans > 0 ? (
-              <p className="statistics-muted">{`and ${remainingHumans} more`}</p>
-            ) : null}
-          </>
+          </div>
         )}
       </Card>
       <div className="statistics-charts">
@@ -204,7 +204,10 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
   );
 }
 
-function comparisonLabel(delta: number, period: string): string {
+function comparisonLabel(count: number, previousCount: number, period: string): string {
+  // Without anyone to compare with, a delta would just repeat the count.
+  if (previousCount === 0) return `Nobody was active in the previous ${period}.`;
+  const delta = count - previousCount;
   if (delta === 0) return `No change compared with the previous ${period}`;
   return `${delta > 0 ? "+" : ""}${delta} compared with the previous ${period}`;
 }
