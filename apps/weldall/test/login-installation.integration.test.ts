@@ -1038,10 +1038,12 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     const databaseUrl = url.toString();
     const upgrade = new PrismaClient({ datasourceUrl: databaseUrl });
     try {
-      // Reproduce a deployment that shipped 0015_oidc_login_installation before 0015_drop_chat,
-      // which is the order an existing installation applies the two same-numbered migrations in.
+      // Reproduce the release through 0015_oidc_login_installation, before 0015_drop_chat.
+      // Later migrations must run during the upgrade, not in this historical baseline:
+      // otherwise the late chat-drop migration overwrites their newer audit constraint.
       withMigrationSubset(
-        (migration) => migration !== "0015_drop_chat",
+        (migration) =>
+          migration <= "0015_oidc_login_installation" && migration !== "0015_drop_chat",
         (schema) => deployMigrations(databaseUrl, schema),
       );
       await upgrade.auditEvent.create({
