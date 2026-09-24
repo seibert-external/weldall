@@ -409,12 +409,18 @@ async function seedDevelopmentManagedConnectors() {
         create: {
           keyId: key.id,
           version,
-          sourceName,
-          fingerprint: createHash("sha256").update(material).digest("hex"),
+          providerType: "local-env",
+          providerConfig: { variable: sourceName },
+          providerState: {
+            fingerprint: createHash("sha256").update(material).digest("hex"),
+          },
         },
         update: {
-          sourceName,
-          fingerprint: createHash("sha256").update(material).digest("hex"),
+          providerType: "local-env",
+          providerConfig: { variable: sourceName },
+          providerState: {
+            fingerprint: createHash("sha256").update(material).digest("hex"),
+          },
         },
       });
     }

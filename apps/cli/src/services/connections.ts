@@ -62,12 +62,15 @@ export interface DisconnectResult {
   message?: string;
 }
 
-const stringArray = (value: unknown): value is string[] =>
+/** Validates string arrays received from the managed-connection API boundary. */
+const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
 
+/** Validates nullable metadata strings received from Weldall. */
 const isNullableString = (value: unknown): value is string | null =>
   value === null || typeof value === "string";
 
+/** Validates the credential-free connection contract before CLI rendering or persistence. */
 export const isConnectionSummary = (value: unknown): value is ConnectionSummary =>
   isRecord(value) &&
   typeof value.id === "string" &&
@@ -76,8 +79,8 @@ export const isConnectionSummary = (value: unknown): value is ConnectionSummary 
   typeof value.name === "string" &&
   typeof value.accountId === "string" &&
   typeof value.accountName === "string" &&
-  stringArray(value.selectedScopes) &&
-  stringArray(value.grantedScopes) &&
+  isStringArray(value.selectedScopes) &&
+  isStringArray(value.grantedScopes) &&
   typeof value.status === "string" &&
   typeof value.version === "number" &&
   isNullableString(value.lastUsedAt) &&
@@ -85,10 +88,11 @@ export const isConnectionSummary = (value: unknown): value is ConnectionSummary 
   isNullableString(value.revocationError) &&
   typeof value.createdAt === "string" &&
   typeof value.updatedAt === "string" &&
-  stringArray(value.capabilities) &&
+  isStringArray(value.capabilities) &&
   typeof value.connectorKey === "string" &&
   typeof value.connectorEnabled === "boolean";
 
+/** Validates one administrator-approved scope descriptor before CLI rendering. */
 const isConnectorScopeSummary = (value: unknown): value is ConnectorScopeSummary =>
   isRecord(value) &&
   typeof value.id === "string" &&
@@ -96,8 +100,9 @@ const isConnectorScopeSummary = (value: unknown): value is ConnectorScopeSummary
   typeof value.description === "string" &&
   typeof value.group === "string" &&
   typeof value.required === "boolean" &&
-  stringArray(value.capabilities);
+  isStringArray(value.capabilities);
 
+/** Validates connector discovery metadata before CLI rendering. */
 const isConnectorSummary = (value: unknown): value is ConnectorSummary =>
   isRecord(value) &&
   typeof value.key === "string" &&
@@ -105,9 +110,10 @@ const isConnectorSummary = (value: unknown): value is ConnectorSummary =>
   typeof value.type === "string" &&
   Array.isArray(value.scopes) &&
   value.scopes.every(isConnectorScopeSummary) &&
-  stringArray(value.defaultScopes) &&
+  isStringArray(value.defaultScopes) &&
   typeof value.requestPrefix === "string";
 
+/** Validates authorization-attempt state before CLI recovery output. */
 const isConnectionAttempt = (value: unknown): value is ConnectionAttempt =>
   isRecord(value) &&
   typeof value.id === "string" &&
@@ -116,19 +122,27 @@ const isConnectionAttempt = (value: unknown): value is ConnectionAttempt =>
   typeof value.connector.key === "string" &&
   typeof value.connector.name === "string" &&
   typeof value.connector.version === "number" &&
-  stringArray(value.scopes) &&
-  stringArray(value.selectedScopes) &&
-  stringArray(value.capabilities) &&
+  isStringArray(value.scopes) &&
+  isStringArray(value.selectedScopes) &&
+  isStringArray(value.capabilities) &&
   typeof value.expiresAt === "string" &&
   (value.connection === null || isConnectionSummary(value.connection));
 
-/** Only Weldall credentials are used here. Provider tokens never leave the server. */
-export async function connectionApi(
-  config: WeldallConfig,
-  path: string,
+/**
+ * Calls Weldall's private managed-connection API with DPoP-bound Weldall credentials. Provider
+ * tokens remain on the server and never cross into the CLI process.
+ */
+export async function requestConnectionApi({
+  config,
+  path,
   method = "GET",
-  body?: unknown,
-) {
+  body,
+}: {
+  config: WeldallConfig;
+  path: string;
+  method?: string;
+  body?: unknown;
+}) {
   const url = `${config.issuer}/api/me/${path}`;
   return withAccess(config, async (session) =>
     successfulResponse(
@@ -153,44 +167,68 @@ export async function connectionApi(
   );
 }
 
+/** Lists credential-free managed connections for CLI table, JSON, and agentic output. */
 export async function listConnections(config: WeldallConfig): Promise<ConnectionSummary[]> {
-  const value = await connectionApi(config, "connections");
+  const value = await requestConnectionApi({ config, path: "connections" });
   if (!Array.isArray(value) || value.some((connection) => !isConnectionSummary(connection)))
     throw new CliError("Weldall returned an invalid connection list");
   return value;
 }
 
+/** Lists enabled connector catalogs and scope descriptions for CLI discovery. */
 export async function listConnectors(config: WeldallConfig): Promise<ConnectorSummary[]> {
-  const value = await connectionApi(config, "connectors");
+  const value = await requestConnectionApi({ config, path: "connectors" });
   if (!Array.isArray(value) || value.some((connector) => !isConnectorSummary(connector)))
     throw new CliError("Weldall returned an invalid connector list");
   return value;
 }
 
-export async function showConnection(
-  config: WeldallConfig,
-  selector: string,
-): Promise<ConnectionSummary> {
-  const value = await connectionApi(config, `connections/${encodeURIComponent(selector)}`);
+/** Loads one managed connection selected by ID or owner-unique name for CLI output. */
+export async function showConnection({
+  config,
+  selector,
+}: {
+  config: WeldallConfig;
+  selector: string;
+}): Promise<ConnectionSummary> {
+  const value = await requestConnectionApi({
+    config,
+    path: `connections/${encodeURIComponent(selector)}`,
+  });
   if (!isConnectionSummary(value)) throw new CliError("Weldall returned an invalid connection");
   return value;
 }
 
-export async function showConnectionAttempt(
-  config: WeldallConfig,
-  id: string,
-): Promise<ConnectionAttempt> {
-  const value = await connectionApi(config, `connection-authorizations/${encodeURIComponent(id)}`);
+/** Loads one interrupted authorization attempt so the CLI can report recovery state. */
+export async function showConnectionAttempt({
+  config,
+  id,
+}: {
+  config: WeldallConfig;
+  id: string;
+}): Promise<ConnectionAttempt> {
+  const value = await requestConnectionApi({
+    config,
+    path: `connection-authorizations/${encodeURIComponent(id)}`,
+  });
   if (!isConnectionAttempt(value))
     throw new CliError("Weldall returned an invalid connection setup status");
   return value;
 }
 
-export async function disconnectConnection(
-  config: WeldallConfig,
-  selector: string,
-): Promise<DisconnectResult> {
-  const value = await connectionApi(config, `connections/${encodeURIComponent(selector)}`, "POST");
+/** Requests explicit provider revocation and local disconnection for one CLI-selected connection. */
+export async function disconnectConnection({
+  config,
+  selector,
+}: {
+  config: WeldallConfig;
+  selector: string;
+}): Promise<DisconnectResult> {
+  const value = await requestConnectionApi({
+    config,
+    path: `connections/${encodeURIComponent(selector)}`,
+    method: "POST",
+  });
   if (
     !isRecord(value) ||
     typeof value.status !== "string" ||
@@ -201,16 +239,23 @@ export async function disconnectConnection(
   return value as unknown as DisconnectResult;
 }
 
-export async function connectAccount(
-  config: WeldallConfig,
-  connector: string,
-  name: string,
-  reconnect?: string,
-): Promise<ConnectionSummary> {
-  const attempt = await connectionApi(config, "connections", "POST", {
-    connector,
-    name,
-    ...(reconnect ? { reconnect } : {}),
+/** Runs the CLI side of browser-mediated connection setup and polls Weldall until completion. */
+export async function connectAccount({
+  config,
+  connector,
+  name,
+  reconnect,
+}: {
+  config: WeldallConfig;
+  connector: string;
+  name: string;
+  reconnect?: string;
+}): Promise<ConnectionSummary> {
+  const attempt = await requestConnectionApi({
+    config,
+    path: "connections",
+    method: "POST",
+    body: { connector, name, ...(reconnect ? { reconnect } : {}) },
   });
   if (!isRecord(attempt) || typeof attempt.id !== "string" || typeof attempt.setupUrl !== "string")
     throw new CliError("Invalid connection setup response");
@@ -230,10 +275,10 @@ export async function connectAccount(
   );
   const deadline = Date.now() + 10 * 60_000;
   while (Date.now() < deadline) {
-    const status = await connectionApi(
+    const status = await requestConnectionApi({
       config,
-      `connection-authorizations/${encodeURIComponent(attempt.id)}`,
-    );
+      path: `connection-authorizations/${encodeURIComponent(attempt.id)}`,
+    });
     if (!isRecord(status) || typeof status.status !== "string")
       throw new CliError("Invalid authorization status");
     if (status.status === "COMPLETED") {
@@ -254,7 +299,14 @@ export async function connectAccount(
     hint: `Check weldall connections status ${attempt.id}. Completed connections remain available even if the CLI was interrupted.`,
   });
 }
-export function validateConnectionTarget(config: WeldallConfig, raw: string): URL {
+/** Restricts arbitrary CLI request targets to this installation's managed connector proxy. */
+export function validateConnectionTarget({
+  config,
+  raw,
+}: {
+  config: WeldallConfig;
+  raw: string;
+}): URL {
   const url = new URL(raw);
   if (
     url.origin !== config.issuer ||
@@ -268,12 +320,17 @@ export function validateConnectionTarget(config: WeldallConfig, raw: string): UR
     );
   return url;
 }
-export async function connectionRequest(
-  config: WeldallConfig,
-  selector: string,
-  input: PreparedRequest,
-) {
-  const url = validateConnectionTarget(config, input.url);
+/** Streams one authenticated CLI request through Weldall's owner-selected connector proxy. */
+export async function requestConnection({
+  config,
+  selector,
+  input,
+}: {
+  config: WeldallConfig;
+  selector: string;
+  input: PreparedRequest;
+}) {
+  const url = validateConnectionTarget({ config, raw: input.url });
   return withAccess(config, async (session) => {
     const headers = new Headers(input.headers);
     headers.set("authorization", `DPoP ${session.accessToken}`);

@@ -1,11 +1,11 @@
 import { define } from "gunshi";
 import { Box } from "ink";
 import {
-  connectionAttemptToon,
-  connectionDetailToon,
-  connectionsToon,
-  connectorsToon,
-  disconnectToon,
+  encodeConnectionAttemptToon,
+  encodeConnectionDetailToon,
+  encodeConnectionsToon,
+  encodeConnectorsToon,
+  encodeDisconnectToon,
 } from "./connections-toon.js";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
 import { CliError } from "./errors.js";
@@ -35,9 +35,9 @@ import {
 } from "./output.js";
 import { login, logout, whoAmI } from "./services/auth.js";
 import {
-  connectionApi,
   connectAccount,
-  connectionRequest,
+  requestConnection,
+  requestConnectionApi,
   disconnectConnection,
   listConnections,
   listConnectors,
@@ -221,10 +221,10 @@ export const loginCommand = define({
       console.log();
       printStatus(identity, permissions);
     } catch {
-      warning(
-        "Signed in, but your account details could not be loaded.",
-        "Run `weldall status` to try again.",
-      );
+      warning({
+        message: "Signed in, but your account details could not be loaded.",
+        hint: "Run `weldall status` to try again.",
+      });
     }
   },
 });
@@ -253,9 +253,14 @@ const agenticArgument = {
   description: "Print output shaped for an agent (TOON; unstable, may change without notice)",
 } as const;
 
-// Shared so that no command carrying both flags can reach the network before rejecting the
-// combination, which is what makes the rejection testable without a session.
-const exclusiveOutputFlags = (json: boolean | undefined, agentic: boolean | undefined) => {
+/** Rejects conflicting structured-output modes before any CLI command reaches the network. */
+const assertExclusiveOutputFlags = ({
+  json,
+  agentic,
+}: {
+  json: boolean | undefined;
+  agentic: boolean | undefined;
+}) => {
   if (json && agentic) throw new CliError("--json cannot be combined with --agentic");
 };
 
@@ -311,7 +316,7 @@ export const scopesCommand = define({
   args: { json: jsonArgument, agentic: agenticArgument },
   examples: "weldall scopes\nweldall scopes --json\nweldall scopes --agentic",
   run: async (context) => {
-    exclusiveOutputFlags(context.values.json, context.values.agentic);
+    assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
     const config = await resolveWeldallConfig();
     const { result: permissions, subject } = await listScopesWithSubject(config);
     await updateSnapshotBestEffort(config.issuer, {
@@ -594,7 +599,7 @@ export const requestCommand = define({
           : {}),
     };
     const response = context.values.connection
-      ? await connectionRequest(config, context.values.connection, input)
+      ? await requestConnection({ config, selector: context.values.connection, input })
       : await resourceRequest(config, input);
     if (context.values.output !== undefined) {
       await writeResponseBody(response, context.values.output);
@@ -623,8 +628,15 @@ export const formatSkillWarning = (warning: SkillWarning): string => {
   );
 };
 
-export const printSkills = async (asJson: boolean | undefined, asAgentic?: boolean | undefined) => {
-  exclusiveOutputFlags(asJson, asAgentic);
+/** Loads skills and prints the selected human, JSON, or agent-oriented CLI representation. */
+export const printSkills = async ({
+  asJson,
+  asAgentic,
+}: {
+  asJson: boolean | undefined;
+  asAgentic?: boolean | undefined;
+}) => {
+  assertExclusiveOutputFlags({ json: asJson, agentic: asAgentic });
   const config = await resolveWeldallConfig();
   const { result, subject } = await listSkillsWithSubject(config);
   await cacheSkills(config.issuer, result.items, subject);
@@ -636,7 +648,7 @@ export const printSkills = async (asJson: boolean | undefined, asAgentic?: boole
     jsonOutput(result);
     return;
   }
-  for (const item of result.warnings) printWarning(formatSkillWarning(item));
+  for (const item of result.warnings) printWarning({ message: formatSkillWarning(item) });
   if (result.items.length === 0) {
     info("No skills are visible to this account.");
     return;
@@ -659,7 +671,7 @@ const skillsListCommand = define({
   args: { json: jsonArgument, agentic: agenticArgument },
   examples:
     "weldall skills\nweldall skills list\nweldall skills list --json\nweldall skills list --agentic",
-  run: (context) => printSkills(context.values.json, context.values.agentic),
+  run: (context) => printSkills({ asJson: context.values.json, asAgentic: context.values.agentic }),
 });
 
 const skillsShowCommand = define({
@@ -677,7 +689,7 @@ const skillsShowCommand = define({
   examples:
     "weldall skills show expenses.review\nweldall skills show expenses.review --json\nweldall skills show expenses.review --agentic",
   run: async (context) => {
-    exclusiveOutputFlags(context.values.json, context.values.agentic);
+    assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
     const config = await resolveWeldallConfig();
     const { result: skill, subject } = await showSkillWithSubject(config, context.values.skill);
     const snapshot = await appendixCache.readSnapshotForSubject(config.issuer, subject);
@@ -708,7 +720,7 @@ const skillsFindCommand = define({
   examples:
     'weldall skills find employee\nweldall skills find "contract review date"\nweldall skills find personio --json\nweldall skills find personio --agentic',
   run: async (context) => {
-    exclusiveOutputFlags(context.values.json, context.values.agentic);
+    assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
     const selection = await selectIssuer({ allowPrompt: false });
     if (!selection)
       throw new CliError("No Weldall issuer is configured", {
@@ -731,18 +743,18 @@ const skillsFindCommand = define({
       if (context.values.agentic) process.stdout.write(skillMatchesToon(matches));
       else jsonOutput(matches);
       if (matches.length === 0) {
-        printWarning(
-          `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
-          "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
-        );
+        printWarning({
+          message: `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
+          hint: "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
+        });
       }
       return;
     }
     if (matches.length === 0) {
-      warning(
-        `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
-        "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
-      );
+      warning({
+        message: `No cached skills match ${JSON.stringify(context.values.keywords)}.`,
+        hint: "Try fewer or broader words, such as the system, resource, or action; run `weldall skills list` to browse every visible skill.",
+      });
       return;
     }
     printUi(
@@ -786,31 +798,35 @@ const connectorColumns = [
   { header: "Request prefix" },
 ] satisfies readonly TableColumn[];
 
-const shortTimestamp = (value: string | null) => {
+/** Formats server timestamps for compact human-readable connection tables. */
+const formatShortTimestamp = (value: string | null) => {
   if (value === null) return "Never";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 };
 
-const statusColor = (status: string) => {
+/** Maps managed-connection lifecycle states onto the shared terminal palette. */
+const getConnectionStatusColor = (status: string) => {
   if (status === "READY") return palette.success;
   if (status === "RECONNECT_REQUIRED" || status === "REVOCATION_PENDING") return palette.warning;
   if (status === "DISCONNECTED") return palette.danger;
   return undefined;
 };
 
-const connectionRows = (connections: readonly ConnectionSummary[]) =>
+/** Builds the terminal-table rows for the owner connection list. */
+const buildConnectionRows = (connections: readonly ConnectionSummary[]) =>
   connections.map((connection) => [
     connection.name,
     connection.connectorKey,
     connection.accountName,
     connection.status,
-    shortTimestamp(connection.lastUsedAt),
+    formatShortTimestamp(connection.lastUsedAt),
     String(connection.requestCount),
   ]);
 
-const connectorRows = (connectors: readonly ConnectorSummary[]) =>
+/** Builds the terminal-table rows for connector discovery. */
+const buildConnectorRows = (connectors: readonly ConnectorSummary[]) =>
   connectors.map((connector) => [
     connector.key,
     connector.name,
@@ -819,6 +835,7 @@ const connectorRows = (connectors: readonly ConnectorSummary[]) =>
     connector.requestPrefix,
   ]);
 
+/** Prints one connection's credential-free details for a human CLI user. */
 const printConnectionDetails = (connection: ConnectionSummary) => {
   const fields: Array<readonly [string, string]> = [
     ["Name", connection.name],
@@ -830,38 +847,43 @@ const printConnectionDetails = (connection: ConnectionSummary) => {
     ["Capabilities", connection.capabilities.join(", ") || "—"],
     ["Selected scopes", connection.selectedScopes.join(", ") || "—"],
     ["Granted scopes", connection.grantedScopes.join(", ") || "—"],
-    ["Last used", shortTimestamp(connection.lastUsedAt)],
+    ["Last used", formatShortTimestamp(connection.lastUsedAt)],
     ["Requests", String(connection.requestCount)],
-    ["Created", shortTimestamp(connection.createdAt)],
-    ["Updated", shortTimestamp(connection.updatedAt)],
+    ["Created", formatShortTimestamp(connection.createdAt)],
+    ["Updated", formatShortTimestamp(connection.updatedAt)],
   ];
   if (connection.revocationError) fields.push(["Revocation error", connection.revocationError]);
-  printFields(fields, "Connection");
+  printFields({ fields, title: "Connection" });
 };
 
+/** Prints one interrupted setup attempt for human CLI recovery. */
 const printConnectionAttempt = (attempt: ConnectionAttempt) => {
   const fields: Array<readonly [string, string]> = [
     ["Attempt", attempt.id],
     ["Status", attempt.status],
     ["Connector", `${attempt.connector.name} (${attempt.connector.key})`],
-    ["Expires", shortTimestamp(attempt.expiresAt)],
+    ["Expires", formatShortTimestamp(attempt.expiresAt)],
     ["Selected scopes", attempt.selectedScopes.join(", ") || "—"],
     ["Capabilities", attempt.capabilities.join(", ") || "—"],
   ];
   if (attempt.connection)
     fields.push(["Connection", `${attempt.connection.name} (${attempt.connection.id})`]);
-  printFields(fields, "Connection setup");
+  printFields({ fields, title: "Connection setup" });
 };
 
-export const printConnections = async (
-  asJson: boolean | undefined,
-  asAgentic: boolean | undefined,
-) => {
-  exclusiveOutputFlags(asJson, asAgentic);
+/** Loads connections and prints the selected human, JSON, or agent-oriented CLI representation. */
+export const printConnections = async ({
+  asJson,
+  asAgentic,
+}: {
+  asJson: boolean | undefined;
+  asAgentic: boolean | undefined;
+}) => {
+  assertExclusiveOutputFlags({ json: asJson, agentic: asAgentic });
   const config = await resolveWeldallConfig();
   const connections = await listConnections(config);
   if (asAgentic) {
-    process.stdout.write(connectionsToon(connections, config.issuer));
+    process.stdout.write(encodeConnectionsToon({ connections, issuer: config.issuer }));
     return;
   }
   if (asJson) {
@@ -876,9 +898,9 @@ export const printConnections = async (
     <TableCard
       title="Connections"
       columns={connectionColumns}
-      rows={connectionRows(connections)}
+      rows={buildConnectionRows(connections)}
       cellColor={(_rowIndex, columnIndex, value) =>
-        columnIndex === 3 ? statusColor(value) : undefined
+        columnIndex === 3 ? getConnectionStatusColor(value) : undefined
       }
     />,
   );
@@ -890,7 +912,8 @@ const connectionsListCommand = define({
   args: { json: jsonArgument, agentic: agenticArgument },
   examples:
     "weldall connections list\nweldall connections list --json\nweldall connections list --agentic",
-  run: (context) => printConnections(context.values.json, context.values.agentic),
+  run: (context) =>
+    printConnections({ asJson: context.values.json, asAgentic: context.values.agentic }),
 });
 
 export const connectorsCommand = define({
@@ -899,10 +922,10 @@ export const connectorsCommand = define({
   args: { json: jsonArgument, agentic: agenticArgument },
   examples: "weldall connectors\nweldall connectors --json\nweldall connectors --agentic",
   run: async (context) => {
-    exclusiveOutputFlags(context.values.json, context.values.agentic);
+    assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
     const connectors = await listConnectors(await resolveWeldallConfig());
     if (context.values.agentic) {
-      process.stdout.write(connectorsToon(connectors));
+      process.stdout.write(encodeConnectorsToon(connectors));
       return;
     }
     if (context.values.json) {
@@ -914,7 +937,11 @@ export const connectorsCommand = define({
       return;
     }
     printWideUi(
-      <TableCard title="Connectors" columns={connectorColumns} rows={connectorRows(connectors)} />,
+      <TableCard
+        title="Connectors"
+        columns={connectorColumns}
+        rows={buildConnectorRows(connectors)}
+      />,
     );
   },
 });
@@ -935,10 +962,15 @@ const connectCommand = define({
   examples:
     "weldall connections connect google --name my-google\nweldall connections connect google --name my-google --json\nweldall connections connect google --name my-google --agentic",
   run: async ({ values }) => {
-    exclusiveOutputFlags(values.json, values.agentic);
+    assertExclusiveOutputFlags({ json: values.json, agentic: values.agentic });
     const config = await resolveWeldallConfig();
-    const connection = await connectAccount(config, values.connector, values.name);
-    if (values.agentic) process.stdout.write(connectionDetailToon(connection, config.issuer));
+    const connection = await connectAccount({
+      config,
+      connector: values.connector,
+      name: values.name,
+    });
+    if (values.agentic)
+      process.stdout.write(encodeConnectionDetailToon({ connection, issuer: config.issuer }));
     else if (values.json) jsonOutput(connection);
     else {
       success(`Connected ${terminalText(connection.name)}.`);
@@ -954,11 +986,17 @@ const reconnectCommand = define({
   examples:
     "weldall connections reconnect my-google\nweldall connections reconnect my-google --json\nweldall connections reconnect my-google --agentic",
   run: async ({ values }) => {
-    exclusiveOutputFlags(values.json, values.agentic);
+    assertExclusiveOutputFlags({ json: values.json, agentic: values.agentic });
     const config = await resolveWeldallConfig();
-    const current = await showConnection(config, values.connection);
-    const connection = await connectAccount(config, current.connectorKey, current.name, current.id);
-    if (values.agentic) process.stdout.write(connectionDetailToon(connection, config.issuer));
+    const current = await showConnection({ config, selector: values.connection });
+    const connection = await connectAccount({
+      config,
+      connector: current.connectorKey,
+      name: current.name,
+      reconnect: current.id,
+    });
+    if (values.agentic)
+      process.stdout.write(encodeConnectionDetailToon({ connection, issuer: config.issuer }));
     else if (values.json) jsonOutput(connection);
     else {
       success(`Reconnected ${terminalText(connection.name)}.`);
@@ -974,10 +1012,11 @@ const showConnectionCommand = define({
   examples:
     "weldall connections show my-google\nweldall connections show my-google --json\nweldall connections show my-google --agentic",
   run: async ({ values }) => {
-    exclusiveOutputFlags(values.json, values.agentic);
+    assertExclusiveOutputFlags({ json: values.json, agentic: values.agentic });
     const config = await resolveWeldallConfig();
-    const connection = await showConnection(config, values.connection);
-    if (values.agentic) process.stdout.write(connectionDetailToon(connection, config.issuer));
+    const connection = await showConnection({ config, selector: values.connection });
+    if (values.agentic)
+      process.stdout.write(encodeConnectionDetailToon({ connection, issuer: config.issuer }));
     else if (values.json) jsonOutput(connection);
     else printConnectionDetails(connection);
   },
@@ -991,17 +1030,20 @@ const disconnectCommand = define({
   examples:
     "weldall connections disconnect my-google\nweldall connections disconnect my-google --json\nweldall connections disconnect my-google --agentic",
   run: async ({ values }) => {
-    exclusiveOutputFlags(values.json, values.agentic);
-    const result = await disconnectConnection(await resolveWeldallConfig(), values.connection);
+    assertExclusiveOutputFlags({ json: values.json, agentic: values.agentic });
+    const result = await disconnectConnection({
+      config: await resolveWeldallConfig(),
+      selector: values.connection,
+    });
     const confirmed = result.status === "DISCONNECTED" && result.revocationConfirmed !== false;
-    if (values.agentic) process.stdout.write(disconnectToon(result));
+    if (values.agentic) process.stdout.write(encodeDisconnectToon(result));
     else if (values.json) jsonOutput(result);
     else if (confirmed) success(`Disconnected ${terminalText(values.connection)}.`);
     else
-      warning(
-        "Disconnect is pending or provider revocation is unconfirmed.",
-        result.message ?? `Run weldall connections disconnect ${values.connection} to retry.`,
-      );
+      warning({
+        message: "Disconnect is pending or provider revocation is unconfirmed.",
+        hint: result.message ?? `Run weldall connections disconnect ${values.connection} to retry.`,
+      });
     if (!confirmed) process.exitCode = 1;
   },
 });
@@ -1012,11 +1054,11 @@ const deleteConnectionCommand = define({
   args: { connection: connectionSelector, json: jsonArgument },
   examples: "weldall connections delete my-google\nweldall connections delete my-google --json",
   run: async ({ values }) => {
-    const result = await connectionApi(
-      await resolveWeldallConfig(),
-      `connections/${encodeURIComponent(values.connection)}`,
-      "DELETE",
-    );
+    const result = await requestConnectionApi({
+      config: await resolveWeldallConfig(),
+      path: `connections/${encodeURIComponent(values.connection)}`,
+      method: "DELETE",
+    });
     if (values.json) jsonOutput(result);
     else success(`Deleted ${terminalText(values.connection)}.`);
   },
@@ -1029,9 +1071,12 @@ const connectionStatusCommand = define({
   examples:
     "weldall connections status <attempt-id>\nweldall connections status <attempt-id> --json\nweldall connections status <attempt-id> --agentic",
   run: async ({ values }) => {
-    exclusiveOutputFlags(values.json, values.agentic);
-    const attempt = await showConnectionAttempt(await resolveWeldallConfig(), values.attempt);
-    if (values.agentic) process.stdout.write(connectionAttemptToon(attempt));
+    assertExclusiveOutputFlags({ json: values.json, agentic: values.agentic });
+    const attempt = await showConnectionAttempt({
+      config: await resolveWeldallConfig(),
+      id: values.attempt,
+    });
+    if (values.agentic) process.stdout.write(encodeConnectionAttemptToon(attempt));
     else if (values.json) jsonOutput(attempt);
     else printConnectionAttempt(attempt);
   },
@@ -1044,11 +1089,11 @@ const cancelConnectionCommand = define({
   examples:
     "weldall connections cancel <attempt-id>\nweldall connections cancel <attempt-id> --json",
   run: async ({ values }) => {
-    const result = await connectionApi(
-      await resolveWeldallConfig(),
-      `connection-authorizations/${encodeURIComponent(values.attempt)}`,
-      "DELETE",
-    );
+    const result = await requestConnectionApi({
+      config: await resolveWeldallConfig(),
+      path: `connection-authorizations/${encodeURIComponent(values.attempt)}`,
+      method: "DELETE",
+    });
     if (values.json) jsonOutput(result);
     else success(`Cancelled setup attempt ${terminalText(values.attempt)}.`);
   },
@@ -1069,7 +1114,8 @@ export const connectionsCommand = define({
     status: connectionStatusCommand,
     cancel: cancelConnectionCommand,
   },
-  run: (context) => printConnections(context.values.json, context.values.agentic),
+  run: (context) =>
+    printConnections({ asJson: context.values.json, asAgentic: context.values.agentic }),
 });
 
 export const skillsCommand = define({
@@ -1077,7 +1123,7 @@ export const skillsCommand = define({
   description: "Discover agent instructions published by your organization",
   args: { json: jsonArgument, agentic: agenticArgument },
   subCommands: { list: skillsListCommand, show: skillsShowCommand, find: skillsFindCommand },
-  run: (context) => printSkills(context.values.json, context.values.agentic),
+  run: (context) => printSkills({ asJson: context.values.json, asAgentic: context.values.agentic }),
 });
 
 const setIssuerCommand = define({
@@ -1118,13 +1164,13 @@ const getIssuerCommand = define({
       });
     if (context.values.json) jsonOutput(selection);
     else
-      printFields(
-        [
+      printFields({
+        fields: [
           ["Issuer", selection.issuer],
           ["Source", selection.source],
         ],
-        "Configuration",
-      );
+        title: "Configuration",
+      });
   },
 });
 

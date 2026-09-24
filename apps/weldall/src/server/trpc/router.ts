@@ -69,22 +69,22 @@ import {
 import type { TrpcContext } from "./context";
 import { ConnectorError, connectorConfig, encryptionKeyConfig } from "../connectors/contracts";
 import {
-  transaction,
-  listConfiguration,
-  mutateKey,
-  mutateConnector,
-  deleteKey,
-  deleteConnector,
-  setClientSecret,
-  reencryptConnector,
+  deleteConnectorConfiguration,
+  deleteEncryptionKeyConfiguration,
+  listManagedConnectorConfiguration,
+  reencryptConnectorSecrets,
+  runConnectorTransaction,
+  saveConnectorClientSecret,
+  saveConnectorConfiguration,
+  saveEncryptionKeyConfiguration,
 } from "../connectors/configuration";
 import {
   listConnections,
-  disconnect,
+  disconnectConnection,
   deleteConnection,
   cleanupAttempts,
   listAuthorizations,
-  cancelAttempt,
+  cancelAuthorizationAttempt,
   discardAuthorization,
   discardConnection,
 } from "../connectors/connections";
@@ -177,13 +177,19 @@ export const appRouter = trpc.router({
   }),
   admin: trpc.router({
     managed: trpc.router({
-      configuration: adminProcedure.query(() => listConfiguration()),
+      configuration: adminProcedure.query(() => listManagedConnectorConfiguration()),
       connections: adminProcedure.query(() => listConnections()),
       authorizations: adminProcedure.query(() => listAuthorizations()),
       cancelAuthorization: adminProcedure
         .input(z.object({ id: z.string() }).strict())
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => cancelAttempt(ctx.adminActor, input.id, true)),
+          mapDomainErrors(() =>
+            cancelAuthorizationAttempt({
+              actor: ctx.adminActor,
+              id: input.id,
+              administrator: true,
+            }),
+          ),
         ),
       discardAuthorization: adminProcedure
         .input(
@@ -195,7 +201,7 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => discardAuthorization(ctx.adminActor, input.id)),
+          mapDomainErrors(() => discardAuthorization({ actor: ctx.adminActor, id: input.id })),
         ),
       saveKey: adminProcedure
         .input(
@@ -209,14 +215,14 @@ export const appRouter = trpc.router({
         )
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() =>
-            transaction(async (tx) => {
-              const row = await mutateKey(
+            runConnectorTransaction(async (tx) => {
+              const row = await saveEncryptionKeyConfiguration({
                 tx,
-                input.config,
-                input.id,
-                input.version,
-                ctx.adminActor,
-              );
+                value: input.config,
+                id: input.id,
+                expectedVersion: input.version,
+                actor: ctx.adminActor,
+              });
               return { id: row.id };
             }),
           ),
@@ -233,14 +239,14 @@ export const appRouter = trpc.router({
         )
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() =>
-            transaction(async (tx) => {
-              const row = await mutateConnector(
+            runConnectorTransaction(async (tx) => {
+              const row = await saveConnectorConfiguration({
                 tx,
-                input.config,
-                input.id,
-                input.version,
-                ctx.adminActor,
-              );
+                value: input.config,
+                id: input.id,
+                expectedVersion: input.version,
+                actor: ctx.adminActor,
+              });
               return { id: row.id };
             }),
           ),
@@ -249,7 +255,14 @@ export const appRouter = trpc.router({
         .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() =>
-            transaction((tx) => deleteKey(tx, input.id, input.version, ctx.adminActor)),
+            runConnectorTransaction((tx) =>
+              deleteEncryptionKeyConfiguration({
+                tx,
+                id: input.id,
+                version: input.version,
+                actor: ctx.adminActor,
+              }),
+            ),
           ),
         ),
       deleteConnector: adminProcedure
@@ -257,8 +270,13 @@ export const appRouter = trpc.router({
         .mutation(({ input, ctx }) =>
           mapDomainErrors(async () => {
             await cleanupAttempts();
-            return transaction((tx) =>
-              deleteConnector(tx, input.id, input.version, ctx.adminActor),
+            return runConnectorTransaction((tx) =>
+              deleteConnectorConfiguration({
+                tx,
+                id: input.id,
+                version: input.version,
+                actor: ctx.adminActor,
+              }),
             );
           }),
         ),
@@ -274,18 +292,35 @@ export const appRouter = trpc.router({
         )
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() =>
-            setClientSecret(input.id, input.secret, input.version, ctx.adminActor),
+            saveConnectorClientSecret({
+              id: input.id,
+              secret: input.secret,
+              version: input.version,
+              actor: ctx.adminActor,
+            }),
           ),
         ),
       reencrypt: adminProcedure
         .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => reencryptConnector(input.id, input.version, ctx.adminActor)),
+          mapDomainErrors(() =>
+            reencryptConnectorSecrets({
+              id: input.id,
+              version: input.version,
+              actor: ctx.adminActor,
+            }),
+          ),
         ),
       disconnect: adminProcedure
         .input(z.object({ id: z.string() }).strict())
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => disconnect(ctx.adminActor, input.id, true)),
+          mapDomainErrors(() =>
+            disconnectConnection({
+              actor: ctx.adminActor,
+              selector: input.id,
+              administrator: true,
+            }),
+          ),
         ),
       discardConnection: adminProcedure
         .input(
@@ -298,12 +333,16 @@ export const appRouter = trpc.router({
             .strict(),
         )
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => discardConnection(ctx.adminActor, input.id, input.version)),
+          mapDomainErrors(() =>
+            discardConnection({ actor: ctx.adminActor, id: input.id, version: input.version }),
+          ),
         ),
       deleteConnection: adminProcedure
         .input(z.object({ id: z.string() }).strict())
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => deleteConnection(ctx.adminActor, input.id, true)),
+          mapDomainErrors(() =>
+            deleteConnection({ actor: ctx.adminActor, selector: input.id, administrator: true }),
+          ),
         ),
     }),
     status: adminProcedure.query(({ ctx }) => ({

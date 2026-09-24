@@ -23,7 +23,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import type { KeyConfig } from "@/server/connectors/contracts";
-import type { listConfiguration } from "@/server/connectors/configuration";
+import type { listManagedConnectorConfiguration } from "@/server/connectors/configuration";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
@@ -34,10 +34,12 @@ import {
   TableRowAction,
 } from "../resizable-table";
 
-type Configuration = Awaited<ReturnType<typeof listConfiguration>>;
+type Configuration = Awaited<ReturnType<typeof listManagedConnectorConfiguration>>;
 type KeyRow = Configuration["keys"][number];
 const emptyKeys: KeyRow[] = [];
 
+/** Renders the logical encryption-key admin workspace and provider availability state. */
+/** Coordinates encryption-key administration, filtering, editing, and safe deletion. */
 export function KeysPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -209,6 +211,8 @@ export function KeysPage() {
   );
 }
 
+/** Renders the sortable encryption-key table and forwards row activation into editing. */
+/** Renders encryption keys and versions in the shared sortable admin-table layout. */
 function KeysTable({
   table,
   columns,
@@ -285,6 +289,8 @@ function KeysTable({
   );
 }
 
+/** Owns logical key creation, version registration, and active-version selection. */
+/** Collects provider bindings and versions before submitting an encryption-key mutation. */
 function KeyDialog({
   row,
   onClose,
@@ -323,10 +329,14 @@ function KeyDialog({
     onSubmit: async ({ value }) => {
       const versions: KeyConfig["versions"] = row
         ? { ...existingVersions }
-        : { "1": { source: { type: "env", name: value.initialSource.trim() } } };
+        : {
+            "1": {
+              source: { type: "local-env", variable: value.initialSource.trim() },
+            },
+          };
       if (row && value.newVersion.trim() && value.newSource.trim()) {
         versions[value.newVersion.trim()] = {
-          source: { type: "env", name: value.newSource.trim() },
+          source: { type: "local-env", variable: value.newSource.trim() },
         };
       }
       await saveMutation.mutateAsync({
@@ -372,9 +382,9 @@ function KeyDialog({
                 <form.Field
                   name="key"
                   validators={{
-                    onBlur: ({ value }) => validateIdentity(value, "Key"),
-                    onChange: ({ value }) => validateIdentity(value, "Key"),
-                    onSubmit: ({ value }) => validateIdentity(value, "Key"),
+                    onBlur: ({ value }) => validateIdentity({ value, label: "Key" }),
+                    onChange: ({ value }) => validateIdentity({ value, label: "Key" }),
+                    onSubmit: ({ value }) => validateIdentity({ value, label: "Key" }),
                   }}
                 >
                   {(field) => (
@@ -385,7 +395,7 @@ function KeyDialog({
                       onBlur={field.handleBlur}
                       onChange={field.handleChange}
                       placeholder="managed-primary"
-                      {...fieldStatusProps(field)}
+                      {...getFieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
                     />
@@ -394,8 +404,8 @@ function KeyDialog({
                 <form.Field
                   name="name"
                   validators={{
-                    onBlur: ({ value }) => validateRequired(value, "Name", 200),
-                    onSubmit: ({ value }) => validateRequired(value, "Name", 200),
+                    onBlur: ({ value }) => validateRequired({ value, label: "Name", max: 200 }),
+                    onSubmit: ({ value }) => validateRequired({ value, label: "Name", max: 200 }),
                   }}
                 >
                   {(field) => (
@@ -405,7 +415,7 @@ function KeyDialog({
                       onBlur={field.handleBlur}
                       onChange={field.handleChange}
                       placeholder="Managed connector primary key"
-                      {...fieldStatusProps(field)}
+                      {...getFieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
                     />
@@ -426,7 +436,7 @@ function KeyDialog({
                         label="Version 1 environment variable"
                         onBlur={field.handleBlur}
                         onChange={field.handleChange}
-                        {...fieldStatusProps(field)}
+                        {...getFieldStatusProps(field)}
                         value={field.state.value}
                         width="100%"
                       />
@@ -442,7 +452,7 @@ function KeyDialog({
                         className="border-border bg-surface flex items-center justify-between gap-4 border p-3"
                       >
                         <code>{version}</code>
-                        <code className="text-sm">{entry.source.name}</code>
+                        <code className="text-sm">{entry.source.variable}</code>
                       </div>
                     ))}
                   </div>
@@ -454,7 +464,7 @@ function KeyDialog({
                       validators={{
                         onChange: ({ value }) =>
                           value
-                            ? (validateIdentity(value, "Version") ??
+                            ? (validateIdentity({ value, label: "Version" }) ??
                               (value in existingVersions
                                 ? "This version is already registered."
                                 : undefined))
@@ -478,7 +488,7 @@ function KeyDialog({
                               form.setFieldValue("activeVersion", value);
                           }}
                           placeholder="2"
-                          {...fieldStatusProps(field)}
+                          {...getFieldStatusProps(field)}
                           value={field.state.value}
                           width="100%"
                         />
@@ -501,7 +511,7 @@ function KeyDialog({
                           label="New environment variable"
                           onChange={field.handleChange}
                           placeholder="CONNECTOR_KEY_V2"
-                          {...fieldStatusProps(field)}
+                          {...getFieldStatusProps(field)}
                           value={field.state.value}
                           width="100%"
                         />
@@ -584,32 +594,42 @@ function KeyDialog({
   );
 }
 
-function validateIdentity(value: unknown, label: string) {
+/** Validates stable logical-key and version identifiers used by UI and IaC. */
+/** Validates stable key and version identifiers used by IaC and ciphertext references. */
+function validateIdentity({ value, label }: { value: unknown; label: string }) {
   const key = String(value).trim();
   if (!key) return `${label} is required.`;
   if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(key))
     return "Use lowercase letters, numbers, dots, dashes, or underscores (120 characters maximum).";
 }
+/** Validates the local-env provider variable reference without resolving secret material. */
+/** Validates the approved environment-variable name for a local key provider. */
 function validateEnvironmentName(value: unknown) {
   const name = String(value).trim();
   if (!name) return "Environment variable is required.";
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,199}$/.test(name))
     return "Use a valid environment variable name (200 characters maximum).";
 }
-function validateRequired(value: unknown, label: string, max: number) {
+/** Validates bounded required text before the shared key configuration mutation. */
+/** Validates required trimmed encryption-key form fields with a size limit. */
+function validateRequired({ value, label, max }: { value: unknown; label: string; max: number }) {
   const text = String(value).trim();
   if (!text) return `${label} is required.`;
   if (text.length > max) return `${label} must be ${max.toLocaleString()} characters or less.`;
 }
-function fieldStatusProps(field: AnyFieldApi) {
+/** Adapts TanStack Form validation state to Astryx input status props. */
+/** Adapts TanStack field state to Astryx input status properties. */
+function getFieldStatusProps(field: AnyFieldApi) {
   const messages = field.state.meta.errors
-    .map(errorMessage)
+    .map(getErrorMessage)
     .filter((message): message is string => Boolean(message));
   return field.state.meta.isValid || messages.length === 0
     ? {}
     : { status: { type: "error" as const, message: messages.join(", ") } };
 }
-function errorMessage(error: unknown) {
+/** Normalizes unknown validation errors for administrator-facing feedback. */
+/** Normalizes unknown mutation failures for the encryption-key admin dialog. */
+function getErrorMessage(error: unknown) {
   if (typeof error === "string") return error;
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string")
     return error.message;

@@ -1,38 +1,55 @@
 import { db } from "@weldall/db";
-import { connectorActor, connectorErrorResponse, jsonResponse } from "@/server/connectors/http";
 import {
-  connectionMetadata,
+  authenticateConnectorActor,
+  createConnectorErrorResponse,
+  createJsonResponse,
+} from "@/server/connectors/http";
+import {
+  buildConnectionMetadata,
   deleteConnection,
-  disconnect,
-  ownedConnection,
+  disconnectConnection,
+  findOwnedConnection,
 } from "@/server/connectors/connections";
+
 type Context = { params: Promise<{ selector: string }> };
+
+/** Returns credential-free metadata for one owner-selected managed connection. */
 export async function GET(request: Request, context: Context) {
   try {
-    const row = await ownedConnection(
-      db,
-      (await context.params).selector,
-      await connectorActor(request),
-    );
-    return jsonResponse(connectionMetadata(row, row.connector));
+    const row = await findOwnedConnection({
+      tx: db,
+      selector: (await context.params).selector,
+      actor: await authenticateConnectorActor({ request }),
+    });
+    return createJsonResponse(buildConnectionMetadata({ row, connector: row.connector }));
   } catch (error) {
-    return connectorErrorResponse(error);
+    return createConnectorErrorResponse(error);
   }
 }
+
+/** Disconnects one owner-selected connection and attempts explicit provider revocation. */
 export async function POST(request: Request, context: Context) {
   try {
-    return jsonResponse(
-      await disconnect(await connectorActor(request), (await context.params).selector),
+    return createJsonResponse(
+      await disconnectConnection({
+        actor: await authenticateConnectorActor({ request }),
+        selector: (await context.params).selector,
+      }),
     );
   } catch (error) {
-    return connectorErrorResponse(error);
+    return createConnectorErrorResponse(error);
   }
 }
+
+/** Deletes one fully disconnected owner-selected connection. */
 export async function DELETE(request: Request, context: Context) {
   try {
-    await deleteConnection(await connectorActor(request), (await context.params).selector);
-    return jsonResponse({ deleted: true });
+    await deleteConnection({
+      actor: await authenticateConnectorActor({ request }),
+      selector: (await context.params).selector,
+    });
+    return createJsonResponse({ deleted: true });
   } catch (error) {
-    return connectorErrorResponse(error);
+    return createConnectorErrorResponse(error);
   }
 }

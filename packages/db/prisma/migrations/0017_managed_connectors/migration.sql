@@ -35,8 +35,9 @@ CREATE TABLE "EncryptionKey" (
 CREATE TABLE "EncryptionKeyVersion" (
     "keyId" TEXT NOT NULL,
     "version" TEXT NOT NULL,
-    "sourceName" TEXT NOT NULL,
-    "fingerprint" TEXT NOT NULL,
+    "providerType" TEXT NOT NULL,
+    "providerConfig" JSONB NOT NULL,
+    "providerState" JSONB NOT NULL,
 
     CONSTRAINT "EncryptionKeyVersion_pkey" PRIMARY KEY ("keyId","version")
 );

@@ -5,12 +5,12 @@ import { lockSkillScopeChanges } from "../domain/configuration";
 import { prismaAuditWriter, type AuditEventInput } from "../audit/service";
 import type { AuditReasonCode } from "../../lib/audit";
 import {
-  connectorState,
-  keyState,
-  mutateConnector,
-  mutateKey,
-  deleteConnector,
-  deleteKey,
+  buildConnectorState,
+  buildEncryptionKeyState,
+  deleteConnectorConfiguration,
+  deleteEncryptionKeyConfiguration,
+  saveConnectorConfiguration,
+  saveEncryptionKeyConfiguration,
 } from "../connectors/configuration";
 import { ConnectorError } from "../connectors/contracts";
 import {
@@ -49,7 +49,7 @@ export async function getInstallationIdentity() {
 
 export async function planIac(value: unknown, actor?: IacActor): Promise<IacPlan> {
   const manifest = parseDesiredState(value);
-  const state = await db.$transaction((tx) => loadPlanningState(tx, manifest));
+  const state = await db.$transaction((tx) => loadPlanningState({ tx, manifest }));
   const plan = createPlan(manifest, state);
   if (actor)
     await writeIacAudit(db, actor, "iac.plan.generated", manifest.workspace, {
@@ -105,7 +105,7 @@ export async function applyIac(
           throw new IacError("STALE_REVISION", "Workspace revision changed", 409, {
             currentRevision: workspace.revision,
           });
-        const freshPlan = createPlan(manifest, await loadPlanningState(tx, manifest));
+        const freshPlan = createPlan(manifest, await loadPlanningState({ tx, manifest }));
         assertDigest(input.planDigest, freshPlan.digest, "STALE_PLAN");
         if (freshPlan.blockers.length)
           throw new IacError("PLAN_BLOCKED", "Plan contains blockers", 409, {
@@ -123,7 +123,7 @@ export async function applyIac(
             priorRevision: workspace.revision,
           },
         });
-        await executeDesiredState(tx, manifest, actor);
+        await executeDesiredState({ tx, manifest, actor });
         const resultingRevision = workspace.revision + 1;
         const summary = {
           operationId: input.operationId,
@@ -172,11 +172,16 @@ export async function applyIac(
   }
 }
 
-async function executeDesiredState(
-  tx: Prisma.TransactionClient,
-  manifest: DesiredState,
-  actor: IacActor,
-) {
+/** Applies the ordered declarative object graph, including connector/key dependency safety. */
+async function executeDesiredState({
+  tx,
+  manifest,
+  actor,
+}: {
+  tx: Prisma.TransactionClient;
+  manifest: DesiredState;
+  actor: IacActor;
+}) {
   const desired = desiredObjects(manifest);
   const desiredAddresses = new Set(desired.map((item) => item.address));
   const bindings = await tx.iacObjectBinding.findMany({
@@ -207,18 +212,30 @@ async function executeDesiredState(
   const withoutReplacedScopes = (keys: string[]) =>
     keys.filter((key) => !replacedScopeIdentities.has(key));
 
-  const reconcile = async (item: (typeof desired)[number], state = item.state) => {
+  const reconcileObject = async ({
+    item,
+    state = item.state,
+  }: {
+    item: (typeof desired)[number];
+    state?: unknown;
+  }) => {
     let existing = bindings.find((binding) => binding.address === item.address);
     if (
       existing &&
       (fromDbKind(existing.kind) !== item.kind || existing.naturalIdentity !== item.identity)
     ) {
-      await deleteBoundObject(tx, existing, mutationActor(actor));
+      await deleteBoundObject({ tx, binding: existing, actor: mutationActor(actor) });
       await tx.iacObjectBinding.delete({ where: { id: existing.id } });
       existing = undefined;
     }
-    const objectId = await upsertObject(tx, item.kind, state as never, existing, actor);
-    const target = bindingTarget(item.kind, objectId);
+    const objectId = await upsertObject({
+      tx,
+      kind: item.kind,
+      state: state as never,
+      binding: existing,
+      actor,
+    });
+    const target = bindingTarget({ kind: item.kind, id: objectId });
     if (existing) await tx.iacObjectBinding.update({ where: { id: existing.id }, data: target });
     else {
       const created = await tx.iacObjectBinding.create({
@@ -261,22 +278,31 @@ async function executeDesiredState(
         continue;
       if (kind === "resource" && replacementScopes.size) {
         const state = item.state as { scopes: string[] };
-        await reconcile(item, {
-          ...(item.state as object),
-          scopes: withoutReplacedScopes(state.scopes),
+        await reconcileObject({
+          item,
+          state: {
+            ...(item.state as object),
+            scopes: withoutReplacedScopes(state.scopes),
+          },
         });
       } else if (kind === "machine" && (replacementResources.size || replacementScopes.size)) {
         const state = item.state as { resources: string[]; scopes: string[] };
-        await reconcile(item, {
-          ...(item.state as object),
-          resources: state.resources.filter((key) => !replacementResources.has(key)),
-          scopes: withoutReplacedScopes(state.scopes),
+        await reconcileObject({
+          item,
+          state: {
+            ...(item.state as object),
+            resources: state.resources.filter((key) => !replacementResources.has(key)),
+            scopes: withoutReplacedScopes(state.scopes),
+          },
         });
       } else if (kind === "skill" && replacementScopes.size) {
         const state = item.state as { requiredScopes: string[] };
-        await reconcile(item, {
-          ...(item.state as object),
-          requiredScopes: withoutReplacedScopes(state.requiredScopes),
+        await reconcileObject({
+          item,
+          state: {
+            ...(item.state as object),
+            requiredScopes: withoutReplacedScopes(state.requiredScopes),
+          },
         });
       } else if (
         (kind === "emailAssignment" || kind === "groupAssignment") &&
@@ -284,7 +310,8 @@ async function executeDesiredState(
       ) {
         const state = item.state as { scopes: string[] };
         const scopes = withoutReplacedScopes(state.scopes);
-        if (scopes.length) await reconcile(item, { ...(item.state as object), scopes });
+        if (scopes.length)
+          await reconcileObject({ item, state: { ...(item.state as object), scopes } });
         else {
           const binding = bindings.find((candidate) => candidate.address === item.address);
           if (binding?.emailAssignmentId)
@@ -296,13 +323,13 @@ async function executeDesiredState(
               where: { assignmentId: binding.groupAssignmentId },
             });
         }
-      } else await reconcile(item);
+      } else await reconcileObject({ item });
     }
 
   for (const binding of bindings
     .filter((item) => !desiredAddresses.has(item.address))
     .sort(compareBindingDeletes)) {
-    await deleteBoundObject(tx, binding, mutationActor(actor));
+    await deleteBoundObject({ tx, binding, actor: mutationActor(actor) });
     await tx.iacObjectBinding.delete({ where: { id: binding.id } });
   }
 
@@ -314,19 +341,19 @@ async function executeDesiredState(
           ? replacementScopes.has(binding.naturalIdentity)
           : replacementResources.has(binding.naturalIdentity);
       if (!replacement) continue;
-      await deleteBoundObject(tx, binding, mutationActor(actor));
-      const objectId = await upsertObject(
+      await deleteBoundObject({ tx, binding, actor: mutationActor(actor) });
+      const objectId = await upsertObject({
         tx,
         kind,
-        item.state as never,
-        { ...binding, ...nullBindingTarget(kind) },
+        state: item.state as never,
+        binding: { ...binding, ...nullBindingTarget(kind) },
         actor,
-      );
+      });
       const data = {
         kind: toDbKind(kind),
         naturalIdentity: item.identity,
         ...nullBindingTarget(kind),
-        ...bindingTarget(kind, objectId),
+        ...bindingTarget({ kind, id: objectId }),
       };
       await tx.iacObjectBinding.update({ where: { id: binding.id }, data });
       Object.assign(binding, data);
@@ -355,16 +382,23 @@ async function executeDesiredState(
       "skill",
     ] as const)
       for (const item of desired.filter((candidate) => candidate.kind === kind))
-        await reconcile(item);
+        await reconcileObject({ item });
 }
 
-async function upsertObject(
-  tx: Prisma.TransactionClient,
-  kind: ReturnType<typeof desiredObjects>[number]["kind"],
-  state: any,
-  binding: any,
-  actor: IacActor,
-): Promise<string> {
+/** Upserts one manifest object through the product-specific mutation path used by IaC apply. */
+async function upsertObject({
+  tx,
+  kind,
+  state,
+  binding,
+  actor,
+}: {
+  tx: Prisma.TransactionClient;
+  kind: ReturnType<typeof desiredObjects>[number]["kind"];
+  state: any;
+  binding: any;
+  actor: IacActor;
+}): Promise<string> {
   const mutation = mutationActor(actor);
   const connectorActor = {
     id: actor.clientId,
@@ -377,7 +411,15 @@ async function upsertObject(
       : null;
     if (!current && (await tx.encryptionKey.findUnique({ where: { key: state.key } })))
       throw new IacError("MANUAL_COLLISION", `${state.key} must be imported`, 409);
-    return (await mutateKey(tx, state, current?.id, current?.version ?? null, connectorActor)).id;
+    return (
+      await saveEncryptionKeyConfiguration({
+        tx,
+        value: state,
+        id: current?.id,
+        expectedVersion: current?.version ?? null,
+        actor: connectorActor,
+      })
+    ).id;
   }
   if (kind === "connector") {
     const current = binding?.connectorId
@@ -385,8 +427,15 @@ async function upsertObject(
       : null;
     if (!current && (await tx.connector.findUnique({ where: { key: state.key } })))
       throw new IacError("MANUAL_COLLISION", `${state.key} must be imported`, 409);
-    return (await mutateConnector(tx, state, current?.id, current?.version ?? null, connectorActor))
-      .id;
+    return (
+      await saveConnectorConfiguration({
+        tx,
+        value: state,
+        id: current?.id,
+        expectedVersion: current?.version ?? null,
+        actor: connectorActor,
+      })
+    ).id;
   }
   if (kind === "scope") {
     const current = binding?.scopeId
@@ -568,7 +617,7 @@ export async function importIac(
       const workspace = await ensureWorkspace(tx, manifest, actor.clientId);
       const replay = await beginOperation(tx, workspace, "IMPORT", input);
       if (replay) return replay;
-      const found = await findNatural(tx, input.kind, input.identity);
+      const found = await findNatural({ tx, kind: input.kind, identity: input.identity });
       if (!found) throw new IacError("NOT_FOUND", "Primitive not found", 404);
       if (found.owned)
         throw new IacError("OWNED", "Primitive is already owned", 409, {
@@ -580,7 +629,7 @@ export async function importIac(
           address: input.address,
           kind: toDbKind(input.kind as any),
           naturalIdentity: input.identity,
-          ...bindingTarget(input.kind as any, found.id),
+          ...bindingTarget({ kind: input.kind as any, id: found.id }),
         },
       });
       const updated = await tx.iacWorkspace.update({
@@ -1056,15 +1105,34 @@ async function assertFinalAdministratorSafe(tx: Prisma.TransactionClient, manife
     throw new IacError("LAST_ADMIN", "The last verified administrator cannot be removed", 409);
 }
 
-async function deleteBoundObject(tx: Prisma.TransactionClient, binding: any, actor: MutationActor) {
+/** Deletes one IaC-bound product object through its domain mutation and audit path. */
+async function deleteBoundObject({
+  tx,
+  binding,
+  actor,
+}: {
+  tx: Prisma.TransactionClient;
+  binding: any;
+  actor: MutationActor;
+}) {
   if (binding.encryptionKeyId) {
     const current = await tx.encryptionKey.findUniqueOrThrow({
       where: { id: binding.encryptionKeyId },
     });
-    await deleteKey(tx, current.id, current.version, actor);
+    await deleteEncryptionKeyConfiguration({
+      tx,
+      id: current.id,
+      version: current.version,
+      actor,
+    });
   } else if (binding.connectorId) {
     const current = await tx.connector.findUniqueOrThrow({ where: { id: binding.connectorId } });
-    await deleteConnector(tx, current.id, current.version, actor);
+    await deleteConnectorConfiguration({
+      tx,
+      id: current.id,
+      version: current.version,
+      actor,
+    });
   } else if (binding.scopeId) {
     const current = await tx.scope.findUniqueOrThrow({ where: { id: binding.scopeId } });
     await mutateScope(
@@ -1164,7 +1232,8 @@ function fromDbKind(kind: string): any {
     } as any
   )[kind];
 }
-function bindingTarget(kind: string, id: string) {
+/** Builds the polymorphic IaC binding columns for one persisted product object. */
+function bindingTarget({ kind, id }: { kind: string; id: string }) {
   return (
     {
       scope: { scopeId: id },
@@ -1192,11 +1261,16 @@ function nullBindingTarget(kind: string) {
     } as any
   )[kind];
 }
-async function findNatural(
-  tx: Prisma.TransactionClient,
-  kind: string,
-  identity: string,
-): Promise<any> {
+/** Finds and projects an existing product object for explicit IaC import. */
+async function findNatural({
+  tx,
+  kind,
+  identity,
+}: {
+  tx: Prisma.TransactionClient;
+  kind: string;
+  identity: string;
+}): Promise<any> {
   let row: any;
   if (kind === "encryptionKey")
     row = await tx.encryptionKey.findUnique({
@@ -1258,9 +1332,9 @@ async function findNatural(
   });
   const state =
     kind === "encryptionKey"
-      ? keyState(row)
+      ? buildEncryptionKeyState(row)
       : kind === "connector"
-        ? connectorState(row)
+        ? buildConnectorState(row)
         : kind === "scope"
           ? { key: row.key, description: row.description }
           : kind === "resource"

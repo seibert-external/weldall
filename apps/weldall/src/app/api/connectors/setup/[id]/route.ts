@@ -1,32 +1,44 @@
 import { z } from "zod";
 import {
-  connectorActor,
-  connectorErrorResponse,
-  jsonBody,
-  jsonResponse,
+  authenticateConnectorActor,
+  createConnectorErrorResponse,
+  createJsonResponse,
+  parseJsonRequestBody,
 } from "@/server/connectors/http";
-import { getAttempt, submitSelection } from "@/server/connectors/connections";
+import { getAuthorizationAttempt, submitScopeSelection } from "@/server/connectors/connections";
+
 type Context = { params: Promise<{ id: string }> };
+
+/** Returns one browser-authenticated authorization attempt for the owner setup page. */
 export async function GET(request: Request, context: Context) {
   try {
-    return jsonResponse(
-      await getAttempt(await connectorActor(request, true), (await context.params).id),
+    return createJsonResponse(
+      await getAuthorizationAttempt({
+        actor: await authenticateConnectorActor({ request, browser: true }),
+        id: (await context.params).id,
+      }),
     );
   } catch (error) {
-    return connectorErrorResponse(error);
+    return createConnectorErrorResponse(error);
   }
 }
+
+/** Persists browser scope selection and returns the external Google consent URL. */
 export async function POST(request: Request, context: Context) {
   try {
-    const actor = await connectorActor(request, true);
-    const body = await jsonBody(
+    const actor = await authenticateConnectorActor({ request, browser: true });
+    const body = await parseJsonRequestBody({
       request,
-      z.object({ selectedScopes: z.array(z.string().max(160)).max(20) }).strict(),
-    );
-    return jsonResponse(
-      await submitSelection(actor, (await context.params).id, body.selectedScopes),
+      schema: z.object({ selectedScopes: z.array(z.string().max(160)).max(20) }).strict(),
+    });
+    return createJsonResponse(
+      await submitScopeSelection({
+        actor,
+        id: (await context.params).id,
+        selected: body.selectedScopes,
+      }),
     );
   } catch (error) {
-    return connectorErrorResponse(error);
+    return createConnectorErrorResponse(error);
   }
 }

@@ -5,6 +5,12 @@ const strings = z
   .array(z.string().min(1).max(160))
   .max(20)
   .transform((v) => [...new Set(v)].sort());
+export const keySource = z
+  .object({
+    type: z.literal("local-env"),
+    variable: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,199}$/),
+  })
+  .strict();
 export const encryptionKeyConfig = z
   .object({
     key: identity,
@@ -14,12 +20,7 @@ export const encryptionKeyConfig = z
       identity,
       z
         .object({
-          source: z
-            .object({
-              type: z.literal("env"),
-              name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,199}$/),
-            })
-            .strict(),
+          source: keySource,
         })
         .strict(),
     ),
@@ -43,6 +44,7 @@ export const connectorConfig = z
     defaultScopes: strings,
   })
   .strict();
+export type KeySource = z.infer<typeof keySource>;
 export type KeyConfig = z.infer<typeof encryptionKeyConfig>;
 export type ConnectorConfig = z.infer<typeof connectorConfig>;
 export const connectionName = identity;

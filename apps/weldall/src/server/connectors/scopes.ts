@@ -85,20 +85,29 @@ const implications: Record<string, Capability[]> = {
   [`${google}calendar.events`]: ["calendar.events.read", "calendar.events.write"],
   [`${google}calendar`]: ["calendar.read", "calendar.events.read", "calendar.events.write"],
 };
-const capabilities = (scopes: readonly string[]) =>
-  new Set(scopes.flatMap((s) => implications[s] ?? []));
+const collectCapabilities = (scopes: readonly string[]) =>
+  new Set(scopes.flatMap((scope) => implications[scope] ?? []));
+
+/** Normalizes Google's granted scope aliases before policy evaluation and persistence. */
 export function normalizeGrants(scopes: string[]): string[] {
   return [...new Set(scopes.map((s) => (s === `${google}userinfo.email` ? "email" : s)))].sort();
 }
-/** Intersect capabilities, not strings: broader grants never expand the user's selected boundary. */
-export function effectiveCapabilities(
-  config: { enabledApis: string[]; allowedScopes: string[] },
-  selected: string[],
-  granted: string[],
-): Capability[] {
-  const allowed = capabilities(config.allowedScopes),
-    consent = capabilities(selected),
-    actual = capabilities(granted);
+/**
+ * Computes the executable connector capabilities shared by setup, refresh, and proxy authorization;
+ * broader provider grants never expand the user's selected boundary.
+ */
+export function calculateEffectiveCapabilities({
+  config,
+  selected,
+  granted,
+}: {
+  config: { enabledApis: string[]; allowedScopes: string[] };
+  selected: string[];
+  granted: string[];
+}): Capability[] {
+  const allowed = collectCapabilities(config.allowedScopes),
+    consent = collectCapabilities(selected),
+    actual = collectCapabilities(granted);
   return [...consent]
     .filter(
       (c) =>
@@ -108,15 +117,23 @@ export function effectiveCapabilities(
     )
     .sort();
 }
-/** A refresh may reduce grants, but a capability increase needs a new interactive authorization. */
-export function refreshNeedsReconnect(
-  config: { enabledApis: string[]; allowedScopes: string[] },
-  selected: string[],
-  previous: string[],
-  next: string[],
-): boolean {
-  const before = new Set(effectiveCapabilities(config, selected, previous));
-  const after = effectiveCapabilities(config, selected, next);
+/**
+ * Decides whether refreshed Google grants must stop the connection until a new interactive consent;
+ * reduced grants are allowed, while new capabilities are not accepted silently.
+ */
+export function shouldReconnectAfterRefresh({
+  config,
+  selected,
+  previous,
+  next,
+}: {
+  config: { enabledApis: string[]; allowedScopes: string[] };
+  selected: string[];
+  previous: string[];
+  next: string[];
+}): boolean {
+  const before = new Set(calculateEffectiveCapabilities({ config, selected, granted: previous }));
+  const after = calculateEffectiveCapabilities({ config, selected, granted: next });
   return (
     requiredScopes.some((s) => !next.includes(s)) ||
     !after.length ||
@@ -124,7 +141,8 @@ export function refreshNeedsReconnect(
   );
 }
 
-export function availableScopes(config: Pick<ConnectorConfig, "allowedScopes">) {
+/** Lists the administrator-allowed scope choices rendered by CLI and browser setup flows. */
+export function listAvailableScopes(config: Pick<ConnectorConfig, "allowedScopes">) {
   const labels: Record<Capability, string> = {
     "gmail.read": "Read mail",
     "gmail.send": "Send mail",
@@ -140,11 +158,15 @@ export function availableScopes(config: Pick<ConnectorConfig, "allowedScopes">) 
       capabilities: (implications[s.id] ?? []).map((c) => labels[c]),
     }));
 }
-export function validateSelection(
-  config: { enabledApis: string[]; allowedScopes: string[] },
-  selected: string[],
-): string[] {
-  const ids = new Set(availableScopes(config).map((s) => s.id));
+/** Validates and canonicalizes an owner's selected scopes against connector policy. */
+export function validateSelectedScopes({
+  config,
+  selected,
+}: {
+  config: { enabledApis: string[]; allowedScopes: string[] };
+  selected: string[];
+}): string[] {
+  const ids = new Set(listAvailableScopes(config).map((scope) => scope.id));
   if (
     new Set(selected).size !== selected.length ||
     selected.some((s) => !ids.has(s)) ||
@@ -154,11 +176,12 @@ export function validateSelection(
       "invalid_scopes",
       "Select the required identity permissions and only administrator-allowed permissions.",
     );
-  if (!effectiveCapabilities(config, selected, selected).length)
+  if (!calculateEffectiveCapabilities({ config, selected, granted: selected }).length)
     throw new ConnectorError("invalid_scopes", "Select at least one Gmail or Calendar permission.");
   return [...selected].sort();
 }
-export function validateScopeConfig(config: ConnectorConfig) {
+/** Validates administrator scope policy before a connector configuration reaches PostgreSQL. */
+export function validateConnectorScopeConfig(config: ConnectorConfig) {
   if (
     config.allowedScopes.some(
       (id) =>

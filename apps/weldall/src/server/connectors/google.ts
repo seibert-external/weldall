@@ -18,10 +18,16 @@ export interface GoogleClient {
   clientSecret: string;
 }
 export class GoogleTokenError extends ConnectorError {
-  constructor(
-    readonly authorizationLost: boolean,
-    readonly retryable = false,
-  ) {
+  readonly authorizationLost: boolean;
+  readonly retryable: boolean;
+
+  constructor({
+    authorizationLost,
+    retryable = false,
+  }: {
+    authorizationLost: boolean;
+    retryable?: boolean;
+  }) {
     super(
       authorizationLost ? "authorization_lost" : "provider_unavailable",
       authorizationLost
@@ -29,13 +35,20 @@ export class GoogleTokenError extends ConnectorError {
         : "Google token request failed; reconnect if refresh recovery is uncertain.",
       502,
     );
+    this.authorizationLost = authorizationLost;
+    this.retryable = retryable;
   }
 }
-export async function boundedBody(
-  response: Response | Request,
-  maximum: number,
-  signal: AbortSignal = AbortSignal.timeout(30_000),
-): Promise<Uint8Array> {
+/** Reads a connector request or provider response within the proxy's hard transfer limit. */
+export async function readBoundedBody({
+  response,
+  maximum,
+  signal = AbortSignal.timeout(30_000),
+}: {
+  response: Response | Request;
+  maximum: number;
+  signal?: AbortSignal;
+}): Promise<Uint8Array> {
   const reader = response.body?.getReader();
   if (!reader) return new Uint8Array();
   const chunks: Uint8Array[] = [];
@@ -61,8 +74,11 @@ export async function boundedBody(
     await reader.cancel().catch(() => {});
   }
 }
-async function json(response: Response) {
-  return JSON.parse(Buffer.from(await boundedBody(response, 64_000)).toString("utf8")) as unknown;
+/** Parses a bounded JSON response from Google's OAuth endpoints. */
+async function readGoogleJsonResponse(response: Response) {
+  return JSON.parse(
+    Buffer.from(await readBoundedBody({ response, maximum: 64_000 })).toString("utf8"),
+  ) as unknown;
 }
 const tokenSchema = z.object({
   access_token: z.string().min(1),
@@ -72,26 +88,29 @@ const tokenSchema = z.object({
   scope: z.string().optional(),
   id_token: z.string().optional(),
 });
-async function token(body: URLSearchParams) {
+/** Exchanges an authorization code or refresh token through Google's OAuth token endpoint. */
+async function exchangeGoogleToken(body: URLSearchParams) {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     body,
     redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
-  const value = await json(response);
+  const value = await readGoogleJsonResponse(response);
   if (!response.ok)
-    throw new GoogleTokenError(
-      z.object({ error: z.literal("invalid_grant") }).safeParse(value).success,
-      z.object({ error: z.enum(["temporarily_unavailable", "server_error"]) }).safeParse(value)
-        .success || response.status === 429,
-    );
+    throw new GoogleTokenError({
+      authorizationLost: z.object({ error: z.literal("invalid_grant") }).safeParse(value).success,
+      retryable:
+        z.object({ error: z.enum(["temporarily_unavailable", "server_error"]) }).safeParse(value)
+          .success || response.status === 429,
+    });
   const parsed = tokenSchema.safeParse(value);
   if (!parsed.success || parsed.data.token_type.toLowerCase() !== "bearer")
-    throw new GoogleTokenError(false);
+    throw new GoogleTokenError({ authorizationLost: false });
   return parsed.data;
 }
-export function authorizationUrl(input: {
+/** Builds the Google consent URL used by the owner-facing connection setup flow. */
+export function buildGoogleAuthorizationUrl(input: {
   clientId: string;
   redirectUri: string;
   state: string;
@@ -115,11 +134,16 @@ export function authorizationUrl(input: {
   }).toString();
   return url.toString();
 }
-function credentials(
-  value: z.infer<typeof tokenSchema>,
-  refreshToken: string,
-  priorScopes: string[] = [],
-): Credentials {
+/** Converts Google's token response into Weldall's encrypted credential payload. */
+function buildGoogleCredentials({
+  value,
+  refreshToken,
+  priorScopes = [],
+}: {
+  value: z.infer<typeof tokenSchema>;
+  refreshToken: string;
+  priorScopes?: string[];
+}): Credentials {
   return {
     accessToken: value.access_token,
     refreshToken,
@@ -130,11 +154,15 @@ function credentials(
         : normalizeGrants(value.scope.split(" ").filter(Boolean)),
   };
 }
-export async function completeGoogle(
-  client: GoogleClient,
-  input: { code: string; redirectUri: string; nonce: string; verifier: string },
-) {
-  const value = await token(
+/** Completes Google OAuth and verifies the selected account before Weldall stores credentials. */
+export async function completeGoogleAuthorization({
+  client,
+  input,
+}: {
+  client: GoogleClient;
+  input: { code: string; redirectUri: string; nonce: string; verifier: string };
+}) {
+  const value = await exchangeGoogleToken(
     new URLSearchParams({
       grant_type: "authorization_code",
       code: input.code,
@@ -144,7 +172,8 @@ export async function completeGoogle(
       code_verifier: input.verifier,
     }),
   );
-  if (!value.refresh_token || !value.id_token) throw new GoogleTokenError(true);
+  if (!value.refresh_token || !value.id_token)
+    throw new GoogleTokenError({ authorizationLost: true });
   const { payload } = await jwtVerify(value.id_token, jwks, {
     algorithms: ["RS256"],
     audience: client.clientId,
@@ -161,15 +190,22 @@ export async function completeGoogle(
     payload.email_verified !== true ||
     (payload.azp !== undefined && payload.azp !== client.clientId)
   )
-    throw new GoogleTokenError(true);
+    throw new GoogleTokenError({ authorizationLost: true });
   return {
     accountId: payload.sub,
     accountName: payload.email,
-    credentials: credentials(value, value.refresh_token),
+    credentials: buildGoogleCredentials({ value, refreshToken: value.refresh_token }),
   };
 }
-export async function refreshGoogle(client: GoogleClient, previous: Credentials) {
-  const value = await token(
+/** Refreshes one connection's Google credentials without expanding its persisted consent boundary. */
+export async function refreshGoogleCredentials({
+  client,
+  previous,
+}: {
+  client: GoogleClient;
+  previous: Credentials;
+}) {
+  const value = await exchangeGoogleToken(
     new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: previous.refreshToken,
@@ -177,10 +213,17 @@ export async function refreshGoogle(client: GoogleClient, previous: Credentials)
       client_secret: client.clientSecret,
     }),
   );
-  return credentials(value, value.refresh_token ?? previous.refreshToken, previous.grantedScopes);
+  return buildGoogleCredentials({
+    value,
+    refreshToken: value.refresh_token ?? previous.refreshToken,
+    priorScopes: previous.grantedScopes,
+  });
 }
-/** Revocation affects Google's entire account/client grant, potentially including other connections. No automatic retry. */
-export async function revokeGoogle(token: string) {
+/**
+ * Revokes Google's entire account/client grant during explicit disconnect; Weldall never retries
+ * automatically because revocation may affect other connections.
+ */
+export async function revokeGoogleAuthorization(token: string) {
   const response = await fetch("https://oauth2.googleapis.com/revoke", {
     method: "POST",
     body: new URLSearchParams({ token }),
@@ -188,7 +231,7 @@ export async function revokeGoogle(token: string) {
     signal: AbortSignal.timeout(10_000),
   });
   if (response.ok) {
-    await boundedBody(response, 64000);
+    await readBoundedBody({ response, maximum: 64_000 });
     return;
   }
   // An invalid token may be an old token from an interrupted rotation, not proof that

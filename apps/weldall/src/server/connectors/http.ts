@@ -7,14 +7,21 @@ import { WELDALL_ISSUER } from "../oauth/constants";
 import { auditRequestIdentifiers } from "../audit/service";
 import { hasEffectiveSystemScopeFor } from "../policy/resources";
 import { ConnectorError, type ConnectorActor } from "./contracts";
-import { boundedBody } from "./google";
+import { readBoundedBody } from "./google";
 
 export const privateHeaders = {
   "cache-control": "no-store",
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
 };
-export async function connectorActor(request: Request, browser = false): Promise<ConnectorActor> {
+/** Authenticates a CLI or trusted-browser caller for owner-scoped connector HTTP routes. */
+export async function authenticateConnectorActor({
+  request,
+  browser = false,
+}: {
+  request: Request;
+  browser?: boolean;
+}): Promise<ConnectorActor> {
   const user = browser
     ? (await auth.api.getSession({ headers: request.headers }))?.user
     : await authenticateCliApiRequest(request, {
@@ -31,24 +38,32 @@ export async function connectorActor(request: Request, browser = false): Promise
     throw new ConnectorError("csrf", "Untrusted browser request.", 403);
   return { id: user.id, email: user.email, ...auditRequestIdentifiers(request) };
 }
-export async function jsonBody<T extends z.ZodType>(
-  request: Request,
-  schema: T,
-): Promise<z.infer<T>> {
+/** Parses a bounded JSON body for connector routes and applies the route's Zod contract. */
+export async function parseJsonRequestBody<T extends z.ZodType>({
+  request,
+  schema,
+}: {
+  request: Request;
+  schema: T;
+}): Promise<z.infer<T>> {
   if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
     throw new ConnectorError("invalid_request", "JSON required.");
   try {
     return schema.parse(
-      JSON.parse(Buffer.from(await boundedBody(request, 32_000)).toString("utf8")),
+      JSON.parse(
+        Buffer.from(await readBoundedBody({ response: request, maximum: 32_000 })).toString("utf8"),
+      ),
     );
   } catch {
     throw new ConnectorError("invalid_request", "Invalid request body.");
   }
 }
-export function jsonResponse(value: unknown) {
+/** Creates a non-cacheable JSON response for private connector metadata and lifecycle APIs. */
+export function createJsonResponse(value: unknown) {
   return Response.json(value, { headers: privateHeaders });
 }
-export function connectorErrorResponse(error: unknown) {
+/** Maps connector and Weldall authentication failures onto the stable private HTTP error contract. */
+export function createConnectorErrorResponse(error: unknown) {
   if (error instanceof ConnectorError)
     return Response.json(
       { error: error.code, error_description: error.message },
@@ -67,7 +82,8 @@ export function connectorErrorResponse(error: unknown) {
     { status: 503, headers: privateHeaders },
   );
 }
-export function completion(outcome: "success" | "cancelled" | "failed") {
+/** Creates the locked-down browser completion page shown after the Google OAuth callback. */
+export function createConnectorCompletionResponse(outcome: "success" | "cancelled" | "failed") {
   const message = {
     success: "Connection ready. Return to the CLI to see the granted capabilities.",
     cancelled: "Authorization cancelled. Return to the CLI.",

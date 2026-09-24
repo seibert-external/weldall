@@ -403,14 +403,15 @@ model EncryptionKey {
   iacBinding    IacObjectBinding?
 }
 
-/// Bindings and fingerprints are immutable; retain historical versions for recovery.
+/// Provider bindings and state are immutable; retain historical versions for recovery.
 model EncryptionKeyVersion {
-  keyId       String
-  version     String
-  sourceName  String
-  fingerprint String
-  key         EncryptionKey    @relation(fields: [keyId], references: [id], onDelete: Restrict)
-  values      EncryptedValue[]
+  keyId          String
+  version        String
+  providerType   String
+  providerConfig Json
+  providerState  Json
+  key            EncryptionKey    @relation(fields: [keyId], references: [id], onDelete: Restrict)
+  values         EncryptedValue[]
 
   @@id([keyId, version])
 }
