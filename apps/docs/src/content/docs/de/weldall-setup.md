@@ -92,6 +92,7 @@ docker run -d --name weldall \
   -e BETTER_AUTH_SECRET=... \
   -e WELDALL_SETUP_TOKEN=... \
   -e WELDALL_CREDENTIAL_ENCRYPTION_KEY=... \
+  -e WELDALL_CONNECTOR_KEK=... \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \
