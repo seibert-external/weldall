@@ -754,7 +754,6 @@ function ConnectorDialog({
   );
 }
 
-/** Keeps scope choices aligned with the Gmail and Calendar APIs enabled for this connector. */
 /** Checks whether an OAuth scope belongs to one of the connector's enabled Google APIs. */
 function isScopeForEnabledApi({
   id,
@@ -766,7 +765,6 @@ function isScopeForEnabledApi({
   const scope = scopeCatalog.find((candidate) => candidate.id === id);
   return Boolean(scope && enabledApis.includes(scope.group.toLowerCase() as "gmail" | "calendar"));
 }
-/** Validates stable connector identifiers used by routes, IaC addresses, and CLI selectors. */
 /** Validates stable connector identifiers used by URLs, IaC, and CLI selectors. */
 function validateIdentity({ value, label }: { value: unknown; label: string }) {
   const key = String(value).trim();
@@ -774,26 +772,22 @@ function validateIdentity({ value, label }: { value: unknown; label: string }) {
   if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(key))
     return "Use lowercase letters, numbers, dots, dashes, or underscores (120 characters maximum).";
 }
-/** Validates the administrator-facing connector display name. */
 /** Validates the human-readable connector name shown across admin and CLI surfaces. */
 function validateName(value: unknown) {
   return validateRequired({ value, label: "Name", max: 200 });
 }
 
-/** Validates bounded required text before the shared tRPC configuration mutation. */
 /** Validates required trimmed connector form fields with a caller-provided size limit. */
 function validateRequired({ value, label, max }: { value: unknown; label: string; max: number }) {
   const text = String(value).trim();
   if (!text) return `${label} is required.`;
   if (text.length > max) return `${label} must be ${max.toLocaleString()} characters or less.`;
 }
-/** Adapts TanStack Form validation state to Astryx input status props. */
 /** Adapts TanStack field state to Astryx input status properties. */
 function getFieldStatusProps(field: AnyFieldApi) {
   const status = getFieldStatus(field);
   return status ? { status } : {};
 }
-/** Returns the first visible validation error for one TanStack Form field. */
 /** Returns the first visible validation error for a touched connector field. */
 function getFieldStatus(field: AnyFieldApi): { type: "error"; message: string } | undefined {
   const messages = field.state.meta.errors
@@ -803,7 +797,6 @@ function getFieldStatus(field: AnyFieldApi): { type: "error"; message: string } 
     ? undefined
     : { type: "error", message: messages.join(", ") };
 }
-/** Normalizes unknown mutation errors for administrator-facing feedback. */
 /** Normalizes unknown mutation failures for the connector admin dialog. */
 function getErrorMessage(error: unknown) {
   if (typeof error === "string") return error;

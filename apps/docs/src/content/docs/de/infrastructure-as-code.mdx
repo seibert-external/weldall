@@ -1,6 +1,6 @@
 ---
 title: Infrastructure as Code
-description: Weldall-CLI-Einstellungen, Scopes, Ressourcen, Machines, Skills und Zuweisungen mit YAML verwalten.
+description: Weldall-Einstellungen, Zugriffsobjekte, Verschlüsselungsschlüssel und Connectors mit YAML verwalten.
 sidebar:
   label: Infrastructure as Code
   order: 8
@@ -8,7 +8,7 @@ sidebar:
 
 import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
 
-Alle administrativen Funktionen des Weldall-Servers lassen sich über die Benutzeroberfläche verwalten. Die wichtigsten Bausteine – Scopes, Ressourcen, Machine Clients, administrativ verwaltete Skills und Zuweisungen – können zusätzlich in YAML-Dateien beschrieben werden. So wird aus der Konfiguration Infrastructure as Code (IaC).
+Alle administrativen Funktionen des Weldall-Servers lassen sich über die Benutzeroberfläche verwalten. Die wichtigsten Bausteine – Scopes, Ressourcen, Machine Clients, administrativ verwaltete Skills, Zuweisungen, Verschlüsselungsschlüssel und Connectors – können zusätzlich in YAML-Dateien beschrieben werden. So wird aus der Konfiguration Infrastructure as Code (IaC).
 
 <Aside type="tip" title="Warum IaC?">
   In einem versionierten Git-Repository bleibt jede Änderung nachvollziehbar. Pull Requests bieten
@@ -77,7 +77,7 @@ include:
   - weldall/**/*.yml
 ```
 
-Die eingebundenen Dateien sind Fragmente. Sie wiederholen weder `apiVersion` noch `workspace`, sondern enthalten nur eine oder mehrere Objektgruppen wie `scopes`, `resources` oder `emailAssignments`. Die CLI führt alle Fragmente zu einer vollständigen Konfiguration zusammen. Wie die Dateien aufgeteilt werden, kann das Team selbst entscheiden – zum Beispiel nach Anwendung, Zuständigkeit oder Umgebung.
+Die eingebundenen Dateien sind Fragmente. Sie wiederholen weder `apiVersion` noch `workspace`, sondern enthalten nur eine oder mehrere Objektgruppen wie `scopes`, `resources`, `emailAssignments` oder `connectors`. Die CLI führt alle Fragmente zu einer vollständigen Konfiguration zusammen. Wie die Dateien aufgeteilt werden, kann das Team selbst entscheiden – zum Beispiel nach Anwendung, Zuständigkeit oder Umgebung.
 
 ## Zugriffe deklarieren
 
@@ -181,6 +181,10 @@ skills:
 `meta.appearance.icon` akzeptiert kanonische Namen in Kebab-Case aus dem [Lucide-Icon-Katalog](https://lucide.dev/icons/). Gradient-Overrides werden nur verwendet, wenn beide Farben eines hellen oder dunklen Paars sechsstellige Hex-Farben sind; andernfalls verwendet Weldall den deterministischen Slug-basierten Fallback.
 
 Der Slug ist die Identität des Skills; eine Änderung ersetzt den Skill. Ein über IaC verwalteter Skill bleibt in der Admin-Oberfläche bearbeitbar. Solche Änderungen gelten als Drift und werden beim nächsten Apply auf den YAML-Zustand zurückgesetzt. Administrativ verwaltete Skills dürfen einen von einer Ressource veröffentlichten Skill mit derselben kanonischen ID überschreiben. Entdeckte Skills und Kataloge können weder importiert noch verwaltet werden.
+
+## Managed-Connector-Konfiguration
+
+`encryptionKeys` und `connectors` folgen denselben Plan-/Apply-, Import-, State-Move- und Unmanage-Regeln wie andere Objekte. Die vollständige Referenz für nicht geheime Schlüssel- und Connector-Felder steht in der [englischen IaC-Dokumentation](../infrastructure-as-code/#managed-connector-configuration); Einrichtung, unterstützte Vorgänge und Wiederherstellung beschreibt [Managed Google connections](../managed-connectors/).
 
 ## Die wichtigsten CLI-Befehle
 

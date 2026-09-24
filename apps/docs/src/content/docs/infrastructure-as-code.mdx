@@ -8,7 +8,7 @@ sidebar:
 
 import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
 
-All administrative features of the Weldall server can be managed through its user interface. The most important building blocks – scopes, resources, machine clients, administrator-managed skills, and assignments – can also be described in YAML files. This turns the configuration into infrastructure as code (IaC).
+All administrative features of the Weldall server can be managed through its user interface. The most important building blocks – scopes, resources, machine clients, administrator-managed skills, assignments, encryption keys, and connectors – can also be described in YAML files. This turns the configuration into infrastructure as code (IaC).
 
 <Aside type="tip" title="Why IaC?">
   Every change remains traceable in a version-controlled Git repository. Pull requests provide a
@@ -77,7 +77,7 @@ include:
   - weldall/**/*.yml
 ```
 
-The included files are fragments. They do not repeat `apiVersion` or `workspace`; they contain only one or more object sections such as `scopes`, `resources`, or `emailAssignments`. The CLI merges all fragments into one complete configuration. Your team can organize the files by application, ownership, environment, or any other structure that works for you.
+The included files are fragments. They do not repeat `apiVersion` or `workspace`; they contain only one or more object sections such as `scopes`, `resources`, `emailAssignments`, or `connectors`. The CLI merges all fragments into one complete configuration. Your team can organize the files by application, ownership, environment, or any other structure that works for you.
 
 ## Declare access
 
