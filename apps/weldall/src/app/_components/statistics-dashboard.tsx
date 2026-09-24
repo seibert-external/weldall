@@ -167,7 +167,9 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
         </Card>
         <Card className="statistics-card">
           <h2>Skills</h2>
-          <p className="statistics-muted">People who retrieved each skill.</p>
+          <p className="statistics-muted">
+            People who retrieved each skill, including former users.
+          </p>
           {skillRows.length === 0 ? (
             <EmptyState
               headingLevel={3}

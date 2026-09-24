@@ -102,6 +102,12 @@ describe("statistics dashboard", () => {
     expect(html).toContain(">2<");
   });
 
+  it("says the skill counts include former users", () => {
+    expect(render(statistics)).toContain(
+      "People who retrieved each skill, including former users.",
+    );
+  });
+
   it("uses the resolved interval as the URL default", () => {
     const monthly = { ...statistics, interval: "30d" as const };
     mocks.useQueryState.mockReturnValue(["30d", vi.fn()]);
