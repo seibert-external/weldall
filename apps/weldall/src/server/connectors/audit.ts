@@ -34,9 +34,7 @@ export function writeConnectorAuditLog({
       requestId: actor.requestId,
       subjectType:
         event === "configuration"
-          ? operation.startsWith("key.")
-            ? "encryption_key"
-            : "connector"
+          ? "connector"
           : operation.startsWith("authorization.")
             ? "connection_authorization"
             : "connection",

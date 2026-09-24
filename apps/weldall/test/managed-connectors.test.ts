@@ -9,11 +9,6 @@ import {
 } from "../src/server/connectors/scopes";
 import { resolveConnectorOperation } from "../src/server/connectors/registry";
 import {
-  bindKeySource,
-  describeKeySource,
-  resolveKeyMaterial,
-} from "../src/server/connectors/key-providers";
-import {
   assertConnectionOwner,
   buildConnectionMetadata,
 } from "../src/server/connectors/connections";
@@ -38,7 +33,7 @@ const config = {
   name: "Google",
   type: "google" as const,
   enabled: false,
-  encryptionKey: "test",
+  envelopeProvider: "LOCAL_ENV" as const,
   clientId: "client",
   enabledApis: ["gmail", "calendar"] as ("gmail" | "calendar")[],
   allowedScopes: [read, modify, calendar],
@@ -46,27 +41,6 @@ const config = {
 };
 
 describe("managed connector boundaries", () => {
-  it("isolates local key source configuration from opaque provider state", async () => {
-    const material = Buffer.alloc(32, 7).toString("base64");
-    vi.stubEnv("WELDALL_ENCRYPTION_SOURCES", "TEST_CONNECTOR_KEY");
-    vi.stubEnv("TEST_CONNECTOR_KEY", material);
-    try {
-      const binding = await bindKeySource({
-        type: "local-env",
-        variable: "TEST_CONNECTOR_KEY",
-      });
-      expect(describeKeySource(binding)).toEqual({
-        type: "local-env",
-        variable: "TEST_CONNECTOR_KEY",
-      });
-      expect(JSON.stringify(binding)).not.toContain(material);
-      expect(await resolveKeyMaterial(binding)).toEqual(Buffer.alloc(32, 7));
-      vi.stubEnv("TEST_CONNECTOR_KEY", Buffer.alloc(32, 8).toString("base64"));
-      await expect(resolveKeyMaterial(binding)).rejects.toThrow("unavailable");
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
   it("separates requirements, defaults, selection and actual grants", () => {
     expect(
       listAvailableScopes(config)
@@ -169,7 +143,7 @@ describe("managed connector boundaries", () => {
         grantedScopes: [modify],
         credentialId: "private",
         credential: { accessToken: "secret" },
-        connector: { secretId: "secret" },
+        connector: { encryptedClientSecret: "secret" },
       } as never,
       connector: { ...config, enabled: true } as never,
     });
@@ -245,18 +219,6 @@ describe("managed connector boundaries", () => {
         issuer: "https://weldall.example.com",
       },
       connectors: { google: config },
-      encryptionKeys: {
-        test: {
-          key: "test",
-          name: "Test",
-          activeVersion: "1",
-          versions: {
-            "1": {
-              source: { type: "local-env", variable: "ARBITRARY_APPROVED_NAME" },
-            },
-          },
-        },
-      },
     });
     const plan = createPlan(manifest, {
       revision: 1,
@@ -284,9 +246,9 @@ describe("managed connector boundaries", () => {
     expect(
       importRequestSchema.safeParse({
         workspace: manifest.workspace,
-        kind: "encryptionKey",
-        identity: "test",
-        address: "encryptionKey.test",
+        kind: "connector",
+        identity: "google",
+        address: "connector.google",
         operationId: crypto.randomUUID(),
       }).success,
     ).toBe(true);

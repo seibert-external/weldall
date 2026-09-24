@@ -67,16 +67,13 @@ import {
   updateMachineClient,
 } from "../machines/service";
 import type { TrpcContext } from "./context";
-import { ConnectorError, connectorConfig, encryptionKeyConfig } from "../connectors/contracts";
+import { ConnectorError, connectorConfig } from "../connectors/contracts";
 import {
   deleteConnectorConfiguration,
-  deleteEncryptionKeyConfiguration,
   listManagedConnectorConfiguration,
-  reencryptConnectorSecrets,
   runConnectorTransaction,
   saveConnectorClientSecret,
   saveConnectorConfiguration,
-  saveEncryptionKeyConfiguration,
 } from "../connectors/configuration";
 import {
   listConnections,
@@ -203,30 +200,6 @@ export const appRouter = trpc.router({
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() => discardAuthorization({ actor: ctx.adminActor, id: input.id })),
         ),
-      saveKey: adminProcedure
-        .input(
-          z
-            .object({
-              id: z.string().optional(),
-              version: z.number().int().positive().nullable(),
-              config: encryptionKeyConfig,
-            })
-            .strict(),
-        )
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() =>
-            runConnectorTransaction(async (tx) => {
-              const row = await saveEncryptionKeyConfiguration({
-                tx,
-                value: input.config,
-                id: input.id,
-                expectedVersion: input.version,
-                actor: ctx.adminActor,
-              });
-              return { id: row.id };
-            }),
-          ),
-        ),
       saveConnector: adminProcedure
         .input(
           z
@@ -249,20 +222,6 @@ export const appRouter = trpc.router({
               });
               return { id: row.id };
             }),
-          ),
-        ),
-      deleteKey: adminProcedure
-        .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() =>
-            runConnectorTransaction((tx) =>
-              deleteEncryptionKeyConfiguration({
-                tx,
-                id: input.id,
-                version: input.version,
-                actor: ctx.adminActor,
-              }),
-            ),
           ),
         ),
       deleteConnector: adminProcedure
@@ -295,17 +254,6 @@ export const appRouter = trpc.router({
             saveConnectorClientSecret({
               id: input.id,
               secret: input.secret,
-              expectedVersion: input.version,
-              actor: ctx.adminActor,
-            }),
-          ),
-        ),
-      reencrypt: adminProcedure
-        .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() =>
-            reencryptConnectorSecrets({
-              connectorId: input.id,
               expectedVersion: input.version,
               actor: ctx.adminActor,
             }),

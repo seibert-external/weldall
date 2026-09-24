@@ -24,12 +24,7 @@ const postgresUrl = "postgresql://postgres:postgres@postgres:5432/postgres";
 const setupToken = secret();
 const devIdpClientSecret = secret();
 const credentialEncryptionKey = randomBytes(32).toString("base64");
-const managedConnectorKeys = {
-  DEV_MANAGED_CONNECTOR_KEY_PRIMARY: randomBytes(32).toString("base64"),
-  DEV_MANAGED_CONNECTOR_KEY_ROTATION: randomBytes(32).toString("base64"),
-  DEV_MANAGED_CONNECTOR_KEY_ARCHIVE: randomBytes(32).toString("base64"),
-};
-const managedConnectorSources = Object.keys(managedConnectorKeys).join(",");
+const connectorKek = randomBytes(32).toString("base64");
 const devUsers = JSON.stringify([
   {
     sub: "dev-alice",
@@ -67,8 +62,7 @@ const files: Record<string, Record<string, string>> = {
     WELDALL_DEPLOYMENT_MODE: "e2e",
     WELDALL_SETUP_TOKEN: setupToken,
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: credentialEncryptionKey,
-    WELDALL_ENCRYPTION_SOURCES: managedConnectorSources,
-    ...managedConnectorKeys,
+    WELDALL_CONNECTOR_KEK: connectorKek,
     DEV_IDP_CLIENT_ID: "weldall-dev",
     DEV_IDP_CLIENT_SECRET: devIdpClientSecret,
     DEV_M2M_SIGNING_PUBLIC_JWK: JSON.stringify(machine.publicJwk),
@@ -79,8 +73,7 @@ const files: Record<string, Record<string, string>> = {
     BETTER_AUTH_SECRET: secret(),
     WELDALL_SETUP_TOKEN: setupToken,
     WELDALL_CREDENTIAL_ENCRYPTION_KEY: credentialEncryptionKey,
-    WELDALL_ENCRYPTION_SOURCES: managedConnectorSources,
-    ...managedConnectorKeys,
+    WELDALL_CONNECTOR_KEK: connectorKek,
     WELDALL_SIGNING_PRIVATE_JWK: JSON.stringify(weldall.privateJwk),
     WELDALL_SIGNING_PUBLIC_JWK: JSON.stringify(weldall.publicJwk),
     WELDALL_SIGNING_KID: "weldall-e2e",

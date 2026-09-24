@@ -32,7 +32,6 @@ type AdminRoute =
   | "cli"
   | "resources"
   | "connectors"
-  | "keys"
   | "connections"
   | "machines"
   | "scopes"
@@ -47,11 +46,6 @@ export const adminSectionDesigns = {
     title: "Connectors",
     light: toPair(corporateGradients.teal.light),
     dark: toPair(corporateGradients.teal.dark),
-  },
-  keys: {
-    title: "Encryption keys",
-    light: toPair(corporateGradients.pineTeal.light),
-    dark: toPair(corporateGradients.pineTeal.dark),
   },
   connections: {
     title: "Managed connections",
@@ -124,7 +118,6 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
   const [title, setTitle] = useState<string | null>(null);
   const route = useMemo<AdminRoute>(() => {
     if (pathname.startsWith("/admin/connectors")) return "connectors";
-    if (pathname.startsWith("/admin/keys")) return "keys";
     if (pathname.startsWith("/admin/connections")) return "connections";
     if (pathname.startsWith("/admin/audit")) return "audit";
     if (pathname.startsWith("/admin/cli")) return "cli";

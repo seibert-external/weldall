@@ -99,13 +99,6 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 isSelected={selected("/admin/connectors")}
               />
               <SectionNavItem
-                route="keys"
-                label="Encryption keys"
-                href="/admin/keys"
-                icon={MachineIcon}
-                isSelected={selected("/admin/keys")}
-              />
-              <SectionNavItem
                 route="connections"
                 label="Managed connections"
                 href="/admin/connections"

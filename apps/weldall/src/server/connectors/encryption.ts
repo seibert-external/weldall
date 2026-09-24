@@ -1,135 +1,103 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import type { Prisma, EncryptedValue } from "@weldall/db";
-import { ConnectorError } from "./contracts";
-import { resolveKeyMaterial } from "./key-providers";
+import type { Prisma, EncryptedValue, EnvelopeProvider } from "@weldall/db";
+import {
+  decodeEnvelopeBytes,
+  envelopeAad,
+  getEnvelopeProvider,
+  keyUnavailable,
+} from "./envelope-providers";
 
 type Client = Prisma.TransactionClient;
-/** Builds the stable service error used when configured encryption material cannot be resolved. */
-const createKeyUnavailableError = () =>
-  new ConnectorError(
-    "key_unavailable",
-    "Encryption key is unavailable or changed. Restore its original material.",
-    503,
-  );
-/** Resolves one immutable provider binding into the data key needed by connector encryption. */
-async function resolveEncryptionKeyVersion({
-  tx,
-  keyId,
-  version,
-}: {
-  tx: Client;
-  keyId: string;
-  version: string;
-}) {
-  const binding = await tx.encryptionKeyVersion.findUnique({
-    where: { keyId_version: { keyId, version } },
-  });
-  if (!binding) throw createKeyUnavailableError();
-  return resolveKeyMaterial(binding);
-}
-/** Binds ciphertext to its database record and application context to prevent substitution. */
-const buildAdditionalAuthenticatedData = ({
-  keyId,
-  keyVersion,
-  context,
-}: {
-  keyId: string;
-  keyVersion: string;
-  context: string;
-}) => Buffer.from(JSON.stringify([1, keyId, keyVersion, context]));
 
-/** Encrypts one connector secret with purpose-bound AAD before it enters private database storage. */
+/** Each complete logical-object write gets its own random DEK; only its wrapped form is persisted. */
 export async function encrypt({
-  tx,
-  keyId,
+  provider,
   plaintext,
   context,
 }: {
-  tx: Client;
-  keyId: string;
+  provider: EnvelopeProvider;
   plaintext: string;
   context: string;
 }) {
-  const logical = await tx.encryptionKey.findUniqueOrThrow({ where: { id: keyId } });
-  const keyVersion = logical.activeVersion;
-  const key = await resolveEncryptionKeyVersion({ tx, keyId, version: keyVersion });
-  const nonce = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, nonce);
-  cipher.setAAD(buildAdditionalAuthenticatedData({ keyId, keyVersion, context }));
-  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  return {
-    keyId,
-    keyVersion,
-    formatVersion: 1,
-    context,
-    nonce: nonce.toString("base64"),
-    ciphertext: ciphertext.toString("base64"),
-    tag: cipher.getAuthTag().toString("base64"),
-  };
+  const metadata = { formatVersion: 1, provider, context };
+  const dek = randomBytes(32);
+  try {
+    const nonce = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", dek, nonce);
+    cipher.setAAD(envelopeAad("data", metadata));
+    const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    const wrappedDek = await getEnvelopeProvider(provider).wrapDek({ dek, context: metadata });
+    return {
+      ...metadata,
+      nonce: nonce.toString("base64"),
+      ciphertext: ciphertext.toString("base64"),
+      tag: cipher.getAuthTag().toString("base64"),
+      wrappedDek,
+    };
+  } catch {
+    throw keyUnavailable();
+  } finally {
+    dek.fill(0);
+  }
 }
-/**
- * Decrypts private connector storage with the envelope's historical key, never the connector's
- * current selection, and deliberately provides no plaintext fallback.
- */
+
+/** Decrypt only after authorization, using a caller-derived stable entity/purpose context. */
 export async function decrypt({
-  tx,
   envelope,
   context,
 }: {
-  tx: Client;
-  envelope: EncryptedValue;
+  envelope: Pick<
+    EncryptedValue,
+    "formatVersion" | "provider" | "context" | "nonce" | "ciphertext" | "tag" | "wrappedDek"
+  >;
   context: string;
 }): Promise<string> {
-  if (envelope.formatVersion !== 1 || envelope.context !== context)
-    throw createKeyUnavailableError();
-  const key = await resolveEncryptionKeyVersion({
-    tx,
-    keyId: envelope.keyId,
-    version: envelope.keyVersion,
-  });
+  let dek: Buffer | undefined;
   try {
-    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.nonce, "base64"));
-    decipher.setAAD(
-      buildAdditionalAuthenticatedData({
-        keyId: envelope.keyId,
-        keyVersion: envelope.keyVersion,
-        context,
-      }),
-    );
-    decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+    if (envelope.formatVersion !== 1 || envelope.context !== context) throw keyUnavailable();
+    dek = await getEnvelopeProvider(envelope.provider).unwrapDek({
+      wrappedDek: envelope.wrappedDek,
+      context: envelope,
+    });
+    if (dek.length !== 32) throw keyUnavailable();
+    const cipher = createDecipheriv("aes-256-gcm", dek, decodeEnvelopeBytes(envelope.nonce, 12));
+    cipher.setAAD(envelopeAad("data", envelope));
+    cipher.setAuthTag(decodeEnvelopeBytes(envelope.tag, 16));
     return Buffer.concat([
-      decipher.update(Buffer.from(envelope.ciphertext, "base64")),
-      decipher.final(),
+      cipher.update(decodeEnvelopeBytes(envelope.ciphertext)),
+      cipher.final(),
     ]).toString("utf8");
   } catch {
-    throw createKeyUnavailableError();
+    throw keyUnavailable();
+  } finally {
+    dek?.fill(0);
   }
 }
-/** Reads one encrypted connector secret for an authenticated server-side workflow. */
+
+/** Reads one encrypted object for an authenticated server-side workflow. */
 export async function readSecret({ tx, id, context }: { tx: Client; id: string; context: string }) {
   return decrypt({
-    tx,
     envelope: await tx.encryptedValue.findUniqueOrThrow({ where: { id } }),
     context,
   });
 }
 
-/** Creates or rotates one encrypted connector secret without exposing plaintext through public APIs. */
+/** Replaces the complete credential object with fresh data and wrapping nonces and a fresh DEK. */
 export async function saveSecret({
   tx,
-  keyId,
+  provider,
   context,
   value,
   id,
 }: {
   tx: Client;
-  keyId: string;
+  provider: EnvelopeProvider;
   context: string;
   value: string;
   id?: string | null;
 }) {
-  const data = await encrypt({ tx, keyId, plaintext: value, context });
+  const data = await encrypt({ provider, plaintext: value, context });
   return id
-    ? tx.encryptedValue.update({ where: { id }, data: { ...data, version: { increment: 1 } } })
+    ? tx.encryptedValue.update({ where: { id }, data })
     : tx.encryptedValue.create({ data });
 }

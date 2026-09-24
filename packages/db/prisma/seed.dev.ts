@@ -1,4 +1,7 @@
-import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
+// Development fixtures use the application's actual formats rather than a second crypto implementation.
+import { encrypt } from "../../../apps/weldall/src/server/connectors/encryption.js";
+import { seal } from "../../../apps/weldall/src/server/auth/oidc-credentials.js";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
 import {
@@ -350,83 +353,6 @@ async function seedDevelopmentResourceSkill(
 }
 
 async function seedDevelopmentManagedConnectors() {
-  const sourceMaterial = new Map([
-    [
-      "DEV_MANAGED_CONNECTOR_KEY_PRIMARY",
-      developmentManagedKey("DEV_MANAGED_CONNECTOR_KEY_PRIMARY"),
-    ],
-    [
-      "DEV_MANAGED_CONNECTOR_KEY_ROTATION",
-      developmentManagedKey("DEV_MANAGED_CONNECTOR_KEY_ROTATION"),
-    ],
-    [
-      "DEV_MANAGED_CONNECTOR_KEY_ARCHIVE",
-      developmentManagedKey("DEV_MANAGED_CONNECTOR_KEY_ARCHIVE"),
-    ],
-  ]);
-  const keyDefinitions = [
-    {
-      id: "dev-encryption-key-primary",
-      key: "managed-primary",
-      name: "Managed connector primary key",
-      activeVersion: "2026",
-      versions: [
-        ["2025", "DEV_MANAGED_CONNECTOR_KEY_ROTATION"],
-        ["2026", "DEV_MANAGED_CONNECTOR_KEY_PRIMARY"],
-      ],
-    },
-    {
-      id: "dev-encryption-key-archive",
-      key: "managed-archive",
-      name: "Archive and recovery key",
-      activeVersion: "1",
-      versions: [["1", "DEV_MANAGED_CONNECTOR_KEY_ARCHIVE"]],
-    },
-  ] as const;
-  const encryptionKeys = new Map<string, { id: string; activeVersion: string }>();
-  for (const definition of keyDefinitions) {
-    const key = await db.encryptionKey.upsert({
-      where: { key: definition.key },
-      create: {
-        id: definition.id,
-        key: definition.key,
-        name: definition.name,
-        activeVersion: definition.activeVersion,
-        createdBy: actor,
-        updatedBy: actor,
-      },
-      update: {
-        name: definition.name,
-        activeVersion: definition.activeVersion,
-        updatedBy: actor,
-      },
-    });
-    for (const [version, sourceName] of definition.versions) {
-      const material = sourceMaterial.get(sourceName);
-      if (!material) throw new Error(`Missing development connector source ${sourceName}.`);
-      await db.encryptionKeyVersion.upsert({
-        where: { keyId_version: { keyId: key.id, version } },
-        create: {
-          keyId: key.id,
-          version,
-          providerType: "local-env",
-          providerConfig: { variable: sourceName },
-          providerState: {
-            fingerprint: createHash("sha256").update(material).digest("hex"),
-          },
-        },
-        update: {
-          providerType: "local-env",
-          providerConfig: { variable: sourceName },
-          providerState: {
-            fingerprint: createHash("sha256").update(material).digest("hex"),
-          },
-        },
-      });
-    }
-    encryptionKeys.set(definition.key, { id: key.id, activeVersion: definition.activeVersion });
-  }
-
   const gmailRead = "https://www.googleapis.com/auth/gmail.readonly";
   const gmailSend = "https://www.googleapis.com/auth/gmail.send";
   const calendarRead = "https://www.googleapis.com/auth/calendar.readonly";
@@ -441,7 +367,6 @@ async function seedDevelopmentManagedConnectors() {
       allowedScopes: [gmailRead, gmailSend, calendarRead, calendarEvents],
       defaultScopes: [gmailRead, calendarRead],
       clientId: "weldall-workspace-dev.apps.googleusercontent.com",
-      encryptionKey: "managed-primary",
       secret: "development-workspace-client-secret",
     },
     {
@@ -453,7 +378,6 @@ async function seedDevelopmentManagedConnectors() {
       allowedScopes: [gmailRead, gmailSend],
       defaultScopes: [gmailRead],
       clientId: "weldall-mail-dev.apps.googleusercontent.com",
-      encryptionKey: "managed-primary",
       secret: "development-mail-client-secret",
     },
     {
@@ -465,16 +389,12 @@ async function seedDevelopmentManagedConnectors() {
       allowedScopes: [calendarRead, calendarEvents],
       defaultScopes: [calendarRead],
       clientId: "weldall-sandbox-dev.apps.googleusercontent.com",
-      encryptionKey: "managed-archive",
       secret: null,
     },
   ] as const;
-  const connectors = new Map<string, { id: string; version: number; encryptionKeyId: string }>();
+  const connectors = new Map<string, { id: string; version: number }>();
   for (const definition of connectorDefinitions) {
-    const encryptionKey = encryptionKeys.get(definition.encryptionKey);
-    if (!encryptionKey)
-      throw new Error(`Development encryption key ${definition.encryptionKey} was not seeded.`);
-    let connector = await db.connector.upsert({
+    const connector = await db.connector.upsert({
       where: { key: definition.key },
       create: {
         id: definition.id,
@@ -485,7 +405,7 @@ async function seedDevelopmentManagedConnectors() {
         allowedScopes: [...definition.allowedScopes],
         defaultScopes: [...definition.defaultScopes],
         clientId: definition.clientId,
-        encryptionKeyId: encryptionKey.id,
+        envelopeProvider: "LOCAL_ENV",
         createdBy: actor,
         updatedBy: actor,
       },
@@ -496,32 +416,17 @@ async function seedDevelopmentManagedConnectors() {
         allowedScopes: [...definition.allowedScopes],
         defaultScopes: [...definition.defaultScopes],
         clientId: definition.clientId,
-        encryptionKeyId: encryptionKey.id,
         updatedBy: actor,
       },
     });
-    if (definition.secret) {
-      const secretId = `dev-encrypted-connector-${definition.key}`;
-      await upsertDevelopmentEncryptedValue({
-        id: secretId,
-        keyId: encryptionKey.id,
-        keyVersion: encryptionKey.activeVersion,
-        material: sourceMaterial.get(
-          keyDefinitions
-            .find((candidate) => candidate.key === definition.encryptionKey)!
-            .versions.find(([version]) => version === encryptionKey.activeVersion)![1],
-        )!,
-        context: `connector:${connector.id}:client-secret`,
-        plaintext: definition.secret,
-      });
-      connector = await db.connector.update({
-        where: { id: connector.id },
-        data: { secretId },
-      });
-    } else if (connector.secretId) {
-      await db.connector.update({ where: { id: connector.id }, data: { secretId: null } });
-      await db.encryptedValue.deleteMany({ where: { id: connector.secretId } });
-    }
+    await db.connector.update({
+      where: { id: connector.id },
+      data: {
+        encryptedClientSecret: definition.secret
+          ? seal("connector-client-secret", connector.id, definition.secret)
+          : null,
+      },
+    });
     connectors.set(definition.key, connector);
   }
 
@@ -594,8 +499,15 @@ async function seedDevelopmentManagedConnectors() {
     },
   ];
   const seededConnectionIds = connectionDefinitions.map(({ id }) => id);
+  const staleAttempts = await db.connectionAuthorization.findMany({
+    where: { id: { startsWith: "dev-authorization-" } },
+    select: { payloadId: true },
+  });
   await db.connectionAuthorization.deleteMany({
     where: { id: { startsWith: "dev-authorization-" } },
+  });
+  await db.encryptedValue.deleteMany({
+    where: { id: { in: staleAttempts.flatMap(({ payloadId }) => (payloadId ? [payloadId] : [])) } },
   });
   const staleConnections = await db.connection.findMany({
     where: { id: { startsWith: "dev-connection-", notIn: seededConnectionIds } },
@@ -614,19 +526,15 @@ async function seedDevelopmentManagedConnectors() {
     const connector = connectors.get(definition.connector);
     if (!connector)
       throw new Error(`Development connector ${definition.connector} was not seeded.`);
-    const keyDefinition = connectorDefinitions.find(({ key }) => key === definition.connector)!;
-    const encryptionKey = encryptionKeys.get(keyDefinition.encryptionKey)!;
-    const sourceName = keyDefinitions
-      .find(({ key }) => key === keyDefinition.encryptionKey)!
-      .versions.find(([version]) => version === encryptionKey.activeVersion)![1];
+    const previous = await db.connection.findUnique({
+      where: { id: definition.id },
+      select: { credentialId: true },
+    });
     const credentialId =
       definition.status === "DISCONNECTED" ? null : `dev-encrypted-connection-${definition.id}`;
     if (credentialId) {
       await upsertDevelopmentEncryptedValue({
         id: credentialId,
-        keyId: encryptionKey.id,
-        keyVersion: encryptionKey.activeVersion,
-        material: sourceMaterial.get(sourceName)!,
         context: `connection:${definition.id}:credentials`,
         plaintext: JSON.stringify({
           accessToken: `development-access-${definition.id}`,
@@ -668,6 +576,8 @@ async function seedDevelopmentManagedConnectors() {
         revocationError: "revocationError" in definition ? definition.revocationError : null,
       },
     });
+    if (previous?.credentialId && previous.credentialId !== credentialId)
+      await db.encryptedValue.delete({ where: { id: previous.credentialId } });
   }
 
   const now = Date.now();
@@ -716,44 +626,19 @@ async function seedDevelopmentManagedConnectors() {
 
 async function upsertDevelopmentEncryptedValue(input: {
   id: string;
-  keyId: string;
-  keyVersion: string;
-  material: Buffer;
   context: string;
   plaintext: string;
 }) {
-  const nonce = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", input.material, nonce);
-  cipher.setAAD(Buffer.from(JSON.stringify([1, input.keyId, input.keyVersion, input.context])));
-  const ciphertext = Buffer.concat([cipher.update(input.plaintext, "utf8"), cipher.final()]);
-  const data = {
-    keyId: input.keyId,
-    keyVersion: input.keyVersion,
-    formatVersion: 1,
+  const data = await encrypt({
+    provider: "LOCAL_ENV",
     context: input.context,
-    nonce: nonce.toString("base64"),
-    ciphertext: ciphertext.toString("base64"),
-    tag: cipher.getAuthTag().toString("base64"),
-  };
+    plaintext: input.plaintext,
+  });
   await db.encryptedValue.upsert({
     where: { id: input.id },
     create: { id: input.id, ...data },
     update: data,
   });
-}
-
-function developmentManagedKey(name: string): Buffer {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(
-      `${name} is required for development connector seeds. Regenerate .env with pnpm secrets:generate.`,
-    );
-  }
-  const key = Buffer.from(value, "base64");
-  if (key.length !== 32 || key.toString("base64") !== value) {
-    throw new Error(`${name} must be a canonical base64-encoded 32-byte key.`);
-  }
-  return key;
 }
 
 function parseDevelopmentMachinePublicJwk(value: string | undefined): Prisma.InputJsonObject {

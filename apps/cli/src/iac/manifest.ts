@@ -17,7 +17,6 @@ export interface Manifest {
   workspace: { name: string; issuer: string };
   include?: string[];
   cli?: { logoUrl: string; darkLogoUrl?: string };
-  encryptionKeys?: Record<string, unknown>;
   connectors?: Record<string, unknown>;
   scopes?: Record<string, unknown>;
   resources?: Record<string, unknown>;
@@ -37,7 +36,6 @@ export interface Lockfile {
 }
 
 const objectSections = [
-  "encryptionKeys",
   "connectors",
   "scopes",
   "resources",
@@ -198,13 +196,12 @@ function validatePrimitive({
   object: Record<string, unknown>;
 }) {
   const fields: Record<typeof section, string[]> = {
-    encryptionKeys: ["key", "name", "activeVersion", "versions"],
     connectors: [
       "key",
       "name",
       "type",
       "enabled",
-      "encryptionKey",
+      "envelopeProvider",
       "clientId",
       "enabledApis",
       "allowedScopes",
@@ -272,45 +269,24 @@ function validatePrimitive({
       throw new CliError(`Invalid ${section}.${field}`);
     return value as string[];
   };
-  if (section === "encryptionKeys" || section === "connectors") {
+  if (section === "connectors") {
     const identity = /^[a-z0-9][a-z0-9._-]{0,119}$/;
     validateText({ field: "key", max: 120, pattern: identity });
     validateText({ field: "name", max: 200 });
-    if (section === "encryptionKeys") {
-      validateText({ field: "activeVersion", max: 120, pattern: identity });
-      const versions = record(object.versions);
-      if (!Object.hasOwn(versions, String(object.activeVersion)))
-        throw new CliError("Active key version must be registered");
-      for (const [version, value] of Object.entries(versions)) {
-        if (!identity.test(version)) throw new CliError("Invalid key version");
-        const entry = record(value),
-          source = record(entry.source);
-        if (
-          Object.keys(entry).some((k) => k !== "source") ||
-          Object.keys(source).some((k) => !["type", "variable"].includes(k)) ||
-          source.type !== "local-env" ||
-          typeof source.variable !== "string" ||
-          !/^[A-Za-z_][A-Za-z0-9_]{0,199}$/.test(source.variable)
-        )
-          throw new CliError(
-            "Encryption sources contain only a local-env provider and approved variable name, never secret material",
-          );
-      }
-    } else {
-      validateText({ field: "encryptionKey", max: 120, pattern: identity });
-      validateText({ field: "clientId", max: 500 });
-      if (object.type !== "google" || typeof object.enabled !== "boolean")
-        throw new CliError("Invalid connector type or enabled flag");
-      if (
-        validateStringList({ field: "enabledApis", nonEmpty: true }).some(
-          (api) => !["gmail", "calendar"].includes(api),
-        )
+    if (object.envelopeProvider !== "LOCAL_ENV")
+      throw new CliError("Only the LOCAL_ENV envelope provider is supported");
+    validateText({ field: "clientId", max: 500 });
+    if (object.type !== "google" || typeof object.enabled !== "boolean")
+      throw new CliError("Invalid connector type or enabled flag");
+    if (
+      validateStringList({ field: "enabledApis", nonEmpty: true }).some(
+        (api) => !["gmail", "calendar"].includes(api),
       )
-        throw new CliError("Unknown Google API");
-      const allowed = validateStringList({ field: "allowedScopes", nonEmpty: true });
-      if (validateStringList({ field: "defaultScopes" }).some((scope) => !allowed.includes(scope)))
-        throw new CliError("Default scopes must be administrator-allowed");
-    }
+    )
+      throw new CliError("Unknown Google API");
+    const allowed = validateStringList({ field: "allowedScopes", nonEmpty: true });
+    if (validateStringList({ field: "defaultScopes" }).some((scope) => !allowed.includes(scope)))
+      throw new CliError("Default scopes must be administrator-allowed");
   } else if (section === "scopes") {
     validateText({
       field: "key",
@@ -533,7 +509,6 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
           },
         }
       : {}),
-    encryptionKeys: canonicalRecords("encryptionKeys", (value) => value),
     connectors: canonicalRecords("connectors", (value) => ({
       ...value,
       enabledApis: canonicalSet(value.enabledApis),

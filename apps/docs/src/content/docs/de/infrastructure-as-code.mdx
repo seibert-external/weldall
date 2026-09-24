@@ -184,7 +184,7 @@ Der Slug ist die Identität des Skills; eine Änderung ersetzt den Skill. Ein ü
 
 ## Managed-Connector-Konfiguration
 
-`encryptionKeys` und `connectors` folgen denselben Plan-/Apply-, Import-, State-Move- und Unmanage-Regeln wie andere Objekte. Die vollständige Referenz für nicht geheime Schlüssel- und Connector-Felder steht in der [englischen IaC-Dokumentation](../infrastructure-as-code/#managed-connector-configuration); Einrichtung, unterstützte Vorgänge und Wiederherstellung beschreibt [Managed Google connections](../managed-connectors/).
+`connectors` folgen denselben Plan-/Apply-, Import-, State-Move- und Unmanage-Regeln wie andere Objekte. Der Envelope-Provider muss explizit als `envelopeProvider: LOCAL_ENV` angegeben werden und ist nach Erstellung unveränderlich. Alle lokalen Connectoren verwenden `WELDALL_CONNECTOR_KEK`, aber pro Schreibvorgang einen neuen DEK. OAuth-Client-Secrets bleiben ausschließlich schreibbar und werden direkt mit `WELDALL_CREDENTIAL_ENCRYPTION_KEY` verschlüsselt. OpenBao, Provider-Konfiguration und beliebige ENV-Schlüsselnamen werden nicht akzeptiert. Die vollständige Referenz steht in der [englischen IaC-Dokumentation](../infrastructure-as-code/#managed-connector-configuration); Einrichtung und Wiederherstellung beschreibt [Managed Google connections](../managed-connectors/).
 
 ## Die wichtigsten CLI-Befehle
 

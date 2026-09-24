@@ -14,15 +14,13 @@ import {
 import { digest } from "../src/server/iac/contracts";
 import { executeConnectionRequest } from "../src/server/connectors/execution";
 import {
-  saveEncryptionKeyConfiguration,
   saveConnectorConfiguration,
   runConnectorTransaction as transaction,
   saveConnectorClientSecret,
-  reencryptConnectorSecrets,
-  deleteEncryptionKeyConfiguration,
+  readConnectorClientSecret,
   listManagedConnectorConfiguration as listConfiguration,
 } from "../src/server/connectors/configuration";
-import { decrypt, encrypt, saveSecret } from "../src/server/connectors/encryption";
+import { decrypt, saveSecret } from "../src/server/connectors/encryption";
 import {
   accessCredentials,
   completeConnection,
@@ -54,6 +52,9 @@ const target = "postgresql://postgres@localhost:5433/postgres";
 // Use the operator-approved local database or CI's existing disposable test service; never reset either here.
 const approvedTarget =
   process.env.POSTGRES_URL === target ||
+  /^postgresql:\/\/postgres@localhost:5433\/weldall_connector_test_[a-f0-9]{32}$/.test(
+    process.env.POSTGRES_URL ?? "",
+  ) ||
   (process.env.CI === "true" &&
     process.env.POSTGRES_URL === "postgresql://postgres:postgres@localhost:5432/postgres");
 const prefix = `managed-${randomUUID()}`;
@@ -66,19 +67,11 @@ const config = (key: string) => ({
   name: "Google",
   type: "google" as const,
   enabled: false,
-  encryptionKey: key,
+  envelopeProvider: "LOCAL_ENV" as const,
   clientId: "test.apps.googleusercontent.com",
   enabledApis: ["gmail", "calendar"],
   allowedScopes: [read, calendar].sort(),
   defaultScopes: [calendar],
-});
-const keyConfig = (key: string) => ({
-  key,
-  name: "Test",
-  activeVersion: "1",
-  versions: {
-    "1": { source: { type: "local-env", variable: "MANAGED_TEST_A" } },
-  },
 });
 const credentials = () => ({
   accessToken: "never-public-access",
@@ -87,18 +80,9 @@ const credentials = () => ({
   grantedScopes: selected,
 });
 let n = 0;
-/** Creates an isolated key and enabled connector fixture through production mutation paths. */
+/** Creates an enabled connector fixture through production mutation paths. */
 async function fixture() {
   const key = `${prefix}-${++n}`;
-  const logical = await transaction((tx) =>
-    saveEncryptionKeyConfiguration({
-      tx,
-      value: keyConfig(key),
-      id: undefined,
-      expectedVersion: null,
-      actor,
-    }),
-  );
   let connector = await transaction((tx) =>
     saveConnectorConfiguration({
       tx,
@@ -123,7 +107,7 @@ async function fixture() {
       actor,
     }),
   );
-  return { key, logical, connector };
+  return { key, connector };
 }
 /** Starts and advances one test authorization to the provider callback boundary. */
 async function authorize({
@@ -165,9 +149,8 @@ describe.skipIf(!approvedTarget)(
   () => {
     beforeAll(async () => {
       if (!approvedTarget) throw new Error("Unsafe database target");
-      vi.stubEnv("WELDALL_ENCRYPTION_SOURCES", "MANAGED_TEST_A,MANAGED_TEST_B");
-      vi.stubEnv("MANAGED_TEST_A", randomBytes(32).toString("base64"));
-      vi.stubEnv("MANAGED_TEST_B", randomBytes(32).toString("base64"));
+      vi.stubEnv("WELDALL_CONNECTOR_KEK", randomBytes(32).toString("base64"));
+      vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", randomBytes(32).toString("base64"));
       await db.user.create({
         data: { id: actor.id, name: "Test", email: actor.email, emailVerified: true },
       });
@@ -182,19 +165,21 @@ describe.skipIf(!approvedTarget)(
         select: { id: true },
       });
       const ids = connectors.map((c) => c.id);
+      const values = await db.encryptedValue.findMany({
+        where: { OR: [{ connection: { ownerId: actor.id } }, { attempt: { ownerId: actor.id } }] },
+        select: { id: true },
+      });
       await db.connectionAuthorization.deleteMany({ where: { ownerId: actor.id } });
       await db.connection.deleteMany({ where: { ownerId: actor.id } });
       await db.iacObjectBinding.deleteMany({
         where: {
-          OR: [{ connectorId: { in: ids } }, { encryptionKey: { key: { startsWith: prefix } } }],
+          connectorId: { in: ids },
         },
       });
       await db.connector.deleteMany({ where: { id: { in: ids } } });
       await db.encryptedValue.deleteMany({
-        where: { key: { key: { key: { startsWith: prefix } } } },
+        where: { id: { in: values.map(({ id }) => id) } },
       });
-      await db.encryptionKeyVersion.deleteMany({ where: { key: { key: { startsWith: prefix } } } });
-      await db.encryptionKey.deleteMany({ where: { key: { startsWith: prefix } } });
       await db.iacWorkspace.deleteMany({ where: { name: prefix } });
       await db.machineClient.deleteMany({ where: { clientId: actor.id } });
       await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: actor.email } });
@@ -203,86 +188,34 @@ describe.skipIf(!approvedTarget)(
       await db.replayMarker.deleteMany({ where: { key: { startsWith: prefix } } });
       vi.unstubAllEnvs();
     });
-    it("resolves historical versions, purpose AAD, approved sources and immutable material", async () => {
+    it("stores LOCAL_ENV and keeps client secrets in fixed application encryption", async () => {
       const f = await fixture();
-      const data = await encrypt({
-        tx: db,
-        keyId: f.logical.id,
-        plaintext: "plaintext",
-        context: "test-purpose",
-      });
-      const envelope = await db.encryptedValue.create({ data });
-      await expect(decrypt({ tx: db, envelope, context: "wrong-purpose" })).rejects.toThrow();
-      const next = {
-        ...keyConfig(f.key),
-        activeVersion: "2",
-        versions: {
-          ...keyConfig(f.key).versions,
-          "2": { source: { type: "local-env", variable: "MANAGED_TEST_B" } },
-        },
-      };
-      await transaction((tx) =>
-        saveEncryptionKeyConfiguration({
-          tx,
-          value: next,
-          id: f.logical.id,
-          expectedVersion: 1,
-          actor,
-        }),
-      );
-      expect(await decrypt({ tx: db, envelope, context: "test-purpose" })).toBe("plaintext");
+      expect(f.connector.envelopeProvider).toBe("LOCAL_ENV");
+      expect(readConnectorClientSecret(f.connector)).toBe("never-public-client-secret");
+      const original = process.env.WELDALL_CONNECTOR_KEK!;
+      try {
+        delete process.env.WELDALL_CONNECTOR_KEK;
+        expect(readConnectorClientSecret(f.connector)).toBe("never-public-client-secret");
+      } finally {
+        process.env.WELDALL_CONNECTOR_KEK = original;
+      }
+      await expect(
+        transaction((tx) =>
+          saveConnectorConfiguration({
+            tx,
+            value: { ...config(f.key), envelopeProvider: "OPENBAO" },
+            id: f.connector.id,
+            expectedVersion: f.connector.version,
+            actor,
+          }),
+        ),
+      ).rejects.toThrow();
       expect(
-        (
-          await encrypt({
-            tx: db,
-            keyId: f.logical.id,
-            plaintext: "new",
-            context: "test-purpose",
-          })
-        ).keyVersion,
-      ).toBe("2");
-      const original = process.env.MANAGED_TEST_A;
-      process.env.MANAGED_TEST_A = randomBytes(32).toString("base64");
-      await expect(decrypt({ tx: db, envelope, context: "test-purpose" })).rejects.toThrow(
-        "unavailable",
-      );
-      process.env.MANAGED_TEST_A = original!;
-      await expect(
-        transaction((tx) =>
-          saveEncryptionKeyConfiguration({
-            tx,
-            value: keyConfig(f.key),
-            id: f.logical.id,
-            expectedVersion: 2,
-            actor,
-          }),
-        ),
-      ).rejects.toThrow("historical");
-      await expect(
-        transaction((tx) =>
-          saveEncryptionKeyConfiguration({
-            tx,
-            value: {
-              ...keyConfig(`${f.key}-unapproved`),
-              versions: {
-                "1": { source: { type: "local-env", variable: "PATH" } },
-              },
-            },
-            id: undefined,
-            expectedVersion: null,
-            actor,
-          }),
-        ),
-      ).rejects.toThrow("unavailable");
-      await expect(
-        transaction((tx) =>
-          deleteEncryptionKeyConfiguration({ tx, id: f.logical.id, version: 2, actor }),
-        ),
-      ).rejects.toThrow("referenced");
+        (await db.connector.findUniqueOrThrow({ where: { id: f.connector.id } })).envelopeProvider,
+      ).toBe("LOCAL_ENV");
     });
     it("de-provisions stale client secrets when the OAuth client changes", async () => {
       const f = await fixture();
-      const originalSecretId = f.connector.secretId!;
       await expect(
         transaction((tx) =>
           saveConnectorConfiguration({
@@ -307,66 +240,20 @@ describe.skipIf(!approvedTarget)(
           actor,
         }),
       );
-      expect(changed.secretId).toBeNull();
-      await expect(
-        db.encryptedValue.findUniqueOrThrow({ where: { id: originalSecretId } }),
-      ).rejects.toThrow();
+      expect(changed.encryptedClientSecret).toBeNull();
     });
-    it("re-encrypts explicitly and rolls back on unavailable old material", async () => {
+    it("checks ownership before secret decryption", async () => {
       const f = await ready();
-      const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
-      const old = await db.encryptedValue.findUniqueOrThrow({ where: { id: row.credentialId! } });
-      const second = await transaction((tx) =>
-        saveEncryptionKeyConfiguration({
-          tx,
-          value: {
-            ...keyConfig(`${f.key}-second`),
-            versions: {
-              "1": { source: { type: "local-env", variable: "MANAGED_TEST_B" } },
-            },
-          },
-          id: undefined,
-          expectedVersion: null,
-          actor,
-        }),
-      );
-      const connector = await transaction((tx) =>
-        saveConnectorConfiguration({
-          tx,
-          value: { ...config(f.key), enabled: true, encryptionKey: second.key },
-          id: f.connector.id,
-          expectedVersion: f.connector.version,
-          actor,
-        }),
-      );
-      expect((await db.encryptedValue.findUniqueOrThrow({ where: { id: old.id } })).keyId).toBe(
-        f.logical.id,
-      );
-      const material = process.env.MANAGED_TEST_A!;
-      delete process.env.MANAGED_TEST_A;
-      await expect(
-        reencryptConnectorSecrets({
-          connectorId: connector.id,
-          expectedVersion: connector.version,
-          actor,
-        }),
-      ).rejects.toThrow();
-      expect((await db.encryptedValue.findUniqueOrThrow({ where: { id: old.id } })).version).toBe(
-        old.version,
-      );
-      process.env.MANAGED_TEST_A = material;
-      expect(
-        (
-          await reencryptConnectorSecrets({
-            connectorId: connector.id,
-            expectedVersion: connector.version,
-            actor,
-          })
-        ).count,
-      ).toBe(2);
-      expect((await db.encryptedValue.findUniqueOrThrow({ where: { id: old.id } })).keyId).toBe(
-        second.id,
-      );
+      const original = process.env.WELDALL_CONNECTOR_KEK!;
+      try {
+        delete process.env.WELDALL_CONNECTOR_KEK;
+        await expect(
+          accessCredentials({ actor: { ...actor, id: "different-user" }, selector: f.id }),
+        ).rejects.toThrow("not found");
+        await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("unavailable");
+      } finally {
+        process.env.WELDALL_CONNECTOR_KEK = original;
+      }
     });
     it("binds selections to configuration versions and never returns credentials", async () => {
       const f = await ready();
@@ -377,7 +264,7 @@ describe.skipIf(!approvedTarget)(
         getAuthorizationAttempt({ actor: { ...actor, id: "different-user" }, id: f.attempt.id }),
       ).rejects.toThrow("not found");
       expect(JSON.stringify(await listConnections(actor))).not.toMatch(
-        /never-public|credentialId|ciphertext|secretId/,
+        /never-public|credentialId|ciphertext|encryptedClientSecret|wrappedDek/,
       );
       expect(JSON.stringify(await listConfiguration())).not.toMatch(
         /never-public|ciphertext|fingerprint/,
@@ -433,9 +320,9 @@ describe.skipIf(!approvedTarget)(
     it("refreshes centrally, preserves reduced grants and blocks failed revocation until manual retry", async () => {
       const f = await ready();
       const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
-      await saveSecret({
+      const before = await saveSecret({
         tx: db,
-        keyId: f.logical.id,
+        provider: f.connector.envelopeProvider,
         context: `connection:${f.id}:credentials`,
         value: JSON.stringify({ ...credentials(), expiresAt: 0 }),
         id: row.credentialId,
@@ -446,6 +333,12 @@ describe.skipIf(!approvedTarget)(
         grantedScopes: requiredScopes,
       });
       await accessCredentials({ actor, selector: f.id });
+      const after = await db.encryptedValue.findUniqueOrThrow({ where: { id: before.id } });
+      expect(after.wrappedDek).not.toEqual(before.wrappedDek);
+      expect(after.nonce).not.toBe(before.nonce);
+      expect(
+        JSON.parse(await decrypt({ envelope: after, context: `connection:${f.id}:credentials` })),
+      ).toMatchObject({ refreshToken: "rotated", grantedScopes: requiredScopes });
       expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe(
         "RECONNECT_REQUIRED",
       );
@@ -496,7 +389,7 @@ describe.skipIf(!approvedTarget)(
       const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
       await saveSecret({
         tx: db,
-        keyId: f.logical.id,
+        provider: f.connector.envelopeProvider,
         context: `connection:${f.id}:credentials`,
         value: JSON.stringify({ ...credentials(), expiresAt: 0 }),
         id: row.credentialId,
@@ -672,7 +565,6 @@ describe.skipIf(!approvedTarget)(
       let manifest = parseDesiredState({
         apiVersion: "weldall.dev/v1",
         workspace: { id: randomUUID(), name: prefix, issuer: "https://weldall.example.com" },
-        encryptionKeys: { key: keyConfig(name) },
         connectors: { google: config(name) },
       });
       const plan = await planIac(manifest);
@@ -719,7 +611,7 @@ describe.skipIf(!approvedTarget)(
       );
       const restored = await db.connector.findUniqueOrThrow({ where: { id: connector.id } });
       expect(restored.name).toBe("Google");
-      expect(restored.secretId).toBe(connector.secretId);
+      expect(restored.encryptedClientSecret).toBe(connector.encryptedClientSecret);
       const manual = await fixture();
       const imported = await importIac(
         {
@@ -731,7 +623,9 @@ describe.skipIf(!approvedTarget)(
         },
         iacActor,
       );
-      expect(JSON.stringify(imported)).not.toMatch(/never-public|secretId|ciphertext/);
+      expect(JSON.stringify(imported)).not.toMatch(
+        /never-public|encryptedClientSecret|ciphertext|wrappedDek/,
+      );
       await moveIacState(
         {
           workspaceId: manifest.workspace.id,

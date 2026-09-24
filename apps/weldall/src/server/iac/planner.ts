@@ -1,6 +1,5 @@
-import { isDeepStrictEqual } from "node:util";
 import type { Prisma } from "@weldall/db";
-import { buildConnectorState, buildEncryptionKeyState } from "../connectors/configuration";
+import { buildConnectorState } from "../connectors/configuration";
 import { validateConnectorScopeConfig } from "../connectors/scopes";
 import {
   canonicalJson,
@@ -39,12 +38,6 @@ export function desiredObjects(manifest: DesiredState): Array<{
   state: unknown;
 }> {
   return [
-    ...Object.entries(manifest.encryptionKeys).map(([name, state]) => ({
-      address: `encryptionKey.${name}`,
-      kind: "encryptionKey" as const,
-      identity: state.key,
-      state,
-    })),
     ...Object.entries(manifest.connectors).map(([name, state]) => ({
       address: `connector.${name}`,
       kind: "connector" as const,
@@ -265,7 +258,6 @@ const actionRank: Record<IacAction["action"], number> = {
   noop: 7,
 };
 const kindRank: Record<IacKind, number> = {
-  encryptionKey: 0,
   connector: 1,
   scope: 1,
   resource: 2,
@@ -289,8 +281,7 @@ function compareActions(left: IacAction, right: IacAction): number {
 }
 
 /**
- * Loads current IaC state plus managed-connector lifecycle blockers so plans never replace keys or
- * connectors while ciphertext, connections, or provider cleanup still depend on them.
+ * Loads current IaC state and blocks connector changes while connections or cleanup depend on them.
  */
 export async function loadPlanningState({
   tx,
@@ -321,14 +312,9 @@ export async function loadPlanningState({
       tx.skill.findMany(),
       tx.cliSettings.findUnique({ where: { id: "default" } }),
     ]);
-  const [encryptionKeys, connectors] = await Promise.all([
-    tx.encryptionKey.findMany({
-      include: { versions: true, _count: { select: { connectors: true } } },
-    }),
-    tx.connector.findMany({
-      include: { encryptionKey: true, _count: { select: { connections: true, attempts: true } } },
-    }),
-  ]);
+  const connectors = await tx.connector.findMany({
+    include: { _count: { select: { connections: true, attempts: true } } },
+  });
   const bindingTargets = new Map<string, (typeof bindings)[number]>();
   for (const binding of bindings) {
     for (const id of [
@@ -338,21 +324,12 @@ export async function loadPlanningState({
       binding.emailAssignmentId,
       binding.groupAssignmentId,
       binding.skillId,
-      binding.encryptionKeyId,
       binding.connectorId,
     ])
       if (id) bindingTargets.set(id, binding);
   }
   const ownership = (id: string) => bindingTargets.get(id);
   const objects: CurrentObject[] = [
-    ...encryptionKeys.map((item) => ({
-      kind: "encryptionKey" as const,
-      id: item.id,
-      identity: item.key,
-      version: item.version,
-      state: buildEncryptionKeyState(item),
-      ...bindingInfo(ownership(item.id)),
-    })),
     ...connectors.map((item) => ({
       kind: "connector" as const,
       id: item.id,
@@ -452,7 +429,6 @@ export async function loadPlanningState({
       !item.emailAssignmentId &&
       !item.groupAssignmentId &&
       !item.skillId &&
-      !item.encryptionKeyId &&
       !item.connectorId,
   )) {
     objects.push({
@@ -487,51 +463,15 @@ export async function loadPlanningState({
   );
   const bindingByTarget = new Map(objects.map((object) => [object.id, object]));
   const externalBlockers: IacBlocker[] = [];
-  for (const item of encryptionKeys) {
-    const object = objects.find((o) => o.id === item.id)!;
-    const desiredKey =
-      object.ownerWorkspaceId === manifest.workspace.id && object.address
-        ? manifest.encryptionKeys[object.address.slice("encryptionKey.".length)]
-        : undefined;
-    if (
-      desiredKey &&
-      item.versions.some(
-        (version) =>
-          !isDeepStrictEqual(
-            desiredKey.versions[version.version]?.source,
-            buildEncryptionKeyState(item).versions[version.version]?.source,
-          ),
-      )
-    )
-      externalBlockers.push({
-        code: "IMMUTABLE_VERSION",
-        address: object.address!,
-        message: "Retain historical key versions and immutable source bindings.",
-      });
-    if (
-      object.address &&
-      deletingAddresses.has(object.address) &&
-      (item._count.connectors || (await tx.encryptedValue.count({ where: { keyId: item.id } })))
-    )
-      externalBlockers.push({
-        code: "KEY_IN_USE",
-        address: object.address,
-        message:
-          "Key is referenced by connectors or ciphertext; explicit reassignment/re-encryption is required.",
-      });
-  }
   for (const [address, config] of Object.entries(manifest.connectors)) {
     const current = connectors.find((c) => c.key === config.key);
-    if (
-      !encryptionKeys.some((k) => k.key === config.encryptionKey) &&
-      !Object.values(manifest.encryptionKeys).some((k) => k.key === config.encryptionKey)
-    )
+    if (current && current.envelopeProvider !== config.envelopeProvider)
       externalBlockers.push({
-        code: "MISSING_KEY",
+        code: "IMMUTABLE_PROVIDER",
         address: `connector.${address}`,
-        message: "Encryption key does not exist in persisted or desired state.",
+        message: "Connector envelope provider cannot change.",
       });
-    if (config.enabled && !current?.secretId)
+    if (config.enabled && !current?.encryptedClientSecret)
       externalBlockers.push({
         code: "MISSING_SECRET",
         address: `connector.${address}`,
@@ -691,7 +631,6 @@ function fromPrismaKind(kind: string): IacKind {
       EMAIL_ASSIGNMENT: "emailAssignment",
       GROUP_ASSIGNMENT: "groupAssignment",
       SKILL: "skill",
-      ENCRYPTION_KEY: "encryptionKey",
       CONNECTOR: "connector",
     } as Record<string, IacKind>
   )[kind]!;

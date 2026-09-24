@@ -37,7 +37,7 @@ Weldall CLI is a central access layer between **employees with their agents (lik
 
 Capabilities are defined centrally by administrators. Agents discover what they are allowed to do via the Weldall CLI. Each employee's agent gets its own skill set from the catalog, so you steer what your agents can do centrally and roll out the same workflows consistently across the company.
 
-Built-in [managed Google connections](apps/docs/src/content/docs/managed-connectors.md) add owner-only Gmail and Calendar access: provider tokens stay encrypted on Weldall, and users choose optional permissions during setup. Key definitions and non-secret connector settings support both the admin UI and IaC.
+Built-in [managed Google connections](apps/docs/src/content/docs/managed-connectors.md) add owner-only Gmail and Calendar access: provider tokens stay encrypted on Weldall, and users choose optional permissions during setup. Non-secret connector settings and the immutable envelope-provider choice support both the admin UI and IaC.
 
 The **agent never sees an access token.** The local CLI keeps credentials in the operating system's secure credential store and sends short-lived, device-bound (DPoP) requests itself. Captured tokens cannot be replayed on another machine, and every granted or denied request is recorded for audit.
 
@@ -141,6 +141,10 @@ Works with every OIDC provider:
 </p>
 
 Vendor names and logos are trademarks of their respective owners and indicate interoperability only.
+
+## Deployment encryption
+
+`WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts application secrets, including connector OAuth client secrets. The independent `WELDALL_CONNECTOR_KEK` wraps fresh per-write connector DEKs. All `LOCAL_ENV` connectors share the KEK, never DEKs. Both keys are canonical base64 32-byte secrets: preserve them with database backups; loss or replacement makes the corresponding secrets unavailable. This protects database-only disclosure, not compromise of the application process/environment. OpenBao and key rotation are not supported. See [setup](apps/docs/src/content/docs/weldall-setup.md) and [managed connections](apps/docs/src/content/docs/managed-connectors.md).
 
 ## Documentation
 

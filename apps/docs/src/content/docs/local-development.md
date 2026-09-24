@@ -26,7 +26,7 @@ pnpm install --frozen-lockfile
 (umask 077; set -C; pnpm --silent secrets:generate > .env)
 ```
 
-Keep an existing `.env`: its keys belong to your database. `.env.example` lists the variables but contains no usable values.
+Keep an existing `.env`: its keys belong to your database. `.env.example` lists the variables but contains no usable values. The generator creates independent `WELDALL_CREDENTIAL_ENCRYPTION_KEY` (direct application-secret encryption) and `WELDALL_CONNECTOR_KEK` (per-write connector DEK wrapping). If adding managed connectors to an existing development environment, generate only the missing KEK with `openssl rand -base64 32`; never overwrite an existing key. All local connectors share the KEK but use fresh DEKs on every write. Neither key supports rotation; restore both with database backups. OpenBao is not yet supported. This protects database-only disclosure, not application-process/environment compromise.
 
 Start a database that listens on localhost only:
 

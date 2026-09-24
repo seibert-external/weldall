@@ -1,58 +1,24 @@
 -- CreateEnum
 CREATE TYPE "ConnectionStatus" AS ENUM ('READY', 'REFRESHING', 'RECONNECT_REQUIRED', 'REVOCATION_PENDING', 'DISCONNECTED');
 
+CREATE TYPE "EnvelopeProvider" AS ENUM ('LOCAL_ENV', 'OPENBAO');
+
 -- AlterEnum
--- This migration adds more than one value to an enum.
--- With PostgreSQL versions 11 and earlier, this is not possible
--- in a single migration. This can be worked around by creating
--- multiple migrations, each migration adding only one value to
--- the enum.
-
-
-ALTER TYPE "IacPrimitiveKind" ADD VALUE 'ENCRYPTION_KEY';
 ALTER TYPE "IacPrimitiveKind" ADD VALUE 'CONNECTOR';
 
 -- AlterTable
-ALTER TABLE "IacObjectBinding" ADD COLUMN     "connectorId" TEXT,
-ADD COLUMN     "encryptionKeyId" TEXT;
-
--- CreateTable
-CREATE TABLE "EncryptionKey" (
-    "id" TEXT NOT NULL,
-    "key" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "activeVersion" TEXT NOT NULL,
-    "version" INTEGER NOT NULL DEFAULT 1,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-    "createdBy" TEXT NOT NULL,
-    "updatedBy" TEXT NOT NULL,
-
-    CONSTRAINT "EncryptionKey_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "EncryptionKeyVersion" (
-    "keyId" TEXT NOT NULL,
-    "version" TEXT NOT NULL,
-    "providerType" TEXT NOT NULL,
-    "providerConfig" JSONB NOT NULL,
-    "providerState" JSONB NOT NULL,
-
-    CONSTRAINT "EncryptionKeyVersion_pkey" PRIMARY KEY ("keyId","version")
-);
+ALTER TABLE "IacObjectBinding" ADD COLUMN "connectorId" TEXT;
 
 -- CreateTable
 CREATE TABLE "EncryptedValue" (
     "id" TEXT NOT NULL,
-    "keyId" TEXT NOT NULL,
-    "keyVersion" TEXT NOT NULL,
+    "provider" "EnvelopeProvider" NOT NULL,
+    "wrappedDek" JSONB NOT NULL,
     "formatVersion" INTEGER NOT NULL DEFAULT 1,
     "context" TEXT NOT NULL,
     "nonce" TEXT NOT NULL,
     "ciphertext" TEXT NOT NULL,
     "tag" TEXT NOT NULL,
-    "version" INTEGER NOT NULL DEFAULT 1,
 
     CONSTRAINT "EncryptedValue_pkey" PRIMARY KEY ("id")
 );
@@ -68,8 +34,8 @@ CREATE TABLE "Connector" (
     "allowedScopes" TEXT[],
     "defaultScopes" TEXT[],
     "clientId" TEXT NOT NULL,
-    "encryptionKeyId" TEXT NOT NULL,
-    "secretId" TEXT,
+    "envelopeProvider" "EnvelopeProvider" NOT NULL,
+    "encryptedClientSecret" TEXT,
     "version" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -124,16 +90,7 @@ CREATE TABLE "ConnectionAuthorization" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "EncryptionKey_key_key" ON "EncryptionKey"("key");
-
--- CreateIndex
-CREATE INDEX "EncryptedValue_keyId_keyVersion_idx" ON "EncryptedValue"("keyId", "keyVersion");
-
--- CreateIndex
 CREATE UNIQUE INDEX "Connector_key_key" ON "Connector"("key");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Connector_secretId_key" ON "Connector"("secretId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Connection_credentialId_key" ON "Connection"("credentialId");
@@ -154,28 +111,10 @@ CREATE UNIQUE INDEX "ConnectionAuthorization_payloadId_key" ON "ConnectionAuthor
 CREATE INDEX "ConnectionAuthorization_expiresAt_idx" ON "ConnectionAuthorization"("expiresAt");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "IacObjectBinding_encryptionKeyId_key" ON "IacObjectBinding"("encryptionKeyId");
-
--- CreateIndex
 CREATE UNIQUE INDEX "IacObjectBinding_connectorId_key" ON "IacObjectBinding"("connectorId");
 
 -- AddForeignKey
-ALTER TABLE "IacObjectBinding" ADD CONSTRAINT "IacObjectBinding_encryptionKeyId_fkey" FOREIGN KEY ("encryptionKeyId") REFERENCES "EncryptionKey"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "IacObjectBinding" ADD CONSTRAINT "IacObjectBinding_connectorId_fkey" FOREIGN KEY ("connectorId") REFERENCES "Connector"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "EncryptionKeyVersion" ADD CONSTRAINT "EncryptionKeyVersion_keyId_fkey" FOREIGN KEY ("keyId") REFERENCES "EncryptionKey"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "EncryptedValue" ADD CONSTRAINT "EncryptedValue_keyId_keyVersion_fkey" FOREIGN KEY ("keyId", "keyVersion") REFERENCES "EncryptionKeyVersion"("keyId", "version") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Connector" ADD CONSTRAINT "Connector_encryptionKeyId_fkey" FOREIGN KEY ("encryptionKeyId") REFERENCES "EncryptionKey"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Connector" ADD CONSTRAINT "Connector_secretId_fkey" FOREIGN KEY ("secretId") REFERENCES "EncryptedValue"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Connection" ADD CONSTRAINT "Connection_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -202,9 +141,9 @@ ALTER TABLE "ConnectionAuthorization" ADD CONSTRAINT "ConnectionAuthorization_pa
 -- Preserve typed single-target bindings and tombstones for every existing primitive.
 ALTER TABLE "IacObjectBinding" DROP CONSTRAINT "IacObjectBinding_kind_target_check";
 ALTER TABLE "IacObjectBinding" ADD CONSTRAINT "IacObjectBinding_kind_target_check" CHECK (
-  num_nonnulls("scopeId", "resourceId", "machineClientId", "emailAssignmentId", "groupAssignmentId", "skillId", "encryptionKeyId", "connectorId") = 0
+  num_nonnulls("scopeId", "resourceId", "machineClientId", "emailAssignmentId", "groupAssignmentId", "skillId", "connectorId") = 0
   OR (
-    num_nonnulls("scopeId", "resourceId", "machineClientId", "emailAssignmentId", "groupAssignmentId", "skillId", "encryptionKeyId", "connectorId") = 1
+    num_nonnulls("scopeId", "resourceId", "machineClientId", "emailAssignmentId", "groupAssignmentId", "skillId", "connectorId") = 1
     AND (
       ("kind"::text = 'SCOPE' AND "scopeId" IS NOT NULL)
       OR ("kind"::text = 'RESOURCE' AND "resourceId" IS NOT NULL)
@@ -212,7 +151,6 @@ ALTER TABLE "IacObjectBinding" ADD CONSTRAINT "IacObjectBinding_kind_target_chec
       OR ("kind"::text = 'EMAIL_ASSIGNMENT' AND "emailAssignmentId" IS NOT NULL)
       OR ("kind"::text = 'GROUP_ASSIGNMENT' AND "groupAssignmentId" IS NOT NULL)
       OR ("kind"::text = 'SKILL' AND "skillId" IS NOT NULL)
-      OR ("kind"::text = 'ENCRYPTION_KEY' AND "encryptionKeyId" IS NOT NULL)
       OR ("kind"::text = 'CONNECTOR' AND "connectorId" IS NOT NULL)
     )
   )

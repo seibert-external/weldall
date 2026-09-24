@@ -382,7 +382,6 @@ describe("native YAML workspaces", () => {
     };
     const canonical = {
       ...omittedAndUnsorted,
-      encryptionKeys: {},
       connectors: {},
       scopes: {},
       resources: {
@@ -400,7 +399,7 @@ describe("native YAML workspaces", () => {
     };
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(canonicalManifestDigest(canonical));
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(
-      "a5abf5a1d73625e3372227dd1de1d1740aff323aa4bc6bde56eff39f38d6c9d8",
+      "3eebe93e22e7fc279c0b7267f99381a553b55e0caaa894735bf6e6c79d0a3874",
     );
     const lock = {
       version: 1 as const,
@@ -527,7 +526,7 @@ describe("native YAML workspaces", () => {
           },
         },
       }),
-    ).toBe("34971192bdec43ee53c18cc6883f55449b5c97cf642f1278bf170f04fb5ebb75");
+    ).toBe("eb6a5c9f9aae3d8bb25ba602e680ca6e7aca2f799a299e68a6f836d200131cd1");
 
     await workspace(
       root,

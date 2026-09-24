@@ -96,7 +96,6 @@ export async function writeImportedFragment(path: string, content: string) {
 
 export function declaredImportValue(manifest: any, address: string): unknown {
   const sections: Record<string, string> = {
-    encryptionKey: "encryptionKeys",
     connector: "connectors",
     scope: "scopes",
     resource: "resources",
@@ -170,7 +169,6 @@ export const iacValidateCommand = define({
     const value = {
       valid: true,
       objectCount: [
-        "encryptionKeys",
         "connectors",
         "scopes",
         "resources",
@@ -254,7 +252,6 @@ const importKinds = [
   "emailAssignment",
   "groupAssignment",
   "skill",
-  "encryptionKey",
   "connector",
 ];
 export const iacImportCommand = define({
@@ -274,7 +271,6 @@ export const iacImportCommand = define({
     if (!kind || !name)
       throw new CliError("--as must be a logical address such as scope.expenses_read");
     const sections: Record<string, string> = {
-      encryptionKey: "encryptionKeys",
       connector: "connectors",
       scope: "scopes",
       resource: "resources",
@@ -341,7 +337,6 @@ export const iacUnmanageCommand = define({
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
     const sections: any = {
-      encryptionKey: "encryptionKeys",
       connector: "connectors",
       scope: "scopes",
       resource: "resources",

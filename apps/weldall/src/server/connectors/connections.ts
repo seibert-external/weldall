@@ -3,7 +3,7 @@ import { db, type Connector, type Connection, type Prisma } from "@weldall/db";
 import { z } from "zod";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { ConnectorError, connectionName, type ConnectorActor } from "./contracts";
-import { runConnectorTransaction } from "./configuration";
+import { readConnectorClientSecret, runConnectorTransaction } from "./configuration";
 import {
   calculateEffectiveCapabilities,
   listAvailableScopes,
@@ -149,17 +149,8 @@ export async function listConnectors() {
   );
 }
 /** Reads the encrypted OAuth client secret required for a server-side Google exchange. */
-async function readGoogleClient({ tx, connector }: { tx: Tx; connector: Connector }) {
-  if (!connector.secretId)
-    throw new ConnectorError("unavailable", "Connector is not configured.", 503);
-  return {
-    clientId: connector.clientId,
-    clientSecret: await readSecret({
-      tx,
-      id: connector.secretId,
-      context: `connector:${connector.id}:client-secret`,
-    }),
-  };
+function readGoogleClient(connector: Connector) {
+  return { clientId: connector.clientId, clientSecret: readConnectorClientSecret(connector) };
 }
 /** Stops setup and execution when an administrator has disabled the connector. */
 function assertConnectorEnabled(connector: Connector) {
@@ -345,7 +336,7 @@ export async function submitScopeSelection({
       nonce = createRandomToken();
     const payload = await saveSecret({
       tx,
-      keyId: a.connector.encryptionKeyId,
+      provider: a.connector.envelopeProvider,
       context: `attempt:${id}:oauth`,
       value: JSON.stringify({ verifier, nonce }),
     });
@@ -408,7 +399,7 @@ export async function completeConnection({
       await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
       return null;
     }
-    return { a, payload, client: await readGoogleClient({ tx, connector: a.connector }) };
+    return { a, payload, client: readGoogleClient(a.connector) };
   });
   if (!claimed) return "cancelled" as const;
   const { a, payload } = claimed;
@@ -442,12 +433,9 @@ export async function completeConnection({
   }
   // Preserve newly received credentials before policy validation, so a rejected callback has an explicit revocation path.
   await runConnectorTransaction(async (tx) => {
-    // A key reassignment/re-encryption may have happened during provider I/O.
-    // Retained cleanup material uses the current selection, not an in-memory old key ID.
-    const current = await tx.connector.findUniqueOrThrow({ where: { id: a.connectorId } });
     await saveSecret({
       tx,
-      keyId: current.encryptionKeyId,
+      provider: a.connector.envelopeProvider,
       context: `attempt:${a.id}:oauth`,
       value: JSON.stringify({ ...payload, credentials: result.credentials }),
       id: a.payloadId,
@@ -513,7 +501,7 @@ export async function completeConnection({
         }));
       const secret = await saveSecret({
         tx,
-        keyId: fresh.connector.encryptionKeyId,
+        provider: fresh.connector.envelopeProvider,
         context: `connection:${row.id}:credentials`,
         value: JSON.stringify(result.credentials),
         id: row.credentialId,
@@ -717,7 +705,7 @@ export async function accessCredentials({
       row: { ...updated, connector: row.connector },
       credentials,
       refresh: true as const,
-      client: await readGoogleClient({ tx, connector: row.connector }),
+      client: readGoogleClient(row.connector),
     };
   });
   if (!claim)
@@ -745,7 +733,7 @@ export async function accessCredentials({
         throw new ConnectorError("conflict", "Connection changed during refresh.", 409);
       await saveSecret({
         tx,
-        keyId: row.connector.encryptionKeyId,
+        provider: row.connector.envelopeProvider,
         context: `connection:${row.id}:credentials`,
         value: JSON.stringify(credentials),
         id: row.credentialId,

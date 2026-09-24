@@ -20,7 +20,6 @@ export type {
   OAuthDeviceRefreshBinding,
   Connector,
   Connection,
-  EncryptionKey,
-  EncryptionKeyVersion,
+  EnvelopeProvider,
   EncryptedValue,
 } from "@prisma/client";

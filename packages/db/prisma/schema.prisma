@@ -317,7 +317,6 @@ enum IacPrimitiveKind {
   EMAIL_ASSIGNMENT
   GROUP_ASSIGNMENT
   SKILL
-  ENCRYPTION_KEY
   CONNECTOR
 }
 
@@ -369,7 +368,6 @@ model IacObjectBinding {
   emailAssignmentId String?               @unique
   groupAssignmentId String?               @unique
   skillId           String?               @unique
-  encryptionKeyId   String?               @unique
   connectorId       String?               @unique
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
@@ -380,83 +378,51 @@ model IacObjectBinding {
   emailAssignment   EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
   groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
   skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
-  encryptionKey     EncryptionKey?        @relation(fields: [encryptionKeyId], references: [id], onDelete: SetNull)
   connector         Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])
 }
 
-/// Configuration revision (version) is independent of the active cryptographic version.
-model EncryptionKey {
-  id            String                 @id @default(cuid())
-  key           String                 @unique
-  name          String
-  activeVersion String
-  version       Int                    @default(1)
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
-  createdBy     String
-  updatedBy     String
-  versions      EncryptionKeyVersion[]
-  connectors    Connector[]
-  iacBinding    IacObjectBinding?
-}
-
-/// Provider bindings and state are immutable; retain historical versions for recovery.
-model EncryptionKeyVersion {
-  keyId          String
-  version        String
-  providerType   String
-  providerConfig Json
-  providerState  Json
-  key            EncryptionKey    @relation(fields: [keyId], references: [id], onDelete: Restrict)
-  values         EncryptedValue[]
-
-  @@id([keyId, version])
+enum EnvelopeProvider {
+  LOCAL_ENV
+  OPENBAO
 }
 
 /// Private storage. Public metadata queries must never include this relation.
 model EncryptedValue {
   id            String                   @id @default(cuid())
-  keyId         String
-  keyVersion    String
+  provider      EnvelopeProvider
+  wrappedDek    Json
   formatVersion Int                      @default(1)
   context       String
   nonce         String
   ciphertext    String
   tag           String
-  version       Int                      @default(1)
-  key           EncryptionKeyVersion     @relation(fields: [keyId, keyVersion], references: [keyId, version], onDelete: Restrict)
-  connector     Connector?
   connection    Connection?
   attempt       ConnectionAuthorization?
-
-  @@index([keyId, keyVersion])
 }
 
 model Connector {
-  id              String                    @id @default(cuid())
-  key             String                    @unique
-  name            String
-  type            String                    @default("google")
-  enabled         Boolean                   @default(false)
-  enabledApis     String[]
-  allowedScopes   String[]
-  defaultScopes   String[]
-  clientId        String
-  encryptionKeyId String
-  secretId        String?                   @unique
-  version         Int                       @default(1)
-  createdAt       DateTime                  @default(now())
-  updatedAt       DateTime                  @updatedAt
-  createdBy       String
-  updatedBy       String
-  encryptionKey   EncryptionKey             @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
-  secret          EncryptedValue?           @relation(fields: [secretId], references: [id], onDelete: Restrict)
-  connections     Connection[]
-  attempts        ConnectionAuthorization[]
-  iacBinding      IacObjectBinding?
+  id                    String                    @id @default(cuid())
+  key                   String                    @unique
+  name                  String
+  type                  String                    @default("google")
+  enabled               Boolean                   @default(false)
+  enabledApis           String[]
+  allowedScopes         String[]
+  defaultScopes         String[]
+  clientId              String
+  envelopeProvider      EnvelopeProvider
+  encryptedClientSecret String?
+  version               Int                       @default(1)
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  createdBy             String
+  updatedBy             String
+  connections           Connection[]
+  attempts              ConnectionAuthorization[]
+  iacBinding            IacObjectBinding?
 }
 
 enum ConnectionStatus {

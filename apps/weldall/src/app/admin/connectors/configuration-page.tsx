@@ -11,7 +11,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { MultiSelector } from "@astryxdesign/core/MultiSelector";
-import { Selector } from "@astryxdesign/core/Selector";
+import { EnvelopeProviderField } from "./envelope-provider-field";
 import { Switch } from "@astryxdesign/core/Switch";
 import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
@@ -39,9 +39,8 @@ import {
 
 type Configuration = Awaited<ReturnType<typeof listManagedConnectorConfiguration>>;
 type ConnectorRow = Configuration["connectors"][number];
-type ConnectorAction = { type: "delete" | "reencrypt"; connector: ConnectorRow };
+type ConnectorAction = { connector: ConnectorRow };
 const emptyConnectors: ConnectorRow[] = [];
-const emptyKeys: Configuration["keys"] = [];
 const apiOptions = [
   { value: "gmail", label: "Gmail" },
   { value: "calendar", label: "Google Calendar" },
@@ -58,7 +57,6 @@ export function ManagedConfiguration() {
   const [action, setAction] = useState<ConnectorAction | null>(null);
   const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
   const connectors = configurationQuery.data?.connectors ?? emptyConnectors;
-  const keys = configurationQuery.data?.keys ?? emptyKeys;
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: trpc.admin.managed.configuration.queryKey() });
   };
@@ -71,20 +69,6 @@ export function ManagedConfiguration() {
       },
       onError: (error) =>
         operationToast.error("Could not delete connector", error, "connector-delete"),
-    }),
-  );
-  const reencryptMutation = useMutation(
-    trpc.admin.managed.reencrypt.mutationOptions({
-      onSuccess: async (result) => {
-        setAction(null);
-        operationToast.success(
-          `Re-encrypted ${result.count.toLocaleString()} stored value${result.count === 1 ? "" : "s"}`,
-          "connector-reencrypt",
-        );
-        await refresh();
-      },
-      onError: (error) =>
-        operationToast.error("Could not re-encrypt connector values", error, "connector-reencrypt"),
     }),
   );
   const columns = useMemo<ColumnDef<ConnectorRow>[]>(
@@ -130,9 +114,9 @@ export function ManagedConfiguration() {
         cell: ({ getValue }) => `${getValue<number>().toLocaleString()} allowed`,
       },
       {
-        id: "encryptionKey",
-        accessorFn: (row) => row.config.encryptionKey,
-        header: "Encryption key",
+        id: "envelopeProvider",
+        accessorFn: () => "Local environment key",
+        header: "Envelope provider",
         size: 220,
         minSize: 150,
         maxSize: 320,
@@ -188,7 +172,6 @@ export function ManagedConfiguration() {
     <>
       <HerocrumbsActions>
         <div className="admin-table-action-row">
-          <Button href="/admin/keys" label="Encryption keys" variant="secondary" />
           <Button
             label="Add connector"
             onClick={() => setEditingConnector(null)}
@@ -220,15 +203,10 @@ export function ManagedConfiguration() {
         <ConnectorDialog
           key={editingConnector?.id ?? "new"}
           connector={editingConnector}
-          keys={keys}
           onClose={() => setEditingConnector(undefined)}
           onDelete={(connector) => {
             setEditingConnector(undefined);
-            setAction({ type: "delete", connector });
-          }}
-          onReencrypt={(connector) => {
-            setEditingConnector(undefined);
-            setAction({ type: "reencrypt", connector });
+            setAction({ connector });
           }}
           onSaved={async () => {
             setEditingConnector(undefined);
@@ -237,30 +215,22 @@ export function ManagedConfiguration() {
         />
       ) : null}
       <AlertDialog
-        actionLabel={action?.type === "delete" ? "Delete connector" : "Re-encrypt values"}
+        actionLabel="Delete connector"
         description={
-          action?.type === "delete"
+          action
             ? `Delete ${action.connector.config.name}? Connections and authorization attempts must be removed first.`
-            : action
-              ? `Synchronously re-encrypt every stored value for ${action.connector.config.name} with its selected active key version? The operation rolls back on failure.`
-              : "Confirm this connector operation."
+            : "Confirm deletion."
         }
-        isActionLoading={deleteMutation.isPending || reencryptMutation.isPending}
+        isActionLoading={deleteMutation.isPending}
         isOpen={Boolean(action)}
         onAction={() => {
           if (!action) return;
-          if (action.type === "delete")
-            deleteMutation.mutate({ id: action.connector.id, version: action.connector.version });
-          else
-            reencryptMutation.mutate({
-              id: action.connector.id,
-              version: action.connector.version,
-            });
+          deleteMutation.mutate({ id: action.connector.id, version: action.connector.version });
         }}
         onOpenChange={(open) => {
-          if (!open && !deleteMutation.isPending && !reencryptMutation.isPending) setAction(null);
+          if (!open && !deleteMutation.isPending) setAction(null);
         }}
-        title={action?.type === "delete" ? "Delete connector?" : "Re-encrypt stored values?"}
+        title="Delete connector?"
       />
     </>
   );
@@ -352,17 +322,13 @@ function ManagedTable({
 /** Collects and validates connector configuration before the admin mutation is submitted. */
 function ConnectorDialog({
   connector,
-  keys,
   onClose,
   onDelete,
-  onReencrypt,
   onSaved,
 }: {
   connector: ConnectorRow | null;
-  keys: Configuration["keys"];
   onClose: () => void;
   onDelete: (connector: ConnectorRow) => void;
-  onReencrypt: (connector: ConnectorRow) => void;
   onSaved: () => Promise<void>;
 }) {
   const trpc = useTRPC();
@@ -392,7 +358,7 @@ function ConnectorDialog({
       key: config?.key ?? "",
       name: config?.name ?? "",
       clientId: config?.clientId ?? "",
-      encryptionKey: config?.encryptionKey ?? "",
+      envelopeProvider: config?.envelopeProvider ?? ("LOCAL_ENV" as const),
       enabledApis: config?.enabledApis ?? (["gmail", "calendar"] as ("gmail" | "calendar")[]),
       allowedScopes: config?.allowedScopes ?? [],
       defaultScopes: config?.defaultScopes ?? [],
@@ -511,30 +477,7 @@ function ConnectorDialog({
                     />
                   )}
                 </form.Field>
-                <form.Field
-                  name="encryptionKey"
-                  validators={{
-                    onChange: ({ value }) => (value ? undefined : "Choose an encryption key."),
-                    onSubmit: ({ value }) => (value ? undefined : "Choose an encryption key."),
-                  }}
-                >
-                  {(field) => (
-                    <Selector
-                      hasClear
-                      isRequired
-                      label="Encryption key"
-                      onChange={(value) => field.handleChange(value ?? "")}
-                      options={keys.map((key) => ({
-                        value: key.config.key,
-                        label: `${key.config.name}${key.available ? "" : " (unavailable)"}`,
-                      }))}
-                      placeholder="Choose a key…"
-                      {...getFieldStatusProps(field)}
-                      value={field.state.value || null}
-                      width="100%"
-                    />
-                  )}
-                </form.Field>
+                <EnvelopeProviderField existing={Boolean(connector)} />
                 <form.Field
                   name="enabledApis"
                   validators={{
@@ -724,13 +667,6 @@ function ConnectorDialog({
                     type="button"
                     variant="destructive"
                   />
-                  <Button
-                    isDisabled={busy}
-                    label="Re-encrypt values"
-                    onClick={() => onReencrypt(connector)}
-                    type="button"
-                    variant="secondary"
-                  />
                 </>
               ) : null}
               <Button label="Cancel" onClick={onClose} type="button" variant="secondary" />
@@ -738,7 +674,7 @@ function ConnectorDialog({
                 {(canSubmit) => (
                   <Button
                     form={formId}
-                    isDisabled={!canSubmit || busy || keys.length === 0}
+                    isDisabled={!canSubmit || busy}
                     isLoading={saveMutation.isPending}
                     label={connector ? "Save connector" : "Add connector"}
                     type="submit"

@@ -6,11 +6,8 @@ import { prismaAuditWriter, type AuditEventInput } from "../audit/service";
 import type { AuditReasonCode } from "../../lib/audit";
 import {
   buildConnectorState,
-  buildEncryptionKeyState,
   deleteConnectorConfiguration,
-  deleteEncryptionKeyConfiguration,
   saveConnectorConfiguration,
-  saveEncryptionKeyConfiguration,
 } from "../connectors/configuration";
 import { ConnectorError } from "../connectors/contracts";
 import {
@@ -255,7 +252,6 @@ async function executeDesiredState({
   // anything they formerly referenced. Replacements are then created and all
   // desired relations are reconnected before commit.
   for (const kind of [
-    "encryptionKey",
     "connector",
     "scope",
     "resource",
@@ -405,22 +401,6 @@ async function upsertObject({
     requestId: actor.requestId,
     type: "machine" as const,
   };
-  if (kind === "encryptionKey") {
-    const current = binding?.encryptionKeyId
-      ? await tx.encryptionKey.findUnique({ where: { id: binding.encryptionKeyId } })
-      : null;
-    if (!current && (await tx.encryptionKey.findUnique({ where: { key: state.key } })))
-      throw new IacError("MANUAL_COLLISION", `${state.key} must be imported`, 409);
-    return (
-      await saveEncryptionKeyConfiguration({
-        tx,
-        value: state,
-        id: current?.id,
-        expectedVersion: current?.version ?? null,
-        actor: connectorActor,
-      })
-    ).id;
-  }
   if (kind === "connector") {
     const current = binding?.connectorId
       ? await tx.connector.findUnique({ where: { id: binding.connectorId } })
@@ -792,7 +772,6 @@ export async function getIacState(workspaceId: string) {
           item.emailAssignmentId ??
           item.groupAssignmentId ??
           item.skillId ??
-          item.encryptionKeyId ??
           item.connectorId;
         return {
           address: item.address,
@@ -862,13 +841,6 @@ function lifecycleSummary(priorRevision: number, resultingRevision: number, addr
 }
 
 async function observedVersion(client: typeof db, binding: any): Promise<number> {
-  if (binding.encryptionKeyId)
-    return (
-      await client.encryptionKey.findUniqueOrThrow({
-        where: { id: binding.encryptionKeyId },
-        select: { version: true },
-      })
-    ).version;
   if (binding.connectorId)
     return (
       await client.connector.findUniqueOrThrow({
@@ -1115,17 +1087,7 @@ async function deleteBoundObject({
   binding: any;
   actor: MutationActor;
 }) {
-  if (binding.encryptionKeyId) {
-    const current = await tx.encryptionKey.findUniqueOrThrow({
-      where: { id: binding.encryptionKeyId },
-    });
-    await deleteEncryptionKeyConfiguration({
-      tx,
-      id: current.id,
-      version: current.version,
-      actor,
-    });
-  } else if (binding.connectorId) {
+  if (binding.connectorId) {
     const current = await tx.connector.findUniqueOrThrow({ where: { id: binding.connectorId } });
     await deleteConnectorConfiguration({
       tx,
@@ -1191,7 +1153,6 @@ function compareBindingDeletes(left: any, right: any) {
     RESOURCE: 3,
     SCOPE: 4,
     CONNECTOR: 5,
-    ENCRYPTION_KEY: 6,
   };
   return (
     (rank[left.kind] ?? 9) - (rank[right.kind] ?? 9) || right.address.localeCompare(left.address)
@@ -1213,7 +1174,6 @@ function toDbKind(kind: string): any {
       emailAssignment: "EMAIL_ASSIGNMENT",
       groupAssignment: "GROUP_ASSIGNMENT",
       skill: "SKILL",
-      encryptionKey: "ENCRYPTION_KEY",
       connector: "CONNECTOR",
     } as any
   )[kind];
@@ -1227,7 +1187,6 @@ function fromDbKind(kind: string): any {
       EMAIL_ASSIGNMENT: "emailAssignment",
       GROUP_ASSIGNMENT: "groupAssignment",
       SKILL: "skill",
-      ENCRYPTION_KEY: "encryptionKey",
       CONNECTOR: "connector",
     } as any
   )[kind];
@@ -1242,7 +1201,6 @@ function bindingTarget({ kind, id }: { kind: string; id: string }) {
       emailAssignment: { emailAssignmentId: id },
       groupAssignment: { groupAssignmentId: id },
       skill: { skillId: id },
-      encryptionKey: { encryptionKeyId: id },
       connector: { connectorId: id },
     } as any
   )[kind];
@@ -1256,7 +1214,6 @@ function nullBindingTarget(kind: string) {
       emailAssignment: { emailAssignmentId: null },
       groupAssignment: { groupAssignmentId: null },
       skill: { skillId: null },
-      encryptionKey: { encryptionKeyId: null },
       connector: { connectorId: null },
     } as any
   )[kind];
@@ -1272,16 +1229,7 @@ async function findNatural({
   identity: string;
 }): Promise<any> {
   let row: any;
-  if (kind === "encryptionKey")
-    row = await tx.encryptionKey.findUnique({
-      where: { key: identity },
-      include: { versions: true },
-    });
-  else if (kind === "connector")
-    row = await tx.connector.findUnique({
-      where: { key: identity },
-      include: { encryptionKey: true },
-    });
+  if (kind === "connector") row = await tx.connector.findUnique({ where: { key: identity } });
   else if (kind === "scope") row = await tx.scope.findUnique({ where: { key: identity } });
   else if (kind === "resource")
     row = await tx.downstreamResource.findUnique({
@@ -1325,62 +1273,59 @@ async function findNatural({
         { emailAssignmentId: row.id },
         { groupAssignmentId: row.id },
         { skillId: row.id },
-        { encryptionKeyId: row.id },
         { connectorId: row.id },
       ],
     },
   });
   const state =
-    kind === "encryptionKey"
-      ? buildEncryptionKeyState(row)
-      : kind === "connector"
-        ? buildConnectorState(row)
-        : kind === "scope"
-          ? { key: row.key, description: row.description }
-          : kind === "resource"
+    kind === "connector"
+      ? buildConnectorState(row)
+      : kind === "scope"
+        ? { key: row.key, description: row.description }
+        : kind === "resource"
+          ? {
+              key: row.key,
+              name: row.name,
+              resourceIdentifier: row.resourceIdentifier,
+              authorizationServer: row.authorizationServer,
+              downstreamClientId: row.downstreamClientId,
+              enabled: row.enabled,
+              skillDiscoveryEnabled: row.skillDiscoveryEnabled,
+              requestPrefixes: row.requestPrefixes.map((item: any) => item.urlPrefix).sort(),
+              scopes: row.scopes.map((item: any) => item.scope.key).sort(),
+            }
+          : kind === "machine"
             ? {
-                key: row.key,
+                clientId: row.clientId,
                 name: row.name,
-                resourceIdentifier: row.resourceIdentifier,
-                authorizationServer: row.authorizationServer,
-                downstreamClientId: row.downstreamClientId,
                 enabled: row.enabled,
-                skillDiscoveryEnabled: row.skillDiscoveryEnabled,
-                requestPrefixes: row.requestPrefixes.map((item: any) => item.urlPrefix).sort(),
-                scopes: row.scopes.map((item: any) => item.scope.key).sort(),
+                publicKeys: Object.fromEntries(
+                  row.keys
+                    .filter((item: any) => !item.revokedAt)
+                    .sort((a: any, b: any) => a.kid.localeCompare(b.kid))
+                    .map((item: any) => [item.kid, item.publicJwk]),
+                ),
+                resources: row.allowedResources.map((item: any) => item.resource.key).sort(),
+                scopes: row.allowedScopes.map((item: any) => item.scope.key).sort(),
               }
-            : kind === "machine"
+            : kind === "emailAssignment"
               ? {
-                  clientId: row.clientId,
-                  name: row.name,
-                  enabled: row.enabled,
-                  publicKeys: Object.fromEntries(
-                    row.keys
-                      .filter((item: any) => !item.revokedAt)
-                      .sort((a: any, b: any) => a.kid.localeCompare(b.kid))
-                      .map((item: any) => [item.kid, item.publicJwk]),
-                  ),
-                  resources: row.allowedResources.map((item: any) => item.resource.key).sort(),
-                  scopes: row.allowedScopes.map((item: any) => item.scope.key).sort(),
+                  email: row.normalizedEmail,
+                  scopes: row.grants.map((item: any) => item.scope.key).sort(),
                 }
-              : kind === "emailAssignment"
+              : kind === "groupAssignment"
                 ? {
-                    email: row.normalizedEmail,
+                    provider: row.provider.key,
+                    groupId: row.groupId,
                     scopes: row.grants.map((item: any) => item.scope.key).sort(),
                   }
-                : kind === "groupAssignment"
-                  ? {
-                      provider: row.provider.key,
-                      groupId: row.groupId,
-                      scopes: row.grants.map((item: any) => item.scope.key).sort(),
-                    }
-                  : {
-                      slug: row.slug,
-                      title: row.title,
-                      content: row.content,
-                      requiredScopes: [...row.requiredScopes].sort(),
-                      visibility: row.visibility,
-                    };
+                : {
+                    slug: row.slug,
+                    title: row.title,
+                    content: row.content,
+                    requiredScopes: [...row.requiredScopes].sort(),
+                    visibility: row.visibility,
+                  };
   return { id: row.id, owned: owned?.workspaceId, state };
 }
 async function writeIacAudit(

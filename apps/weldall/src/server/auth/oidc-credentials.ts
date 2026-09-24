@@ -35,10 +35,11 @@ function key() {
   return key;
 }
 /**
- * Encrypts an OIDC provider secret or transient login-attempt payload before database storage.
+ * Fixed application encryption for OIDC, login attempts, and connector OAuth client secrets.
  * AES-GCM authenticated data binds the ciphertext to its purpose and row id to prevent swaps.
  */
-export function seal(purpose: "provider" | "attempt", id: string, value: string): string {
+type FixedSecretPurpose = "provider" | "attempt" | "connector-client-secret";
+export function seal(purpose: FixedSecretPurpose, id: string, value: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key(), iv);
   cipher.setAAD(Buffer.from(`weldall-login:v1:${purpose}:${id}`));
@@ -51,7 +52,7 @@ export function seal(purpose: "provider" | "attempt", id: string, value: string)
   ].join(".");
 }
 /** Decrypts a sealed database value and rejects a changed key, purpose, row id, or payload. */
-export function unseal(purpose: "provider" | "attempt", id: string, value: string): string {
+export function unseal(purpose: FixedSecretPurpose, id: string, value: string): string {
   try {
     const [version, iv, encrypted, tag, extra] = value.split(".");
     if (version !== "v1" || !iv || !encrypted || !tag || extra) throw new Error();

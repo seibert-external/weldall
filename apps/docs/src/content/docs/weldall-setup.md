@@ -46,12 +46,16 @@ The ES256 key pair is generated once and kept in your secret manager. The JWKs a
 
 Required for the installer:
 
-| Variable                            | Purpose                                                              |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| `WELDALL_SETUP_TOKEN`               | Base64url token from at least 32 random bytes that authorizes setup. |
-| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Base64-encoded 32-byte AES key that encrypts provider credentials.   |
+| Variable                            | Purpose                                                                                                              |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `WELDALL_SETUP_TOKEN`               | Base64url token from at least 32 random bytes that authorizes setup.                                                 |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Canonical base64 32-byte AES key directly protecting login/OIDC, group-provider, and connector OAuth client secrets. |
 
-The first start needs both: without them the installer stays closed.
+The first start needs both: without them the installer stays closed. Keep the application encryption key unchanged after installation.
+
+For [managed connectors](../managed-connectors/), additionally provision `WELDALL_CONNECTOR_KEK`: an independent canonical base64 32-byte key that wraps fresh per-write data encryption keys (DEKs). All `LOCAL_ENV` connectors share this KEK but never share DEKs. OpenBao is not yet supported, and neither fixed application encryption nor the local envelope provider supports key rotation. Startup checks stored connector secrets and envelopes before serving traffic.
+
+Restore the corresponding deployment secrets with database backups. Loss or replacement of either environment key makes the corresponding secrets unavailable; no fallback key is generated. Encryption protects against database-only disclosure, not compromise of the application process or environment.
 
 Optional variables:
 
@@ -68,7 +72,7 @@ pnpm install --frozen-lockfile
 pnpm secrets:generate
 ```
 
-The command prints environment lines for the whole workspace. For the container, take `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN` and `WELDALL_CREDENTIAL_ENCRYPTION_KEY` into your secret manager. Set `POSTGRES_URL` and `WELDALL_ISSUER` yourself.
+The command prints environment lines for the whole workspace. For the container, take `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN`, `WELDALL_CREDENTIAL_ENCRYPTION_KEY` and (for managed connectors) `WELDALL_CONNECTOR_KEK` into your secret manager. Set `POSTGRES_URL` and `WELDALL_ISSUER` yourself.
 
 :::note[Development entries]
 Leave the rest of the output out: `WELDALL_DEPLOYMENT_MODE=development`, `NODE_USE_SYSTEM_CA`, `DEV_IDP_*`, `EXPENSES_*` and `DEV_M2M_*` belong to the local development stack. The container requires `WELDALL_DEPLOYMENT_MODE=production` and refuses to start with any other value.
@@ -88,6 +92,7 @@ docker run -d --name weldall \
   -e BETTER_AUTH_SECRET=... \
   -e WELDALL_SETUP_TOKEN=... \
   -e WELDALL_CREDENTIAL_ENCRYPTION_KEY=... \
+  -e WELDALL_CONNECTOR_KEK=... \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \

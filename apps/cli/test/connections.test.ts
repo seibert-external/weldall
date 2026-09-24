@@ -95,29 +95,17 @@ describe("managed connection CLI", () => {
     await expect(listConnectors(config)).resolves.toEqual([connector]);
   });
 
-  it("canonicalizes source references without resolving deployment secrets locally", () => {
+  it("requires an explicit local provider without resolving deployment secrets locally", () => {
     const manifest = {
       apiVersion: "weldall.dev/v1" as const,
       workspace: { name: "test", issuer: config.issuer },
-      encryptionKeys: {
-        arbitrary: {
-          key: "arbitrary",
-          name: "Key",
-          activeVersion: "1",
-          versions: {
-            "1": {
-              source: { type: "local-env", variable: "DOES_NOT_EXIST_ON_CLI" },
-            },
-          },
-        },
-      },
       connectors: {
         google: {
           key: "google",
           name: "Google",
           type: "google",
           enabled: false,
-          encryptionKey: "arbitrary",
+          envelopeProvider: "LOCAL_ENV",
           clientId: "client",
           enabledApis: ["gmail"],
           allowedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
@@ -125,9 +113,26 @@ describe("managed connection CLI", () => {
         },
       },
     };
-    expect(serverManifest(manifest, newLock(manifest)).encryptionKeys).toEqual(
-      manifest.encryptionKeys,
-    );
+    expect(serverManifest(manifest, newLock(manifest)).connectors).toEqual(manifest.connectors);
+    for (const envelopeProvider of [undefined, "OPENBAO", "unknown"]) {
+      expect(() =>
+        serverManifest(
+          {
+            ...manifest,
+            connectors: { google: { ...manifest.connectors.google, envelopeProvider } },
+          },
+          newLock(manifest),
+        ),
+      ).toThrow();
+    }
+    for (const extra of [{ variable: "ARBITRARY_ENV" }, { providerConfig: {} }]) {
+      expect(() =>
+        serverManifest(
+          { ...manifest, connectors: { google: { ...manifest.connectors.google, ...extra } } },
+          newLock(manifest),
+        ),
+      ).toThrow("Unknown connectors field");
+    }
     expect(canonicalServerManifest(manifest).connectors).toEqual(manifest.connectors);
     expect(() =>
       serverManifest(

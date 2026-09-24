@@ -93,7 +93,6 @@ components:
         apiVersion: { const: weldall.dev/v1 }
         workspace: { $ref: "#/components/schemas/Workspace" }
         cli: { $ref: "./weldall-manifest-v1.schema.json#/properties/cli" }
-        encryptionKeys: { $ref: "./weldall-manifest-v1.schema.json#/properties/encryptionKeys" }
         connectors: { $ref: "./weldall-manifest-v1.schema.json#/properties/connectors" }
         scopes: { $ref: "./weldall-manifest-v1.schema.json#/properties/scopes" }
         resources: { $ref: "./weldall-manifest-v1.schema.json#/properties/resources" }
@@ -103,7 +102,7 @@ components:
         groupAssignments: { $ref: "./weldall-manifest-v1.schema.json#/properties/groupAssignments" }
     Address:
       type: string
-      pattern: '^(encryptionKey|connector|scope|resource|machine|emailAssignment|groupAssignment|skill|cli)\.[a-z][a-z0-9_-]{0,119}$'
+      pattern: '^(connector|scope|resource|machine|emailAssignment|groupAssignment|skill|cli)\.[a-z][a-z0-9_-]{0,119}$'
     Digest: { type: string, pattern: "^[a-f0-9]{64}$" }
     OperationId: { type: string, format: uuid }
     Workspace:
@@ -142,17 +141,7 @@ components:
           workspace: { $ref: "#/components/schemas/Workspace" },
           kind:
             {
-              enum:
-                [
-                  encryptionKey,
-                  connector,
-                  scope,
-                  resource,
-                  machine,
-                  emailAssignment,
-                  groupAssignment,
-                  skill,
-                ],
+              enum: [connector, scope, resource, machine, emailAssignment, groupAssignment, skill],
             },
           identity: { type: string, minLength: 1, maxLength: 160 },
           address: { $ref: "#/components/schemas/Address" },
@@ -191,17 +180,7 @@ components:
           kind:
             {
               enum:
-                [
-                  encryptionKey,
-                  connector,
-                  scope,
-                  resource,
-                  machine,
-                  emailAssignment,
-                  groupAssignment,
-                  skill,
-                  cli,
-                ],
+                [connector, scope, resource, machine, emailAssignment, groupAssignment, skill, cli],
             },
           action:
             { enum: [create, update, replace, delete, recreate, register_key, revoke_key, noop] },

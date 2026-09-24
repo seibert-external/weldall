@@ -46,68 +46,6 @@
         "type": "string"
       }
     },
-    "encryptionKeys": {
-      "type": "object",
-      "maxProperties": 1000,
-      "propertyNames": {
-        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
-      },
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["key", "name", "activeVersion", "versions"],
-        "properties": {
-          "key": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120,
-            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "activeVersion": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120,
-            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
-          },
-          "versions": {
-            "type": "object",
-            "minProperties": 1,
-            "maxProperties": 1000,
-            "propertyNames": {
-              "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
-            },
-            "additionalProperties": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["source"],
-              "properties": {
-                "source": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["type", "variable"],
-                  "properties": {
-                    "type": {
-                      "const": "local-env"
-                    },
-                    "variable": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 200,
-                      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,199}$"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "connectors": {
       "type": "object",
       "maxProperties": 1000,
@@ -122,7 +60,7 @@
           "name",
           "type",
           "enabled",
-          "encryptionKey",
+          "envelopeProvider",
           "clientId",
           "enabledApis",
           "allowedScopes",
@@ -146,11 +84,9 @@
           "enabled": {
             "type": "boolean"
           },
-          "encryptionKey": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120,
-            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          "envelopeProvider": {
+            "const": "LOCAL_ENV",
+            "description": "Immutable after creation. All local connectors use the deployment-wide KEK; OpenBao is not supported yet."
           },
           "clientId": {
             "type": "string",
