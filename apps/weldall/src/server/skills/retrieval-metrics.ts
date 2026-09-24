@@ -65,12 +65,16 @@ export async function recordSkillRetrievalEvent(input: SkillRetrievalEventInput)
 export async function getSkillRetrievalCountsBySlugs(
   slugs: readonly string[],
   days = DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS,
+  now = Date.now(),
 ): Promise<Record<string, number>> {
   if (slugs.length === 0) return {};
   const windowDays = normalizeSkillRetrievalWindowDays(days);
-  const windowStart = new Date(Date.now() - windowDays * DAY_IN_MS);
+  const windowStart = new Date(now - windowDays * DAY_IN_MS);
   const retrievals = await db.skillRetrievalEvent.findMany({
-    where: { skillSlug: { in: [...slugs] }, occurredAt: { gte: windowStart } },
+    where: {
+      skillSlug: { in: [...slugs] },
+      occurredAt: { gte: windowStart, lt: new Date(now) },
+    },
     distinct: ["skillSlug", "retrieverId"],
     select: { skillSlug: true, retrieverId: true },
   });
