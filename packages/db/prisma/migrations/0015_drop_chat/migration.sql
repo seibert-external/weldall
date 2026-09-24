@@ -26,6 +26,7 @@ ALTER TABLE "AuditEvent"
       'group_scopes.replaced', 'group_scopes.deleted', 'iac.plan.generated',
       'iac.apply.succeeded', 'iac.apply.denied', 'iac.apply.failed',
       'iac.object.imported', 'iac.object.unmanaged', 'iac.state.moved',
-      'login.installation.completed', 'login.provider.saved'
+      'login.installation.completed', 'login.provider.saved',
+      'connector.configuration', 'connector.lifecycle', 'connector.request'
     )
   );
