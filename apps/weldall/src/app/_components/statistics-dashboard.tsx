@@ -120,31 +120,48 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
 
   return (
     <>
-      <Card className="statistics-card">
-        <h2>Active people</h2>
-        {activeHumans.count === 0 ? (
-          <EmptyState
-            headingLevel={3}
-            isCompact
-            title={`No active people in the last ${period}.`}
-          />
-        ) : (
-          <div className="statistics-active">
-            <div className="statistics-active-total">
-              <p className="statistics-count">{activeHumans.count}</p>
-              <p className="statistics-muted">
-                {comparisonLabel(activeHumans.count, activeHumans.previousCount, period)}
-              </p>
+      <div className="statistics-summary">
+        <Card className="statistics-card">
+          <h2>Active people</h2>
+          {activeHumans.count === 0 ? (
+            <EmptyState
+              headingLevel={3}
+              isCompact
+              title={`No active people in the last ${period}.`}
+            />
+          ) : (
+            <div className="statistics-active">
+              <div className="statistics-active-total">
+                <p className="statistics-count">{activeHumans.count}</p>
+                <p className="statistics-muted">
+                  {comparisonLabel(activeHumans.count, activeHumans.previousCount, period)}
+                </p>
+              </div>
+              <div className="statistics-people">
+                <SkillRetrieverList retrievers={activeHumans.users} />
+                {remainingHumans > 0 ? (
+                  <p className="statistics-muted">{`and ${remainingHumans} more`}</p>
+                ) : null}
+              </div>
             </div>
-            <div className="statistics-people">
-              <SkillRetrieverList retrievers={activeHumans.users} />
-              {remainingHumans > 0 ? (
-                <p className="statistics-muted">{`and ${remainingHumans} more`}</p>
-              ) : null}
-            </div>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+        <Card className="statistics-card">
+          <h2>Machines</h2>
+          {machines.count === 0 ? (
+            <EmptyState
+              headingLevel={3}
+              isCompact
+              title={`No machine tokens in the last ${period}.`}
+            />
+          ) : (
+            <>
+              <p className="statistics-count statistics-count-small">{machines.count}</p>
+              <p className="statistics-muted">Machine clients that asked for a token.</p>
+            </>
+          )}
+        </Card>
+      </div>
       <div className="statistics-charts">
         <Card className="statistics-card">
           <h2>Resources</h2>
@@ -185,21 +202,6 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
           )}
         </Card>
       </div>
-      <Card className="statistics-card">
-        <h2>Machines</h2>
-        {machines.count === 0 ? (
-          <EmptyState
-            headingLevel={3}
-            isCompact
-            title={`No machine tokens in the last ${period}.`}
-          />
-        ) : (
-          <>
-            <p className="statistics-count statistics-count-small">{machines.count}</p>
-            <p className="statistics-muted">Machine clients that asked for a token.</p>
-          </>
-        )}
-      </Card>
     </>
   );
 }

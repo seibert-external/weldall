@@ -729,6 +729,18 @@
     color: var(--color-text-secondary);
   }
 
+  .statistics-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  @media (max-width: 60rem) {
+    .statistics-summary {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .statistics-active {
     display: grid;
     grid-template-columns: 16rem minmax(0, 1fr);
