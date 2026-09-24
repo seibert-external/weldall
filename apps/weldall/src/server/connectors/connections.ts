@@ -3,30 +3,32 @@ import { db, type Connector, type Connection, type Prisma } from "@weldall/db";
 import { z } from "zod";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { ConnectorError, connectionName, type ConnectorActor } from "./contracts";
-import { transaction } from "./configuration";
+import { runConnectorTransaction } from "./configuration";
 import {
-  availableScopes,
-  effectiveCapabilities,
+  calculateEffectiveCapabilities,
+  listAvailableScopes,
   normalizeGrants,
-  refreshNeedsReconnect,
   requiredScopes,
-  validateSelection,
+  shouldReconnectAfterRefresh,
+  validateSelectedScopes,
 } from "./scopes";
 import { readSecret, saveSecret } from "./encryption";
 import {
-  authorizationUrl,
-  completeGoogle,
+  buildGoogleAuthorizationUrl,
+  completeGoogleAuthorization,
   credentialsSchema,
-  refreshGoogle,
-  revokeGoogle,
+  refreshGoogleCredentials,
+  revokeGoogleAuthorization,
   GoogleTokenError,
 } from "./google";
-import { connectorAudit } from "./audit";
+import { writeConnectorAuditLog } from "./audit";
 
 type Tx = Prisma.TransactionClient;
 const callback = `${WELDALL_ISSUER}/api/connectors/google/callback`;
-const hash = (s: string) => createHash("sha256").update(s).digest("hex");
-const random = () => randomBytes(32).toString("base64url");
+/** Derives non-reversible comparison values for OAuth state and account metadata. */
+const hashValue = (value: string) => createHash("sha256").update(value).digest("hex");
+/** Creates short-lived high-entropy values for OAuth state, nonce, and PKCE flows. */
+const createRandomToken = () => randomBytes(32).toString("base64url");
 const attemptPayload = z.object({
   verifier: z.string(),
   nonce: z.string(),
@@ -49,15 +51,21 @@ export const metadataSelect = {
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.ConnectionSelect;
-/** A selector is not authority. Administrators may inspect/disconnect, never execute as another owner.
- * Future: connection IaC and scope/path/method-restricted connectionLease sharing may extend this check. */
-export function assertOwner(ownerId: string, actorId: string) {
+/**
+ * Enforces owner authority for every connection workflow. Administrators may inspect or disconnect,
+ * but never execute as another owner; future connection leases may extend this boundary.
+ */
+export function assertConnectionOwner({ ownerId, actorId }: { ownerId: string; actorId: string }) {
   if (ownerId !== actorId) throw new ConnectorError("not_found", "Connection not found.", 404);
 }
-export function connectionMetadata(
-  row: Prisma.ConnectionGetPayload<{ select: typeof metadataSelect }>,
-  connector: Connector,
-) {
+/** Builds the credential-free connection representation returned by CLI and admin metadata APIs. */
+export function buildConnectionMetadata({
+  row,
+  connector,
+}: {
+  row: Prisma.ConnectionGetPayload<{ select: typeof metadataSelect }>;
+  connector: Connector;
+}) {
   return {
     id: row.id,
     ownerId: row.ownerId,
@@ -76,13 +84,26 @@ export function connectionMetadata(
     updatedAt: row.updatedAt,
     capabilities:
       connector.enabled && row.status === "READY"
-        ? effectiveCapabilities(connector, row.selectedScopes, row.grantedScopes)
+        ? calculateEffectiveCapabilities({
+            config: connector,
+            selected: row.selectedScopes,
+            granted: row.grantedScopes,
+          })
         : [],
     connectorKey: connector.key,
     connectorEnabled: connector.enabled,
   };
 }
-export async function ownedConnection(tx: Tx, selector: string, actor: ConnectorActor) {
+/** Resolves an owner-scoped connection by stable ID first and then by owner-unique name. */
+export async function findOwnedConnection({
+  tx,
+  selector,
+  actor,
+}: {
+  tx: Tx;
+  selector: string;
+  actor: ConnectorActor;
+}) {
   // Stable IDs take precedence over names; a second connection's name cannot shadow an ID.
   const row =
     (await tx.connection.findFirst({
@@ -94,9 +115,10 @@ export async function ownedConnection(tx: Tx, selector: string, actor: Connector
       include: { connector: true },
     }));
   if (!row) throw new ConnectorError("not_found", "Connection not found.", 404);
-  assertOwner(row.ownerId, actor.id);
+  assertConnectionOwner({ ownerId: row.ownerId, actorId: actor.id });
   return row;
 }
+/** Lists credential-free connection metadata for an owner or the administrative overview. */
 export async function listConnections(actor?: ConnectorActor) {
   const rows = await db.connection.findMany({
     where: actor ? { ownerId: actor.id } : {},
@@ -109,38 +131,50 @@ export async function listConnections(actor?: ConnectorActor) {
     take: 200,
   });
   return rows.map(({ connector, owner, ...row }) => ({
-    ...connectionMetadata(row, connector),
+    ...buildConnectionMetadata({ row, connector }),
     owner,
   }));
 }
+/** Lists enabled connector catalogs and setup metadata exposed to authenticated CLI users. */
 export async function listConnectors() {
   return (await db.connector.findMany({ where: { enabled: true }, orderBy: { key: "asc" } })).map(
     (c) => ({
       key: c.key,
       name: c.name,
       type: c.type,
-      scopes: availableScopes(c),
+      scopes: listAvailableScopes(c),
       defaultScopes: c.defaultScopes,
       requestPrefix: `${WELDALL_ISSUER}/connectors/${c.key}/`,
     }),
   );
 }
-async function client(tx: Tx, connector: Connector) {
+/** Reads the encrypted OAuth client secret required for a server-side Google exchange. */
+async function readGoogleClient({ tx, connector }: { tx: Tx; connector: Connector }) {
   if (!connector.secretId)
     throw new ConnectorError("unavailable", "Connector is not configured.", 503);
   return {
     clientId: connector.clientId,
-    clientSecret: await readSecret(
+    clientSecret: await readSecret({
       tx,
-      connector.secretId,
-      `connector:${connector.id}:client-secret`,
-    ),
+      id: connector.secretId,
+      context: `connector:${connector.id}:client-secret`,
+    }),
   };
 }
-function assertEnabled(connector: Connector) {
+/** Stops setup and execution when an administrator has disabled the connector. */
+function assertConnectorEnabled(connector: Connector) {
   if (!connector.enabled) throw new ConnectorError("disabled", "Connector is disabled.", 409);
 }
-async function clearPayload(tx: Tx, id: string, payloadId: string | null) {
+/** Removes an authorization attempt's encrypted OAuth payload after terminal handling. */
+async function clearAuthorizationPayload({
+  tx,
+  id,
+  payloadId,
+}: {
+  tx: Tx;
+  id: string;
+  payloadId: string | null;
+}) {
   await tx.connectionAuthorization.update({ where: { id }, data: { payloadId: null } });
   if (payloadId) await tx.encryptedValue.delete({ where: { id: payloadId } });
 }
@@ -155,7 +189,7 @@ export async function cleanupAttempts() {
     orderBy: { expiresAt: "asc" },
   });
   for (const a of expired)
-    await transaction(async (tx) => {
+    await runConnectorTransaction(async (tx) => {
       const removed = await tx.connectionAuthorization.deleteMany({
         where: { id: a.id, status: a.status },
       });
@@ -163,16 +197,22 @@ export async function cleanupAttempts() {
         await tx.encryptedValue.delete({ where: { id: a.payloadId } });
     });
 }
-export async function startConnection(
-  actor: ConnectorActor,
-  input: { connector: string; name: string; reconnect?: string | undefined },
-) {
+/** Starts an owner-scoped connection attempt and returns the short-lived browser setup URL. */
+export async function startConnection({
+  actor,
+  input,
+}: {
+  actor: ConnectorActor;
+  input: { connector: string; name: string; reconnect?: string | undefined };
+}) {
   await cleanupAttempts();
-  return transaction(async (tx) => {
+  return runConnectorTransaction(async (tx) => {
     const connector = await tx.connector.findUnique({ where: { key: input.connector } });
     if (!connector) throw new ConnectorError("not_found", "Connector not found.", 404);
-    assertEnabled(connector);
-    const prior = input.reconnect ? await ownedConnection(tx, input.reconnect, actor) : null;
+    assertConnectorEnabled(connector);
+    const prior = input.reconnect
+      ? await findOwnedConnection({ tx, selector: input.reconnect, actor })
+      : null;
     if (
       prior &&
       (prior.connectorId !== connector.id ||
@@ -222,8 +262,13 @@ export async function startConnection(
         expiresAt: new Date(Date.now() + 10 * 60_000),
       },
     });
-    await connectorAudit(tx, actor, "lifecycle", attempt.id, "authorization.started", "success", {
-      connectorId: connector.id,
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "lifecycle",
+      subjectId: attempt.id,
+      operation: "authorization.started",
+      details: { connectorId: connector.id },
     });
     // Future external resources may advertise a scope catalog or their own short-lived setup URL; no credentials need transfer.
     return {
@@ -233,37 +278,57 @@ export async function startConnection(
     };
   });
 }
-export async function getAttempt(actor: ConnectorActor, id: string) {
+/** Returns one owner's credential-free authorization attempt for CLI polling and browser setup. */
+export async function getAuthorizationAttempt({
+  actor,
+  id,
+}: {
+  actor: ConnectorActor;
+  id: string;
+}) {
   const a = await db.connectionAuthorization.findUnique({
     where: { id },
     include: { connector: true, connection: { select: metadataSelect } },
   });
   if (!a) throw new ConnectorError("not_found", "Authorization attempt not found.", 404);
-  assertOwner(a.ownerId, actor.id);
+  assertConnectionOwner({ ownerId: a.ownerId, actorId: actor.id });
   const status =
     a.expiresAt <= new Date() && ["SETUP", "AUTHORIZING"].includes(a.status) ? "EXPIRED" : a.status;
   return {
     id: a.id,
     status,
     connector: { key: a.connector.key, name: a.connector.name, version: a.connectorVersion },
-    scopes: availableScopes(a.connector),
+    scopes: listAvailableScopes(a.connector),
     selectedScopes: a.selectedScopes,
-    capabilities: effectiveCapabilities(a.connector, a.selectedScopes, a.selectedScopes),
+    capabilities: calculateEffectiveCapabilities({
+      config: a.connector,
+      selected: a.selectedScopes,
+      granted: a.selectedScopes,
+    }),
     expiresAt: a.expiresAt,
     connection:
       a.status === "COMPLETED" && a.connection
-        ? connectionMetadata(a.connection, a.connector)
+        ? buildConnectionMetadata({ row: a.connection, connector: a.connector })
         : null,
   };
 }
-export async function submitSelection(actor: ConnectorActor, id: string, selected: string[]) {
-  return transaction(async (tx) => {
+/** Persists owner scope selection and creates the PKCE-protected Google authorization URL. */
+export async function submitScopeSelection({
+  actor,
+  id,
+  selected,
+}: {
+  actor: ConnectorActor;
+  id: string;
+  selected: string[];
+}) {
+  return runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUniqueOrThrow({
       where: { id },
       include: { connector: true },
     });
-    assertOwner(a.ownerId, actor.id);
-    assertEnabled(a.connector);
+    assertConnectionOwner({ ownerId: a.ownerId, actorId: actor.id });
+    assertConnectorEnabled(a.connector);
     if (
       a.status !== "SETUP" ||
       a.expiresAt <= new Date() ||
@@ -274,27 +339,27 @@ export async function submitSelection(actor: ConnectorActor, id: string, selecte
         "Setup expired or configuration changed. Start again.",
         409,
       );
-    const scopes = validateSelection(a.connector, selected);
-    const state = random(),
-      verifier = random(),
-      nonce = random();
-    const payload = await saveSecret(
+    const scopes = validateSelectedScopes({ config: a.connector, selected });
+    const state = createRandomToken(),
+      verifier = createRandomToken(),
+      nonce = createRandomToken();
+    const payload = await saveSecret({
       tx,
-      a.connector.encryptionKeyId,
-      `attempt:${id}:oauth`,
-      JSON.stringify({ verifier, nonce }),
-    );
+      keyId: a.connector.encryptionKeyId,
+      context: `attempt:${id}:oauth`,
+      value: JSON.stringify({ verifier, nonce }),
+    });
     await tx.connectionAuthorization.update({
       where: { id, status: "SETUP" },
       data: {
         selectedScopes: scopes,
-        stateHash: hash(state),
+        stateHash: hashValue(state),
         payloadId: payload.id,
         status: "AUTHORIZING",
       },
     });
     return {
-      url: authorizationUrl({
+      url: buildGoogleAuthorizationUrl({
         clientId: a.connector.clientId,
         redirectUri: callback,
         state,
@@ -305,11 +370,22 @@ export async function submitSelection(actor: ConnectorActor, id: string, selecte
     };
   });
 }
-/** Exchange is outside the transaction. Claim single-use state first, then revalidate policy and versions at commit. */
-export async function completeConnection(state: string, code: string | null, cancelled: boolean) {
-  const claimed = await transaction(async (tx) => {
+/**
+ * Completes the OAuth callback outside a database transaction after claiming single-use state, then
+ * revalidates connector policy and revisions when committing the resulting connection.
+ */
+export async function completeConnection({
+  state,
+  code,
+  cancelled,
+}: {
+  state: string;
+  code: string | null;
+  cancelled: boolean;
+}) {
+  const claimed = await runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUnique({
-      where: { stateHash: hash(state) },
+      where: { stateHash: hashValue(state) },
       include: { connector: true },
     });
     if (
@@ -320,75 +396,89 @@ export async function completeConnection(state: string, code: string | null, can
       !a.payloadId
     )
       throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
-    assertEnabled(a.connector);
+    assertConnectorEnabled(a.connector);
     await tx.connectionAuthorization.update({
       where: { id: a.id, status: "AUTHORIZING" },
       data: { status: cancelled ? "CANCELLED" : "PROCESSING", stateHash: null },
     });
     const payload = attemptPayload.parse(
-      JSON.parse(await readSecret(tx, a.payloadId, `attempt:${a.id}:oauth`)),
+      JSON.parse(await readSecret({ tx, id: a.payloadId, context: `attempt:${a.id}:oauth` })),
     );
     if (cancelled) {
-      await clearPayload(tx, a.id, a.payloadId);
+      await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
       return null;
     }
-    return { a, payload, client: await client(tx, a.connector) };
+    return { a, payload, client: await readGoogleClient({ tx, connector: a.connector }) };
   });
   if (!claimed) return "cancelled" as const;
   const { a, payload } = claimed;
   const actor = { id: a.ownerId, requestId: a.id };
-  let result: Awaited<ReturnType<typeof completeGoogle>>;
+  let result: Awaited<ReturnType<typeof completeGoogleAuthorization>>;
   try {
     if (!code) throw new ConnectorError("invalid_callback", "Authorization code missing.");
-    result = await completeGoogle(claimed.client, {
-      code,
-      redirectUri: callback,
-      nonce: payload.nonce,
-      verifier: payload.verifier,
+    result = await completeGoogleAuthorization({
+      client: claimed.client,
+      input: {
+        code,
+        redirectUri: callback,
+        nonce: payload.nonce,
+        verifier: payload.verifier,
+      },
     });
   } catch {
-    await transaction(async (tx) => {
+    await runConnectorTransaction(async (tx) => {
       await tx.connectionAuthorization.update({ where: { id: a.id }, data: { status: "FAILED" } });
-      await clearPayload(tx, a.id, a.payloadId);
-      await connectorAudit(tx, actor, "lifecycle", a.id, "authorization.failed", "failed");
+      await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
+      await writeConnectorAuditLog({
+        tx,
+        actor,
+        event: "lifecycle",
+        subjectId: a.id,
+        operation: "authorization.failed",
+        outcome: "failed",
+      });
     });
     return "failed" as const;
   }
   // Preserve newly received credentials before policy validation, so a rejected callback has an explicit revocation path.
-  await transaction(async (tx) => {
+  await runConnectorTransaction(async (tx) => {
     // A key reassignment/re-encryption may have happened during provider I/O.
     // Retained cleanup material uses the current selection, not an in-memory old key ID.
     const current = await tx.connector.findUniqueOrThrow({ where: { id: a.connectorId } });
-    await saveSecret(
+    await saveSecret({
       tx,
-      current.encryptionKeyId,
-      `attempt:${a.id}:oauth`,
-      JSON.stringify({ ...payload, credentials: result.credentials }),
-      a.payloadId,
-    );
+      keyId: current.encryptionKeyId,
+      context: `attempt:${a.id}:oauth`,
+      value: JSON.stringify({ ...payload, credentials: result.credentials }),
+      id: a.payloadId,
+    });
     await tx.connectionAuthorization.update({
       where: { id: a.id, status: "PROCESSING" },
       data: { status: "NEEDS_REVOCATION" },
     });
   });
   try {
-    await transaction(async (tx) => {
+    await runConnectorTransaction(async (tx) => {
       const fresh = await tx.connectionAuthorization.findUniqueOrThrow({
         where: { id: a.id },
         include: { connector: true },
       });
-      assertEnabled(fresh.connector);
+      assertConnectorEnabled(fresh.connector);
       if (
         fresh.status !== "NEEDS_REVOCATION" ||
         fresh.connectorVersion !== fresh.connector.version ||
         fresh.expiresAt <= new Date()
       )
         throw new ConnectorError("stale_attempt", "Authorization expired or policy changed.", 409);
-      validateSelection(fresh.connector, fresh.selectedScopes);
+      validateSelectedScopes({ config: fresh.connector, selected: fresh.selectedScopes });
       const grants = normalizeGrants(result.credentials.grantedScopes);
       if (
         requiredScopes.some((s) => !grants.includes(s)) ||
-        !effectiveCapabilities(fresh.connector, fresh.selectedScopes, grants).length
+        !calculateEffectiveCapabilities({
+          config: fresh.connector,
+          selected: fresh.selectedScopes,
+          granted: grants,
+        }).length
       )
         throw new ConnectorError(
           "missing_grants",
@@ -421,13 +511,13 @@ export async function completeConnection(state: string, code: string | null, can
             grantedScopes: grants,
           },
         }));
-      const secret = await saveSecret(
+      const secret = await saveSecret({
         tx,
-        fresh.connector.encryptionKeyId,
-        `connection:${row.id}:credentials`,
-        JSON.stringify(result.credentials),
-        row.credentialId,
-      );
+        keyId: fresh.connector.encryptionKeyId,
+        context: `connection:${row.id}:credentials`,
+        value: JSON.stringify(result.credentials),
+        id: row.credentialId,
+      });
       await tx.connection.update({
         where: { id: row.id, version: row.version },
         data: {
@@ -445,26 +535,41 @@ export async function completeConnection(state: string, code: string | null, can
         where: { id: a.id },
         data: { status: "COMPLETED", connectionId: row.id },
       });
-      await clearPayload(tx, a.id, a.payloadId);
-      await connectorAudit(
+      await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
+      await writeConnectorAuditLog({
         tx,
         actor,
-        "lifecycle",
-        row.id,
-        prior ? "connection.reconnected" : "connection.connected",
-        "success",
-        { connectorId: row.connectorId, accountId: row.accountId },
-      );
+        event: "lifecycle",
+        subjectId: row.id,
+        operation: prior ? "connection.reconnected" : "connection.connected",
+        details: { connectorId: row.connectorId, accountId: row.accountId },
+      });
     });
     return "success" as const;
   } catch {
-    await connectorAudit(db, actor, "lifecycle", a.id, "authorization.cleanup_required", "failed");
+    await writeConnectorAuditLog({
+      tx: db,
+      actor,
+      event: "lifecycle",
+      subjectId: a.id,
+      operation: "authorization.cleanup_required",
+      outcome: "failed",
+    });
     return "failed" as const;
   }
 }
-export async function cancelAttempt(actor: ConnectorActor, id: string, administrator = false) {
+/** Cancels an authorization attempt and revokes any retained Google grant before local cleanup. */
+export async function cancelAuthorizationAttempt({
+  actor,
+  id,
+  administrator = false,
+}: {
+  actor: ConnectorActor;
+  id: string;
+  administrator?: boolean;
+}) {
   const a = await db.connectionAuthorization.findUniqueOrThrow({ where: { id } });
-  if (!administrator) assertOwner(a.ownerId, actor.id);
+  if (!administrator) assertConnectionOwner({ ownerId: a.ownerId, actorId: actor.id });
   if (a.status === "COMPLETED")
     throw new ConnectorError("completed", "Disconnect the completed connection instead.", 409);
   if (a.status === "PROCESSING")
@@ -482,32 +587,39 @@ export async function cancelAttempt(actor: ConnectorActor, id: string, administr
     if (!claimed.count) throw new ConnectorError("conflict", "Authorization changed; reload.", 409);
     expectedStatus = "REVOCATION_PENDING";
     const value = attemptPayload.parse(
-      JSON.parse(await readSecret(db, a.payloadId, `attempt:${id}:oauth`)),
+      JSON.parse(await readSecret({ tx: db, id: a.payloadId, context: `attempt:${id}:oauth` })),
     );
     try {
-      if (value.credentials) await revokeGoogle(value.credentials.refreshToken);
+      if (value.credentials) await revokeGoogleAuthorization(value.credentials.refreshToken);
     } catch (error) {
-      await connectorAudit(
-        db,
+      await writeConnectorAuditLog({
+        tx: db,
         actor,
-        "lifecycle",
-        id,
-        "authorization.revocation_unconfirmed",
-        "failed",
-      );
+        event: "lifecycle",
+        subjectId: id,
+        operation: "authorization.revocation_unconfirmed",
+        outcome: "failed",
+      });
       throw error;
     }
   }
-  await transaction(async (tx) => {
+  await runConnectorTransaction(async (tx) => {
     const removed = await tx.connectionAuthorization.updateMany({
       where: { id, status: expectedStatus },
       data: { status: "CANCELLED", stateHash: null },
     });
     if (!removed.count) throw new ConnectorError("conflict", "Authorization changed; reload.", 409);
-    await clearPayload(tx, id, a.payloadId);
-    await connectorAudit(tx, actor, "lifecycle", id, "authorization.cancelled");
+    await clearAuthorizationPayload({ tx, id, payloadId: a.payloadId });
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "lifecycle",
+      subjectId: id,
+      operation: "authorization.cancelled",
+    });
   });
 }
+/** Lists recent authorization attempts for the administrative connections view. */
 export async function listAuthorizations() {
   return db.connectionAuthorization.findMany({
     select: {
@@ -523,9 +635,12 @@ export async function listAuthorizations() {
     take: 200,
   });
 }
-/** Administrator-only terminal cleanup after explicit acknowledgement; this does NOT claim provider revocation. */
-export async function discardAuthorization(actor: ConnectorActor, id: string) {
-  return transaction(async (tx) => {
+/**
+ * Performs administrator-only terminal cleanup after explicit acknowledgement; this never claims
+ * that provider revocation succeeded.
+ */
+export async function discardAuthorization({ actor, id }: { actor: ConnectorActor; id: string }) {
+  return runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUniqueOrThrow({ where: { id } });
     if (a.expiresAt.getTime() + 30_000 > Date.now())
       throw new ConnectorError(
@@ -535,31 +650,45 @@ export async function discardAuthorization(actor: ConnectorActor, id: string) {
       );
     await tx.connectionAuthorization.delete({ where: { id } });
     if (a.payloadId) await tx.encryptedValue.delete({ where: { id: a.payloadId } });
-    await connectorAudit(
+    await writeConnectorAuditLog({
       tx,
       actor,
-      "lifecycle",
-      id,
-      "authorization.discarded_revocation_unconfirmed",
-      "failed",
-      { connectorId: a.connectorId },
-    );
+      event: "lifecycle",
+      subjectId: id,
+      operation: "authorization.discarded_revocation_unconfirmed",
+      outcome: "failed",
+      details: { connectorId: a.connectorId },
+    });
   });
 }
-async function storedCredentials(tx: Tx, connection: Connection) {
+/** Decrypts and validates the stored Google credentials for one connection lifecycle operation. */
+async function readStoredCredentials({ tx, connection }: { tx: Tx; connection: Connection }) {
   if (!connection.credentialId)
     throw new ConnectorError("reconnect_required", "Reconnect this connection.", 409);
   return credentialsSchema.parse(
     JSON.parse(
-      await readSecret(tx, connection.credentialId, `connection:${connection.id}:credentials`),
+      await readSecret({
+        tx,
+        id: connection.credentialId,
+        context: `connection:${connection.id}:credentials`,
+      }),
     ),
   );
 }
-/** Persisted compare-and-set is the cross-process refresh claim. Unknown/ambiguous outcomes require reconnect, not blind retries. */
-export async function accessCredentials(actor: ConnectorActor, selector: string) {
-  const claim = await transaction(async (tx) => {
-    const row = await ownedConnection(tx, selector, actor);
-    assertEnabled(row.connector);
+/**
+ * Returns usable credentials for proxy execution, using a persisted compare-and-set as the
+ * cross-process refresh claim; ambiguous outcomes require reconnect instead of blind retries.
+ */
+export async function accessCredentials({
+  actor,
+  selector,
+}: {
+  actor: ConnectorActor;
+  selector: string;
+}) {
+  const claim = await runConnectorTransaction(async (tx) => {
+    const row = await findOwnedConnection({ tx, selector, actor });
+    assertConnectorEnabled(row.connector);
     if (
       row.status === "REFRESHING" &&
       row.refreshStartedAt &&
@@ -577,7 +706,7 @@ export async function accessCredentials(actor: ConnectorActor, selector: string)
         "Connection is not ready. Retry after an in-progress refresh or reconnect.",
         409,
       );
-    const credentials = await storedCredentials(tx, row);
+    const credentials = await readStoredCredentials({ tx, connection: row });
     if (credentials.expiresAt > Date.now() + 60_000)
       return { row, credentials, refresh: false as const };
     const updated = await tx.connection.update({
@@ -588,7 +717,7 @@ export async function accessCredentials(actor: ConnectorActor, selector: string)
       row: { ...updated, connector: row.connector },
       credentials,
       refresh: true as const,
-      client: await client(tx, row.connector),
+      client: await readGoogleClient({ tx, connector: row.connector }),
     };
   });
   if (!claim)
@@ -599,8 +728,11 @@ export async function accessCredentials(actor: ConnectorActor, selector: string)
     );
   if (!claim.refresh) return claim;
   try {
-    const credentials = await refreshGoogle(claim.client, claim.credentials);
-    const refreshed = await transaction(async (tx) => {
+    const credentials = await refreshGoogleCredentials({
+      client: claim.client,
+      previous: claim.credentials,
+    });
+    const refreshed = await runConnectorTransaction(async (tx) => {
       const row = await tx.connection.findUniqueOrThrow({
         where: { id: claim.row.id },
         include: { connector: true },
@@ -611,19 +743,19 @@ export async function accessCredentials(actor: ConnectorActor, selector: string)
         row.refreshStartedAt?.getTime() === claim.row.refreshStartedAt?.getTime();
       if (!pending && (row.status !== "REFRESHING" || row.version !== claim.row.version))
         throw new ConnectorError("conflict", "Connection changed during refresh.", 409);
-      await saveSecret(
+      await saveSecret({
         tx,
-        row.connector.encryptionKeyId,
-        `connection:${row.id}:credentials`,
-        JSON.stringify(credentials),
-        row.credentialId,
-      );
-      const usable = !refreshNeedsReconnect(
-        row.connector,
-        row.selectedScopes,
-        row.grantedScopes,
-        credentials.grantedScopes,
-      );
+        keyId: row.connector.encryptionKeyId,
+        context: `connection:${row.id}:credentials`,
+        value: JSON.stringify(credentials),
+        id: row.credentialId,
+      });
+      const usable = !shouldReconnectAfterRefresh({
+        config: row.connector,
+        selected: row.selectedScopes,
+        previous: row.grantedScopes,
+        next: credentials.grantedScopes,
+      });
       await tx.connection.update({
         where: { id: row.id, version: row.version },
         data: {
@@ -633,7 +765,13 @@ export async function accessCredentials(actor: ConnectorActor, selector: string)
           version: { increment: 1 },
         },
       });
-      await connectorAudit(tx, actor, "lifecycle", row.id, "connection.refreshed");
+      await writeConnectorAuditLog({
+        tx,
+        actor,
+        event: "lifecycle",
+        subjectId: row.id,
+        operation: "connection.refreshed",
+      });
       return tx.connection.findUniqueOrThrow({
         where: { id: row.id },
         include: { connector: true },
@@ -641,13 +779,13 @@ export async function accessCredentials(actor: ConnectorActor, selector: string)
     });
     return { row: refreshed, credentials, refresh: false as const };
   } catch (error) {
-    await txRefreshFailure(
-      claim.row.id,
-      claim.row.version,
+    await recordRefreshFailure({
+      id: claim.row.id,
+      version: claim.row.version,
       actor,
-      error instanceof GoogleTokenError && error.authorizationLost,
-      error instanceof GoogleTokenError && error.retryable,
-    );
+      authorizationLost: error instanceof GoogleTokenError && error.authorizationLost,
+      retryable: error instanceof GoogleTokenError && error.retryable,
+    });
     throw new ConnectorError(
       "refresh_failed",
       "Refresh failed. Check connection status; reconnect if required.",
@@ -655,14 +793,21 @@ export async function accessCredentials(actor: ConnectorActor, selector: string)
     );
   }
 }
-async function txRefreshFailure(
-  id: string,
-  version: number,
-  actor: ConnectorActor,
-  lost: boolean,
-  retryable: boolean,
-) {
-  await transaction(async (tx) => {
+/** Records a failed refresh claim so subsequent proxy requests observe a safe connection state. */
+async function recordRefreshFailure({
+  id,
+  version,
+  actor,
+  authorizationLost,
+  retryable,
+}: {
+  id: string;
+  version: number;
+  actor: ConnectorActor;
+  authorizationLost: boolean;
+  retryable: boolean;
+}) {
+  await runConnectorTransaction(async (tx) => {
     await tx.connection.updateMany({
       where: { id, version, status: "REFRESHING" },
       data: {
@@ -671,26 +816,37 @@ async function txRefreshFailure(
         version: { increment: 1 },
       },
     });
-    await connectorAudit(
+    await writeConnectorAuditLog({
       tx,
       actor,
-      "lifecycle",
-      id,
-      lost
+      event: "lifecycle",
+      subjectId: id,
+      operation: authorizationLost
         ? "refresh.authorization_lost"
         : retryable
           ? "refresh.transient_failure"
           : "refresh.outcome_uncertain",
-      "failed",
-    );
+      outcome: "failed",
+    });
   });
 }
-/** Unavailability commits BEFORE provider I/O. Failed/interrupted revocation remains blocked with encrypted credentials for manual retry. */
-export async function disconnect(actor: ConnectorActor, selector: string, administrator = false) {
-  const row = await transaction(async (tx) => {
+/**
+ * Disconnects locally before provider I/O; failed or interrupted revocation remains blocked with
+ * encrypted credentials so an owner or administrator can retry explicitly.
+ */
+export async function disconnectConnection({
+  actor,
+  selector,
+  administrator = false,
+}: {
+  actor: ConnectorActor;
+  selector: string;
+  administrator?: boolean;
+}) {
+  const row = await runConnectorTransaction(async (tx) => {
     const current = administrator
       ? await tx.connection.findUniqueOrThrow({ where: { id: selector } })
-      : await ownedConnection(tx, selector, actor);
+      : await findOwnedConnection({ tx, selector, actor });
     if (current.status === "DISCONNECTED") return current;
     const updated = await tx.connection.update({
       where: { id: current.id, version: current.version },
@@ -700,7 +856,13 @@ export async function disconnect(actor: ConnectorActor, selector: string, admini
         version: { increment: 1 },
       },
     });
-    await connectorAudit(tx, actor, "lifecycle", current.id, "disconnect.blocked");
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "lifecycle",
+      subjectId: current.id,
+      operation: "disconnect.blocked",
+    });
     return updated;
   });
   if (row.status === "DISCONNECTED")
@@ -715,9 +877,9 @@ export async function disconnect(actor: ConnectorActor, selector: string, admini
       message: "Refresh is in flight. Retry disconnect after it completes.",
     };
   try {
-    const credentials = await storedCredentials(db, row);
-    await revokeGoogle(credentials.refreshToken);
-    await transaction(async (tx) => {
+    const credentials = await readStoredCredentials({ tx: db, connection: row });
+    await revokeGoogleAuthorization(credentials.refreshToken);
+    await runConnectorTransaction(async (tx) => {
       await tx.connection.update({
         where: { id: row.id, version: row.version, status: "REVOCATION_PENDING" },
         data: {
@@ -729,23 +891,45 @@ export async function disconnect(actor: ConnectorActor, selector: string, admini
         },
       });
       if (row.credentialId) await tx.encryptedValue.delete({ where: { id: row.credentialId } });
-      await connectorAudit(tx, actor, "lifecycle", row.id, "disconnect.confirmed", "success", {
-        connectorId: row.connectorId,
-        accountId: row.accountId,
+      await writeConnectorAuditLog({
+        tx,
+        actor,
+        event: "lifecycle",
+        subjectId: row.id,
+        operation: "disconnect.confirmed",
+        details: { connectorId: row.connectorId, accountId: row.accountId },
       });
     });
     return { status: "DISCONNECTED", revocationConfirmed: true };
   } catch {
-    await connectorAudit(db, actor, "lifecycle", row.id, "disconnect.unconfirmed", "failed");
+    await writeConnectorAuditLog({
+      tx: db,
+      actor,
+      event: "lifecycle",
+      subjectId: row.id,
+      operation: "disconnect.unconfirmed",
+      outcome: "failed",
+    });
     return {
       status: "REVOCATION_PENDING",
       message: "Provider revocation unconfirmed. Retry disconnect explicitly.",
     };
   }
 }
-/** Explicit administrator terminal cleanup. Local disconnection is not a claim of provider revocation. */
-export async function discardConnection(actor: ConnectorActor, id: string, version: number) {
-  return transaction(async (tx) => {
+/**
+ * Performs explicit administrator terminal cleanup while preserving that local disconnection is not
+ * evidence of provider revocation.
+ */
+export async function discardConnection({
+  actor,
+  id,
+  version,
+}: {
+  actor: ConnectorActor;
+  id: string;
+  version: number;
+}) {
+  return runConnectorTransaction(async (tx) => {
     const row = await tx.connection.findUniqueOrThrow({ where: { id, version } });
     if (
       row.status !== "REVOCATION_PENDING" ||
@@ -768,26 +952,31 @@ export async function discardConnection(actor: ConnectorActor, id: string, versi
       },
     });
     if (row.credentialId) await tx.encryptedValue.delete({ where: { id: row.credentialId } });
-    await connectorAudit(
+    await writeConnectorAuditLog({
       tx,
       actor,
-      "lifecycle",
-      id,
-      "disconnect.discarded_revocation_unconfirmed",
-      "failed",
-      { connectorId: row.connectorId, accountId: row.accountId },
-    );
+      event: "lifecycle",
+      subjectId: id,
+      operation: "disconnect.discarded_revocation_unconfirmed",
+      outcome: "failed",
+      details: { connectorId: row.connectorId, accountId: row.accountId },
+    });
   });
 }
-export async function deleteConnection(
-  actor: ConnectorActor,
-  selector: string,
+/** Deletes a fully disconnected connection and its terminal authorization history. */
+export async function deleteConnection({
+  actor,
+  selector,
   administrator = false,
-) {
-  await transaction(async (tx) => {
+}: {
+  actor: ConnectorActor;
+  selector: string;
+  administrator?: boolean;
+}) {
+  await runConnectorTransaction(async (tx) => {
     const row = administrator
       ? await tx.connection.findUniqueOrThrow({ where: { id: selector } })
-      : await ownedConnection(tx, selector, actor);
+      : await findOwnedConnection({ tx, selector, actor });
     if (row.status !== "DISCONNECTED" || row.credentialId)
       throw new ConnectorError(
         "revocation_required",
@@ -805,6 +994,12 @@ export async function deleteConnection(
       throw new ConnectorError("attempt_active", "Cancel outstanding authorizations first.", 409);
     await tx.connectionAuthorization.deleteMany({ where: { connectionId: row.id } });
     await tx.connection.delete({ where: { id: row.id, version: row.version } });
-    await connectorAudit(tx, actor, "lifecycle", row.id, "connection.deleted");
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "lifecycle",
+      subjectId: row.id,
+      operation: "connection.deleted",
+    });
   });
 }

@@ -166,7 +166,7 @@ function validateManifest(value: Manifest) {
       const object = record(item);
       if (containsPrivateJwk(object))
         throw new CliError("Private JWK member d is forbidden in Weldall YAML");
-      validatePrimitive(section, object);
+      validatePrimitive({ section, object });
       const identity = String(
         object.key ??
           object.slug ??
@@ -189,10 +189,14 @@ function validateManifest(value: Manifest) {
     if (Array.isArray(assignment.scopes) && assignment.scopes.includes("weldall:iac"))
       throw new CliError("weldall:iac is machine-only");
 }
-function validatePrimitive(
-  section: (typeof objectSections)[number],
-  object: Record<string, unknown>,
-) {
+/** Validates one declarative primitive before the CLI canonicalizes or submits a manifest. */
+function validatePrimitive({
+  section,
+  object,
+}: {
+  section: (typeof objectSections)[number];
+  object: Record<string, unknown>;
+}) {
   const fields: Record<typeof section, string[]> = {
     encryptionKeys: ["key", "name", "activeVersion", "versions"],
     connectors: [
@@ -230,7 +234,15 @@ function validatePrimitive(
   );
   for (const field of required)
     if (!(field in object)) throw new CliError(`${section}.${field} is required`);
-  const text = (field: string, max: number, pattern?: RegExp) => {
+  const validateText = ({
+    field,
+    max,
+    pattern,
+  }: {
+    field: string;
+    max: number;
+    pattern?: RegExp;
+  }) => {
     const value = object[field];
     if (
       typeof value !== "string" ||
@@ -242,7 +254,13 @@ function validatePrimitive(
       throw new CliError(`Invalid ${section}.${field}`);
     return value;
   };
-  const list = (field: string, nonEmpty = false) => {
+  const validateStringList = ({
+    field,
+    nonEmpty = false,
+  }: {
+    field: string;
+    nonEmpty?: boolean;
+  }) => {
     const value = object[field];
     if (
       !Array.isArray(value) ||
@@ -256,10 +274,10 @@ function validatePrimitive(
   };
   if (section === "encryptionKeys" || section === "connectors") {
     const identity = /^[a-z0-9][a-z0-9._-]{0,119}$/;
-    text("key", 120, identity);
-    text("name", 200);
+    validateText({ field: "key", max: 120, pattern: identity });
+    validateText({ field: "name", max: 200 });
     if (section === "encryptionKeys") {
-      text("activeVersion", 120, identity);
+      validateText({ field: "activeVersion", max: 120, pattern: identity });
       const versions = record(object.versions);
       if (!Object.hasOwn(versions, String(object.activeVersion)))
         throw new CliError("Active key version must be registered");
@@ -269,33 +287,41 @@ function validatePrimitive(
           source = record(entry.source);
         if (
           Object.keys(entry).some((k) => k !== "source") ||
-          Object.keys(source).some((k) => !["type", "name"].includes(k)) ||
-          source.type !== "env" ||
-          typeof source.name !== "string" ||
-          !/^[A-Za-z_][A-Za-z0-9_]{0,199}$/.test(source.name)
+          Object.keys(source).some((k) => !["type", "variable"].includes(k)) ||
+          source.type !== "local-env" ||
+          typeof source.variable !== "string" ||
+          !/^[A-Za-z_][A-Za-z0-9_]{0,199}$/.test(source.variable)
         )
           throw new CliError(
-            "Encryption sources contain only an env type and approved variable name, never secret material",
+            "Encryption sources contain only a local-env provider and approved variable name, never secret material",
           );
       }
     } else {
-      text("encryptionKey", 120, identity);
-      text("clientId", 500);
+      validateText({ field: "encryptionKey", max: 120, pattern: identity });
+      validateText({ field: "clientId", max: 500 });
       if (object.type !== "google" || typeof object.enabled !== "boolean")
         throw new CliError("Invalid connector type or enabled flag");
-      if (list("enabledApis", true).some((s) => !["gmail", "calendar"].includes(s)))
+      if (
+        validateStringList({ field: "enabledApis", nonEmpty: true }).some(
+          (api) => !["gmail", "calendar"].includes(api),
+        )
+      )
         throw new CliError("Unknown Google API");
-      const allowed = list("allowedScopes", true);
-      if (list("defaultScopes").some((s) => !allowed.includes(s)))
+      const allowed = validateStringList({ field: "allowedScopes", nonEmpty: true });
+      if (validateStringList({ field: "defaultScopes" }).some((scope) => !allowed.includes(scope)))
         throw new CliError("Default scopes must be administrator-allowed");
     }
   } else if (section === "scopes") {
-    text("key", 160, /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/);
-    text("description", 500);
+    validateText({
+      field: "key",
+      max: 160,
+      pattern: /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/,
+    });
+    validateText({ field: "description", max: 500 });
   } else if (section === "resources") {
-    text("key", 120, /^[a-z0-9._-]+$/);
-    text("name", 200);
-    text("downstreamClientId", 200);
+    validateText({ field: "key", max: 120, pattern: /^[a-z0-9._-]+$/ });
+    validateText({ field: "name", max: 200 });
+    validateText({ field: "downstreamClientId", max: 200 });
     if (typeof object.enabled !== "boolean")
       throw new CliError(`${section}.enabled must be boolean`);
     if (
@@ -304,29 +330,39 @@ function validatePrimitive(
     )
       throw new CliError(`${section}.skillDiscoveryEnabled must be boolean`);
     if (
-      canonicalHttpsUrl(text("resourceIdentifier", 2000), "resourceIdentifier", "identifier") !==
-      object.resourceIdentifier
+      canonicalHttpsUrl(
+        validateText({ field: "resourceIdentifier", max: 2000 }),
+        "resourceIdentifier",
+        "identifier",
+      ) !== object.resourceIdentifier
     )
       throw new CliError("resourceIdentifier must be canonical HTTPS");
     if (
-      canonicalHttpsUrl(text("authorizationServer", 2000), "authorizationServer", "origin") !==
-      object.authorizationServer
+      canonicalHttpsUrl(
+        validateText({ field: "authorizationServer", max: 2000 }),
+        "authorizationServer",
+        "origin",
+      ) !== object.authorizationServer
     )
       throw new CliError("authorizationServer must be a canonical HTTPS origin");
-    for (const prefix of list("requestPrefixes", true))
+    for (const prefix of validateStringList({ field: "requestPrefixes", nonEmpty: true }))
       if (canonicalHttpsUrl(prefix, "requestPrefixes", "prefix") !== prefix)
         throw new CliError("requestPrefixes must be canonical HTTPS URLs");
-    list("scopes");
+    validateStringList({ field: "scopes" });
   } else if (section === "skills") {
-    text("slug", 120, /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/);
-    text("title", 200);
+    validateText({
+      field: "slug",
+      max: 120,
+      pattern: /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/,
+    });
+    validateText({ field: "title", max: 200 });
     if (
       typeof object.content !== "string" ||
       !object.content.trim() ||
       object.content.trim().length > 100_000
     )
       throw new CliError("Invalid skills.content");
-    const requiredScopes = list("requiredScopes");
+    const requiredScopes = validateStringList({ field: "requiredScopes" });
     if (!requiredScopes.every((scope) => /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/.test(scope)))
       throw new CliError("Invalid skills.requiredScopes");
     if (!(["DEFAULT", "HIDDEN_IF_UNALLOWED"] as unknown[]).includes(object.visibility))
@@ -359,11 +395,11 @@ function validatePrimitive(
     if (object.lastUpdatedAt !== undefined && typeof object.lastUpdatedAt !== "string")
       throw new CliError("Invalid skills.lastUpdatedAt");
   } else if (section === "machines") {
-    text("clientId", 128, /^[A-Za-z0-9._:-]+$/);
-    text("name", 200);
+    validateText({ field: "clientId", max: 128, pattern: /^[A-Za-z0-9._:-]+$/ });
+    validateText({ field: "name", max: 200 });
     if (typeof object.enabled !== "boolean") throw new CliError("machines.enabled must be boolean");
-    list("resources");
-    list("scopes");
+    validateStringList({ field: "resources" });
+    validateStringList({ field: "scopes" });
     const keys = object.publicKeys === undefined ? {} : record(object.publicKeys);
     for (const [kid, raw] of Object.entries(keys)) {
       if (!/^[a-z][a-z0-9_-]{0,119}$/.test(kid)) throw new CliError("Invalid public key ID");
@@ -387,14 +423,14 @@ function validatePrimitive(
       }
     }
   } else if (section === "emailAssignments") {
-    const email = text("email", 320);
+    const email = validateText({ field: "email", max: 320 });
     if (!/^\S+@\S+\.\S+$/.test(email) || email !== email.toLowerCase())
       throw new CliError("Invalid emailAssignments.email");
-    list("scopes", true);
+    validateStringList({ field: "scopes", nonEmpty: true });
   } else {
-    text("provider", 160);
-    text("groupId", 191);
-    list("scopes", true);
+    validateText({ field: "provider", max: 160 });
+    validateText({ field: "groupId", max: 191 });
+    validateStringList({ field: "scopes", nonEmpty: true });
   }
 }
 

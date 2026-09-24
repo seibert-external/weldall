@@ -1,6 +1,7 @@
+import { isDeepStrictEqual } from "node:util";
 import type { Prisma } from "@weldall/db";
-import { keyState, connectorState } from "../connectors/configuration";
-import { validateScopeConfig } from "../connectors/scopes";
+import { buildConnectorState, buildEncryptionKeyState } from "../connectors/configuration";
+import { validateConnectorScopeConfig } from "../connectors/scopes";
 import {
   canonicalJson,
   digest,
@@ -30,6 +31,7 @@ export interface PlanningState {
   externalBlockers?: IacBlocker[];
 }
 
+/** Expands the declarative manifest into canonical addressable objects for planning. */
 export function desiredObjects(manifest: DesiredState): Array<{
   address: string;
   kind: IacKind;
@@ -286,10 +288,17 @@ function compareActions(left: IacAction, right: IacAction): number {
   );
 }
 
-export async function loadPlanningState(
-  tx: Prisma.TransactionClient,
-  manifest: DesiredState,
-): Promise<PlanningState> {
+/**
+ * Loads current IaC state plus managed-connector lifecycle blockers so plans never replace keys or
+ * connectors while ciphertext, connections, or provider cleanup still depend on them.
+ */
+export async function loadPlanningState({
+  tx,
+  manifest,
+}: {
+  tx: Prisma.TransactionClient;
+  manifest: DesiredState;
+}): Promise<PlanningState> {
   const workspace = await tx.iacWorkspace.findUnique({ where: { id: manifest.workspace.id } });
   const [bindings, scopes, resources, machines, emails, groups, skills, cliSettings] =
     await Promise.all([
@@ -341,7 +350,7 @@ export async function loadPlanningState(
       id: item.id,
       identity: item.key,
       version: item.version,
-      state: keyState(item),
+      state: buildEncryptionKeyState(item),
       ...bindingInfo(ownership(item.id)),
     })),
     ...connectors.map((item) => ({
@@ -349,7 +358,7 @@ export async function loadPlanningState(
       id: item.id,
       identity: item.key,
       version: item.version,
-      state: connectorState(item),
+      state: buildConnectorState(item),
       ...bindingInfo(ownership(item.id)),
     })),
     ...scopes.map((item) => ({
@@ -486,7 +495,13 @@ export async function loadPlanningState(
         : undefined;
     if (
       desiredKey &&
-      item.versions.some((v) => desiredKey.versions[v.version]?.source.name !== v.sourceName)
+      item.versions.some(
+        (version) =>
+          !isDeepStrictEqual(
+            desiredKey.versions[version.version]?.source,
+            buildEncryptionKeyState(item).versions[version.version]?.source,
+          ),
+      )
     )
       externalBlockers.push({
         code: "IMMUTABLE_VERSION",
@@ -533,7 +548,7 @@ export async function loadPlanningState(
         message: "Disconnect and remove connections/attempts before replacing the OAuth client.",
       });
     try {
-      validateScopeConfig(config);
+      validateConnectorScopeConfig(config);
     } catch {
       externalBlockers.push({
         code: "INVALID_SCOPES",

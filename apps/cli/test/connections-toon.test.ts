@@ -1,11 +1,11 @@
 import { decode } from "@toon-format/toon";
 import { describe, expect, it } from "vitest";
 import {
-  connectionAttemptToon,
-  connectionDetailToon,
-  connectionsToon,
-  connectorsToon,
-  disconnectToon,
+  encodeConnectionAttemptToon,
+  encodeConnectionDetailToon,
+  encodeConnectionsToon,
+  encodeConnectorsToon,
+  encodeDisconnectToon,
 } from "../src/connections-toon.js";
 import type {
   ConnectionAttempt,
@@ -79,10 +79,10 @@ const rows = (output: string) =>
 
 describe("managed connection TOON output", () => {
   it("declares connection counts and includes the fields an agent acts on", () => {
-    const output = connectionsToon(
-      [connection(), connection({ id: "connection-2", name: "team-google" })],
-      "https://weldall.example.com",
-    );
+    const output = encodeConnectionsToon({
+      connections: [connection(), connection({ id: "connection-2", name: "team-google" })],
+      issuer: "https://weldall.example.com",
+    });
 
     expect(output).toContain("connections[2\t]");
     expect(rows(output)).toHaveLength(2);
@@ -91,7 +91,10 @@ describe("managed connection TOON output", () => {
   });
 
   it("leaves ownership and database plumbing in --json", () => {
-    const output = connectionsToon([connection()], "https://weldall.example.com");
+    const output = encodeConnectionsToon({
+      connections: [connection()],
+      issuer: "https://weldall.example.com",
+    });
 
     expect(output).not.toContain("owner-1");
     expect(output).not.toContain("connector-database-id");
@@ -100,7 +103,7 @@ describe("managed connection TOON output", () => {
   });
 
   it("encodes connector scope catalogs as compact table cells", () => {
-    const output = connectorsToon([connector()]);
+    const output = encodeConnectorsToon([connector()]);
     const decoded = decode(output, { delimiter: "\t" }) as {
       connectors: Array<{ key: string; scopes: string; defaultScopes: string }>;
     };
@@ -118,22 +121,26 @@ describe("managed connection TOON output", () => {
   });
 
   it("keeps complete scope arrays on a single connection", () => {
-    const decoded = decode(connectionDetailToon(connection(), "https://weldall.example.com"), {
-      delimiter: "\t",
-    }) as { selectedScopes: string[]; grantedScopes: string[] };
+    const decoded = decode(
+      encodeConnectionDetailToon({
+        connection: connection(),
+        issuer: "https://weldall.example.com",
+      }),
+      { delimiter: "\t" },
+    ) as { selectedScopes: string[]; grantedScopes: string[] };
 
     expect(decoded.selectedScopes).toEqual(["openid", "calendar.events"]);
     expect(decoded.grantedScopes).toEqual(["openid", "calendar.events"]);
   });
 
   it("encodes setup and disconnect results without JSON-only bookkeeping", () => {
-    const status = decode(connectionAttemptToon(attempt()), { delimiter: "\t" }) as {
+    const status = decode(encodeConnectionAttemptToon(attempt()), { delimiter: "\t" }) as {
       id: string;
       status: string;
       connection: string;
     };
     const disconnected = decode(
-      disconnectToon({ status: "DISCONNECTED", revocationConfirmed: true }),
+      encodeDisconnectToon({ status: "DISCONNECTED", revocationConfirmed: true }),
       { delimiter: "\t" },
     ) as { status: string; revocationConfirmed: boolean };
 
@@ -149,7 +156,9 @@ describe("managed connection TOON output", () => {
   });
 
   it("uses the canonical empty-array representation", () => {
-    expect(connectionsToon([], "https://weldall.example.com")).toBe("connections: []\n");
-    expect(connectorsToon([])).toBe("connectors: []\n");
+    expect(encodeConnectionsToon({ connections: [], issuer: "https://weldall.example.com" })).toBe(
+      "connections: []\n",
+    );
+    expect(encodeConnectorsToon([])).toBe("connectors: []\n");
   });
 });

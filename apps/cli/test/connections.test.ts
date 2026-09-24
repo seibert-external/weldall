@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  connectionApi,
-  connectionRequest,
+  requestConnectionApi,
+  requestConnection,
   listConnectors,
   validateConnectionTarget,
 } from "../src/services/connections.js";
@@ -24,10 +24,14 @@ describe("managed connection CLI", () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('{"items":[]}'));
     vi.stubGlobal("fetch", fetcher);
     const url = `${config.issuer}/connectors/google/calendar/v3/calendars/primary/events`;
-    const response = await connectionRequest(config, "my-google", {
-      url,
-      method: "POST",
-      json: { summary: "Meeting" },
+    const response = await requestConnection({
+      config,
+      selector: "my-google",
+      input: {
+        url,
+        method: "POST",
+        json: { summary: "Meeting" },
+      },
     });
     expect(await response.json()).toEqual({ items: [] });
     const options = fetcher.mock.calls[0]![1];
@@ -41,7 +45,7 @@ describe("managed connection CLI", () => {
       "https://user:pass@weldall.example.com/connectors/google/mail",
       `${url}#fragment`,
     ])
-      expect(() => validateConnectionTarget(config, target)).toThrow();
+      expect(() => validateConnectionTarget({ config, raw: target })).toThrow();
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("polls metadata through Weldall, never a provider credential endpoint", async () => {
@@ -49,7 +53,9 @@ describe("managed connection CLI", () => {
       .fn()
       .mockResolvedValue(Response.json({ status: "COMPLETED", connection: { id: "connection" } }));
     vi.stubGlobal("fetch", fetcher);
-    expect(await connectionApi(config, "connection-authorizations/attempt")).toEqual({
+    expect(
+      await requestConnectionApi({ config, path: "connection-authorizations/attempt" }),
+    ).toEqual({
       status: "COMPLETED",
       connection: { id: "connection" },
     });
@@ -98,7 +104,11 @@ describe("managed connection CLI", () => {
           key: "arbitrary",
           name: "Key",
           activeVersion: "1",
-          versions: { "1": { source: { type: "env", name: "DOES_NOT_EXIST_ON_CLI" } } },
+          versions: {
+            "1": {
+              source: { type: "local-env", variable: "DOES_NOT_EXIST_ON_CLI" },
+            },
+          },
         },
       },
       connectors: {

@@ -1,11 +1,11 @@
 import { db } from "@weldall/db";
 import { ConnectorError, type ConnectorActor } from "./contracts";
-import { transaction } from "./configuration";
-import { accessCredentials, ownedConnection } from "./connections";
-import { effectiveCapabilities } from "./scopes";
-import { boundedBody } from "./google";
-import { resolveOperation } from "./registry";
-import { connectorAudit } from "./audit";
+import { runConnectorTransaction } from "./configuration";
+import { accessCredentials, findOwnedConnection } from "./connections";
+import { calculateEffectiveCapabilities } from "./scopes";
+import { readBoundedBody } from "./google";
+import { resolveConnectorOperation } from "./registry";
+import { writeConnectorAuditLog } from "./audit";
 
 export const TRANSFER_LIMIT = 10 * 1024 * 1024;
 const requestHeaders = ["accept", "content-type", "if-match", "if-none-match"];
@@ -16,7 +16,14 @@ const responseHeaders = [
   "last-modified",
   "retry-after",
 ];
-export function upstreamHeaders(input: Headers, accessToken: string) {
+/** Builds the allowlisted headers sent from Weldall's connector proxy to Google APIs. */
+export function buildUpstreamHeaders({
+  input,
+  accessToken,
+}: {
+  input: Headers;
+  accessToken: string;
+}) {
   const headers = new Headers();
   for (const name of requestHeaders) {
     const value = input.get(name);
@@ -25,13 +32,21 @@ export function upstreamHeaders(input: Headers, accessToken: string) {
   headers.set("authorization", `Bearer ${accessToken}`);
   return headers;
 }
-/** No retry after dispatch: provider HTTP calls cannot be made atomic by a database transaction. */
-export async function executeConnection(
-  request: Request,
-  actor: ConnectorActor,
-  connectorKey: string,
-  path: string,
-) {
+/**
+ * Authorizes and dispatches one owner-scoped request through the managed connector proxy. Provider
+ * calls are never retried after dispatch because they cannot be atomic with the database state.
+ */
+export async function executeConnectionRequest({
+  request,
+  actor,
+  connectorKey,
+  path,
+}: {
+  request: Request;
+  actor: ConnectorActor;
+  connectorKey: string;
+  path: string;
+}) {
   const selector = request.headers.get("x-weldall-connection");
   if (!selector || selector.length > 160)
     throw new ConnectorError(
@@ -42,19 +57,25 @@ export async function executeConnection(
   let connectionId = "unknown";
   let operationName = "unsupported";
   try {
-    const operation = resolveOperation(path, new URL(request.url).searchParams, request.method);
+    const operation = resolveConnectorOperation({
+      path,
+      query: new URL(request.url).searchParams,
+      method: request.method,
+    });
     operationName = operation.name;
     // Check authorization before decryption, body buffering, refresh or any Google call.
-    const initial = await ownedConnection(db, selector, actor);
+    const initial = await findOwnedConnection({ tx: db, selector, actor });
     connectionId = initial.id;
     const authorize = (row: typeof initial) => {
       if (
         row.connector.key !== connectorKey ||
         !row.connector.enabled ||
         row.status !== "READY" ||
-        !effectiveCapabilities(row.connector, row.selectedScopes, row.grantedScopes).includes(
-          operation.capability,
-        )
+        !calculateEffectiveCapabilities({
+          config: row.connector,
+          selected: row.selectedScopes,
+          granted: row.grantedScopes,
+        }).includes(operation.capability)
       )
         throw new ConnectorError(
           "operation_denied",
@@ -67,22 +88,25 @@ export async function executeConnection(
     else if (
       !initial.connector.enabled ||
       initial.connector.key !== connectorKey ||
-      !effectiveCapabilities(
-        initial.connector,
-        initial.selectedScopes,
-        initial.grantedScopes,
-      ).includes(operation.capability)
+      !calculateEffectiveCapabilities({
+        config: initial.connector,
+        selected: initial.selectedScopes,
+        granted: initial.grantedScopes,
+      }).includes(operation.capability)
     )
       throw new ConnectorError("operation_denied", "Operation not allowed.", 403);
-    const { credentials, row: credentialState } = await accessCredentials(actor, initial.id);
+    const { credentials, row: credentialState } = await accessCredentials({
+      actor,
+      selector: initial.id,
+    });
     const timeout = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
     const body =
       request.method === "GET" || request.method === "HEAD"
         ? undefined
-        : await boundedBody(request, TRANSFER_LIMIT, timeout);
+        : await readBoundedBody({ response: request, maximum: TRANSFER_LIMIT, signal: timeout });
     timeout.throwIfAborted();
-    await transaction(async (tx) => {
-      const row = await ownedConnection(tx, initial.id, actor);
+    await runConnectorTransaction(async (tx) => {
+      const row = await findOwnedConnection({ tx, selector: initial.id, actor });
       authorize(row);
       if (row.version !== credentialState.version)
         throw new ConnectorError(
@@ -111,12 +135,15 @@ export async function executeConnection(
     // Disconnect/disable blocks subsequent authorization. Already-dispatched requests cannot be retroactively cancelled.
     const response = await fetch(operation.target, {
       method: request.method,
-      headers: upstreamHeaders(request.headers, credentials.accessToken),
+      headers: buildUpstreamHeaders({
+        input: request.headers,
+        accessToken: credentials.accessToken,
+      }),
       ...(body ? { body: Buffer.from(body) } : {}),
       redirect: "error",
       signal: timeout,
     });
-    const bytes = await boundedBody(response, TRANSFER_LIMIT, timeout);
+    const bytes = await readBoundedBody({ response, maximum: TRANSFER_LIMIT, signal: timeout });
     if (response.status === 401)
       await db.connection.updateMany({
         where: { id: initial.id, version: credentialState.version, status: "READY" },
@@ -130,34 +157,35 @@ export async function executeConnection(
       const value = response.headers.get(name);
       if (value) headers.set(name, value);
     }
-    await connectorAudit(
-      db,
+    await writeConnectorAuditLog({
+      tx: db,
       actor,
-      "request",
-      initial.id,
-      operation.name,
-      response.ok ? "success" : "failed",
-      {
+      event: "request",
+      subjectId: initial.id,
+      operation: operation.name,
+      outcome: response.ok ? "success" : "failed",
+      details: {
         connectorId: initial.connectorId,
         accountId: initial.accountId,
         durationMs: Date.now() - started,
         status: response.status,
       },
-    );
+    });
     return new Response([204, 304].includes(response.status) ? null : Buffer.from(bytes), {
       status: response.status,
       headers,
     });
   } catch (error) {
-    await connectorAudit(
-      db,
+    await writeConnectorAuditLog({
+      tx: db,
       actor,
-      "request",
-      connectionId,
-      operationName,
-      error instanceof ConnectorError && [403, 404].includes(error.status) ? "denied" : "failed",
-      { durationMs: Date.now() - started },
-    );
+      event: "request",
+      subjectId: connectionId,
+      operation: operationName,
+      outcome:
+        error instanceof ConnectorError && [403, 404].includes(error.status) ? "denied" : "failed",
+      details: { durationMs: Date.now() - started },
+    });
     throw error;
   }
 }

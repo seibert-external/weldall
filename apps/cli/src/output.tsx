@@ -39,7 +39,16 @@ export const terminalDocument = (value: string) =>
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "�");
 
-const renderUiAtWidth = (node: ReactNode, width: number, stream: OutputStream) => {
+/** Renders one Ink tree using the explicit width and color policy of its destination stream. */
+const renderUiAtWidth = ({
+  node,
+  width,
+  stream,
+}: {
+  node: ReactNode;
+  width: number;
+  stream: OutputStream;
+}) => {
   if (width === 1) return "…";
   const previousColorLevel = chalk.level;
   chalk.level = colorsEnabled(stream) ? 1 : 0;
@@ -54,15 +63,20 @@ const renderUiAtWidth = (node: ReactNode, width: number, stream: OutputStream) =
   }
 };
 
-export const renderUi = (
-  node: ReactNode,
+/** Renders Ink UI deterministically for the selected terminal width and output stream. */
+export const renderUi = ({
+  node,
   columns = terminalColumns(),
-  stream: OutputStream = "stdout",
-) => renderUiAtWidth(node, frameColumns(columns), stream);
+  stream = "stdout",
+}: {
+  node: ReactNode;
+  columns?: number;
+  stream?: OutputStream;
+}) => renderUiAtWidth({ node, width: frameColumns(columns), stream });
 
-export const printUi = (node: ReactNode) => console.log(renderUi(node));
+export const printUi = (node: ReactNode) => console.log(renderUi({ node }));
 export const printWideUi = (node: ReactNode) =>
-  console.log(renderUiAtWidth(node, Math.max(1, terminalColumns()), "stdout"));
+  console.log(renderUiAtWidth({ node, width: Math.max(1, terminalColumns()), stream: "stdout" }));
 
 export function Card({
   title,
@@ -88,11 +102,16 @@ export function Card({
   );
 }
 
-export const layoutTable = (
-  columns: readonly TableColumn[],
-  rows: readonly (readonly string[])[],
-  available: number,
-): number[] => {
+/** Allocates terminal table widths without truncating cell content from CLI output. */
+export const layoutTable = ({
+  columns,
+  rows,
+  available,
+}: {
+  columns: readonly TableColumn[];
+  rows: readonly (readonly string[])[];
+  available: number;
+}): number[] => {
   if (columns.length === 0) return [];
   const gaps = TABLE_GAP * (columns.length - 1);
   const widths = columns.map((column, columnIndex) =>
@@ -120,7 +139,8 @@ export const layoutTable = (
   return widths;
 };
 
-const wrapTableCell = (value: string, width: number) => {
+/** Wraps a sanitized terminal cell without discarding content at narrow widths. */
+const wrapTableCell = ({ value, width }: { value: string; width: number }) => {
   const text = terminalText(value);
   if (width <= 0 || text.length <= width) return [text];
   const lines: string[] = [];
@@ -135,6 +155,7 @@ const wrapTableCell = (value: string, width: number) => {
   return lines;
 };
 
+/** Renders aligned, wrapping tabular data inside the shared Ink CLI layout. */
 export function DataTable({
   columns,
   rows,
@@ -147,9 +168,13 @@ export function DataTable({
   cellColor?: (rowIndex: number, columnIndex: number, value: string) => Accent | undefined;
 }) {
   const frameWidth = useContext(LayoutContext);
-  const widths = layoutTable(columns, rows, Math.max(columns.length, frameWidth - 4));
+  const widths = layoutTable({
+    columns,
+    rows,
+    available: Math.max(columns.length, frameWidth - 4),
+  });
   const gap = " ".repeat(TABLE_GAP);
-  const cell = (value: string, columnIndex: number) => {
+  const renderCell = ({ value, columnIndex }: { value: string; columnIndex: number }) => {
     const width = widths[columnIndex] ?? 0;
     return columns[columnIndex]?.align === "right" ? value.padStart(width) : value.padEnd(width);
   };
@@ -159,12 +184,14 @@ export function DataTable({
   return (
     <Box flexDirection="column">
       <Text bold color={accent}>
-        {columns.map((column, columnIndex) => cell(column.header, columnIndex)).join(gap)}
+        {columns
+          .map((column, columnIndex) => renderCell({ value: column.header, columnIndex }))
+          .join(gap)}
       </Text>
       <Text dimColor>{"─".repeat(Math.max(1, tableWidth))}</Text>
       {rows.map((row, rowIndex) => {
         const wrappedCells = columns.map((_, columnIndex) =>
-          wrapTableCell(row[columnIndex] ?? "", widths[columnIndex] ?? 0),
+          wrapTableCell({ value: row[columnIndex] ?? "", width: widths[columnIndex] ?? 0 }),
         );
         const rowHeight = Math.max(...wrappedCells.map((lines) => lines.length));
         return (
@@ -176,7 +203,10 @@ export function DataTable({
                   const color = cellColor?.(rowIndex, columnIndex, value);
                   return (
                     <Text key={columnIndex} {...(color === undefined ? {} : { color })}>
-                      {cell(wrappedCells[columnIndex]?.[lineIndex] ?? "", columnIndex)}
+                      {renderCell({
+                        value: wrappedCells[columnIndex]?.[lineIndex] ?? "",
+                        columnIndex,
+                      })}
                       {columnIndex === columns.length - 1 ? "" : gap}
                     </Text>
                   );
@@ -190,6 +220,7 @@ export function DataTable({
   );
 }
 
+/** Wraps a shared terminal data table in Weldall's standard titled card. */
 export function TableCard({
   title,
   columns,
@@ -374,35 +405,49 @@ export function Notice({
   );
 }
 
-const printNotice = (
-  kind: NoticeKind,
-  message: string,
-  hint?: string,
-  stream: "stdout" | "stderr" = kind === "error" ? "stderr" : "stdout",
-) => {
+/** Writes a styled notice to the correct stream while preserving redirect-safe output. */
+const printNotice = ({
+  kind,
+  message,
+  hint,
+  stream = kind === "error" ? "stderr" : "stdout",
+}: {
+  kind: NoticeKind;
+  message: string;
+  hint?: string | undefined;
+  stream?: "stdout" | "stderr" | undefined;
+}) => {
   const longestMessageLine = Math.max(
     ...terminalDocument(message)
       .split("\n")
       .map((line) => line.length),
   );
   const contentWidth = Math.max(longestMessageLine + 16, hint ? hint.length + 10 : 0);
-  const output = renderUi(
-    <Notice kind={kind} message={message} {...(hint === undefined ? {} : { hint })} />,
-    Math.min(terminalColumns(stream), contentWidth),
+  const output = renderUi({
+    node: <Notice kind={kind} message={message} {...(hint === undefined ? {} : { hint })} />,
+    columns: Math.min(terminalColumns(stream), contentWidth),
     stream,
-  );
+  });
   if (stream === "stderr") console.error(output);
   else console.log(output);
 };
 
-export const success = (message: string) => printNotice("success", message);
-export const info = (message: string) => printNotice("info", message);
-export const warning = (message: string, hint?: string) => printNotice("warning", message, hint);
-export const printWarning = (message: string, hint?: string) =>
-  printNotice("warning", message, hint, "stderr");
-export const printError = (message: string, hint?: string) => printNotice("error", message, hint);
+export const success = (message: string) => printNotice({ kind: "success", message });
+export const info = (message: string) => printNotice({ kind: "info", message });
+export const warning = ({ message, hint }: { message: string; hint?: string | undefined }) =>
+  printNotice({ kind: "warning", message, hint });
+export const printWarning = ({ message, hint }: { message: string; hint?: string | undefined }) =>
+  printNotice({ kind: "warning", message, hint, stream: "stderr" });
+export const printError = ({ message, hint }: { message: string; hint?: string | undefined }) =>
+  printNotice({ kind: "error", message, hint });
 
-export const printFields = (fields: ReadonlyArray<Field>, title = "Details") =>
+export const printFields = ({
+  fields,
+  title = "Details",
+}: {
+  fields: ReadonlyArray<Field>;
+  title?: string;
+}) =>
   printUi(
     <Card title={title} accent={palette.accent}>
       <FieldList fields={fields} />
@@ -515,44 +560,67 @@ export function HelpHeader({
   );
 }
 
-export const brandHeading = (issuer: string | null, identity: HeaderIdentity | null = null) => {
+export const brandHeading = ({
+  issuer,
+  identity = null,
+}: {
+  issuer: string | null;
+  identity?: HeaderIdentity | null;
+}) => {
   const longestValue = Math.max(
     issuer?.length ?? "Not configured".length,
     identity?.name.length ?? "Not signed in".length,
     identity?.email.length ?? 0,
   );
-  return renderUi(
-    <WeldallCard issuer={issuer} identity={identity} />,
-    Math.min(terminalColumns(), Math.max(28, longestValue + 12)),
-  );
+  return renderUi({
+    node: <WeldallCard issuer={issuer} identity={identity} />,
+    columns: Math.min(terminalColumns(), Math.max(28, longestValue + 12)),
+  });
 };
 
-export const helpHeader = (
-  issuer: string | null,
-  identity: HeaderIdentity | null,
-  appendix: string,
-  scopes: string[] = [],
-  skills: HeaderSkill[] = [],
+export const helpHeader = ({
+  issuer,
+  identity,
+  appendix,
+  scopes = [],
+  skills = [],
   columns = terminalColumns(),
-) =>
-  renderUi(
-    <HelpHeader
-      issuer={issuer}
-      identity={identity}
-      appendix={appendix}
-      scopes={scopes}
-      skills={skills}
-    />,
+}: {
+  issuer: string | null;
+  identity: HeaderIdentity | null;
+  appendix: string;
+  scopes?: string[];
+  skills?: HeaderSkill[];
+  columns?: number;
+}) =>
+  renderUi({
+    node: (
+      <HelpHeader
+        issuer={issuer}
+        identity={identity}
+        appendix={appendix}
+        scopes={scopes}
+        skills={skills}
+      />
+    ),
     columns,
-  );
+  });
 
-export const appendixFrame = (value: string, columns = terminalColumns()) => {
+export const appendixFrame = ({
+  value,
+  columns = terminalColumns(),
+}: {
+  value: string;
+  columns?: number;
+}) => {
   const document = terminalDocument(value).trim();
   if (!document) return "";
-  return renderUi(
-    <Card title="Organization instructions" accent={palette.warning}>
-      <Text>{document}</Text>
-    </Card>,
+  return renderUi({
+    node: (
+      <Card title="Organization instructions" accent={palette.warning}>
+        <Text>{document}</Text>
+      </Card>
+    ),
     columns,
-  );
+  });
 };

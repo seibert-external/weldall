@@ -7,9 +7,17 @@ import type {
 } from "./services/connections.js";
 import { TOON_OPTIONS, joined } from "./toon.js";
 
-// Agents act on selectors, capabilities, and request prefixes. Owner IDs, database connector IDs,
-// versions, and policy bookkeeping stay in the stable --json representation.
-const connectionRow = (connection: ConnectionSummary, issuer: string) => ({
+/**
+ * Projects one connection to the selectors and capabilities agents can act on. Owner IDs, database
+ * connector IDs, versions, and policy bookkeeping remain in the stable JSON representation.
+ */
+const buildConnectionRow = ({
+  connection,
+  issuer,
+}: {
+  connection: ConnectionSummary;
+  issuer: string;
+}) => ({
   name: connection.name,
   id: connection.id,
   connector: connection.connectorKey,
@@ -21,14 +29,22 @@ const connectionRow = (connection: ConnectionSummary, issuer: string) => ({
   lastUsedAt: connection.lastUsedAt ?? "",
 });
 
-export function connectionsToon(connections: readonly ConnectionSummary[], issuer: string): string {
+/** Encodes connection selectors and capabilities for compact agent-oriented CLI output. */
+export function encodeConnectionsToon({
+  connections,
+  issuer,
+}: {
+  connections: readonly ConnectionSummary[];
+  issuer: string;
+}): string {
   return encode(
-    { connections: connections.map((connection) => connectionRow(connection, issuer)) },
+    { connections: connections.map((connection) => buildConnectionRow({ connection, issuer })) },
     TOON_OPTIONS,
   ).concat("\n");
 }
 
-export function connectorsToon(connectors: readonly ConnectorSummary[]): string {
+/** Encodes connector discovery metadata for compact agent-oriented CLI output. */
+export function encodeConnectorsToon(connectors: readonly ConnectorSummary[]): string {
   return encode(
     {
       connectors: connectors.map((connector) => ({
@@ -44,10 +60,17 @@ export function connectorsToon(connectors: readonly ConnectorSummary[]): string 
   ).concat("\n");
 }
 
-export function connectionDetailToon(connection: ConnectionSummary, issuer: string): string {
+/** Encodes one connection's actionable state while leaving database plumbing in JSON output. */
+export function encodeConnectionDetailToon({
+  connection,
+  issuer,
+}: {
+  connection: ConnectionSummary;
+  issuer: string;
+}): string {
   return encode(
     {
-      ...connectionRow(connection, issuer),
+      ...buildConnectionRow({ connection, issuer }),
       selectedScopes: connection.selectedScopes,
       grantedScopes: connection.grantedScopes,
       createdAt: connection.createdAt,
@@ -58,7 +81,8 @@ export function connectionDetailToon(connection: ConnectionSummary, issuer: stri
   ).concat("\n");
 }
 
-export function connectionAttemptToon(attempt: ConnectionAttempt): string {
+/** Encodes one authorization attempt for agent-visible setup recovery. */
+export function encodeConnectionAttemptToon(attempt: ConnectionAttempt): string {
   return encode(
     {
       id: attempt.id,
@@ -73,7 +97,8 @@ export function connectionAttemptToon(attempt: ConnectionAttempt): string {
   ).concat("\n");
 }
 
-export function disconnectToon(result: DisconnectResult): string {
+/** Encodes the revocation outcome returned by an explicit disconnect command. */
+export function encodeDisconnectToon(result: DisconnectResult): string {
   return encode(
     {
       status: result.status,

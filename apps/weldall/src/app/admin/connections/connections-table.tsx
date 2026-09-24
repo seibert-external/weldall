@@ -44,6 +44,8 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 
+/** Renders the administrative connection and authorization lifecycle workspace. */
+/** Renders the administrator's connection and authorization-attempt workspace. */
 export function ConnectionsTable() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -63,7 +65,15 @@ export function ConnectionsTable() {
     queryClient.invalidateQueries({ queryKey: trpc.admin.managed.connections.queryKey() });
   const refreshAttempts = () =>
     queryClient.invalidateQueries({ queryKey: trpc.admin.managed.authorizations.queryKey() });
-  const completed = async (message: string, key: string, refresh: () => Promise<unknown>) => {
+  const completeMutationFeedback = async ({
+    message,
+    key,
+    refresh,
+  }: {
+    message: string;
+    key: string;
+    refresh: () => Promise<unknown>;
+  }) => {
     setAction(null);
     operationToast.success(message, key);
     await refresh();
@@ -71,7 +81,11 @@ export function ConnectionsTable() {
   const disconnect = useMutation(
     trpc.admin.managed.disconnect.mutationOptions({
       onSuccess: () =>
-        completed("Connection disconnected", "connection-disconnect", refreshConnections),
+        completeMutationFeedback({
+          message: "Connection disconnected",
+          key: "connection-disconnect",
+          refresh: refreshConnections,
+        }),
       onError: (error) =>
         operationToast.error("Could not disconnect connection", error, "connection-disconnect"),
     }),
@@ -79,7 +93,11 @@ export function ConnectionsTable() {
   const remove = useMutation(
     trpc.admin.managed.deleteConnection.mutationOptions({
       onSuccess: () =>
-        completed("Connection metadata deleted", "connection-delete", refreshConnections),
+        completeMutationFeedback({
+          message: "Connection metadata deleted",
+          key: "connection-delete",
+          refresh: refreshConnections,
+        }),
       onError: (error) =>
         operationToast.error("Could not delete connection", error, "connection-delete"),
     }),
@@ -87,7 +105,11 @@ export function ConnectionsTable() {
   const discardCredentials = useMutation(
     trpc.admin.managed.discardConnection.mutationOptions({
       onSuccess: () =>
-        completed("Retry credentials discarded", "connection-discard", refreshConnections),
+        completeMutationFeedback({
+          message: "Retry credentials discarded",
+          key: "connection-discard",
+          refresh: refreshConnections,
+        }),
       onError: (error) =>
         operationToast.error("Could not discard retry credentials", error, "connection-discard"),
     }),
@@ -95,7 +117,11 @@ export function ConnectionsTable() {
   const cancel = useMutation(
     trpc.admin.managed.cancelAuthorization.mutationOptions({
       onSuccess: () =>
-        completed("Authorization attempt cancelled", "authorization-cancel", refreshAttempts),
+        completeMutationFeedback({
+          message: "Authorization attempt cancelled",
+          key: "authorization-cancel",
+          refresh: refreshAttempts,
+        }),
       onError: (error) =>
         operationToast.error("Could not cancel authorization", error, "authorization-cancel"),
     }),
@@ -103,11 +129,11 @@ export function ConnectionsTable() {
   const discard = useMutation(
     trpc.admin.managed.discardAuthorization.mutationOptions({
       onSuccess: () =>
-        completed(
-          "Authorization retry material discarded",
-          "authorization-discard",
-          refreshAttempts,
-        ),
+        completeMutationFeedback({
+          message: "Authorization retry material discarded",
+          key: "authorization-discard",
+          refresh: refreshAttempts,
+        }),
       onError: (error) =>
         operationToast.error(
           "Could not discard authorization material",
@@ -184,8 +210,8 @@ export function ConnectionsTable() {
           <div className="grid gap-1">
             <div className="flex flex-wrap gap-1">
               <Badge
-                label={connectionStatusLabel(row.original.status)}
-                variant={connectionStatusVariant(row.original.status)}
+                label={getConnectionStatusLabel(row.original.status)}
+                variant={getConnectionStatusVariant(row.original.status)}
               />
               {!row.original.connectorEnabled ? (
                 <Badge label="Connector disabled" variant="warning" />
@@ -304,8 +330,8 @@ export function ConnectionsTable() {
         maxSize: 220,
         cell: ({ getValue }) => (
           <Badge
-            label={authorizationStatusLabel(getValue<string>())}
-            variant={authorizationStatusVariant(getValue<string>())}
+            label={getAuthorizationStatusLabel(getValue<string>())}
+            variant={getAuthorizationStatusVariant(getValue<string>())}
           />
         ),
       },
@@ -454,22 +480,27 @@ export function ConnectionsTable() {
         />
       </section>
       <AlertDialog
-        actionLabel={actionLabel(action)}
-        description={actionDescription(action)}
+        actionLabel={getActionLabel(action)}
+        description={getActionDescription(action)}
         isActionLoading={busy}
         isOpen={Boolean(action)}
         onAction={() =>
-          runAction(action, { disconnect, remove, discardCredentials, cancel, discard })
+          runAdminAction({
+            action,
+            mutations: { disconnect, remove, discardCredentials, cancel, discard },
+          })
         }
         onOpenChange={(open) => {
           if (!open && !busy) setAction(null);
         }}
-        title={actionTitle(action)}
+        title={getActionTitle(action)}
       />
     </>
   );
 }
 
+/** Renders a resizable Astryx table while TanStack owns filtering and sorting state. */
+/** Renders a sortable, filterable TanStack table within the shared admin card pattern. */
 function DataTable<T>({
   ariaLabel,
   table,
@@ -531,7 +562,9 @@ function DataTable<T>({
   );
 }
 
-function connectionStatusLabel(status: ConnectionRow["status"]) {
+/** Maps persisted connection states to concise administrative labels. */
+/** Converts persisted connection lifecycle states into administrator-facing labels. */
+function getConnectionStatusLabel(status: ConnectionRow["status"]) {
   return (
     {
       READY: "Ready",
@@ -542,7 +575,9 @@ function connectionStatusLabel(status: ConnectionRow["status"]) {
     } as const
   )[status];
 }
-function connectionStatusVariant(status: ConnectionRow["status"]): BadgeVariant {
+/** Maps persisted connection states to Astryx badge variants. */
+/** Maps connection lifecycle states to Astryx badge semantics. */
+function getConnectionStatusVariant(status: ConnectionRow["status"]): BadgeVariant {
   return (
     {
       READY: "success",
@@ -553,19 +588,25 @@ function connectionStatusVariant(status: ConnectionRow["status"]): BadgeVariant 
     } as const
   )[status];
 }
-function authorizationStatusLabel(status: string) {
+/** Formats authorization state identifiers for the administrative table. */
+/** Converts authorization-attempt states into administrator-facing labels. */
+function getAuthorizationStatusLabel(status: string) {
   return status
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/^./, (character) => character.toUpperCase());
 }
-function authorizationStatusVariant(status: string): BadgeVariant {
+/** Maps authorization attempt states to Astryx badge variants. */
+/** Maps authorization-attempt states to Astryx badge semantics. */
+function getAuthorizationStatusVariant(status: string): BadgeVariant {
   if (status === "COMPLETED") return "success";
   if (["FAILED", "NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(status)) return "error";
   if (["EXPIRED", "CANCELLED"].includes(status)) return "neutral";
   return "info";
 }
-function actionLabel(action: AdminAction | null) {
+/** Returns the destructive-dialog action label for the selected lifecycle operation. */
+/** Chooses the concise destructive-action label shown in the confirmation trigger. */
+function getActionLabel(action: AdminAction | null) {
   if (!action) return "Continue";
   return (
     {
@@ -577,11 +618,15 @@ function actionLabel(action: AdminAction | null) {
     } as const
   )[action.type];
 }
-function actionTitle(action: AdminAction | null) {
+/** Returns the destructive-dialog title for the selected lifecycle operation. */
+/** Builds the title for the selected connection-management confirmation dialog. */
+function getActionTitle(action: AdminAction | null) {
   if (!action) return "Confirm operation";
-  return `${actionLabel(action)}?`;
+  return `${getActionLabel(action)}?`;
 }
-function actionDescription(action: AdminAction | null) {
+/** Explains the provider-revocation consequences of an administrative lifecycle operation. */
+/** Explains the operational impact of the selected administrator action. */
+function getActionDescription(action: AdminAction | null) {
   if (!action) return "Confirm this operation.";
   switch (action.type) {
     case "disconnect":
@@ -596,8 +641,13 @@ function actionDescription(action: AdminAction | null) {
       return `Provider revocation is unconfirmed. Discard the expired ${action.row.name} attempt and its encrypted retry material?`;
   }
 }
-function runAction(
-  action: AdminAction | null,
+/** Dispatches a confirmed administrative lifecycle operation to the matching tRPC mutation. */
+/** Executes the selected administrator action through the managed-connector tRPC API. */
+function runAdminAction({
+  action,
+  mutations,
+}: {
+  action: AdminAction | null;
   mutations: {
     disconnect: { mutate: (input: { id: string }) => void };
     remove: { mutate: (input: { id: string }) => void };
@@ -612,8 +662,8 @@ function runAction(
     discard: {
       mutate: (input: { id: string; acknowledgement: "provider-revocation-unconfirmed" }) => void;
     };
-  },
-) {
+  };
+}) {
   if (!action) return;
   switch (action.type) {
     case "disconnect":

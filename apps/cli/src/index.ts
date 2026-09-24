@@ -106,14 +106,14 @@ export async function runCli(argv = process.argv.slice(2)) {
         localHeader ??= loadLocalHeader(rootHelp);
         const header = await localHeader;
         if (rootHelp)
-          return helpHeader(
-            header.issuer,
-            header.identity,
-            header.appendix,
-            header.scopes,
-            header.skills,
-          );
-        return brandHeading(header.issuer, header.identity);
+          return helpHeader({
+            issuer: header.issuer,
+            identity: header.identity,
+            appendix: header.appendix,
+            scopes: header.scopes,
+            skills: header.skills,
+          });
+        return brandHeading({ issuer: header.issuer, identity: header.identity });
       },
       renderValidationErrors: null,
     });
@@ -126,7 +126,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       return;
     }
     const cliError = error instanceof CliError ? error : undefined;
-    printError(errorMessage(error), cliError?.hint);
+    printError({ message: errorMessage(error), hint: cliError?.hint });
     if (process.env.WELDALL_DEBUG && error instanceof Error && error.stack)
       console.error(`\n${terminalDocument(error.stack)}`);
     process.exitCode = cliError?.exitCode ?? 1;

@@ -3,10 +3,11 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@astryxdesign/core/Button";
 import { Banner } from "@astryxdesign/core/Banner";
-import type { getAttempt } from "@/server/connectors/connections";
+import type { getAuthorizationAttempt } from "@/server/connectors/connections";
 import type { ScopeDescriptor } from "@/server/connectors/scopes";
 
 /** Shared rendering knows no provider scope IDs; descriptions and grouping come from the connector. */
+/** Lets an owner choose optional OAuth scopes within the administrator-approved connector policy. */
 export function ScopeChoices({
   scopes,
   selected,
@@ -45,6 +46,7 @@ export function ScopeChoices({
     </>
   );
 }
+/** Drives the browser step that confirms scopes before redirecting to provider authorization. */
 export function SetupForm({ id }: { id: string }) {
   const [selected, setSelected] = useState<string[] | null>(null);
   const query = useQuery({
@@ -56,7 +58,7 @@ export function SetupForm({ id }: { id: string }) {
       });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error_description);
-      return value as Awaited<ReturnType<typeof getAttempt>>;
+      return value as Awaited<ReturnType<typeof getAuthorizationAttempt>>;
     },
   });
   const submit = useMutation({

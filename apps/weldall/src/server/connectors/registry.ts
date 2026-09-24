@@ -120,8 +120,19 @@ const queryKeys = new Set([
   "showHidden",
   "minAccessRole",
 ]);
-/** Explicit operations, not a prefix proxy. Reject path ambiguity before constructing the fixed-origin URL. */
-export function resolveOperation(path: string, query: URLSearchParams, method: string) {
+/**
+ * Resolves one allowlisted provider operation for the connector proxy. This is an explicit registry,
+ * not a prefix proxy, and rejects path ambiguity before constructing the fixed-origin URL.
+ */
+export function resolveConnectorOperation({
+  path,
+  query,
+  method,
+}: {
+  path: string;
+  query: URLSearchParams;
+  method: string;
+}) {
   if (path.length > 2000 || /[\\\u0000-\u0020\u007f?#]/.test(path))
     throw new ConnectorError("invalid_path", "Unsafe connector path.");
   for (const segment of path.split("/")) {

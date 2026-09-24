@@ -14,34 +14,52 @@ import {
   type ConnectorConfig,
   type KeyConfig,
 } from "./contracts";
-import { validateScopeConfig } from "./scopes";
-import { decrypt, encrypt, readSecret, saveSecret, sourceFingerprint } from "./encryption";
-import { connectorAudit } from "./audit";
+import { validateConnectorScopeConfig } from "./scopes";
+import { decrypt, encrypt, readSecret, saveSecret } from "./encryption";
+import {
+  bindKeySource,
+  checkKeyBindingAvailability,
+  describeKeySource,
+  resolveKeyMaterial,
+} from "./key-providers";
+import { writeConnectorAuditLog } from "./audit";
 
 type Tx = Prisma.TransactionClient;
-export const transaction = <T>(operation: (tx: Tx) => Promise<T>) =>
+
+/** Runs connector writes with the serializable isolation required by lifecycle compare-and-set logic. */
+export const runConnectorTransaction = <T>(operation: (tx: Tx) => Promise<T>) =>
   db.$transaction(operation, {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     timeout: 15_000,
   });
-export function checkVersion(current: { version: number } | null, expected: number | null) {
+
+/** Ensures UI and IaC writes use the latest managed-connector configuration revision. */
+export function assertConfigurationVersion({
+  current,
+  expected,
+}: {
+  current: { version: number } | null;
+  expected: number | null;
+}) {
   if ((current?.version ?? null) !== expected)
     throw new ConnectorError("conflict", "Configuration changed; reload and try again.", 409);
 }
-export function keyState(key: EncryptionKey & { versions: EncryptionKeyVersion[] }): KeyConfig {
+
+/** Projects an encryption-key row into the shared non-secret UI and IaC configuration contract. */
+export function buildEncryptionKeyState(
+  key: EncryptionKey & { versions: EncryptionKeyVersion[] },
+): KeyConfig {
   return {
     key: key.key,
     name: key.name,
     activeVersion: key.activeVersion,
     versions: Object.fromEntries(
-      key.versions.map((v) => [
-        v.version,
-        { source: { type: "env" as const, name: v.sourceName } },
-      ]),
+      key.versions.map((version) => [version.version, { source: describeKeySource(version) }]),
     ),
   };
 }
-export function connectorState(
+/** Projects a connector row into the shared non-secret UI and IaC configuration contract. */
+export function buildConnectorState(
   row: Connector & { encryptionKey: { key: string } },
 ): ConnectorConfig {
   return connectorConfig.parse({
@@ -56,46 +74,51 @@ export function connectorState(
     defaultScopes: row.defaultScopes,
   });
 }
-/** UI and IaC share mutations. IaC ownership is metadata, not an edit lock. Historical bindings cannot be rewritten or reused. */
-export async function mutateKey(
-  tx: Tx,
-  value: unknown,
-  id: string | undefined,
-  expected: number | null,
-  actor: ConnectorActor,
-) {
+/**
+ * Creates or updates one logical encryption key through the shared admin and IaC write path.
+ * IaC ownership remains metadata, while historical provider bindings stay immutable for recovery.
+ */
+export async function saveEncryptionKeyConfiguration({
+  tx,
+  value,
+  id,
+  expectedVersion,
+  actor,
+}: {
+  tx: Tx;
+  value: unknown;
+  id: string | undefined;
+  expectedVersion: number | null;
+  actor: ConnectorActor;
+}) {
   const config = encryptionKeyConfig.parse(value);
   const current = id
     ? await tx.encryptionKey.findUniqueOrThrow({ where: { id }, include: { versions: true } })
     : null;
-  checkVersion(current, expected);
+  assertConfigurationVersion({ current, expected: expectedVersion });
   if (current && current.key !== config.key)
     throw new ConnectorError("immutable_identity", "Key identity cannot change.", 409);
-  if (current?.versions.some((v) => config.versions[v.version]?.source.name !== v.sourceName))
+  if (
+    current?.versions.some(
+      (version) =>
+        !isDeepStrictEqual(config.versions[version.version]?.source, describeKeySource(version)),
+    )
+  )
     throw new ConnectorError(
       "immutable_version",
       "Retain every historical version and its original source binding for recovery.",
       409,
     );
-  const versions = Object.entries(config.versions).map(([version, { source }]) => ({
-    version,
-    sourceName: source.name,
-    fingerprint: sourceFingerprint(source.name),
-  }));
-  if (
-    current?.versions.some(
-      (v) => versions.find((n) => n.version === v.version)?.fingerprint !== v.fingerprint,
-    )
-  )
-    throw new ConnectorError(
-      "key_changed",
-      "Restore the original material for the existing key version.",
-      409,
-    );
-  if (current && isDeepStrictEqual(keyState(current), config)) return current;
+  for (const version of current?.versions ?? []) await resolveKeyMaterial(version);
+  const versions = await Promise.all(
+    Object.entries(config.versions)
+      .filter(([version]) => !current?.versions.some((old) => old.version === version))
+      .map(async ([version, { source }]) => ({ version, ...(await bindKeySource(source)) })),
+  );
+  if (current && isDeepStrictEqual(buildEncryptionKeyState(current), config)) return current;
   const row = current
     ? await tx.encryptionKey.update({
-        where: { id: current.id, version: expected! },
+        where: { id: current.id, version: expectedVersion! },
         data: {
           name: config.name,
           activeVersion: config.activeVersion,
@@ -112,26 +135,37 @@ export async function mutateKey(
           updatedBy: actor.id,
         },
       });
-  for (const version of versions.filter(
-    (v) => !current?.versions.some((old) => old.version === v.version),
-  ))
+  for (const version of versions)
     await tx.encryptionKeyVersion.create({ data: { keyId: row.id, ...version } });
-  await connectorAudit(tx, actor, "configuration", row.id, "key.saved");
+  await writeConnectorAuditLog({
+    tx,
+    actor,
+    event: "configuration",
+    subjectId: row.id,
+    operation: "key.saved",
+  });
   return row;
 }
-export async function mutateConnector(
-  tx: Tx,
-  value: unknown,
-  id: string | undefined,
-  expected: number | null,
-  actor: ConnectorActor,
-) {
+/** Creates or updates a managed connector while preserving write-only OAuth client secrets. */
+export async function saveConnectorConfiguration({
+  tx,
+  value,
+  id,
+  expectedVersion,
+  actor,
+}: {
+  tx: Tx;
+  value: unknown;
+  id: string | undefined;
+  expectedVersion: number | null;
+  actor: ConnectorActor;
+}) {
   const config = connectorConfig.parse(value);
-  validateScopeConfig(config);
+  validateConnectorScopeConfig(config);
   const current = id
     ? await tx.connector.findUniqueOrThrow({ where: { id }, include: { encryptionKey: true } })
     : null;
-  checkVersion(current, expected);
+  assertConfigurationVersion({ current, expected: expectedVersion });
   if (current && current.key !== config.key)
     throw new ConnectorError("immutable_identity", "Connector identity cannot change.", 409);
   const clientIdChanged = Boolean(current && current.clientId !== config.clientId);
@@ -155,7 +189,7 @@ export async function mutateConnector(
   const key = await tx.encryptionKey.findUnique({ where: { key: config.encryptionKey } });
   if (!key) throw new ConnectorError("missing_key", "Encryption key does not exist.", 409);
   // Even disabled configurations must reference provisioned, approved key material.
-  await encrypt(tx, key.id, "readiness", "readiness");
+  await encrypt({ tx, keyId: key.id, plaintext: "readiness", context: "readiness" });
   if (config.enabled) {
     if (!current?.secretId)
       throw new ConnectorError(
@@ -163,13 +197,17 @@ export async function mutateConnector(
         "Provision the OAuth client secret before enabling the connector.",
         409,
       );
-    await readSecret(tx, current.secretId, `connector:${current.id}:client-secret`);
+    await readSecret({
+      tx,
+      id: current.secretId,
+      context: `connector:${current.id}:client-secret`,
+    });
   }
-  if (current && isDeepStrictEqual(connectorState(current), config)) return current;
+  if (current && isDeepStrictEqual(buildConnectorState(current), config)) return current;
   const { encryptionKey: _, ...fields } = config;
   const row = current
     ? await tx.connector.update({
-        where: { id: current.id, version: expected! },
+        where: { id: current.id, version: expectedVersion! },
         data: {
           ...fields,
           encryptionKeyId: key.id,
@@ -183,35 +221,64 @@ export async function mutateConnector(
       });
   if (clientIdChanged && current?.secretId)
     await tx.encryptedValue.delete({ where: { id: current.secretId } });
-  await connectorAudit(tx, actor, "configuration", row.id, "connector.saved");
+  await writeConnectorAuditLog({
+    tx,
+    actor,
+    event: "configuration",
+    subjectId: row.id,
+    operation: "connector.saved",
+  });
   return row;
 }
-export async function setClientSecret(
-  id: string,
-  secret: string,
-  version: number,
-  actor: ConnectorActor,
-) {
+/** Replaces the write-only OAuth client secret used by one managed connector. */
+export async function saveConnectorClientSecret({
+  id,
+  secret,
+  version,
+  actor,
+}: {
+  id: string;
+  secret: string;
+  version: number;
+  actor: ConnectorActor;
+}) {
   if (!secret.trim() || secret.length > 10_000)
     throw new ConnectorError("invalid_secret", "A client secret is required.");
-  return transaction(async (tx) => {
+  return runConnectorTransaction(async (tx) => {
     const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
-    checkVersion(connector, version);
-    const encrypted = await saveSecret(
+    assertConfigurationVersion({ current: connector, expected: version });
+    const encrypted = await saveSecret({
       tx,
-      connector.encryptionKeyId,
-      `connector:${id}:client-secret`,
-      secret,
-      connector.secretId,
-    );
+      keyId: connector.encryptionKeyId,
+      context: `connector:${id}:client-secret`,
+      value: secret,
+      id: connector.secretId,
+    });
     await tx.connector.update({
       where: { id, version },
       data: { secretId: encrypted.id, version: { increment: 1 }, updatedBy: actor.id },
     });
-    await connectorAudit(tx, actor, "configuration", id, "secret.provisioned");
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "configuration",
+      subjectId: id,
+      operation: "secret.provisioned",
+    });
   });
 }
-export async function deleteConnector(tx: Tx, id: string, version: number, actor: ConnectorActor) {
+/** Deletes an unused connector definition after lifecycle cleanup removes its dependent rows. */
+export async function deleteConnectorConfiguration({
+  tx,
+  id,
+  version,
+  actor,
+}: {
+  tx: Tx;
+  id: string;
+  version: number;
+  actor: ConnectorActor;
+}) {
   if (
     (await tx.connection.count({ where: { connectorId: id } })) ||
     (await tx.connectionAuthorization.count({ where: { connectorId: id } }))
@@ -223,9 +290,26 @@ export async function deleteConnector(tx: Tx, id: string, version: number, actor
     );
   const row = await tx.connector.delete({ where: { id, version } });
   if (row.secretId) await tx.encryptedValue.delete({ where: { id: row.secretId } });
-  await connectorAudit(tx, actor, "configuration", id, "connector.deleted");
+  await writeConnectorAuditLog({
+    tx,
+    actor,
+    event: "configuration",
+    subjectId: id,
+    operation: "connector.deleted",
+  });
 }
-export async function deleteKey(tx: Tx, id: string, version: number, actor: ConnectorActor) {
+/** Deletes an unused logical key after all connector and ciphertext references are gone. */
+export async function deleteEncryptionKeyConfiguration({
+  tx,
+  id,
+  version,
+  actor,
+}: {
+  tx: Tx;
+  id: string;
+  version: number;
+  actor: ConnectorActor;
+}) {
   if (
     (await tx.connector.count({ where: { encryptionKeyId: id } })) ||
     (await tx.encryptedValue.count({ where: { keyId: id } }))
@@ -237,13 +321,30 @@ export async function deleteKey(tx: Tx, id: string, version: number, actor: Conn
     );
   await tx.encryptionKeyVersion.deleteMany({ where: { keyId: id } });
   await tx.encryptionKey.delete({ where: { id, version } });
-  await connectorAudit(tx, actor, "configuration", id, "key.deleted");
+  await writeConnectorAuditLog({
+    tx,
+    actor,
+    event: "configuration",
+    subjectId: id,
+    operation: "key.deleted",
+  });
 }
-/** Explicit synchronous maintenance only. Serializable conflicts roll back every ciphertext write; no provider I/O here. */
-export async function reencryptConnector(id: string, version: number, actor: ConnectorActor) {
-  return transaction(async (tx) => {
+/**
+ * Re-encrypts every secret owned by one connector during explicit synchronous maintenance;
+ * serializable conflicts roll back the complete ciphertext rewrite.
+ */
+export async function reencryptConnectorSecrets({
+  id,
+  version,
+  actor,
+}: {
+  id: string;
+  version: number;
+  actor: ConnectorActor;
+}) {
+  return runConnectorTransaction(async (tx) => {
     const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
-    checkVersion(connector, version);
+    assertConfigurationVersion({ current: connector, expected: version });
     const values = await tx.encryptedValue.findMany({
       where: {
         OR: [
@@ -261,20 +362,32 @@ export async function reencryptConnector(id: string, version: number, actor: Con
         409,
       );
     for (const value of values) {
-      const plaintext = await decrypt(tx, value, value.context);
+      const plaintext = await decrypt({ tx, envelope: value, context: value.context });
       await tx.encryptedValue.update({
         where: { id: value.id, version: value.version },
         data: {
-          ...(await encrypt(tx, connector.encryptionKeyId, plaintext, value.context)),
+          ...(await encrypt({
+            tx,
+            keyId: connector.encryptionKeyId,
+            plaintext,
+            context: value.context,
+          })),
           version: { increment: 1 },
         },
       });
     }
-    await connectorAudit(tx, actor, "configuration", id, "connector.reencrypted");
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "configuration",
+      subjectId: id,
+      operation: "connector.reencrypted",
+    });
     return { count: values.length };
   });
 }
-export async function listConfiguration() {
+/** Lists the non-secret configuration consumed by the managed-connector admin views. */
+export async function listManagedConnectorConfiguration() {
   const [keys, connectors] = await Promise.all([
     db.encryptionKey.findMany({
       include: { versions: true, iacBinding: true },
@@ -286,23 +399,21 @@ export async function listConfiguration() {
     }),
   ]);
   return {
-    keys: keys.map((key) => ({
-      id: key.id,
-      version: key.version,
-      config: keyState(key),
-      managed: Boolean(key.iacBinding),
-      available: key.versions.every((v) => {
-        try {
-          return sourceFingerprint(v.sourceName) === v.fingerprint;
-        } catch {
-          return false;
-        }
-      }),
-    })),
+    keys: await Promise.all(
+      keys.map(async (key) => ({
+        id: key.id,
+        version: key.version,
+        config: buildEncryptionKeyState(key),
+        managed: Boolean(key.iacBinding),
+        available: (await Promise.all(key.versions.map(checkKeyBindingAvailability))).every(
+          Boolean,
+        ),
+      })),
+    ),
     connectors: connectors.map((row) => ({
       id: row.id,
       version: row.version,
-      config: connectorState(row),
+      config: buildConnectorState(row),
       managed: Boolean(row.iacBinding),
       secretConfigured: Boolean(row.secretId),
     })),

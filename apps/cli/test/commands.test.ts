@@ -99,7 +99,7 @@ describe("skill registry output", () => {
   };
 
   it("renders the skill name, ID, and availability in an Ink panel", () => {
-    const output = renderUi(createElement(SkillsCard, { skills: [skill] }));
+    const output = renderUi({ node: createElement(SkillsCard, { skills: [skill] }) });
 
     expect(output).toContain("╭");
     expect(output).toContain("Skills");
@@ -108,8 +108,8 @@ describe("skill registry output", () => {
   });
 
   it("explains unavailable skills and their missing scopes", () => {
-    const output = renderUi(
-      createElement(SkillsCard, {
+    const output = renderUi({
+      node: createElement(SkillsCard, {
         skills: [
           {
             ...skill,
@@ -118,7 +118,7 @@ describe("skill registry output", () => {
           },
         ],
       }),
-    );
+    });
 
     expect(output).toContain("! Review expenses");
     expect(output).toContain("Not available · missing expenses:read, expenses:write");
@@ -134,9 +134,9 @@ describe("skill registry output", () => {
 describe("CLI brand", () => {
   it("renders the host and signed-in account in a rounded frame", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const heading = brandHeading("https://weldall.example.com", {
-      name: "Ada Lovelace",
-      email: "ada@example.com",
+    const heading = brandHeading({
+      issuer: "https://weldall.example.com",
+      identity: { name: "Ada Lovelace", email: "ada@example.com" },
     });
     const lines = heading.split("\n");
 
@@ -153,7 +153,7 @@ describe("CLI brand", () => {
 
   it("shows when no host or account is configured", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const heading = brandHeading(null);
+    const heading = brandHeading({ issuer: null });
     expect(heading).toContain("Host");
     expect(heading).toContain("Not configured");
     expect(heading).toContain("Account");
@@ -163,12 +163,12 @@ describe("CLI brand", () => {
 
   it("stacks the header and capped scope and skill previews vertically", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const heading = helpHeader(
-      "https://weldall.example.com",
-      { name: "Ada Lovelace", email: "ada@example.com" },
-      "Use approved skills.",
-      ["one:read", "two:read", "three:read", "four:read", "five:read", "six:read"],
-      [
+    const heading = helpHeader({
+      issuer: "https://weldall.example.com",
+      identity: { name: "Ada Lovelace", email: "ada@example.com" },
+      appendix: "Use approved skills.",
+      scopes: ["one:read", "two:read", "three:read", "four:read", "five:read", "six:read"],
+      skills: [
         { slug: "one", title: "One", available: true },
         { slug: "two", title: "Two", available: true },
         { slug: "three", title: "Three", available: true },
@@ -176,8 +176,8 @@ describe("CLI brand", () => {
         { slug: "five", title: "Five", available: true },
         { slug: "six", title: "Six", available: false },
       ],
-      100,
-    );
+      columns: 100,
+    });
     const lines = heading.split("\n");
     const weldallIndex = lines.findIndex((line) => line.includes("Weldall"));
     const organizationIndex = lines.findIndex((line) => line.includes("Organization instructions"));
@@ -239,17 +239,17 @@ describe("cached skill search", () => {
 
 describe("responsive Ink layout", () => {
   it.each([1, 4, 7])("never exceeds a %i-column terminal", (columns) => {
-    const output = renderUi(
-      createElement(Card, { title: "Weldall" }, createElement(Text, null, "Host")),
+    const output = renderUi({
+      node: createElement(Card, { title: "Weldall" }, createElement(Text, null, "Host")),
       columns,
-    );
+    });
 
     expect(output.split("\n").every((line) => line.length <= columns)).toBe(true);
   });
 
   it.each([10, 20])("keeps field panels inside a %i-column terminal", (columns) => {
-    const output = renderUi(
-      createElement(
+    const output = renderUi({
+      node: createElement(
         Card,
         { title: "Configuration" },
         createElement(FieldList, {
@@ -260,7 +260,7 @@ describe("responsive Ink layout", () => {
         }),
       ),
       columns,
-    );
+    });
 
     expect(output.split("\n").every((line) => line.length <= columns)).toBe(true);
     expect(output).toContain("Issuer");
@@ -271,7 +271,7 @@ describe("responsive Ink layout", () => {
 describe("CLI appendix", () => {
   it("renders organization instructions in a separate prominent frame", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const frame = appendixFrame("Use approved skills.\nAsk before deleting data.");
+    const frame = appendixFrame({ value: "Use approved skills.\nAsk before deleting data." });
     const lines = frame.split("\n");
 
     expect(lines[0]).toMatch(/^╭─+╮$/);
@@ -285,10 +285,11 @@ describe("CLI appendix", () => {
 
   it("wraps lengthy instructions to the terminal width", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const frame = appendixFrame(
-      "Use this CLI for all company tasks. Access to external services requires centrally managed tokens and approved skills.",
-      48,
-    );
+    const frame = appendixFrame({
+      value:
+        "Use this CLI for all company tasks. Access to external services requires centrally managed tokens and approved skills.",
+      columns: 48,
+    });
     const lines = frame.split("\n");
     const content = lines.slice(3, -1).map((line) => line.slice(2, -2));
 
@@ -300,7 +301,7 @@ describe("CLI appendix", () => {
   });
 
   it("omits the frame for an empty appendix", () => {
-    expect(appendixFrame(" \n\t ")).toBe("");
+    expect(appendixFrame({ value: " \n\t " })).toBe("");
   });
 });
 
@@ -313,11 +314,11 @@ describe("validation output", () => {
     vi.stubEnv("TERM", "xterm-256color");
 
     try {
-      const output = renderUi(
-        createElement(Notice, { kind: "error", message: "Invalid command input" }),
-        40,
-        "stderr",
-      );
+      const output = renderUi({
+        node: createElement(Notice, { kind: "error", message: "Invalid command input" }),
+        columns: 40,
+        stream: "stderr",
+      });
       expect(output).toContain("\u001B[");
     } finally {
       if (descriptor) Object.defineProperty(process.stderr, "isTTY", descriptor);
@@ -356,7 +357,7 @@ describe("terminal output safety", () => {
 
   it("sanitizes untrusted API errors at the terminal sink", () => {
     const output = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    printError("failed\u001B]52;c;stolen\u0007", "retry\u001B[2J");
+    printError({ message: "failed\u001B]52;c;stolen\u0007", hint: "retry\u001B[2J" });
     expect(output.mock.calls.flat().join("\n")).not.toContain("\u001B");
     expect(output.mock.calls.flat().join("\n")).toContain("╭");
     expect(output.mock.calls.flat().join("\n")).toContain("failed�]52;c;stolen�");
@@ -367,19 +368,19 @@ describe("terminal output safety", () => {
 
 describe("managed connection tables", () => {
   it("aligns columns and keeps the table inside the available width", () => {
-    const widths = layoutTable(
-      [{ header: "Name" }, { header: "Status" }, { header: "Requests", align: "right" }],
-      [["a-very-long-connection-name", "RECONNECT_REQUIRED", "123"]],
-      32,
-    );
+    const widths = layoutTable({
+      columns: [{ header: "Name" }, { header: "Status" }, { header: "Requests", align: "right" }],
+      rows: [["a-very-long-connection-name", "RECONNECT_REQUIRED", "123"]],
+      available: 32,
+    });
 
     expect(widths.reduce((sum, width) => sum + width, 0) + 4).toBeLessThanOrEqual(32);
     expect(widths[2]).toBeGreaterThanOrEqual("Requests".length);
   });
 
   it("renders aligned connection rows in the standard rounded card", () => {
-    const output = renderUi(
-      createElement(TableCard, {
+    const output = renderUi({
+      node: createElement(TableCard, {
         title: "Connections",
         columns: [
           { header: "Name" },
@@ -391,8 +392,8 @@ describe("managed connection tables", () => {
           ["team-google", "RECONNECT_REQUIRED", "2"],
         ],
       }),
-      60,
-    );
+      columns: 60,
+    });
 
     expect(output).toContain("╭");
     expect(output).toContain("Connections");
@@ -401,14 +402,14 @@ describe("managed connection tables", () => {
   });
 
   it("wraps long cells instead of replacing their text with an ellipsis", () => {
-    const output = renderUi(
-      createElement(TableCard, {
+    const output = renderUi({
+      node: createElement(TableCard, {
         title: "Connectors",
         columns: [{ header: "Request prefix" }],
         rows: [["abcdefghijklmnopqrstuvwxyz"]],
       }),
-      16,
-    );
+      columns: 16,
+    });
 
     expect(output).toContain("abcdefghijkl");
     expect(output).toContain("mnopqrstuvwx");
@@ -454,7 +455,7 @@ describe("connection output flags", () => {
 
 describe("skills output flags", () => {
   it("rejects --json combined with --agentic instead of silently dropping one", async () => {
-    await expect(printSkills(true, true)).rejects.toThrow(
+    await expect(printSkills({ asJson: true, asAgentic: true })).rejects.toThrow(
       "--json cannot be combined with --agentic",
     );
   });

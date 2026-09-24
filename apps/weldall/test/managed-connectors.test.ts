@@ -1,16 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  availableScopes,
-  effectiveCapabilities,
-  refreshNeedsReconnect,
+  calculateEffectiveCapabilities,
+  listAvailableScopes,
+  shouldReconnectAfterRefresh,
   requiredScopes,
-  validateSelection,
-  validateScopeConfig,
+  validateSelectedScopes,
+  validateConnectorScopeConfig,
 } from "../src/server/connectors/scopes";
-import { resolveOperation } from "../src/server/connectors/registry";
-import { assertOwner, connectionMetadata } from "../src/server/connectors/connections";
-import { upstreamHeaders } from "../src/server/connectors/execution";
-import { authorizationUrl, boundedBody, revokeGoogle } from "../src/server/connectors/google";
+import { resolveConnectorOperation } from "../src/server/connectors/registry";
+import {
+  bindKeySource,
+  describeKeySource,
+  resolveKeyMaterial,
+} from "../src/server/connectors/key-providers";
+import {
+  assertConnectionOwner,
+  buildConnectionMetadata,
+} from "../src/server/connectors/connections";
+import { buildUpstreamHeaders } from "../src/server/connectors/execution";
+import {
+  buildGoogleAuthorizationUrl,
+  readBoundedBody,
+  revokeGoogleAuthorization,
+} from "../src/server/connectors/google";
 import {
   parseDesiredState,
   importRequestSchema,
@@ -34,28 +46,62 @@ const config = {
 };
 
 describe("managed connector boundaries", () => {
+  it("isolates local key source configuration from opaque provider state", async () => {
+    const material = Buffer.alloc(32, 7).toString("base64");
+    vi.stubEnv("WELDALL_ENCRYPTION_SOURCES", "TEST_CONNECTOR_KEY");
+    vi.stubEnv("TEST_CONNECTOR_KEY", material);
+    try {
+      const binding = await bindKeySource({
+        type: "local-env",
+        variable: "TEST_CONNECTOR_KEY",
+      });
+      expect(describeKeySource(binding)).toEqual({
+        type: "local-env",
+        variable: "TEST_CONNECTOR_KEY",
+      });
+      expect(JSON.stringify(binding)).not.toContain(material);
+      expect(await resolveKeyMaterial(binding)).toEqual(Buffer.alloc(32, 7));
+      vi.stubEnv("TEST_CONNECTOR_KEY", Buffer.alloc(32, 8).toString("base64"));
+      await expect(resolveKeyMaterial(binding)).rejects.toThrow("unavailable");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it("separates requirements, defaults, selection and actual grants", () => {
     expect(
-      availableScopes(config)
+      listAvailableScopes(config)
         .filter((s) => s.required)
         .map((s) => s.id),
     ).toEqual(requiredScopes);
-    expect(validateSelection(config, [...requiredScopes, calendar])).not.toContain(read);
-    expect(() => validateSelection(config, [calendar])).toThrow("required");
-    expect(() => validateSelection(config, [...requiredScopes, "tampered"])).toThrow();
-    expect(() => validateSelection(config, requiredScopes)).toThrow("at least one");
-    expect(() => validateScopeConfig({ ...config, defaultScopes: ["unknown"] })).toThrow();
-    expect(effectiveCapabilities(config, [calendar, read], [calendar])).toEqual([
-      "calendar.events.read",
-      "calendar.read",
-    ]);
-    expect(effectiveCapabilities(config, [read], [modify])).toEqual(["gmail.read"]);
-    expect(effectiveCapabilities(config, [modify], [modify])).toContain("gmail.send");
-    expect(effectiveCapabilities({ ...config, allowedScopes: [read] }, [modify], [modify])).toEqual(
+    expect(
+      validateSelectedScopes({ config, selected: [...requiredScopes, calendar] }),
+    ).not.toContain(read);
+    expect(() => validateSelectedScopes({ config, selected: [calendar] })).toThrow("required");
+    expect(() =>
+      validateSelectedScopes({ config, selected: [...requiredScopes, "tampered"] }),
+    ).toThrow();
+    expect(() => validateSelectedScopes({ config, selected: requiredScopes })).toThrow(
+      "at least one",
+    );
+    expect(() => validateConnectorScopeConfig({ ...config, defaultScopes: ["unknown"] })).toThrow();
+    expect(
+      calculateEffectiveCapabilities({ config, selected: [calendar, read], granted: [calendar] }),
+    ).toEqual(["calendar.events.read", "calendar.read"]);
+    expect(calculateEffectiveCapabilities({ config, selected: [read], granted: [modify] })).toEqual(
       ["gmail.read"],
     );
+    expect(
+      calculateEffectiveCapabilities({ config, selected: [modify], granted: [modify] }),
+    ).toContain("gmail.send");
+    expect(
+      calculateEffectiveCapabilities({
+        config: { ...config, allowedScopes: [read] },
+        selected: [modify],
+        granted: [modify],
+      }),
+    ).toEqual(["gmail.read"]);
     const url = new URL(
-      authorizationUrl({
+      buildGoogleAuthorizationUrl({
         clientId: "c",
         redirectUri: "https://weldall.example.com/callback",
         state: "s",
@@ -69,42 +115,54 @@ describe("managed connector boundaries", () => {
   });
   it("requires reconnect rather than silently adding capabilities during refresh", () => {
     expect(
-      refreshNeedsReconnect(
+      shouldReconnectAfterRefresh({
         config,
-        [modify],
-        [...requiredScopes, read],
-        [...requiredScopes, modify],
-      ),
+        previous: [...requiredScopes, read],
+        selected: [...requiredScopes, modify],
+        next: [...requiredScopes, modify],
+      }),
     ).toBe(true);
     expect(
-      refreshNeedsReconnect(
+      shouldReconnectAfterRefresh({
         config,
-        [modify],
-        [...requiredScopes, modify],
-        [...requiredScopes, read],
-      ),
+        previous: [modify],
+        selected: [...requiredScopes, modify],
+        next: [...requiredScopes, read],
+      }),
     ).toBe(false);
     expect(
-      refreshNeedsReconnect(config, [read], [...requiredScopes, read], [...requiredScopes, modify]),
+      shouldReconnectAfterRefresh({
+        config,
+        previous: [read],
+        selected: [...requiredScopes, read],
+        next: [...requiredScopes, modify],
+      }),
     ).toBe(false);
-    expect(refreshNeedsReconnect(config, [read], [...requiredScopes, read], requiredScopes)).toBe(
-      true,
-    );
+    expect(
+      shouldReconnectAfterRefresh({
+        config,
+        previous: [read],
+        selected: [...requiredScopes, read],
+        next: requiredScopes,
+      }),
+    ).toBe(true);
   });
   it("does not mistake an invalid token for confirmed grant revocation", async () => {
     const fetch = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(JSON.stringify({ error: "invalid_token" }), { status: 400 }));
     try {
-      await expect(revokeGoogle("old-token")).rejects.toThrow("unconfirmed");
+      await expect(revokeGoogleAuthorization("old-token")).rejects.toThrow("unconfirmed");
     } finally {
       fetch.mockRestore();
     }
   });
   it("denies other owners and projects metadata instead of serializing storage rows", () => {
-    expect(() => assertOwner("owner", "attacker")).toThrow("not found");
-    const value = connectionMetadata(
-      {
+    expect(() => assertConnectionOwner({ ownerId: "owner", actorId: "attacker" })).toThrow(
+      "not found",
+    );
+    const value = buildConnectionMetadata({
+      row: {
         id: "c",
         status: "READY",
         selectedScopes: [read],
@@ -113,15 +171,18 @@ describe("managed connector boundaries", () => {
         credential: { accessToken: "secret" },
         connector: { secretId: "secret" },
       } as never,
-      { ...config, enabled: true } as never,
-    );
+      connector: { ...config, enabled: true } as never,
+    });
     expect(JSON.stringify(value)).not.toMatch(/credential|secret|accessToken/);
     expect(value.capabilities).toEqual(["gmail.read"]);
   });
   it("authorizes concrete operations and rejects target/header confusion", () => {
     expect(
-      resolveOperation("/gmail/v1/users/me/messages/send", new URLSearchParams(), "POST")
-        .capability,
+      resolveConnectorOperation({
+        path: "/gmail/v1/users/me/messages/send",
+        query: new URLSearchParams(),
+        method: "POST",
+      }).capability,
     ).toBe("gmail.send");
     for (const path of [
       "//evil.example/mail",
@@ -130,40 +191,50 @@ describe("managed connector boundaries", () => {
       "/calendar/v3/calendars/%252fattack",
       "/gmail/v1/users/other/messages",
     ])
-      expect(() => resolveOperation(path, new URLSearchParams(), "GET")).toThrow();
+      expect(() =>
+        resolveConnectorOperation({ path, query: new URLSearchParams(), method: "GET" }),
+      ).toThrow();
     expect(() =>
-      resolveOperation("/gmail/v1/users/me/messages/a", new URLSearchParams(), "DELETE"),
+      resolveConnectorOperation({
+        path: "/gmail/v1/users/me/messages/a",
+        query: new URLSearchParams(),
+        method: "DELETE",
+      }),
     ).toThrow();
     expect(() =>
-      resolveOperation(
-        "/gmail/v1/users/me/messages",
-        new URLSearchParams("access_token=secret"),
-        "GET",
-      ),
+      resolveConnectorOperation({
+        path: "/gmail/v1/users/me/messages",
+        query: new URLSearchParams("access_token=secret"),
+        method: "GET",
+      }),
     ).toThrow();
     expect(() =>
-      resolveOperation(
-        "/gmail/v1/users/me/messages",
-        new URLSearchParams("alt=json&alt=media"),
-        "GET",
-      ),
+      resolveConnectorOperation({
+        path: "/gmail/v1/users/me/messages",
+        query: new URLSearchParams("alt=json&alt=media"),
+        method: "GET",
+      }),
     ).toThrow();
-    const headers = upstreamHeaders(
-      new Headers({
+    const headers = buildUpstreamHeaders({
+      input: new Headers({
         authorization: "DPoP private",
         dpop: "proof",
         cookie: "cookie",
         "x-goog-api-key": "bad",
         "content-type": "application/json",
       }),
-      "google",
-    );
+      accessToken: "google",
+    });
     expect([...headers.keys()].sort()).toEqual(["authorization", "content-type"]);
     expect(headers.get("authorization")).toBe("Bearer google");
   });
   it("bounds transfers and respects cancellation", async () => {
-    await expect(boundedBody(new Response("12345"), 4)).rejects.toThrow("limit");
-    await expect(boundedBody(new Response("x"), 10, AbortSignal.abort())).rejects.toThrow();
+    await expect(readBoundedBody({ response: new Response("12345"), maximum: 4 })).rejects.toThrow(
+      "limit",
+    );
+    await expect(
+      readBoundedBody({ response: new Response("x"), maximum: 10, signal: AbortSignal.abort() }),
+    ).rejects.toThrow();
   });
   it("plans configuration drift and accepts lifecycle addresses without declarative secrets", () => {
     const manifest = parseDesiredState({
@@ -179,7 +250,11 @@ describe("managed connector boundaries", () => {
           key: "test",
           name: "Test",
           activeVersion: "1",
-          versions: { "1": { source: { type: "env", name: "ARBITRARY_APPROVED_NAME" } } },
+          versions: {
+            "1": {
+              source: { type: "local-env", variable: "ARBITRARY_APPROVED_NAME" },
+            },
+          },
         },
       },
     });

@@ -25,7 +25,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import type { ConnectorConfig } from "@/server/connectors/contracts";
-import type { listConfiguration } from "@/server/connectors/configuration";
+import type { listManagedConnectorConfiguration } from "@/server/connectors/configuration";
 import { scopeCatalog } from "@/server/connectors/scopes";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -37,7 +37,7 @@ import {
   TableRowAction,
 } from "../resizable-table";
 
-type Configuration = Awaited<ReturnType<typeof listConfiguration>>;
+type Configuration = Awaited<ReturnType<typeof listManagedConnectorConfiguration>>;
 type ConnectorRow = Configuration["connectors"][number];
 type ConnectorAction = { type: "delete" | "reencrypt"; connector: ConnectorRow };
 const emptyConnectors: ConnectorRow[] = [];
@@ -47,6 +47,8 @@ const apiOptions = [
   { value: "calendar", label: "Google Calendar" },
 ];
 
+/** Renders the connector-definition admin workspace backed by shared tRPC configuration data. */
+/** Coordinates connector administration, filtering, editing, and lifecycle mutations. */
 export function ManagedConfiguration() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -264,6 +266,8 @@ export function ManagedConfiguration() {
   );
 }
 
+/** Renders the sortable connector table and forwards row activation into the edit workflow. */
+/** Renders managed connectors in the shared sortable admin-table layout. */
 function ManagedTable({
   label,
   table,
@@ -344,6 +348,8 @@ function ManagedTable({
   );
 }
 
+/** Owns connector configuration and write-only client-secret forms for one admin dialog. */
+/** Collects and validates connector configuration before the admin mutation is submitted. */
 function ConnectorDialog({
   connector,
   keys,
@@ -444,9 +450,9 @@ function ConnectorDialog({
                 <form.Field
                   name="key"
                   validators={{
-                    onBlur: ({ value }) => validateIdentity(value, "Connector key"),
-                    onChange: ({ value }) => validateIdentity(value, "Connector key"),
-                    onSubmit: ({ value }) => validateIdentity(value, "Connector key"),
+                    onBlur: ({ value }) => validateIdentity({ value, label: "Connector key" }),
+                    onChange: ({ value }) => validateIdentity({ value, label: "Connector key" }),
+                    onSubmit: ({ value }) => validateIdentity({ value, label: "Connector key" }),
                   }}
                 >
                   {(field) => (
@@ -457,7 +463,7 @@ function ConnectorDialog({
                       onBlur={field.handleBlur}
                       onChange={field.handleChange}
                       placeholder="google-workspace"
-                      {...fieldStatusProps(field)}
+                      {...getFieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
                     />
@@ -477,7 +483,7 @@ function ConnectorDialog({
                       onBlur={field.handleBlur}
                       onChange={field.handleChange}
                       placeholder="Company Google Workspace"
-                      {...fieldStatusProps(field)}
+                      {...getFieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
                     />
@@ -486,8 +492,10 @@ function ConnectorDialog({
                 <form.Field
                   name="clientId"
                   validators={{
-                    onBlur: ({ value }) => validateRequired(value, "OAuth client ID", 500),
-                    onSubmit: ({ value }) => validateRequired(value, "OAuth client ID", 500),
+                    onBlur: ({ value }) =>
+                      validateRequired({ value, label: "OAuth client ID", max: 500 }),
+                    onSubmit: ({ value }) =>
+                      validateRequired({ value, label: "OAuth client ID", max: 500 }),
                   }}
                 >
                   {(field) => (
@@ -497,7 +505,7 @@ function ConnectorDialog({
                       onBlur={field.handleBlur}
                       onChange={field.handleChange}
                       placeholder="123456.apps.googleusercontent.com"
-                      {...fieldStatusProps(field)}
+                      {...getFieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
                     />
@@ -521,7 +529,7 @@ function ConnectorDialog({
                         label: `${key.config.name}${key.available ? "" : " (unavailable)"}`,
                       }))}
                       placeholder="Choose a key…"
-                      {...fieldStatusProps(field)}
+                      {...getFieldStatusProps(field)}
                       value={field.state.value || null}
                       width="100%"
                     />
@@ -543,7 +551,7 @@ function ConnectorDialog({
                         const enabledApis = values as ("gmail" | "calendar")[];
                         field.handleChange(enabledApis);
                         const allowed = form.state.values.allowedScopes.filter((id) =>
-                          scopeBelongsToEnabledApi(id, enabledApis),
+                          isScopeForEnabledApi({ id, enabledApis }),
                         );
                         form.setFieldValue("allowedScopes", allowed);
                         form.setFieldValue(
@@ -552,7 +560,7 @@ function ConnectorDialog({
                         );
                       }}
                       options={apiOptions}
-                      {...fieldStatusProps(field)}
+                      {...getFieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
                     />
@@ -603,7 +611,7 @@ function ConnectorDialog({
                               }}
                               options={allowedScopeOptions}
                               placeholder="Choose permissions…"
-                              {...fieldStatusProps(field)}
+                              {...getFieldStatusProps(field)}
                               triggerDisplay="badges"
                               value={field.state.value}
                               width="100%"
@@ -665,7 +673,8 @@ function ConnectorDialog({
                     <secretForm.Field
                       name="secret"
                       validators={{
-                        onSubmit: ({ value }) => validateRequired(value, "Client secret", 10_000),
+                        onSubmit: ({ value }) =>
+                          validateRequired({ value, label: "Client secret", max: 10_000 }),
                       }}
                     >
                       {(field) => (
@@ -678,7 +687,7 @@ function ConnectorDialog({
                           }
                           onChange={field.handleChange}
                           type="password"
-                          {...fieldStatusProps(field)}
+                          {...getFieldStatusProps(field)}
                           value={field.state.value}
                           width="100%"
                         />
@@ -745,37 +754,58 @@ function ConnectorDialog({
   );
 }
 
-function scopeBelongsToEnabledApi(id: string, enabledApis: ("gmail" | "calendar")[]) {
+/** Keeps scope choices aligned with the Gmail and Calendar APIs enabled for this connector. */
+/** Checks whether an OAuth scope belongs to one of the connector's enabled Google APIs. */
+function isScopeForEnabledApi({
+  id,
+  enabledApis,
+}: {
+  id: string;
+  enabledApis: ("gmail" | "calendar")[];
+}) {
   const scope = scopeCatalog.find((candidate) => candidate.id === id);
   return Boolean(scope && enabledApis.includes(scope.group.toLowerCase() as "gmail" | "calendar"));
 }
-function validateIdentity(value: unknown, label: string) {
+/** Validates stable connector identifiers used by routes, IaC addresses, and CLI selectors. */
+/** Validates stable connector identifiers used by URLs, IaC, and CLI selectors. */
+function validateIdentity({ value, label }: { value: unknown; label: string }) {
   const key = String(value).trim();
   if (!key) return `${label} is required.`;
   if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(key))
     return "Use lowercase letters, numbers, dots, dashes, or underscores (120 characters maximum).";
 }
+/** Validates the administrator-facing connector display name. */
+/** Validates the human-readable connector name shown across admin and CLI surfaces. */
 function validateName(value: unknown) {
-  return validateRequired(value, "Name", 200);
+  return validateRequired({ value, label: "Name", max: 200 });
 }
-function validateRequired(value: unknown, label: string, max: number) {
+
+/** Validates bounded required text before the shared tRPC configuration mutation. */
+/** Validates required trimmed connector form fields with a caller-provided size limit. */
+function validateRequired({ value, label, max }: { value: unknown; label: string; max: number }) {
   const text = String(value).trim();
   if (!text) return `${label} is required.`;
   if (text.length > max) return `${label} must be ${max.toLocaleString()} characters or less.`;
 }
-function fieldStatusProps(field: AnyFieldApi) {
-  const status = fieldStatus(field);
+/** Adapts TanStack Form validation state to Astryx input status props. */
+/** Adapts TanStack field state to Astryx input status properties. */
+function getFieldStatusProps(field: AnyFieldApi) {
+  const status = getFieldStatus(field);
   return status ? { status } : {};
 }
-function fieldStatus(field: AnyFieldApi): { type: "error"; message: string } | undefined {
+/** Returns the first visible validation error for one TanStack Form field. */
+/** Returns the first visible validation error for a touched connector field. */
+function getFieldStatus(field: AnyFieldApi): { type: "error"; message: string } | undefined {
   const messages = field.state.meta.errors
-    .map(errorMessage)
+    .map(getErrorMessage)
     .filter((message): message is string => Boolean(message));
   return field.state.meta.isValid || messages.length === 0
     ? undefined
     : { type: "error", message: messages.join(", ") };
 }
-function errorMessage(error: unknown) {
+/** Normalizes unknown mutation errors for administrator-facing feedback. */
+/** Normalizes unknown mutation failures for the connector admin dialog. */
+function getErrorMessage(error: unknown) {
   if (typeof error === "string") return error;
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string")
     return error.message;
