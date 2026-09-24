@@ -722,6 +722,7 @@
 
   .statistics-count-small {
     font-size: 2rem;
+    text-align: center;
   }
 
   .statistics-muted {
