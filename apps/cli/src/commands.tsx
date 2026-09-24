@@ -1024,8 +1024,7 @@ const showConnectionCommand = define({
 
 const disconnectCommand = define({
   name: "disconnect",
-  description:
-    "Block and revoke the Google account/client grant; repeat to retry unconfirmed revocation",
+  description: "Delete a Google connection after best-effort provider revocation",
   args: { connection: connectionSelector, json: jsonArgument, agentic: agenticArgument },
   examples:
     "weldall connections disconnect my-google\nweldall connections disconnect my-google --json\nweldall connections disconnect my-google --agentic",
@@ -1045,22 +1044,6 @@ const disconnectCommand = define({
         hint: result.message ?? `Run weldall connections disconnect ${values.connection} to retry.`,
       });
     if (!confirmed) process.exitCode = 1;
-  },
-});
-
-const deleteConnectionCommand = define({
-  name: "delete",
-  description: "Delete disconnected metadata after revocation or administrator cleanup",
-  args: { connection: connectionSelector, json: jsonArgument },
-  examples: "weldall connections delete my-google\nweldall connections delete my-google --json",
-  run: async ({ values }) => {
-    const result = await requestConnectionApi({
-      config: await resolveWeldallConfig(),
-      path: `connections/${encodeURIComponent(values.connection)}`,
-      method: "DELETE",
-    });
-    if (values.json) jsonOutput(result);
-    else success(`Deleted ${terminalText(values.connection)}.`);
   },
 });
 
@@ -1110,7 +1093,6 @@ export const connectionsCommand = define({
     reconnect: reconnectCommand,
     show: showConnectionCommand,
     disconnect: disconnectCommand,
-    delete: deleteConnectionCommand,
     status: connectionStatusCommand,
     cancel: cancelConnectionCommand,
   },

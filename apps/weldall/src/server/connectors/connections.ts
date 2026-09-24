@@ -787,143 +787,81 @@ async function recordRefreshFailure({
   });
 }
 /**
- * Disconnects locally before provider I/O; failed or interrupted revocation remains blocked with
- * encrypted credentials so an owner or administrator can retry explicitly.
+ * Blocks a connection before provider I/O, revokes every retained Google grant, and removes all
+ * local connection state. Revocation is best-effort, while audit records preserve whether Google
+ * confirmed it.
  */
-export async function disconnectConnection({
+async function disconnectAndDelete({
   actor,
   selector,
-  administrator = false,
+  administrator,
 }: {
   actor: ConnectorActor;
   selector: string;
-  administrator?: boolean;
+  administrator: boolean;
 }) {
-  const row = await runConnectorTransaction(async (tx) => {
-    const current = administrator
+  const claim = await runConnectorTransaction(async (tx) => {
+    const row = administrator
       ? await tx.connection.findUniqueOrThrow({ where: { id: selector } })
       : await findOwnedConnection({ tx, selector, actor });
-    if (current.status === "DISCONNECTED") return current;
-    const updated = await tx.connection.update({
-      where: { id: current.id, version: current.version },
+    const attempts = await tx.connectionAuthorization.findMany({
+      where: { connectionId: row.id },
+    });
+    const blocked = await tx.connection.update({
+      where: { id: row.id, version: row.version },
       data: {
         status: "REVOCATION_PENDING",
-        revocationError: "Provider revocation unconfirmed; explicit retry may be required.",
         version: { increment: 1 },
+        revocationError: administrator
+          ? "Administrative disconnect in progress; Google revocation unconfirmed."
+          : "Provider revocation unconfirmed; explicit retry may be required.",
       },
     });
     await writeConnectorAuditLog({
       tx,
-      actor,
-      event: "lifecycle",
-      subjectId: current.id,
-      operation: "disconnect.blocked",
-    });
-    return updated;
-  });
-  if (row.status === "DISCONNECTED")
-    return {
-      status: "DISCONNECTED",
-      revocationConfirmed: !row.revocationError,
-      message: row.revocationError,
-    };
-  if (row.refreshStartedAt && row.refreshStartedAt.getTime() > Date.now() - 30_000)
-    return {
-      status: "REVOCATION_PENDING",
-      message: "Refresh is in flight. Retry disconnect after it completes.",
-    };
-  try {
-    const credentials = await readStoredCredentials({ tx: db, connection: row });
-    await revokeGoogleAuthorization(credentials.refreshToken);
-    await runConnectorTransaction(async (tx) => {
-      await tx.connection.update({
-        where: { id: row.id, version: row.version, status: "REVOCATION_PENDING" },
-        data: {
-          credentialId: null,
-          status: "DISCONNECTED",
-          revocationError: null,
-          refreshStartedAt: null,
-          version: { increment: 1 },
-        },
-      });
-      if (row.credentialId) await tx.encryptedValue.delete({ where: { id: row.credentialId } });
-      await writeConnectorAuditLog({
-        tx,
-        actor,
-        event: "lifecycle",
-        subjectId: row.id,
-        operation: "disconnect.confirmed",
-        details: { connectorId: row.connectorId, accountId: row.accountId },
-      });
-    });
-    return { status: "DISCONNECTED", revocationConfirmed: true };
-  } catch {
-    await writeConnectorAuditLog({
-      tx: db,
       actor,
       event: "lifecycle",
       subjectId: row.id,
-      operation: "disconnect.unconfirmed",
-      outcome: "failed",
-    });
-    return {
-      status: "REVOCATION_PENDING",
-      message: "Provider revocation unconfirmed. Retry disconnect explicitly.",
-    };
-  }
-}
-/** Admin Disconnect permanently removes a connection after best-effort Google revocation. */
-export async function disconnectAndDeleteConnection({
-  actor,
-  id,
-}: {
-  actor: ConnectorActor;
-  id: string;
-}) {
-  const claim = await runConnectorTransaction(async (tx) => {
-    const row = await tx.connection.findUniqueOrThrow({ where: { id } });
-    const attempts = await tx.connectionAuthorization.findMany({ where: { connectionId: id } });
-    const blocked = await tx.connection.update({
-      where: { id, version: row.version },
-      data: {
-        status: "REVOCATION_PENDING",
-        version: { increment: 1 },
-        revocationError: "Administrative disconnect in progress; Google revocation unconfirmed.",
-      },
-    });
-    await writeConnectorAuditLog({
-      tx,
-      actor,
-      event: "lifecycle",
-      subjectId: id,
       operation: "disconnect.blocked",
     });
     const processing =
       Boolean(row.refreshStartedAt && row.refreshStartedAt.getTime() > Date.now() - 30_000) ||
       attempts.some(
-        (a) => a.status === "PROCESSING" && a.expiresAt.getTime() + 30_000 > Date.now(),
+        (attempt) =>
+          attempt.status === "PROCESSING" && attempt.expiresAt.getTime() + 30_000 > Date.now(),
       );
-    if (!processing) {
-      // Block pending reconnect callbacks before provider I/O. Existing connections cannot be revived.
-      await tx.connectionAuthorization.updateMany({
-        where: { connectionId: id },
-        data: { status: "REVOCATION_PENDING", stateHash: null },
-      });
-    }
-    return { row, attempts, version: blocked.version, processing };
+    if (processing) return { row, attempts, version: blocked.version, processing };
+
+    // Stop callbacks before provider I/O. Retained grants stay marked for explicit retry.
+    await tx.connectionAuthorization.updateMany({
+      where: { connectionId: row.id, status: { in: ["SETUP", "AUTHORIZING"] } },
+      data: { status: "CANCELLED", stateHash: null },
+    });
+    await tx.connectionAuthorization.updateMany({
+      where: { connectionId: row.id, status: "NEEDS_REVOCATION" },
+      data: { status: "REVOCATION_PENDING", stateHash: null },
+    });
+    return {
+      row,
+      attempts: await tx.connectionAuthorization.findMany({
+        where: { connectionId: row.id },
+      }),
+      version: blocked.version,
+      processing,
+    };
   });
-  if (claim.processing)
-    throw new ConnectorError(
-      "in_progress",
-      "Connection blocked. Token processing is still in progress; retry Disconnect after it finishes or expires.",
-      409,
-    );
+  if (claim.processing) {
+    const message =
+      "Token processing is still in progress. Retry disconnect after it finishes or expires.";
+    if (!administrator) return { deleted: false as const, message };
+    throw new ConnectorError("in_progress", `Connection blocked. ${message}`, 409);
+  }
 
   const tokens = new Set<string>();
   let revocationConfirmed =
     claim.row.credentialId !== null ||
     (claim.row.status === "DISCONNECTED" && !claim.row.revocationError);
-  if (claim.row.refreshStartedAt) revocationConfirmed = false; // Interrupted refresh may have rotated a token.
+  if (claim.row.refreshStartedAt) revocationConfirmed = false;
   if (claim.row.credentialId) {
     try {
       tokens.add((await readStoredCredentials({ tx: db, connection: claim.row })).refreshToken);
@@ -932,7 +870,6 @@ export async function disconnectAndDeleteConnection({
     }
   }
   for (const attempt of claim.attempts) {
-    if (attempt.status === "PROCESSING") revocationConfirmed = false;
     if (!attempt.payloadId) {
       if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
         revocationConfirmed = false;
@@ -955,7 +892,6 @@ export async function disconnectAndDeleteConnection({
       revocationConfirmed = false;
     }
   }
-  // Network errors and missing encryption material must not prevent local deletion.
   for (const token of tokens) {
     try {
       await revokeGoogleAuthorization(token);
@@ -966,28 +902,35 @@ export async function disconnectAndDeleteConnection({
   await runConnectorTransaction(async (tx) => {
     // A refresh or concurrent owner operation may have changed the tokens while we contacted Google.
     await tx.connection.findUniqueOrThrow({
-      where: { id, version: claim.version, status: "REVOCATION_PENDING" },
+      where: {
+        id: claim.row.id,
+        version: claim.version,
+        status: "REVOCATION_PENDING",
+      },
     });
-    const attempts = await tx.connectionAuthorization.findMany({ where: { connectionId: id } });
+    const attempts = await tx.connectionAuthorization.findMany({
+      where: { connectionId: claim.row.id },
+    });
     if (
-      attempts.some(
-        (a) =>
-          !claim.attempts.some((prior) => prior.id === a.id && prior.payloadId === a.payloadId) ||
-          !["REVOCATION_PENDING", "CANCELLED"].includes(a.status),
-      )
+      attempts.length !== claim.attempts.length ||
+      attempts.some((attempt) => {
+        const prior = claim.attempts.find(({ id }) => id === attempt.id);
+        return !prior || prior.payloadId !== attempt.payloadId || prior.status !== attempt.status;
+      })
     )
       throw new ConnectorError("conflict", "Connection setup changed; retry Disconnect.", 409);
-    await tx.connectionAuthorization.deleteMany({ where: { connectionId: id } });
-    await tx.connection.delete({ where: { id, version: claim.version } });
-    const valueIds = [claim.row.credentialId, ...claim.attempts.map((a) => a.payloadId)].filter(
-      (value): value is string => value !== null,
-    );
+    await tx.connectionAuthorization.deleteMany({ where: { connectionId: claim.row.id } });
+    await tx.connection.delete({ where: { id: claim.row.id, version: claim.version } });
+    const valueIds = [
+      claim.row.credentialId,
+      ...claim.attempts.map((attempt) => attempt.payloadId),
+    ].filter((value): value is string => value !== null);
     await tx.encryptedValue.deleteMany({ where: { id: { in: valueIds } } });
     await writeConnectorAuditLog({
       tx,
       actor,
       event: "lifecycle",
-      subjectId: id,
+      subjectId: claim.row.id,
       operation: revocationConfirmed
         ? "disconnect.deleted_revocation_confirmed"
         : "disconnect.deleted_revocation_unconfirmed",
@@ -995,45 +938,54 @@ export async function disconnectAndDeleteConnection({
       details: { connectorId: claim.row.connectorId, accountId: claim.row.accountId },
     });
   });
-  return { revocationConfirmed };
+  return {
+    deleted: true as const,
+    revocationConfirmed,
+    ...(revocationConfirmed
+      ? {}
+      : {
+          message:
+            "Connection removed from Weldall, but Google revocation was unconfirmed. Remove access in Google account settings.",
+        }),
+  };
 }
-/** Deletes a fully disconnected connection and its terminal authorization history. */
-export async function deleteConnection({
+
+/** Best-effort revokes and deletes one owner-selected connection. */
+export async function disconnectConnection({
   actor,
   selector,
-  administrator = false,
 }: {
   actor: ConnectorActor;
   selector: string;
-  administrator?: boolean;
 }) {
-  await runConnectorTransaction(async (tx) => {
-    const row = administrator
-      ? await tx.connection.findUniqueOrThrow({ where: { id: selector } })
-      : await findOwnedConnection({ tx, selector, actor });
-    if (row.status !== "DISCONNECTED" || row.credentialId)
-      throw new ConnectorError(
-        "revocation_required",
-        "Confirm provider revocation before deletion, or ask an administrator to disconnect and remove the connection.",
-        409,
-      );
-    const attempts = await tx.connectionAuthorization.findMany({ where: { connectionId: row.id } });
-    if (
-      attempts.some(
-        (a) =>
-          a.payloadId ||
-          ["SETUP", "AUTHORIZING", "PROCESSING", "NEEDS_REVOCATION"].includes(a.status),
-      )
-    )
-      throw new ConnectorError("attempt_active", "Cancel outstanding authorizations first.", 409);
-    await tx.connectionAuthorization.deleteMany({ where: { connectionId: row.id } });
-    await tx.connection.delete({ where: { id: row.id, version: row.version } });
-    await writeConnectorAuditLog({
-      tx,
-      actor,
-      event: "lifecycle",
-      subjectId: row.id,
-      operation: "connection.deleted",
-    });
+  const result = await disconnectAndDelete({
+    actor,
+    selector,
+    administrator: false,
   });
+  return result.deleted
+    ? {
+        status: "DISCONNECTED",
+        revocationConfirmed: result.revocationConfirmed,
+        ...(result.message ? { message: result.message } : {}),
+      }
+    : { status: "REVOCATION_PENDING", message: result.message };
+}
+
+/** Admin Disconnect permanently removes a connection after best-effort Google revocation. */
+export async function disconnectAndDeleteConnection({
+  actor,
+  id,
+}: {
+  actor: ConnectorActor;
+  id: string;
+}) {
+  const result = await disconnectAndDelete({
+    actor,
+    selector: id,
+    administrator: true,
+  });
+  if (!result.deleted)
+    throw new ConnectorError("in_progress", "Connection removal is still in progress.", 409);
+  return { revocationConfirmed: result.revocationConfirmed };
 }

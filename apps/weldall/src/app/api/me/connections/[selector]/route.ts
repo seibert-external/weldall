@@ -6,7 +6,6 @@ import {
 } from "@/server/connectors/http";
 import {
   buildConnectionMetadata,
-  deleteConnection,
   disconnectConnection,
   findOwnedConnection,
 } from "@/server/connectors/connections";
@@ -27,7 +26,7 @@ export async function GET(request: Request, context: Context) {
   }
 }
 
-/** Disconnects one owner-selected connection and attempts explicit provider revocation. */
+/** Revokes and permanently removes one owner-selected connection. */
 export async function POST(request: Request, context: Context) {
   try {
     return createJsonResponse(
@@ -36,19 +35,6 @@ export async function POST(request: Request, context: Context) {
         selector: (await context.params).selector,
       }),
     );
-  } catch (error) {
-    return createConnectorErrorResponse(error);
-  }
-}
-
-/** Deletes one fully disconnected owner-selected connection. */
-export async function DELETE(request: Request, context: Context) {
-  try {
-    await deleteConnection({
-      actor: await authenticateConnectorActor({ request }),
-      selector: (await context.params).selector,
-    });
-    return createJsonResponse({ deleted: true });
   } catch (error) {
     return createConnectorErrorResponse(error);
   }

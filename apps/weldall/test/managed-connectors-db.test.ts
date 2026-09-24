@@ -478,7 +478,7 @@ describe.skipIf(!approvedTarget)(
         completeConnection({ state: successful.state, code: "code", cancelled: false }),
       ).rejects.toThrow("already used");
     });
-    it("refreshes centrally, preserves reduced grants and blocks failed revocation until manual retry", async () => {
+    it("owner disconnect deletes local state even when Google revocation is unconfirmed", async () => {
       const f = await ready();
       const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
       const before = await saveSecret({
@@ -504,19 +504,29 @@ describe.skipIf(!approvedTarget)(
         "RECONNECT_REQUIRED",
       );
       vi.mocked(revokeGoogle).mockRejectedValueOnce(new Error("provider unavailable"));
-      expect((await disconnectConnection({ actor, selector: f.id })).status).toBe(
-        "REVOCATION_PENDING",
-      );
-      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not ready");
+      expect(await disconnectConnection({ actor, selector: f.id })).toMatchObject({
+        status: "DISCONNECTED",
+        revocationConfirmed: false,
+        message: expect.stringContaining("Google account settings"),
+      });
+      expect(revokeGoogle).toHaveBeenCalledWith("rotated");
+      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not found");
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
+      expect(await db.encryptedValue.findUnique({ where: { id: before.id } })).toBeNull();
       expect(
-        (await db.connection.findUniqueOrThrow({ where: { id: f.id } })).credentialId,
+        await db.auditEvent.findFirst({
+          where: {
+            subjectId: f.id,
+            metadata: { path: ["operation"], equals: "disconnect.deleted_revocation_unconfirmed" },
+          },
+        }),
       ).not.toBeNull();
-      vi.mocked(revokeGoogle).mockResolvedValueOnce();
-      expect((await disconnectConnection({ actor, selector: f.id })).status).toBe("DISCONNECTED");
-      expect(vi.mocked(revokeGoogle).mock.calls[1]?.[0]).toBe("rotated");
-      expect(
-        (await db.connection.findUniqueOrThrow({ where: { id: f.id } })).credentialId,
-      ).toBeNull();
+      await expect(
+        startConnection({
+          actor,
+          input: { connector: f.key, name: f.key },
+        }),
+      ).resolves.toMatchObject({ id: expect.any(String) });
     });
     it.each(["success", "google-error", "missing-key"] as const)(
       "admin Disconnect deletes the connection after best-effort revocation: %s",
@@ -553,11 +563,14 @@ describe.skipIf(!approvedTarget)(
         expect(JSON.stringify(audit)).not.toContain("never-public-refresh");
       },
     );
-    it("admin Disconnect also removes already disconnected connections without unnecessary revocation", async () => {
+    it("admin Disconnect also removes legacy disconnected connections without unnecessary revocation", async () => {
       const f = await ready();
-      vi.mocked(revokeGoogle).mockResolvedValueOnce();
-      await disconnectConnection({ actor, selector: f.id });
-      vi.mocked(revokeGoogle).mockClear();
+      const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
+      await db.connection.update({
+        where: { id: f.id },
+        data: { credentialId: null, status: "DISCONNECTED", revocationError: null },
+      });
+      await db.encryptedValue.delete({ where: { id: row.credentialId! } });
       expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
         revocationConfirmed: true,
       });
@@ -707,6 +720,7 @@ describe.skipIf(!approvedTarget)(
       vi.mocked(revokeGoogle).mockResolvedValueOnce();
       expect((await disconnectConnection({ actor, selector: f.id })).status).toBe("DISCONNECTED");
       expect(revokeGoogle).toHaveBeenCalledWith("rotated-while-disconnecting");
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
     });
     it("does not let stale callbacks undo disconnect", async () => {
       const f = await ready();
@@ -718,12 +732,10 @@ describe.skipIf(!approvedTarget)(
         accountName: "google@example.com",
         credentials: credentials(),
       });
-      expect(await completeConnection({ state: next.state, code: "code", cancelled: false })).toBe(
-        "failed",
-      );
-      expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe(
-        "DISCONNECTED",
-      );
+      await expect(
+        completeConnection({ state: next.state, code: "code", cancelled: false }),
+      ).rejects.toThrow("expired or already used");
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
     });
     it("detects UI drift without treating refresh/ciphertext writes as configuration drift", async () => {
       const f = await fixture();

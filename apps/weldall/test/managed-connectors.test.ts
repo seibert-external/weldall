@@ -121,6 +121,21 @@ describe("managed connector boundaries", () => {
       }),
     ).toBe(true);
   });
+  it("confirms revocation only after Google accepts the refresh token", async () => {
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    try {
+      await expect(revokeGoogleAuthorization("refresh-token")).resolves.toBeUndefined();
+      expect(fetch).toHaveBeenCalledWith(
+        "https://oauth2.googleapis.com/revoke",
+        expect.objectContaining({ method: "POST", redirect: "error" }),
+      );
+      expect(String(fetch.mock.calls[0]?.[1]?.body)).toBe("token=refresh-token");
+    } finally {
+      fetch.mockRestore();
+    }
+  });
   it("does not mistake an invalid token for confirmed grant revocation", async () => {
     const fetch = vi
       .spyOn(globalThis, "fetch")
