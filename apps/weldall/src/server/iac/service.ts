@@ -169,7 +169,7 @@ export async function applyIac(
   }
 }
 
-/** Applies the ordered declarative object graph, including connector/key dependency safety. */
+/** Applies the ordered declarative object graph, including connector dependency safety. */
 async function executeDesiredState({
   tx,
   manifest,
