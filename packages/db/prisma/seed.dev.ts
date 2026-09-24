@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { STATISTICS_SCOPE_KEY } from "../src/system-scopes.js";
 import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
-import { seedDevelopmentSkillRetrievals, seedDevelopmentUsers } from "./seed.dev-users.js";
+import {
+  seedDevelopmentSkillRetrievals,
+  seedDevelopmentUsageEvents,
+  seedDevelopmentUsers,
+} from "./seed.dev-users.js";
 
 const db = new PrismaClient();
 const actor = "development-seed";
@@ -192,6 +196,7 @@ try {
   });
   await seedDevelopmentUsers(db);
   await seedDevelopmentSkillRetrievals(db);
+  await seedDevelopmentUsageEvents(db);
 
   // A non-admin who can open /statistics, so a fresh setup shows the page without a manual grant.
   const statisticsScope = await db.scope.findUniqueOrThrow({

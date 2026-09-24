@@ -252,3 +252,126 @@ function retrievalOccurredAt(
   const ageInMs = daysAgo * DAY_IN_MS + hourInDay * HOUR_IN_MS + minuteInHour * MINUTE_IN_MS;
   return new Date(Date.now() - ageInMs);
 }
+
+/** Prefix owned by this seed. Prefixed audit events are rebuilt on every run. */
+const USAGE_EVENT_ID_PREFIX = "dev-usage-";
+
+/**
+ * Ages in days that usage events rotate through. They cover every statistics window and the
+ * 90 to 180 day span before the longest one, so each interval has a previous period to compare.
+ */
+const USAGE_AGES_IN_DAYS = [0.2, 2, 5, 12, 25, 45, 70, 100, 130, 160];
+
+/**
+ * Machine clients and the ages of their token requests. The first is the seeded development
+ * client. The others have no MachineClient row, like a client that was deleted since.
+ */
+const MACHINE_USAGE: readonly { clientId: string; agesInDays: readonly number[] }[] = [
+  { clientId: "dev-expenses-reader", agesInDays: [0.1, 1, 3, 6, 10, 20, 40, 80, 120] },
+  { clientId: "dev-invoice-sync", agesInDays: [2, 15, 50, 140] },
+  { clientId: "dev-report-builder", agesInDays: [60, 110] },
+];
+
+/**
+ * Records token exchanges by the development users and machine token requests, the audit
+ * events the statistics page counts. Each resource gets a different share of the exchanges.
+ */
+export async function seedDevelopmentUsageEvents(db: PrismaClient): Promise<void> {
+  const resources = await db.downstreamResource.findMany({
+    where: { createdBy: "development-seed" },
+    orderBy: { key: "asc" },
+    select: {
+      key: true,
+      resourceIdentifier: true,
+      authorizationServer: true,
+      downstreamClientId: true,
+      scopes: { select: { scope: { select: { key: true } } }, orderBy: { scope: { key: "asc" } } },
+    },
+  });
+  await db.auditEvent.deleteMany({ where: { id: { startsWith: USAGE_EVENT_ID_PREFIX } } });
+
+  const now = Date.now();
+  const events: Prisma.AuditEventCreateManyInput[] = [];
+  for (const [resourceIndex, resource] of resources.entries()) {
+    const scope = resource.scopes[0]?.scope.key;
+    if (!scope) continue;
+    const weight = resources.length - resourceIndex;
+    for (const [userIndex, user] of DEVELOPMENT_USERS.entries()) {
+      if ((userIndex + resourceIndex) % 3 === 0) continue;
+      const exchanges = weight * (1 + (userIndex % 3));
+      for (let exchange = 0; exchange < exchanges; exchange += 1) {
+        const id = `${USAGE_EVENT_ID_PREFIX}${resource.key}-${user.id}-${exchange}`;
+        const ageInDays =
+          USAGE_AGES_IN_DAYS[
+            (userIndex + resourceIndex * 3 + exchange * 4) % USAGE_AGES_IN_DAYS.length
+          ] ?? 0;
+        const occurredAt = usageOccurredAt(now, ageInDays, userIndex + exchange);
+        events.push({
+          id,
+          eventType: "id_jag.issued",
+          occurredAt,
+          actorType: "user",
+          actorId: user.id,
+          actorEmail: user.email,
+          clientId: "weldall-cli",
+          requestId: id,
+          outcome: "success",
+          subjectType: "id_jag",
+          subjectId: id,
+          metadata: {
+            audience: resource.authorizationServer,
+            resource: resource.resourceIdentifier,
+            requestedScopes: [scope],
+            grantedScopes: [scope],
+            targetClientId: resource.downstreamClientId,
+            jti: id,
+            ...tokenLifetime(occurredAt),
+            kid: "dev-seed",
+          },
+        });
+      }
+    }
+  }
+
+  const expenses = resources.find(({ key }) => key === "expenses");
+  for (const [machineIndex, machine] of MACHINE_USAGE.entries()) {
+    for (const [request, ageInDays] of machine.agesInDays.entries()) {
+      const id = `${USAGE_EVENT_ID_PREFIX}${machine.clientId}-${request}`;
+      const occurredAt = usageOccurredAt(now, ageInDays, machineIndex + request);
+      events.push({
+        id,
+        eventType: "machine_token.issued",
+        occurredAt,
+        actorType: "machine",
+        actorId: machine.clientId,
+        clientId: machine.clientId,
+        requestId: id,
+        outcome: "success",
+        subjectType: "machine_access_token",
+        subjectId: id,
+        metadata: {
+          clientId: machine.clientId,
+          kid: "dev-seed",
+          audience: expenses?.resourceIdentifier ?? "https://expenses.seibert.localdev/api",
+          requestedScopes: ["expenses:read"],
+          grantedScopes: ["expenses:read"],
+          jti: id,
+          ...tokenLifetime(occurredAt),
+        },
+      });
+    }
+  }
+
+  if (events.length) await db.auditEvent.createMany({ data: events });
+}
+
+function usageOccurredAt(now: number, ageInDays: number, spread: number): Date {
+  return new Date(now - ageInDays * DAY_IN_MS - ((spread * 17) % 180) * MINUTE_IN_MS);
+}
+
+function tokenLifetime(issuedAt: Date): { issuedAt: string; expiresAt: string } {
+  return {
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: new Date(issuedAt.getTime() + 5 * MINUTE_IN_MS).toISOString(),
+  };
+}
