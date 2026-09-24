@@ -49,7 +49,7 @@ export interface ConnectionAttempt {
   id: string;
   status: string;
   connector: { key: string; name: string; version: number };
-  scopes: string[];
+  scopes: ConnectorScopeSummary[];
   selectedScopes: string[];
   capabilities: string[];
   expiresAt: string;
@@ -122,7 +122,8 @@ const isConnectionAttempt = (value: unknown): value is ConnectionAttempt =>
   typeof value.connector.key === "string" &&
   typeof value.connector.name === "string" &&
   typeof value.connector.version === "number" &&
-  isStringArray(value.scopes) &&
+  Array.isArray(value.scopes) &&
+  value.scopes.every(isConnectorScopeSummary) &&
   isStringArray(value.selectedScopes) &&
   isStringArray(value.capabilities) &&
   typeof value.expiresAt === "string" &&

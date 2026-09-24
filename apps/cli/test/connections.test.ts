@@ -3,6 +3,7 @@ import {
   requestConnectionApi,
   requestConnection,
   listConnectors,
+  showConnectionAttempt,
   validateConnectionTarget,
 } from "../src/services/connections.js";
 import type { WeldallConfig } from "../src/config.js";
@@ -93,6 +94,70 @@ describe("managed connection CLI", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([connector])));
 
     await expect(listConnectors(config)).resolves.toEqual([connector]);
+  });
+
+  it("accepts rich authorization-attempt scope descriptors from the server", async () => {
+    const attempt = {
+      id: "attempt_123",
+      status: "SETUP",
+      connector: { key: "google", name: "Google Workspace", version: 2 },
+      scopes: [
+        {
+          id: "openid",
+          label: "Identify your Google account",
+          description: "Required identity scope.",
+          group: "Identity",
+          required: true,
+          capabilities: [],
+        },
+        {
+          id: "https://www.googleapis.com/auth/calendar.events",
+          label: "Read and edit events",
+          description: "Manage calendar events.",
+          group: "Calendar",
+          required: false,
+          capabilities: ["Read calendar events"],
+        },
+      ],
+      selectedScopes: ["openid"],
+      capabilities: ["Read calendar events"],
+      expiresAt: "2026-09-24T12:00:00.000Z",
+      connection: null,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(attempt)));
+
+    await expect(showConnectionAttempt({ config, id: attempt.id })).resolves.toEqual(attempt);
+  });
+
+  it("rejects malformed authorization-attempt scope descriptors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          id: "attempt_123",
+          status: "SETUP",
+          connector: { key: "google", name: "Google Workspace", version: 2 },
+          scopes: [
+            {
+              id: "openid",
+              label: "Identify your Google account",
+              description: "Required identity scope.",
+              group: "Identity",
+              required: true,
+              capabilities: "identity",
+            },
+          ],
+          selectedScopes: ["openid"],
+          capabilities: [],
+          expiresAt: "2026-09-24T12:00:00.000Z",
+          connection: null,
+        }),
+      ),
+    );
+
+    await expect(showConnectionAttempt({ config, id: "attempt_123" })).rejects.toThrow(
+      "Weldall returned an invalid connection setup status",
+    );
   });
 
   it("requires an explicit local provider without resolving deployment secrets locally", () => {
