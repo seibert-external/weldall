@@ -135,6 +135,16 @@ export async function listConnections(actor?: ConnectorActor) {
     owner,
   }));
 }
+/** Reads one connection for the admin detail page, independently of the bounded overview. */
+export async function getConnectionDetails(id: string) {
+  const result = await db.connection.findUnique({
+    where: { id },
+    select: { ...metadataSelect, connector: true, owner: { select: { name: true, email: true } } },
+  });
+  if (!result) throw new ConnectorError("not_found", "Connection not found.", 404);
+  const { connector, owner, ...row } = result;
+  return { ...buildConnectionMetadata({ row, connector }), owner };
+}
 /** Lists enabled connector catalogs and setup metadata exposed to authenticated CLI users. */
 export async function listConnectors() {
   return (await db.connector.findMany({ where: { enabled: true }, orderBy: { key: "asc" } })).map(
@@ -607,48 +617,6 @@ export async function cancelAuthorizationAttempt({
     });
   });
 }
-/** Lists recent authorization attempts for the administrative connections view. */
-export async function listAuthorizations() {
-  return db.connectionAuthorization.findMany({
-    select: {
-      id: true,
-      ownerId: true,
-      name: true,
-      status: true,
-      expiresAt: true,
-      connector: { select: { key: true } },
-      owner: { select: { name: true, email: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-  });
-}
-/**
- * Performs administrator-only terminal cleanup after explicit acknowledgement; this never claims
- * that provider revocation succeeded.
- */
-export async function discardAuthorization({ actor, id }: { actor: ConnectorActor; id: string }) {
-  return runConnectorTransaction(async (tx) => {
-    const a = await tx.connectionAuthorization.findUniqueOrThrow({ where: { id } });
-    if (a.expiresAt.getTime() + 30_000 > Date.now())
-      throw new ConnectorError(
-        "in_progress",
-        "Wait until the authorization has expired before terminal cleanup.",
-        409,
-      );
-    await tx.connectionAuthorization.delete({ where: { id } });
-    if (a.payloadId) await tx.encryptedValue.delete({ where: { id: a.payloadId } });
-    await writeConnectorAuditLog({
-      tx,
-      actor,
-      event: "lifecycle",
-      subjectId: id,
-      operation: "authorization.discarded_revocation_unconfirmed",
-      outcome: "failed",
-      details: { connectorId: a.connectorId },
-    });
-  });
-}
 /** Decrypts and validates the stored Google credentials for one connection lifecycle operation. */
 async function readStoredCredentials({ tx, connection }: { tx: Tx; connection: Connection }) {
   if (!connection.credentialId)
@@ -904,52 +872,130 @@ export async function disconnectConnection({
     };
   }
 }
-/**
- * Performs explicit administrator terminal cleanup while preserving that local disconnection is not
- * evidence of provider revocation.
- */
-export async function discardConnection({
+/** Admin Disconnect permanently removes a connection after best-effort Google revocation. */
+export async function disconnectAndDeleteConnection({
   actor,
   id,
-  version,
 }: {
   actor: ConnectorActor;
   id: string;
-  version: number;
 }) {
-  return runConnectorTransaction(async (tx) => {
-    const row = await tx.connection.findUniqueOrThrow({ where: { id, version } });
-    if (
-      row.status !== "REVOCATION_PENDING" ||
-      (row.refreshStartedAt && row.refreshStartedAt.getTime() > Date.now() - 30_000)
-    )
-      throw new ConnectorError(
-        "in_progress",
-        "Block the connection and let any in-flight refresh finish before terminal cleanup.",
-        409,
-      );
-    await tx.connection.update({
-      where: { id, version },
+  const claim = await runConnectorTransaction(async (tx) => {
+    const row = await tx.connection.findUniqueOrThrow({ where: { id } });
+    const attempts = await tx.connectionAuthorization.findMany({ where: { connectionId: id } });
+    const blocked = await tx.connection.update({
+      where: { id, version: row.version },
       data: {
-        status: "DISCONNECTED",
-        credentialId: null,
-        refreshStartedAt: null,
+        status: "REVOCATION_PENDING",
         version: { increment: 1 },
-        revocationError:
-          "Provider revocation unconfirmed. An administrator discarded retry credentials; revoke the grant in Google account settings.",
+        revocationError: "Administrative disconnect in progress; Google revocation unconfirmed.",
       },
     });
-    if (row.credentialId) await tx.encryptedValue.delete({ where: { id: row.credentialId } });
     await writeConnectorAuditLog({
       tx,
       actor,
       event: "lifecycle",
       subjectId: id,
-      operation: "disconnect.discarded_revocation_unconfirmed",
-      outcome: "failed",
-      details: { connectorId: row.connectorId, accountId: row.accountId },
+      operation: "disconnect.blocked",
+    });
+    const processing =
+      Boolean(row.refreshStartedAt && row.refreshStartedAt.getTime() > Date.now() - 30_000) ||
+      attempts.some(
+        (a) => a.status === "PROCESSING" && a.expiresAt.getTime() + 30_000 > Date.now(),
+      );
+    if (!processing) {
+      // Block pending reconnect callbacks before provider I/O. Existing connections cannot be revived.
+      await tx.connectionAuthorization.updateMany({
+        where: { connectionId: id },
+        data: { status: "REVOCATION_PENDING", stateHash: null },
+      });
+    }
+    return { row, attempts, version: blocked.version, processing };
+  });
+  if (claim.processing)
+    throw new ConnectorError(
+      "in_progress",
+      "Connection blocked. Token processing is still in progress; retry Disconnect after it finishes or expires.",
+      409,
+    );
+
+  const tokens = new Set<string>();
+  let revocationConfirmed =
+    claim.row.credentialId !== null ||
+    (claim.row.status === "DISCONNECTED" && !claim.row.revocationError);
+  if (claim.row.refreshStartedAt) revocationConfirmed = false; // Interrupted refresh may have rotated a token.
+  if (claim.row.credentialId) {
+    try {
+      tokens.add((await readStoredCredentials({ tx: db, connection: claim.row })).refreshToken);
+    } catch {
+      revocationConfirmed = false;
+    }
+  }
+  for (const attempt of claim.attempts) {
+    if (attempt.status === "PROCESSING") revocationConfirmed = false;
+    if (!attempt.payloadId) {
+      if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
+        revocationConfirmed = false;
+      continue;
+    }
+    try {
+      const payload = attemptPayload.parse(
+        JSON.parse(
+          await readSecret({
+            tx: db,
+            id: attempt.payloadId,
+            context: `attempt:${attempt.id}:oauth`,
+          }),
+        ),
+      );
+      if (payload.credentials) tokens.add(payload.credentials.refreshToken);
+      else if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
+        revocationConfirmed = false;
+    } catch {
+      revocationConfirmed = false;
+    }
+  }
+  // Network errors and missing encryption material must not prevent local deletion.
+  for (const token of tokens) {
+    try {
+      await revokeGoogleAuthorization(token);
+    } catch {
+      revocationConfirmed = false;
+    }
+  }
+  await runConnectorTransaction(async (tx) => {
+    // A refresh or concurrent owner operation may have changed the tokens while we contacted Google.
+    await tx.connection.findUniqueOrThrow({
+      where: { id, version: claim.version, status: "REVOCATION_PENDING" },
+    });
+    const attempts = await tx.connectionAuthorization.findMany({ where: { connectionId: id } });
+    if (
+      attempts.some(
+        (a) =>
+          !claim.attempts.some((prior) => prior.id === a.id && prior.payloadId === a.payloadId) ||
+          !["REVOCATION_PENDING", "CANCELLED"].includes(a.status),
+      )
+    )
+      throw new ConnectorError("conflict", "Connection setup changed; retry Disconnect.", 409);
+    await tx.connectionAuthorization.deleteMany({ where: { connectionId: id } });
+    await tx.connection.delete({ where: { id, version: claim.version } });
+    const valueIds = [claim.row.credentialId, ...claim.attempts.map((a) => a.payloadId)].filter(
+      (value): value is string => value !== null,
+    );
+    await tx.encryptedValue.deleteMany({ where: { id: { in: valueIds } } });
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "lifecycle",
+      subjectId: id,
+      operation: revocationConfirmed
+        ? "disconnect.deleted_revocation_confirmed"
+        : "disconnect.deleted_revocation_unconfirmed",
+      outcome: revocationConfirmed ? "success" : "failed",
+      details: { connectorId: claim.row.connectorId, accountId: claim.row.accountId },
     });
   });
+  return { revocationConfirmed };
 }
 /** Deletes a fully disconnected connection and its terminal authorization history. */
 export async function deleteConnection({
@@ -968,7 +1014,7 @@ export async function deleteConnection({
     if (row.status !== "DISCONNECTED" || row.credentialId)
       throw new ConnectorError(
         "revocation_required",
-        "Confirm provider revocation or have an administrator acknowledge terminal cleanup before deletion.",
+        "Confirm provider revocation before deletion, or ask an administrator to disconnect and remove the connection.",
         409,
       );
     const attempts = await tx.connectionAuthorization.findMany({ where: { connectionId: row.id } });

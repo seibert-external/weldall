@@ -80,12 +80,23 @@ export function ManagedConfiguration() {
         size: 300,
         minSize: 180,
         maxSize: 440,
-        cell: ({ row, getValue }) => (
-          <OverflowFade title={`${getValue<string>()} (${row.original.config.key})`}>
-            <div className="flex w-max items-center gap-2 whitespace-nowrap">
-              <span>{getValue<string>()}</span>
-              <code className="text-xs">{row.original.config.key}</code>
-            </div>
+        cell: ({ getValue }) => (
+          <OverflowFade title={getValue<string>()}>
+            <span className="whitespace-nowrap">{getValue<string>()}</span>
+          </OverflowFade>
+        ),
+      },
+      {
+        id: "key",
+        accessorFn: (row) => row.config.key,
+        header: "ID",
+        size: 240,
+        minSize: 110,
+        maxSize: 300,
+        enableSorting: false,
+        cell: ({ getValue }) => (
+          <OverflowFade title={getValue<string>()}>
+            <code className="whitespace-nowrap text-sm">{getValue<string>()}</code>
           </OverflowFade>
         ),
       },
@@ -333,7 +344,6 @@ function ConnectorDialog({
 }) {
   const trpc = useTRPC();
   const formId = useId();
-  const secretFormId = useId();
   const operationToast = useOperationToast();
   const saveMutation = useMutation(
     trpc.admin.managed.saveConnector.mutationOptions({
@@ -345,19 +355,13 @@ function ConnectorDialog({
       onError: (error) => operationToast.error("Could not save connector", error, "connector-save"),
     }),
   );
-  const secretMutation = useMutation(
-    trpc.admin.managed.secret.mutationOptions({
-      onSuccess: () => operationToast.success("Client secret provisioned", "connector-secret"),
-      onError: (error) =>
-        operationToast.error("Could not provision client secret", error, "connector-secret"),
-    }),
-  );
   const config = connector?.config;
   const form = useForm({
     defaultValues: {
       key: config?.key ?? "",
       name: config?.name ?? "",
       clientId: config?.clientId ?? "",
+      clientSecret: "",
       envelopeProvider: config?.envelopeProvider ?? ("LOCAL_ENV" as const),
       enabledApis: config?.enabledApis ?? (["gmail", "calendar"] as ("gmail" | "calendar")[]),
       allowedScopes: config?.allowedScopes ?? [],
@@ -365,27 +369,17 @@ function ConnectorDialog({
       enabled: config?.enabled ?? false,
     },
     onSubmit: async ({ value }) => {
+      const { clientSecret, ...configuration } = value;
       await saveMutation.mutateAsync({
         ...(connector ? { id: connector.id } : {}),
         version: connector?.version ?? null,
-        config: { ...value, type: "google" } satisfies ConnectorConfig,
+        config: { ...configuration, type: "google" } satisfies ConnectorConfig,
+        ...(clientSecret ? { clientSecret } : {}),
       });
       await onSaved();
     },
   });
-  const secretForm = useForm({
-    defaultValues: { secret: "" },
-    onSubmit: async ({ value }) => {
-      if (!connector) return;
-      await secretMutation.mutateAsync({
-        id: connector.id,
-        version: connector.version,
-        secret: value.secret,
-      });
-      await onSaved();
-    },
-  });
-  const busy = saveMutation.isPending || secretMutation.isPending;
+  const busy = saveMutation.isPending;
   const changeOpen = (open: boolean) => {
     if (!open && !busy) onClose();
   };
@@ -477,6 +471,41 @@ function ConnectorDialog({
                     />
                   )}
                 </form.Field>
+                <form.Subscribe selector={(state) => state.values.clientId}>
+                  {(clientId) => {
+                    const keepsExistingSecret = Boolean(
+                      connector?.secretConfigured && clientId === config?.clientId,
+                    );
+                    const validateSecret = ({ value }: { value: string }) =>
+                      value || !keepsExistingSecret
+                        ? validateRequired({ value, label: "Client secret", max: 10_000 })
+                        : undefined;
+                    return (
+                      <form.Field
+                        name="clientSecret"
+                        validators={{ onChange: validateSecret, onSubmit: validateSecret }}
+                      >
+                        {(field) => (
+                          <TextInput
+                            isRequired={!keepsExistingSecret}
+                            label="Client secret"
+                            type="password"
+                            placeholder={
+                              keepsExistingSecret
+                                ? "Leave empty to keep the existing secret"
+                                : "Enter the OAuth client secret"
+                            }
+                            onBlur={field.handleBlur}
+                            onChange={field.handleChange}
+                            {...getFieldStatusProps(field)}
+                            value={field.state.value}
+                            width="100%"
+                          />
+                        )}
+                      </form.Field>
+                    );
+                  }}
+                </form.Subscribe>
                 <EnvelopeProviderField existing={Boolean(connector)} />
                 <form.Field
                   name="enabledApis"
@@ -580,78 +609,37 @@ function ConnectorDialog({
                     );
                   }}
                 </form.Subscribe>
-                <form.Field name="enabled">
-                  {(field) => (
-                    <Switch
-                      description={
-                        connector?.secretConfigured
-                          ? "Users may create and use connections through this connector."
-                          : "Provision a client secret before enabling this connector."
-                      }
-                      isDisabled={!connector?.secretConfigured}
-                      label="Enabled"
-                      labelPosition="start"
-                      labelSpacing="spread"
-                      onChange={field.handleChange}
-                      value={field.state.value}
-                      width="100%"
-                    />
-                  )}
-                </form.Field>
+                <form.Subscribe
+                  selector={(state) => [state.values.clientSecret, state.values.clientId] as const}
+                >
+                  {([clientSecret, clientId]) => {
+                    const hasSecret =
+                      Boolean(clientSecret.trim()) ||
+                      Boolean(connector?.secretConfigured && clientId === config?.clientId);
+                    return (
+                      <form.Field name="enabled">
+                        {(field) => (
+                          <Switch
+                            description={
+                              hasSecret
+                                ? "Users may create and use connections through this connector."
+                                : "Enter a client secret before enabling this connector."
+                            }
+                            isDisabled={!hasSecret}
+                            label="Enabled"
+                            labelPosition="start"
+                            labelSpacing="spread"
+                            onChange={field.handleChange}
+                            value={field.state.value}
+                            width="100%"
+                          />
+                        )}
+                      </form.Field>
+                    );
+                  }}
+                </form.Subscribe>
               </FormLayout>
             </form>
-            {connector ? (
-              <>
-                <hr className="border-border my-5 border-0 border-t" />
-                <form
-                  className="admin-dialog-form"
-                  id={secretFormId}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void secretForm.handleSubmit();
-                  }}
-                >
-                  <FormLayout>
-                    <secretForm.Field
-                      name="secret"
-                      validators={{
-                        onSubmit: ({ value }) =>
-                          validateRequired({ value, label: "Client secret", max: 10_000 }),
-                      }}
-                    >
-                      {(field) => (
-                        <TextInput
-                          isRequired
-                          label={
-                            connector.secretConfigured
-                              ? "Replacement client secret"
-                              : "Client secret"
-                          }
-                          onChange={field.handleChange}
-                          type="password"
-                          {...getFieldStatusProps(field)}
-                          value={field.state.value}
-                          width="100%"
-                        />
-                      )}
-                    </secretForm.Field>
-                    <div className="flex justify-end">
-                      <secretForm.Subscribe selector={(state) => state.canSubmit}>
-                        <Button
-                          form={secretFormId}
-                          isDisabled={!secretForm.state.values.secret}
-                          isLoading={secretMutation.isPending}
-                          label={connector.secretConfigured ? "Replace secret" : "Provision secret"}
-                          type="submit"
-                          variant="secondary"
-                        />
-                      </secretForm.Subscribe>
-                    </div>
-                  </FormLayout>
-                </form>
-              </>
-            ) : null}
           </LayoutContent>
         }
         footer={

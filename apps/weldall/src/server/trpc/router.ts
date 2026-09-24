@@ -77,13 +77,9 @@ import {
 } from "../connectors/configuration";
 import {
   listConnections,
-  disconnectConnection,
-  deleteConnection,
+  getConnectionDetails,
+  disconnectAndDeleteConnection,
   cleanupAttempts,
-  listAuthorizations,
-  cancelAuthorizationAttempt,
-  discardAuthorization,
-  discardConnection,
 } from "../connectors/connections";
 
 const trpc = initTRPC.context<TrpcContext>().create();
@@ -176,30 +172,9 @@ export const appRouter = trpc.router({
     managed: trpc.router({
       configuration: adminProcedure.query(() => listManagedConnectorConfiguration()),
       connections: adminProcedure.query(() => listConnections()),
-      authorizations: adminProcedure.query(() => listAuthorizations()),
-      cancelAuthorization: adminProcedure
-        .input(z.object({ id: z.string() }).strict())
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() =>
-            cancelAuthorizationAttempt({
-              actor: ctx.adminActor,
-              id: input.id,
-              administrator: true,
-            }),
-          ),
-        ),
-      discardAuthorization: adminProcedure
-        .input(
-          z
-            .object({
-              id: z.string(),
-              acknowledgement: z.literal("provider-revocation-unconfirmed"),
-            })
-            .strict(),
-        )
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() => discardAuthorization({ actor: ctx.adminActor, id: input.id })),
-        ),
+      connection: adminProcedure
+        .input(z.object({ id: z.string().min(1) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getConnectionDetails(input.id))),
       saveConnector: adminProcedure
         .input(
           z
@@ -207,6 +182,7 @@ export const appRouter = trpc.router({
               id: z.string().optional(),
               version: z.number().int().positive().nullable(),
               config: connectorConfig,
+              clientSecret: z.string().min(1).max(10_000).optional(),
             })
             .strict(),
         )
@@ -216,6 +192,7 @@ export const appRouter = trpc.router({
               const row = await saveConnectorConfiguration({
                 tx,
                 value: input.config,
+                ...(input.clientSecret !== undefined ? { clientSecret: input.clientSecret } : {}),
                 id: input.id,
                 expectedVersion: input.version,
                 actor: ctx.adminActor,
@@ -263,33 +240,7 @@ export const appRouter = trpc.router({
         .input(z.object({ id: z.string() }).strict())
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() =>
-            disconnectConnection({
-              actor: ctx.adminActor,
-              selector: input.id,
-              administrator: true,
-            }),
-          ),
-        ),
-      discardConnection: adminProcedure
-        .input(
-          z
-            .object({
-              id: z.string(),
-              version: z.number().int().positive(),
-              acknowledgement: z.literal("provider-revocation-unconfirmed"),
-            })
-            .strict(),
-        )
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() =>
-            discardConnection({ actor: ctx.adminActor, id: input.id, version: input.version }),
-          ),
-        ),
-      deleteConnection: adminProcedure
-        .input(z.object({ id: z.string() }).strict())
-        .mutation(({ input, ctx }) =>
-          mapDomainErrors(() =>
-            deleteConnection({ actor: ctx.adminActor, selector: input.id, administrator: true }),
+            disconnectAndDeleteConnection({ actor: ctx.adminActor, id: input.id }),
           ),
         ),
     }),

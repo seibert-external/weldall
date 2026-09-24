@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { db, Prisma, type Connector } from "@weldall/db";
 import { seal, unseal } from "../auth/oidc-credentials";
@@ -69,12 +70,15 @@ export async function saveConnectorConfiguration({
   id,
   expectedVersion,
   actor,
+  clientSecret,
 }: {
   tx: Tx;
   value: unknown;
   id: string | undefined;
   expectedVersion: number | null;
   actor: ConnectorActor;
+  /** Write-only UI input, deliberately separate from the declarative configuration. */
+  clientSecret?: string;
 }) {
   const config = connectorConfig.parse(value);
   validateConnectorScopeConfig(config);
@@ -100,7 +104,7 @@ export async function saveConnectorConfiguration({
       "Disconnect and delete connections and attempts before changing the OAuth client.",
       409,
     );
-  if (clientIdChanged && config.enabled)
+  if (clientIdChanged && config.enabled && clientSecret === undefined)
     throw new ConnectorError(
       "missing_secret",
       "Provision the new OAuth client secret before enabling the connector.",
@@ -112,27 +116,47 @@ export async function saveConnectorConfiguration({
     plaintext: "readiness",
     context: "readiness",
   });
+  const connectorId = current?.id ?? randomUUID();
+  const encryptedClientSecret =
+    clientSecret !== undefined
+      ? encryptClientSecret(connectorId, clientSecret)
+      : clientIdChanged
+        ? null
+        : (current?.encryptedClientSecret ?? null);
   if (config.enabled) {
-    if (!current?.encryptedClientSecret)
+    if (!encryptedClientSecret)
       throw new ConnectorError(
         "missing_secret",
         "Provision the OAuth client secret before enabling the connector.",
         409,
       );
-    readConnectorClientSecret(current);
+    if (clientSecret === undefined && current) readConnectorClientSecret(current);
   }
-  if (current && isDeepStrictEqual(buildConnectorState(current), config)) return current;
+  if (
+    current &&
+    clientSecret === undefined &&
+    isDeepStrictEqual(buildConnectorState(current), config)
+  )
+    return current;
   const row = current
     ? await tx.connector.update({
         where: { id: current.id, version: expectedVersion! },
         data: {
           ...config,
-          ...(clientIdChanged ? { encryptedClientSecret: null } : {}),
+          encryptedClientSecret,
           version: { increment: 1 },
           updatedBy: actor.id,
         },
       })
-    : await tx.connector.create({ data: { ...config, createdBy: actor.id, updatedBy: actor.id } });
+    : await tx.connector.create({
+        data: {
+          ...config,
+          id: connectorId,
+          encryptedClientSecret,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+      });
   await writeConnectorAuditLog({
     tx,
     actor,
@@ -140,7 +164,29 @@ export async function saveConnectorConfiguration({
     subjectId: row.id,
     operation: "connector.saved",
   });
+  if (clientSecret !== undefined)
+    await writeConnectorAuditLog({
+      tx,
+      actor,
+      event: "configuration",
+      subjectId: row.id,
+      operation: "secret.provisioned",
+    });
   return row;
+}
+
+function encryptClientSecret(id: string, secret: string): string {
+  if (!secret.trim() || secret.length > 10_000)
+    throw new ConnectorError("invalid_secret", "A client secret is required.");
+  try {
+    return seal("connector-client-secret", id, secret);
+  } catch {
+    throw new ConnectorError(
+      "credential_unavailable",
+      "Application encryption is unavailable.",
+      503,
+    );
+  }
 }
 
 /** Replaces only the fixed-encrypted OAuth client secret; provider credentials are separate. */
@@ -160,16 +206,7 @@ export async function saveConnectorClientSecret({
   return runConnectorTransaction(async (tx) => {
     const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
     assertConfigurationVersion({ current: connector, expected: expectedVersion });
-    let encryptedClientSecret: string;
-    try {
-      encryptedClientSecret = seal("connector-client-secret", id, secret);
-    } catch {
-      throw new ConnectorError(
-        "credential_unavailable",
-        "Application encryption is unavailable.",
-        503,
-      );
-    }
+    const encryptedClientSecret = encryptClientSecret(id, secret);
     await tx.connector.update({
       where: { id, version: expectedVersion },
       data: { encryptedClientSecret, version: { increment: 1 }, updatedBy: actor.id },

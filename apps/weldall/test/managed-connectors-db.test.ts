@@ -25,9 +25,10 @@ import {
   accessCredentials,
   completeConnection,
   disconnectConnection,
-  discardConnection,
+  disconnectAndDeleteConnection,
   getAuthorizationAttempt,
   listConnections,
+  getConnectionDetails,
   findOwnedConnection,
   startConnection,
   submitScopeSelection,
@@ -214,6 +215,129 @@ describe.skipIf(!approvedTarget)(
         (await db.connector.findUniqueOrThrow({ where: { id: f.connector.id } })).envelopeProvider,
       ).toBe("LOCAL_ENV");
     });
+    it("creates an enabled connector with its write-only secret in one save", async () => {
+      const key = `${prefix}-${++n}`;
+      const connector = await transaction((tx) =>
+        saveConnectorConfiguration({
+          tx,
+          value: { ...config(key), enabled: true },
+          id: undefined,
+          expectedVersion: null,
+          actor,
+          clientSecret: "new-client-secret",
+        }),
+      );
+      expect(connector.enabled).toBe(true);
+      expect(readConnectorClientSecret(connector)).toBe("new-client-secret");
+      const publicRow = (await listConfiguration()).connectors.find(
+        (row) => row.id === connector.id,
+      );
+      expect(publicRow?.secretConfigured).toBe(true);
+      expect(JSON.stringify(publicRow)).not.toMatch(/new-client-secret|encryptedClientSecret/);
+      const audit = await db.auditEvent.findMany({ where: { subjectId: connector.id } });
+      expect(JSON.stringify(audit)).not.toContain("new-client-secret");
+    });
+    it("preserves an omitted secret and replaces it even when configuration is unchanged", async () => {
+      const f = await fixture();
+      const value = { ...config(f.key), enabled: true, name: "Renamed" };
+      const renamed = await transaction((tx) =>
+        saveConnectorConfiguration({
+          tx,
+          value,
+          id: f.connector.id,
+          expectedVersion: f.connector.version,
+          actor,
+        }),
+      );
+      expect(renamed.encryptedClientSecret).toBe(f.connector.encryptedClientSecret);
+      const replaced = await transaction((tx) =>
+        saveConnectorConfiguration({
+          tx,
+          value,
+          id: renamed.id,
+          expectedVersion: renamed.version,
+          actor,
+          clientSecret: "replacement-secret",
+        }),
+      );
+      expect(readConnectorClientSecret(replaced)).toBe("replacement-secret");
+      expect(replaced.version).toBe(renamed.version + 1);
+      await expect(
+        transaction((tx) =>
+          saveConnectorConfiguration({
+            tx,
+            value,
+            id: renamed.id,
+            expectedVersion: renamed.version,
+            actor,
+            clientSecret: "stale-secret",
+          }),
+        ),
+      ).rejects.toThrow("Configuration changed");
+      expect(
+        readConnectorClientSecret(
+          await db.connector.findUniqueOrThrow({ where: { id: renamed.id } }),
+        ),
+      ).toBe("replacement-secret");
+    });
+    it("can save a replacement client ID and secret together without disabling an unused connector", async () => {
+      const f = await fixture();
+      const changed = await transaction((tx) =>
+        saveConnectorConfiguration({
+          tx,
+          value: {
+            ...config(f.key),
+            clientId: "replacement.apps.googleusercontent.com",
+            enabled: true,
+          },
+          id: f.connector.id,
+          expectedVersion: f.connector.version,
+          actor,
+          clientSecret: "replacement-client-secret",
+        }),
+      );
+      expect(changed.enabled).toBe(true);
+      expect(changed.clientId).toBe("replacement.apps.googleusercontent.com");
+      expect(readConnectorClientSecret(changed)).toBe("replacement-client-secret");
+    });
+    it("does not partially save configuration when the submitted secret is invalid or encryption fails", async () => {
+      const f = await fixture();
+      await expect(
+        transaction((tx) =>
+          saveConnectorConfiguration({
+            tx,
+            value: { ...config(f.key), name: "Must not persist" },
+            id: f.connector.id,
+            expectedVersion: f.connector.version,
+            actor,
+            clientSecret: "   ",
+          }),
+        ),
+      ).rejects.toThrow("A client secret is required");
+      expect(await db.connector.findUniqueOrThrow({ where: { id: f.connector.id } })).toEqual(
+        f.connector,
+      );
+      const key = `${prefix}-${++n}`;
+      const original = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY!;
+      try {
+        delete process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
+        await expect(
+          transaction((tx) =>
+            saveConnectorConfiguration({
+              tx,
+              value: { ...config(key), enabled: true },
+              id: undefined,
+              expectedVersion: null,
+              actor,
+              clientSecret: "never-saved-secret",
+            }),
+          ),
+        ).rejects.toThrow("Application encryption is unavailable");
+        expect(await db.connector.findUnique({ where: { key } })).toBeNull();
+      } finally {
+        process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = original;
+      }
+    });
     it("de-provisions stale client secrets when the OAuth client changes", async () => {
       const f = await fixture();
       await expect(
@@ -254,6 +378,43 @@ describe.skipIf(!approvedTarget)(
       } finally {
         process.env.WELDALL_CONNECTOR_KEK = original;
       }
+    });
+    it("loads credential-free connection details even when the connection is outside the recent overview", async () => {
+      const f = await ready();
+      await db.connection.update({
+        where: { id: f.id },
+        data: { createdAt: new Date("2000-01-01T00:00:00Z") },
+      });
+      await db.connection.createMany({
+        data: Array.from({ length: 201 }, (_, i) => ({
+          ownerId: actor.id,
+          connectorId: f.connector.id,
+          name: `${f.key}-recent-${i}`,
+          accountId: `account-${i}`,
+          accountName: `account-${i}@example.com`,
+          selectedScopes: [],
+          grantedScopes: [],
+          status: "DISCONNECTED" as const,
+        })),
+      });
+      const overview = await listConnections();
+      expect(overview).toHaveLength(200);
+      expect(overview.some((row) => row.id === f.id)).toBe(false);
+      const details = await getConnectionDetails(f.id);
+      expect(details).toMatchObject({
+        id: f.id,
+        connectorKey: f.key,
+        ownerId: actor.id,
+        owner: { email: actor.email },
+      });
+      expect(details.selectedScopes).toEqual([...selected].sort());
+      expect(JSON.stringify(details)).not.toMatch(
+        /never-public|credentialId|ciphertext|encryptedClientSecret|wrappedDek/,
+      );
+      await expect(getConnectionDetails(randomUUID())).rejects.toMatchObject({
+        code: "not_found",
+        status: 404,
+      });
     });
     it("binds selections to configuration versions and never returns credentials", async () => {
       const f = await ready();
@@ -357,32 +518,163 @@ describe.skipIf(!approvedTarget)(
         (await db.connection.findUniqueOrThrow({ where: { id: f.id } })).credentialId,
       ).toBeNull();
     });
-    it("records administrator terminal cleanup without claiming provider revocation", async () => {
+    it.each(["success", "google-error", "missing-key"] as const)(
+      "admin Disconnect deletes the connection after best-effort revocation: %s",
+      async (mode) => {
+        const f = await ready();
+        const before = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
+        if (mode === "google-error")
+          vi.mocked(revokeGoogle).mockRejectedValueOnce(new Error("Google unavailable"));
+        else if (mode === "success") vi.mocked(revokeGoogle).mockResolvedValueOnce();
+        const key = process.env.WELDALL_CONNECTOR_KEK!;
+        try {
+          if (mode === "missing-key") delete process.env.WELDALL_CONNECTOR_KEK;
+          expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
+            revocationConfirmed: mode === "success",
+          });
+        } finally {
+          process.env.WELDALL_CONNECTOR_KEK = key;
+        }
+        expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
+        expect(await db.connectionAuthorization.count({ where: { connectionId: f.id } })).toBe(0);
+        expect(
+          await db.encryptedValue.findUnique({ where: { id: before.credentialId! } }),
+        ).toBeNull();
+        if (mode === "missing-key") expect(revokeGoogle).not.toHaveBeenCalled();
+        else expect(revokeGoogle).toHaveBeenCalledWith("never-public-refresh");
+        const audit = await db.auditEvent.findMany({ where: { subjectId: f.id } });
+        expect(
+          audit.some(
+            (event) =>
+              (event.metadata as { operation: string }).operation ===
+              `disconnect.deleted_revocation_${mode === "success" ? "confirmed" : "unconfirmed"}`,
+          ),
+        ).toBe(true);
+        expect(JSON.stringify(audit)).not.toContain("never-public-refresh");
+      },
+    );
+    it("admin Disconnect also removes already disconnected connections without unnecessary revocation", async () => {
       const f = await ready();
-      vi.mocked(revokeGoogle).mockRejectedValueOnce(
-        new Error("invalid token is not grant revocation proof"),
-      );
+      vi.mocked(revokeGoogle).mockResolvedValueOnce();
       await disconnectConnection({ actor, selector: f.id });
-      const blocked = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
-      await discardConnection({ actor, id: f.id, version: blocked.version });
-      const result = await disconnectConnection({ actor, selector: f.id });
-      expect(result).toMatchObject({ status: "DISCONNECTED", revocationConfirmed: false });
-      expect(
-        await db.encryptedValue.findUnique({ where: { id: blocked.credentialId! } }),
-      ).toBeNull();
-      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not ready");
+      vi.mocked(revokeGoogle).mockClear();
+      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
+        revocationConfirmed: true,
+      });
+      expect(revokeGoogle).not.toHaveBeenCalled();
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
+    });
+    it("admin Disconnect removes dependent reconnect attempts and revokes their retained tokens too", async () => {
+      const f = await ready();
       const next = await authorize({ key: f.key, name: f.key, reconnect: f.id });
       vi.mocked(completeGoogle).mockResolvedValueOnce({
-        accountId: "google-account",
-        accountName: "google@example.com",
-        credentials: credentials(),
+        accountId: "wrong-account",
+        accountName: "other@example.com",
+        credentials: { ...credentials(), refreshToken: "rejected-reconnect-refresh" },
       });
       expect(await completeConnection({ state: next.state, code: "code", cancelled: false })).toBe(
-        "success",
+        "failed",
       );
-      expect((await getAuthorizationAttempt({ actor, id: next.attempt.id })).connection?.id).toBe(
-        f.id,
+      const pending = await authorize({ key: f.key, name: f.key, reconnect: f.id });
+      const attempts = await db.connectionAuthorization.findMany({ where: { connectionId: f.id } });
+      vi.mocked(revokeGoogle).mockResolvedValueOnce();
+      vi.mocked(revokeGoogle).mockResolvedValueOnce();
+      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
+        revocationConfirmed: true,
+      });
+      expect(revokeGoogle).toHaveBeenCalledWith("never-public-refresh");
+      expect(revokeGoogle).toHaveBeenCalledWith("rejected-reconnect-refresh");
+      expect(await db.connectionAuthorization.count({ where: { connectionId: f.id } })).toBe(0);
+      expect(
+        await db.encryptedValue.count({
+          where: { id: { in: attempts.flatMap((a) => (a.payloadId ? [a.payloadId] : [])) } },
+        }),
+      ).toBe(0);
+      await expect(
+        completeConnection({ state: pending.state, code: "late", cancelled: false }),
+      ).rejects.toThrow();
+    });
+    it("admin Disconnect blocks processing and waits for an in-flight refresh before deleting its rotated token", async () => {
+      const f = await ready();
+      const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
+      await saveSecret({
+        tx: db,
+        provider: f.connector.envelopeProvider,
+        context: `connection:${f.id}:credentials`,
+        value: JSON.stringify({ ...credentials(), expiresAt: 0 }),
+        id: row.credentialId,
+      });
+      const entered = Promise.withResolvers<void>();
+      const result = Promise.withResolvers<ReturnType<typeof credentials>>();
+      vi.mocked(refreshGoogle).mockImplementationOnce(() => {
+        entered.resolve();
+        return result.promise;
+      });
+      const refreshing = accessCredentials({ actor, selector: f.id });
+      await entered.promise;
+      await expect(disconnectAndDeleteConnection({ actor, id: f.id })).rejects.toThrow(
+        "Token processing",
       );
+      expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe(
+        "REVOCATION_PENDING",
+      );
+      expect(revokeGoogle).not.toHaveBeenCalled();
+      result.resolve({ ...credentials(), refreshToken: "admin-disconnect-rotated" });
+      await refreshing;
+      vi.mocked(revokeGoogle).mockResolvedValueOnce();
+      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
+        revocationConfirmed: true,
+      });
+      expect(revokeGoogle).toHaveBeenCalledWith("admin-disconnect-rotated");
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
+    });
+    it("admin Disconnect waits for a reconnect exchange and later removes the rejected callback tokens", async () => {
+      const f = await ready();
+      const next = await authorize({ key: f.key, name: f.key, reconnect: f.id });
+      const entered = Promise.withResolvers<void>();
+      const result = Promise.withResolvers<Awaited<ReturnType<typeof completeGoogle>>>();
+      vi.mocked(completeGoogle).mockImplementationOnce(() => {
+        entered.resolve();
+        return result.promise;
+      });
+      const completing = completeConnection({ state: next.state, code: "code", cancelled: false });
+      await entered.promise;
+      await expect(disconnectAndDeleteConnection({ actor, id: f.id })).rejects.toThrow(
+        "Token processing",
+      );
+      expect(revokeGoogle).not.toHaveBeenCalled();
+      result.resolve({
+        accountId: "google-account",
+        accountName: "google@example.com",
+        credentials: { ...credentials(), refreshToken: "in-flight-reconnect-token" },
+      });
+      expect(await completing).toBe("failed");
+      vi.mocked(revokeGoogle).mockResolvedValueOnce();
+      vi.mocked(revokeGoogle).mockResolvedValueOnce();
+      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
+        revocationConfirmed: true,
+      });
+      expect(revokeGoogle).toHaveBeenCalledWith("in-flight-reconnect-token");
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
+      expect(await db.connectionAuthorization.count({ where: { connectionId: f.id } })).toBe(0);
+    });
+    it("admin Disconnect blocks usage before contacting Google and deletes locally even when Google fails", async () => {
+      const f = await ready();
+      const entered = Promise.withResolvers<void>();
+      const result = Promise.withResolvers<void>();
+      vi.mocked(revokeGoogle).mockImplementationOnce(() => {
+        entered.resolve();
+        return result.promise;
+      });
+      const disconnecting = disconnectAndDeleteConnection({ actor, id: f.id });
+      await entered.promise;
+      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not ready");
+      await expect(authorize({ key: f.key, name: f.key, reconnect: f.id })).rejects.toThrow(
+        "cannot be reconnected",
+      );
+      result.reject(new Error("Google unavailable"));
+      expect(await disconnecting).toEqual({ revocationConfirmed: false });
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
     });
     it("keeps an in-flight refresh unavailable after disconnect and retains rotation for explicit revocation", async () => {
       const f = await ready();
