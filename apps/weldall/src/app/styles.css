@@ -701,6 +701,7 @@
   .statistics-heading h1,
   .statistics-card h2 {
     margin: 0;
+    font-weight: var(--font-weight-semibold);
   }
 
   .statistics-card {
