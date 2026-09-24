@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { STATISTICS_SCOPE_KEY } from "../src/system-scopes.js";
 import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
 import { seedDevelopmentSkillRetrievals, seedDevelopmentUsers } from "./seed.dev-users.js";
 
@@ -191,6 +192,24 @@ try {
   });
   await seedDevelopmentUsers(db);
   await seedDevelopmentSkillRetrievals(db);
+
+  // A non-admin who can open /statistics, so a fresh setup shows the page without a manual grant.
+  const statisticsScope = await db.scope.findUniqueOrThrow({
+    where: { key: STATISTICS_SCOPE_KEY },
+    select: { id: true },
+  });
+  const statisticsViewer = await db.emailScopeAssignment.upsert({
+    where: { normalizedEmail: "jane.adams@example.com" },
+    create: { normalizedEmail: "jane.adams@example.com", createdBy: actor, updatedBy: actor },
+    update: {},
+  });
+  await db.emailScopeGrant.upsert({
+    where: {
+      assignmentId_scopeId: { assignmentId: statisticsViewer.id, scopeId: statisticsScope.id },
+    },
+    create: { assignmentId: statisticsViewer.id, scopeId: statisticsScope.id, createdBy: actor },
+    update: {},
+  });
 
   const publicJwk = parseDevelopmentMachinePublicJwk(process.env.DEV_M2M_SIGNING_PUBLIC_JWK);
   const kid = parseDevelopmentMachineKid(process.env.DEV_M2M_SIGNING_KID);
