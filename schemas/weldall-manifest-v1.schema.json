@@ -55,17 +55,7 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "key",
-          "name",
-          "type",
-          "enabled",
-          "envelopeProvider",
-          "clientId",
-          "enabledApis",
-          "allowedScopes",
-          "defaultScopes"
-        ],
+        "required": ["key", "name", "type", "enabled", "envelopeProvider", "provider"],
         "properties": {
           "key": {
             "type": "string",
@@ -88,40 +78,42 @@
             "const": "LOCAL_ENV",
             "description": "Immutable after creation. All local connectors use the deployment-wide KEK; OpenBao is not supported yet."
           },
-          "clientId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          },
-          "enabledApis": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 100,
-            "uniqueItems": true,
-            "items": {
-              "enum": ["gmail", "calendar"]
-            }
-          },
-          "allowedScopes": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 100,
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 160
-            }
-          },
-          "defaultScopes": {
-            "type": "array",
-            "minItems": 0,
-            "maxItems": 100,
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 160
+          "provider": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clientId", "allowedScopes", "defaultScopes"],
+            "properties": {
+              "clientId": { "type": "string", "minLength": 1, "maxLength": 500 },
+              "allowedScopes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 20,
+                "items": {
+                  "enum": [
+                    "https://www.googleapis.com/auth/gmail.readonly",
+                    "https://www.googleapis.com/auth/gmail.send",
+                    "https://www.googleapis.com/auth/gmail.modify",
+                    "https://www.googleapis.com/auth/calendar.readonly",
+                    "https://www.googleapis.com/auth/calendar.events",
+                    "https://www.googleapis.com/auth/calendar"
+                  ]
+                }
+              },
+              "defaultScopes": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "enum": [
+                    "https://www.googleapis.com/auth/gmail.readonly",
+                    "https://www.googleapis.com/auth/gmail.send",
+                    "https://www.googleapis.com/auth/gmail.modify",
+                    "https://www.googleapis.com/auth/calendar.readonly",
+                    "https://www.googleapis.com/auth/calendar.events",
+                    "https://www.googleapis.com/auth/calendar"
+                  ]
+                },
+                "description": "Must be a subset of allowedScopes. Scope sets are deduplicated and sorted."
+              }
             }
           }
         }

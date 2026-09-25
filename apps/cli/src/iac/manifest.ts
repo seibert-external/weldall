@@ -5,6 +5,7 @@ import { createPublicKey } from "node:crypto";
 import { parseDocument } from "yaml";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { CliError } from "../errors.js";
+import { isRecord } from "../http.js";
 
 export const MANIFEST_VERSION = "weldall.dev/v1";
 export const MANIFEST_FILE = "weldall.yml";
@@ -187,6 +188,42 @@ function validateManifest(value: Manifest) {
     if (Array.isArray(assignment.scopes) && assignment.scopes.includes("weldall:iac"))
       throw new CliError("weldall:iac is machine-only");
 }
+/** Rejects secrets and unknown provider policy fields before declarative state is submitted. */
+function validateGoogleConfiguration(value: unknown) {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some(
+      (key) => !["clientId", "allowedScopes", "defaultScopes"].includes(key),
+    ) ||
+    typeof value.clientId !== "string" ||
+    !value.clientId.trim() ||
+    value.clientId.length > 500
+  )
+    throw new CliError("Invalid Google provider configuration");
+  const known = new Set(
+    [
+      "gmail.readonly",
+      "gmail.send",
+      "gmail.modify",
+      "calendar.readonly",
+      "calendar.events",
+      "calendar",
+    ].map((scope) => `https://www.googleapis.com/auth/${scope}`),
+  );
+  const allowed = value.allowedScopes;
+  const defaults = value.defaultScopes;
+  if (
+    !Array.isArray(allowed) ||
+    !allowed.length ||
+    allowed.length > 20 ||
+    allowed.some((scope) => typeof scope !== "string" || !known.has(scope)) ||
+    !Array.isArray(defaults) ||
+    defaults.length > 20 ||
+    defaults.some((scope) => !allowed.includes(scope))
+  )
+    throw new CliError("Invalid Google provider scopes");
+}
+
 /** Validates one declarative primitive before the CLI canonicalizes or submits a manifest. */
 function validatePrimitive({
   section,
@@ -196,17 +233,7 @@ function validatePrimitive({
   object: Record<string, unknown>;
 }) {
   const fields: Record<typeof section, string[]> = {
-    connectors: [
-      "key",
-      "name",
-      "type",
-      "enabled",
-      "envelopeProvider",
-      "clientId",
-      "enabledApis",
-      "allowedScopes",
-      "defaultScopes",
-    ],
+    connectors: ["key", "name", "type", "enabled", "envelopeProvider", "provider"],
     scopes: ["key", "description"],
     resources: [
       "key",
@@ -275,18 +302,9 @@ function validatePrimitive({
     validateText({ field: "name", max: 200 });
     if (object.envelopeProvider !== "LOCAL_ENV")
       throw new CliError("Only the LOCAL_ENV envelope provider is supported");
-    validateText({ field: "clientId", max: 500 });
     if (object.type !== "google" || typeof object.enabled !== "boolean")
       throw new CliError("Invalid connector type or enabled flag");
-    if (
-      validateStringList({ field: "enabledApis", nonEmpty: true }).some(
-        (api) => !["gmail", "calendar"].includes(api),
-      )
-    )
-      throw new CliError("Unknown Google API");
-    const allowed = validateStringList({ field: "allowedScopes", nonEmpty: true });
-    if (validateStringList({ field: "defaultScopes" }).some((scope) => !allowed.includes(scope)))
-      throw new CliError("Default scopes must be administrator-allowed");
+    validateGoogleConfiguration(object.provider);
   } else if (section === "scopes") {
     validateText({
       field: "key",
@@ -511,9 +529,11 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
       : {}),
     connectors: canonicalRecords("connectors", (value) => ({
       ...value,
-      enabledApis: canonicalSet(value.enabledApis),
-      allowedScopes: canonicalSet(value.allowedScopes),
-      defaultScopes: canonicalSet(value.defaultScopes),
+      provider: {
+        ...value.provider,
+        allowedScopes: canonicalSet(value.provider.allowedScopes),
+        defaultScopes: canonicalSet(value.provider.defaultScopes),
+      },
     })),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({

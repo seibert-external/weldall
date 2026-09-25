@@ -72,7 +72,7 @@ import {
   deleteConnectorConfiguration,
   listManagedConnectorConfiguration,
   runConnectorTransaction,
-  saveConnectorClientSecret,
+  saveConnectorSecrets,
   saveConnectorConfiguration,
 } from "../connectors/configuration";
 import {
@@ -80,7 +80,7 @@ import {
   getConnectionDetails,
   disconnectAndDeleteConnection,
   cleanupAttempts,
-} from "../connectors/connections";
+} from "../connectors/core/connections";
 
 const trpc = initTRPC.context<TrpcContext>().create();
 const loggedProcedure = trpc.procedure.use(async ({ path, type, next }) => {
@@ -182,7 +182,7 @@ export const appRouter = trpc.router({
               id: z.string().optional(),
               version: z.number().int().positive().nullable(),
               config: connectorConfig,
-              clientSecret: z.string().min(1).max(10_000).optional(),
+              providerSecrets: z.unknown().optional(),
             })
             .strict(),
         )
@@ -192,7 +192,9 @@ export const appRouter = trpc.router({
               const row = await saveConnectorConfiguration({
                 tx,
                 value: input.config,
-                ...(input.clientSecret !== undefined ? { clientSecret: input.clientSecret } : {}),
+                ...(input.providerSecrets !== undefined
+                  ? { providerSecrets: input.providerSecrets }
+                  : {}),
                 id: input.id,
                 expectedVersion: input.version,
                 actor: ctx.adminActor,
@@ -222,15 +224,15 @@ export const appRouter = trpc.router({
             .object({
               id: z.string(),
               version: z.number().int().positive(),
-              secret: z.string().min(1).max(10_000),
+              secrets: z.unknown(),
             })
             .strict(),
         )
         .mutation(({ input, ctx }) =>
           mapDomainErrors(() =>
-            saveConnectorClientSecret({
+            saveConnectorSecrets({
               id: input.id,
-              secret: input.secret,
+              secrets: input.secrets,
               expectedVersion: input.version,
               actor: ctx.adminActor,
             }),

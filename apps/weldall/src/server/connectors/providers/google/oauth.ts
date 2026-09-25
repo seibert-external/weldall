@@ -1,7 +1,8 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
-import { ConnectorError } from "./contracts";
-import { normalizeGrants } from "./scopes";
+import { ConnectorError, ProviderTokenError } from "../../errors";
+import { canonicalScopes } from "./setup";
+import { readBoundedBody } from "../../core/transport";
 
 const jwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
 export const credentialsSchema = z
@@ -17,67 +18,17 @@ export interface GoogleClient {
   clientId: string;
   clientSecret: string;
 }
-export class GoogleTokenError extends ConnectorError {
-  readonly authorizationLost: boolean;
-  readonly retryable: boolean;
 
-  constructor({
-    authorizationLost,
-    retryable = false,
-  }: {
-    authorizationLost: boolean;
-    retryable?: boolean;
-  }) {
-    super(
-      authorizationLost ? "authorization_lost" : "provider_unavailable",
-      authorizationLost
-        ? "Google authorization was lost. Reconnect this account."
-        : "Google token request failed; reconnect if refresh recovery is uncertain.",
-      502,
-    );
-    this.authorizationLost = authorizationLost;
-    this.retryable = retryable;
-  }
-}
-/** Reads a connector request or provider response within the proxy's hard transfer limit. */
-export async function readBoundedBody({
-  response,
-  maximum,
-  signal = AbortSignal.timeout(30_000),
-}: {
-  response: Response | Request;
-  maximum: number;
-  signal?: AbortSignal;
-}): Promise<Uint8Array> {
-  const reader = response.body?.getReader();
-  if (!reader) return new Uint8Array();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  const abort = () => {
-    void reader.cancel().catch(() => {});
-  };
-  signal.addEventListener("abort", abort, { once: true });
-  try {
-    signal.throwIfAborted();
-    for (;;) {
-      const { done, value } = await reader.read();
-      signal.throwIfAborted();
-      if (done) break;
-      length += value.byteLength;
-      if (length > maximum)
-        throw new ConnectorError("too_large", "Connector transfer size limit exceeded.", 413);
-      chunks.push(value);
-    }
-    return Buffer.concat(chunks);
-  } finally {
-    signal.removeEventListener("abort", abort);
-    await reader.cancel().catch(() => {});
-  }
-}
 /** Parses a bounded JSON response from Google's OAuth endpoints. */
-async function readGoogleJsonResponse(response: Response) {
+async function readGoogleJsonResponse({
+  response,
+  signal,
+}: {
+  response: Response;
+  signal: AbortSignal;
+}) {
   return JSON.parse(
-    Buffer.from(await readBoundedBody({ response, maximum: 64_000 })).toString("utf8"),
+    Buffer.from(await readBoundedBody({ response, maximum: 64_000, signal })).toString("utf8"),
   ) as unknown;
 }
 const tokenSchema = z.object({
@@ -90,15 +41,16 @@ const tokenSchema = z.object({
 });
 /** Exchanges an authorization code or refresh token through Google's OAuth token endpoint. */
 async function exchangeGoogleToken(body: URLSearchParams) {
+  const signal = AbortSignal.timeout(10_000);
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     body,
     redirect: "error",
-    signal: AbortSignal.timeout(10_000),
+    signal,
   });
-  const value = await readGoogleJsonResponse(response);
+  const value = await readGoogleJsonResponse({ response, signal });
   if (!response.ok)
-    throw new GoogleTokenError({
+    throw new ProviderTokenError({
       authorizationLost: z.object({ error: z.literal("invalid_grant") }).safeParse(value).success,
       retryable:
         z.object({ error: z.enum(["temporarily_unavailable", "server_error"]) }).safeParse(value)
@@ -106,11 +58,18 @@ async function exchangeGoogleToken(body: URLSearchParams) {
     });
   const parsed = tokenSchema.safeParse(value);
   if (!parsed.success || parsed.data.token_type.toLowerCase() !== "bearer")
-    throw new GoogleTokenError({ authorizationLost: false });
+    throw new ProviderTokenError({ authorizationLost: false });
   return parsed.data;
 }
 /** Builds the Google consent URL used by the owner-facing connection setup flow. */
-export function buildGoogleAuthorizationUrl(input: {
+export function buildGoogleAuthorizationUrl({
+  clientId,
+  redirectUri,
+  state,
+  nonce,
+  challenge,
+  selected,
+}: {
   clientId: string;
   redirectUri: string;
   state: string;
@@ -120,16 +79,16 @@ export function buildGoogleAuthorizationUrl(input: {
 }) {
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.search = new URLSearchParams({
-    client_id: input.clientId,
-    redirect_uri: input.redirectUri,
+    client_id: clientId,
+    redirect_uri: redirectUri,
     response_type: "code",
-    scope: input.selected.join(" "),
+    scope: selected.join(" "),
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "false",
-    state: input.state,
-    nonce: input.nonce,
-    code_challenge: input.challenge,
+    state,
+    nonce,
+    code_challenge: challenge,
     code_challenge_method: "S256",
   }).toString();
   return url.toString();
@@ -151,7 +110,7 @@ function buildGoogleCredentials({
     grantedScopes:
       value.scope === undefined
         ? priorScopes
-        : normalizeGrants(value.scope.split(" ").filter(Boolean)),
+        : canonicalScopes(value.scope.split(" ").filter(Boolean)),
   };
 }
 /** Completes Google OAuth and verifies the selected account before Weldall stores credentials. */
@@ -173,7 +132,7 @@ export async function completeGoogleAuthorization({
     }),
   );
   if (!value.refresh_token || !value.id_token)
-    throw new GoogleTokenError({ authorizationLost: true });
+    throw new ProviderTokenError({ authorizationLost: true });
   const { payload } = await jwtVerify(value.id_token, jwks, {
     algorithms: ["RS256"],
     audience: client.clientId,
@@ -190,7 +149,7 @@ export async function completeGoogleAuthorization({
     payload.email_verified !== true ||
     (payload.azp !== undefined && payload.azp !== client.clientId)
   )
-    throw new GoogleTokenError({ authorizationLost: true });
+    throw new ProviderTokenError({ authorizationLost: true });
   return {
     accountId: payload.sub,
     accountName: payload.email,
@@ -224,14 +183,15 @@ export async function refreshGoogleCredentials({
  * automatically because revocation may affect other connections.
  */
 export async function revokeGoogleAuthorization(token: string) {
+  const signal = AbortSignal.timeout(10_000);
   const response = await fetch("https://oauth2.googleapis.com/revoke", {
     method: "POST",
     body: new URLSearchParams({ token }),
     redirect: "error",
-    signal: AbortSignal.timeout(10_000),
+    signal,
   });
   if (response.ok) {
-    await readBoundedBody({ response, maximum: 64_000 });
+    await readBoundedBody({ response, maximum: 64_000, signal });
     return;
   }
   // An invalid token may be an old token from an interrupted rotation, not proof that

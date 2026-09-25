@@ -1,40 +1,31 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { db, type Connector, type Connection, type Prisma } from "@weldall/db";
 import { z } from "zod";
-import { WELDALL_ISSUER } from "../oauth/constants";
-import { errorForLog, logger } from "../observability/logger";
-import { ConnectorError, connectionName, type ConnectorActor } from "./contracts";
-import { readConnectorClientSecret, runConnectorTransaction } from "./configuration";
-import {
-  calculateEffectiveCapabilities,
-  listAvailableScopes,
-  normalizeGrants,
-  requiredScopes,
-  shouldReconnectAfterRefresh,
-  validateSelectedScopes,
-} from "./scopes";
-import { readSecret, saveSecret } from "./encryption";
-import {
-  buildGoogleAuthorizationUrl,
-  completeGoogleAuthorization,
-  credentialsSchema,
-  refreshGoogleCredentials,
-  revokeGoogleAuthorization,
-  GoogleTokenError,
-} from "./google";
-import { writeConnectorAuditLog } from "./audit";
+import { WELDALL_ISSUER } from "../../oauth/constants";
+import { logger } from "../../observability/logger";
+import { ConnectorError, connectionName, type ConnectorActor } from "../contracts";
+import { readConnectorSecrets, runConnectorTransaction } from "../configuration";
+import { getConnectorProvider } from "../registry";
+import { ProviderTokenError, RejectedProviderCredentials } from "../errors";
+import type { ProviderGrant } from "../provider";
+import { readSecret, saveSecret } from "../encryption";
+import { writeConnectorAuditLog } from "../audit";
 
 type Tx = Prisma.TransactionClient;
-const callback = `${WELDALL_ISSUER}/api/connectors/google/callback`;
+/** Callback routing is fixed by the reviewed provider discriminator, never caller input. */
+const callbackUrl = (connector: Connector) =>
+  `${WELDALL_ISSUER}/api/connectors/${getConnectorProvider(connector.providerType).type}/callback`;
+/** Serializes opaque provider objects without teaching persistence their internal shape. */
+const providerJson = (value: object): Prisma.InputJsonObject =>
+  JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
 /** Derives non-reversible comparison values for OAuth state and account metadata. */
 const hashValue = (value: string) => createHash("sha256").update(value).digest("hex");
-/** Creates short-lived high-entropy values for OAuth state, nonce, and PKCE flows. */
-const createRandomToken = () => randomBytes(32).toString("base64url");
-const attemptPayload = z.object({
-  verifier: z.string(),
-  nonce: z.string(),
-  credentials: credentialsSchema.optional(),
-});
+const attemptPayload = z
+  .object({
+    attempt: z.unknown(),
+    credentials: z.unknown().optional(),
+  })
+  .strict();
 export const metadataSelect = {
   id: true,
   ownerId: true,
@@ -42,8 +33,8 @@ export const metadataSelect = {
   name: true,
   accountId: true,
   accountName: true,
-  selectedScopes: true,
-  grantedScopes: true,
+  providerSelection: true,
+  providerGrant: true,
   status: true,
   version: true,
   lastUsedAt: true,
@@ -74,8 +65,10 @@ export function buildConnectionMetadata({
     name: row.name,
     accountId: row.accountId,
     accountName: row.accountName,
-    selectedScopes: row.selectedScopes,
-    grantedScopes: row.grantedScopes,
+    ...getConnectorProvider(connector.providerType).describeConnection({
+      selection: row.providerSelection,
+      grant: row.providerGrant,
+    }),
     status: row.status,
     version: row.version,
     lastUsedAt: row.lastUsedAt,
@@ -83,14 +76,6 @@ export function buildConnectionMetadata({
     revocationError: row.revocationError,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    capabilities:
-      connector.enabled && row.status === "READY"
-        ? calculateEffectiveCapabilities({
-            config: connector,
-            selected: row.selectedScopes,
-            granted: row.grantedScopes,
-          })
-        : [],
     connectorKey: connector.key,
     connectorEnabled: connector.enabled,
   };
@@ -152,16 +137,10 @@ export async function listConnectors() {
     (c) => ({
       key: c.key,
       name: c.name,
-      type: c.type,
-      scopes: listAvailableScopes(c),
-      defaultScopes: c.defaultScopes,
-      requestPrefix: `${WELDALL_ISSUER}/connectors/${c.key}/`,
+      type: getConnectorProvider(c.providerType).type,
+      ...getConnectorProvider(c.providerType).describeSetup({ config: c.providerConfig }),
     }),
   );
-}
-/** Reads the encrypted OAuth client secret required for a server-side Google exchange. */
-function readGoogleClient(connector: Connector) {
-  return { clientId: connector.clientId, clientSecret: readConnectorClientSecret(connector) };
 }
 /** Stops setup and execution when an administrator has disabled the connector. */
 function assertConnectorEnabled(connector: Connector) {
@@ -255,12 +234,12 @@ export async function startConnection({
         connectionId: prior?.id ?? null,
         connectionVersion: prior?.version ?? null,
         name,
-        selectedScopes: [
-          ...requiredScopes,
-          ...(prior
-            ? prior.selectedScopes.filter((s) => connector.allowedScopes.includes(s))
-            : connector.defaultScopes),
-        ],
+        providerSelection: providerJson(
+          getConnectorProvider(connector.providerType).initialSelection({
+            config: connector.providerConfig,
+            ...(prior ? { previousSelection: prior.providerSelection } : {}),
+          }),
+        ),
         expiresAt: new Date(Date.now() + 10 * 60_000),
       },
     });
@@ -300,12 +279,9 @@ export async function getAuthorizationAttempt({
     id: a.id,
     status,
     connector: { key: a.connector.key, name: a.connector.name, version: a.connectorVersion },
-    scopes: listAvailableScopes(a.connector),
-    selectedScopes: a.selectedScopes,
-    capabilities: calculateEffectiveCapabilities({
-      config: a.connector,
-      selected: a.selectedScopes,
-      granted: a.selectedScopes,
+    ...getConnectorProvider(a.connector.providerType).describeSetup({
+      config: a.connector.providerConfig,
+      previousSelection: a.providerSelection,
     }),
     expiresAt: a.expiresAt,
     connection:
@@ -314,15 +290,15 @@ export async function getAuthorizationAttempt({
         : null,
   };
 }
-/** Persists owner scope selection and creates the PKCE-protected Google authorization URL. */
+/** Validates owner setup through the provider and binds its authorization attempt to this owner. */
 export async function submitScopeSelection({
   actor,
   id,
-  selected,
+  selection,
 }: {
   actor: ConnectorActor;
   id: string;
-  selected: string[];
+  selection: unknown;
 }) {
   return runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUniqueOrThrow({
@@ -341,35 +317,33 @@ export async function submitScopeSelection({
         "Setup expired or configuration changed. Start again.",
         409,
       );
-    const scopes = validateSelectedScopes({ config: a.connector, selected });
-    const state = createRandomToken(),
-      verifier = createRandomToken(),
-      nonce = createRandomToken();
+    const provider = getConnectorProvider(a.connector.providerType);
+    const validated = provider.validateSetupInput({
+      config: a.connector.providerConfig,
+      value: selection,
+    });
+    const authorization = await provider.beginAuthorization({
+      config: a.connector.providerConfig,
+      secrets: readConnectorSecrets(a.connector),
+      selection: validated,
+      callbackUrl: callbackUrl(a.connector),
+    });
     const payload = await saveSecret({
       tx,
       provider: a.connector.envelopeProvider,
       context: `attempt:${id}:oauth`,
-      value: JSON.stringify({ verifier, nonce }),
+      value: JSON.stringify({ attempt: authorization.attempt }),
     });
     await tx.connectionAuthorization.update({
       where: { id, status: "SETUP" },
       data: {
-        selectedScopes: scopes,
-        stateHash: hashValue(state),
+        providerSelection: providerJson(validated),
+        stateHash: hashValue(authorization.state),
         payloadId: payload.id,
         status: "AUTHORIZING",
       },
     });
-    return {
-      url: buildGoogleAuthorizationUrl({
-        clientId: a.connector.clientId,
-        redirectUri: callback,
-        state,
-        nonce,
-        challenge: createHash("sha256").update(verifier).digest("base64url"),
-        selected: scopes,
-      }),
-    };
+    return { url: authorization.url };
   });
 }
 /**
@@ -410,38 +384,55 @@ export async function completeConnection({
       await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
       return null;
     }
-    return { a, payload, client: readGoogleClient(a.connector) };
+    return { a, payload, secrets: readConnectorSecrets(a.connector) };
   });
   if (!claimed) return "cancelled" as const;
   const { a, payload } = claimed;
   const actor = { id: a.ownerId, requestId: a.id };
-  let result: Awaited<ReturnType<typeof completeGoogleAuthorization>>;
+  const provider = getConnectorProvider(a.connector.providerType);
+  let result: Awaited<ReturnType<typeof provider.completeAuthorization>>;
   try {
     if (!code) throw new ConnectorError("invalid_callback", "Authorization code missing.");
-    result = await completeGoogleAuthorization({
-      client: claimed.client,
-      input: {
-        code,
-        redirectUri: callback,
-        nonce: payload.nonce,
-        verifier: payload.verifier,
-      },
+    result = await provider.completeAuthorization({
+      config: a.connector.providerConfig,
+      secrets: claimed.secrets,
+      selection: a.providerSelection,
+      callback: new URLSearchParams({ code }),
+      attempt: payload.attempt,
+      callbackUrl: callbackUrl(a.connector),
     });
   } catch (error) {
     logger.error(
       {
         event: "connector.connection.completion.failed",
-        provider: "google",
+        provider: provider.type,
         phase: "provider_authorization",
         authorizationId: a.id,
         connectorId: a.connectorId,
-        error: errorForLog(error),
+        error: { code: error instanceof ConnectorError ? error.code : "provider_error" },
       },
       "Connector provider authorization failed",
     );
     await runConnectorTransaction(async (tx) => {
-      await tx.connectionAuthorization.update({ where: { id: a.id }, data: { status: "FAILED" } });
-      await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
+      if (error instanceof RejectedProviderCredentials) {
+        await saveSecret({
+          tx,
+          provider: a.connector.envelopeProvider,
+          context: `attempt:${a.id}:oauth`,
+          value: JSON.stringify({ ...payload, credentials: error.credentials }),
+          id: a.payloadId,
+        });
+        await tx.connectionAuthorization.update({
+          where: { id: a.id },
+          data: { status: "NEEDS_REVOCATION" },
+        });
+      } else {
+        await tx.connectionAuthorization.update({
+          where: { id: a.id },
+          data: { status: "FAILED" },
+        });
+        await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
+      }
       await writeConnectorAuditLog({
         tx,
         actor,
@@ -480,20 +471,12 @@ export async function completeConnection({
         fresh.expiresAt <= new Date()
       )
         throw new ConnectorError("stale_attempt", "Authorization expired or policy changed.", 409);
-      validateSelectedScopes({ config: fresh.connector, selected: fresh.selectedScopes });
-      const grants = normalizeGrants(result.credentials.grantedScopes);
-      if (
-        requiredScopes.some((s) => !grants.includes(s)) ||
-        !calculateEffectiveCapabilities({
-          config: fresh.connector,
-          selected: fresh.selectedScopes,
-          granted: grants,
-        }).length
-      )
-        throw new ConnectorError(
-          "missing_grants",
-          "Google did not grant required identity and API permissions.",
-        );
+      provider.validateSetupInput({
+        config: fresh.connector.providerConfig,
+        value: fresh.providerSelection,
+      });
+      // CompleteAuthorization checked exact consent against this pinned configuration revision.
+      const grant = provider.parseGrant(result.grant);
       const prior = fresh.connectionId
         ? await tx.connection.findUniqueOrThrow({ where: { id: fresh.connectionId } })
         : null;
@@ -505,7 +488,7 @@ export async function completeConnection({
       )
         throw new ConnectorError(
           "stale_connection",
-          "Connection changed or a different Google account was selected.",
+          "Connection changed or a different provider account was selected.",
           409,
         );
       const row =
@@ -517,8 +500,8 @@ export async function completeConnection({
             name: fresh.name,
             accountId: result.accountId,
             accountName: result.accountName,
-            selectedScopes: fresh.selectedScopes,
-            grantedScopes: grants,
+            providerSelection: fresh.providerSelection as Prisma.InputJsonValue,
+            providerGrant: providerJson(grant),
           },
         }));
       const secret = await saveSecret({
@@ -533,8 +516,8 @@ export async function completeConnection({
         data: {
           credentialId: secret.id,
           status: "READY",
-          selectedScopes: fresh.selectedScopes,
-          grantedScopes: grants,
+          providerSelection: fresh.providerSelection as Prisma.InputJsonValue,
+          providerGrant: providerJson(grant),
           accountName: result.accountName,
           refreshStartedAt: null,
           revocationError: null,
@@ -560,11 +543,11 @@ export async function completeConnection({
     logger.error(
       {
         event: "connector.connection.completion.failed",
-        provider: "google",
+        provider: provider.type,
         phase: "grant_validation_or_persistence",
         authorizationId: a.id,
         connectorId: a.connectorId,
-        error: errorForLog(error),
+        error: { code: error instanceof ConnectorError ? error.code : "persistence_error" },
       },
       "Connector grant validation or persistence failed",
     );
@@ -579,7 +562,7 @@ export async function completeConnection({
     return "failed" as const;
   }
 }
-/** Cancels an authorization attempt and revokes any retained Google grant before local cleanup. */
+/** Cancels an authorization attempt and revokes any retained provider grant before local cleanup. */
 export async function cancelAuthorizationAttempt({
   actor,
   id,
@@ -589,14 +572,17 @@ export async function cancelAuthorizationAttempt({
   id: string;
   administrator?: boolean;
 }) {
-  const a = await db.connectionAuthorization.findUniqueOrThrow({ where: { id } });
+  const a = await db.connectionAuthorization.findUniqueOrThrow({
+    where: { id },
+    include: { connector: true },
+  });
   if (!administrator) assertConnectionOwner({ ownerId: a.ownerId, actorId: actor.id });
   if (a.status === "COMPLETED")
     throw new ConnectorError("completed", "Disconnect the completed connection instead.", 409);
   if (a.status === "PROCESSING")
     throw new ConnectorError(
       "in_progress",
-      "Provider exchange is in progress or was interrupted. Check status; expired interrupted exchanges require administrator review of the Google grant.",
+      "Provider exchange is in progress or was interrupted. Check status; expired interrupted exchanges require administrator review of the provider grant.",
       409,
     );
   let expectedStatus = a.status;
@@ -611,7 +597,19 @@ export async function cancelAuthorizationAttempt({
       JSON.parse(await readSecret({ tx: db, id: a.payloadId, context: `attempt:${id}:oauth` })),
     );
     try {
-      if (value.credentials) await revokeGoogleAuthorization(value.credentials.refreshToken);
+      if (value.credentials) {
+        const remote = await getConnectorProvider(a.connector.providerType).disconnectGrant({
+          config: a.connector.providerConfig,
+          secrets: readConnectorSecrets(a.connector),
+          credentials: value.credentials,
+        });
+        if (remote.status !== "revoked")
+          throw new ConnectorError(
+            "revocation_unconfirmed",
+            "Provider revocation is unconfirmed.",
+            502,
+          );
+      }
     } catch (error) {
       await writeConnectorAuditLog({
         tx: db,
@@ -640,11 +638,19 @@ export async function cancelAuthorizationAttempt({
     });
   });
 }
-/** Decrypts and validates the stored Google credentials for one connection lifecycle operation. */
-async function readStoredCredentials({ tx, connection }: { tx: Tx; connection: Connection }) {
+/** Decrypts only owner-authorized state and delegates credential validation to its provider. */
+async function readStoredCredentials({
+  tx,
+  connection,
+  connector,
+}: {
+  tx: Tx;
+  connection: Connection;
+  connector: Connector;
+}) {
   if (!connection.credentialId)
     throw new ConnectorError("reconnect_required", "Reconnect this connection.", 409);
-  return credentialsSchema.parse(
+  return getConnectorProvider(connector.providerType).parseCredentials(
     JSON.parse(
       await readSecret({
         tx,
@@ -685,9 +691,17 @@ export async function accessCredentials({
         "Connection is not ready. Retry after an in-progress refresh or reconnect.",
         409,
       );
-    const credentials = await readStoredCredentials({ tx, connection: row });
-    if (credentials.expiresAt > Date.now() + 60_000)
-      return { row, credentials, refresh: false as const };
+    const provider = getConnectorProvider(row.connector.providerType);
+    provider.validateSetupInput({
+      config: row.connector.providerConfig,
+      value: row.providerSelection,
+    });
+    const credentials = await readStoredCredentials({
+      tx,
+      connection: row,
+      connector: row.connector,
+    });
+    if (!provider.needsRefresh(credentials)) return { row, credentials, refresh: false as const };
     const updated = await tx.connection.update({
       where: { id: row.id, version: row.version, status: "READY" },
       data: { status: "REFRESHING", refreshStartedAt: new Date(), version: { increment: 1 } },
@@ -696,7 +710,7 @@ export async function accessCredentials({
       row: { ...updated, connector: row.connector },
       credentials,
       refresh: true as const,
-      client: readGoogleClient(row.connector),
+      secrets: readConnectorSecrets(row.connector),
     };
   });
   if (!claim)
@@ -707,10 +721,23 @@ export async function accessCredentials({
     );
   if (!claim.refresh) return claim;
   try {
-    const credentials = await refreshGoogleCredentials({
-      client: claim.client,
-      previous: claim.credentials,
-    });
+    const provider = getConnectorProvider(claim.row.connector.providerType);
+    let credentials: object;
+    let grant: ProviderGrant | undefined;
+    try {
+      const result = await provider.refreshCredentials({
+        config: claim.row.connector.providerConfig,
+        secrets: claim.secrets,
+        selection: claim.row.providerSelection,
+        credentials: claim.credentials,
+        previousGrant: provider.parseGrant(claim.row.providerGrant),
+      });
+      credentials = result.credentials;
+      grant = result.grant;
+    } catch (error) {
+      if (!(error instanceof RejectedProviderCredentials)) throw error;
+      credentials = error.credentials;
+    }
     const refreshed = await runConnectorTransaction(async (tx) => {
       const row = await tx.connection.findUniqueOrThrow({
         where: { id: claim.row.id },
@@ -729,17 +756,13 @@ export async function accessCredentials({
         value: JSON.stringify(credentials),
         id: row.credentialId,
       });
-      const usable = !shouldReconnectAfterRefresh({
-        config: row.connector,
-        selected: row.selectedScopes,
-        previous: row.grantedScopes,
-        next: credentials.grantedScopes,
-      });
+      // Never perform provider I/O in this transaction; execution checks freshness before dispatch.
+      const usable = Boolean(grant) && row.connector.version === claim.row.connector.version;
       await tx.connection.update({
         where: { id: row.id, version: row.version },
         data: {
           status: pending ? "REVOCATION_PENDING" : usable ? "READY" : "RECONNECT_REQUIRED",
-          grantedScopes: credentials.grantedScopes,
+          ...(usable && grant ? { providerGrant: providerJson(grant) } : {}),
           refreshStartedAt: null,
           version: { increment: 1 },
         },
@@ -762,8 +785,8 @@ export async function accessCredentials({
       id: claim.row.id,
       version: claim.row.version,
       actor,
-      authorizationLost: error instanceof GoogleTokenError && error.authorizationLost,
-      retryable: error instanceof GoogleTokenError && error.retryable,
+      authorizationLost: error instanceof ProviderTokenError && error.authorizationLost,
+      retryable: error instanceof ProviderTokenError && error.retryable,
     });
     throw new ConnectorError(
       "refresh_failed",
@@ -810,8 +833,8 @@ async function recordRefreshFailure({
   });
 }
 /**
- * Blocks a connection before provider I/O, revokes every retained Google grant, and removes all
- * local connection state. Revocation is best-effort, while audit records preserve whether Google
+ * Blocks a connection before provider I/O, revokes every retained provider grant, and removes all
+ * local connection state. Revocation is best-effort, while audit records preserve whether the provider
  * confirmed it.
  */
 async function disconnectAndDelete({
@@ -825,7 +848,10 @@ async function disconnectAndDelete({
 }) {
   const claim = await runConnectorTransaction(async (tx) => {
     const row = administrator
-      ? await tx.connection.findUniqueOrThrow({ where: { id: selector } })
+      ? await tx.connection.findUniqueOrThrow({
+          where: { id: selector },
+          include: { connector: true },
+        })
       : await findOwnedConnection({ tx, selector, actor });
     const attempts = await tx.connectionAuthorization.findMany({
       where: { connectionId: row.id },
@@ -836,7 +862,7 @@ async function disconnectAndDelete({
         status: "REVOCATION_PENDING",
         version: { increment: 1 },
         revocationError: administrator
-          ? "Administrative disconnect in progress; Google revocation unconfirmed."
+          ? "Administrative disconnect in progress; provider revocation unconfirmed."
           : "Provider revocation unconfirmed; explicit retry may be required.",
       },
     });
@@ -880,14 +906,21 @@ async function disconnectAndDelete({
     throw new ConnectorError("in_progress", `Connection blocked. ${message}`, 409);
   }
 
-  const tokens = new Set<string>();
+  const credentialsToRevoke: object[] = [];
+  const provider = getConnectorProvider(claim.row.connector.providerType);
   let revocationConfirmed =
     claim.row.credentialId !== null ||
     (claim.row.status === "DISCONNECTED" && !claim.row.revocationError);
   if (claim.row.refreshStartedAt) revocationConfirmed = false;
   if (claim.row.credentialId) {
     try {
-      tokens.add((await readStoredCredentials({ tx: db, connection: claim.row })).refreshToken);
+      credentialsToRevoke.push(
+        await readStoredCredentials({
+          tx: db,
+          connection: claim.row,
+          connector: claim.row.connector,
+        }),
+      );
     } catch {
       revocationConfirmed = false;
     }
@@ -908,22 +941,28 @@ async function disconnectAndDelete({
           }),
         ),
       );
-      if (payload.credentials) tokens.add(payload.credentials.refreshToken);
+      if (payload.credentials)
+        credentialsToRevoke.push(provider.parseCredentials(payload.credentials));
       else if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
         revocationConfirmed = false;
     } catch {
       revocationConfirmed = false;
     }
   }
-  for (const token of tokens) {
+  for (const credentials of credentialsToRevoke) {
     try {
-      await revokeGoogleAuthorization(token);
+      const remote = await provider.disconnectGrant({
+        config: claim.row.connector.providerConfig,
+        secrets: readConnectorSecrets(claim.row.connector),
+        credentials,
+      });
+      if (remote.status !== "revoked") revocationConfirmed = false;
     } catch {
       revocationConfirmed = false;
     }
   }
   await runConnectorTransaction(async (tx) => {
-    // A refresh or concurrent owner operation may have changed the tokens while we contacted Google.
+    // A refresh or concurrent owner operation may have changed the tokens while we contacted the provider.
     await tx.connection.findUniqueOrThrow({
       where: {
         id: claim.row.id,
@@ -968,7 +1007,7 @@ async function disconnectAndDelete({
       ? {}
       : {
           message:
-            "Connection removed from Weldall, but Google revocation was unconfirmed. Remove access in Google account settings.",
+            "Connection removed from Weldall, but provider revocation was unconfirmed. Remove access in provider account settings.",
         }),
   };
 }
@@ -995,7 +1034,7 @@ export async function disconnectConnection({
     : { status: "REVOCATION_PENDING", message: result.message };
 }
 
-/** Admin Disconnect permanently removes a connection after best-effort Google revocation. */
+/** Admin Disconnect permanently removes a connection after best-effort provider revocation. */
 export async function disconnectAndDeleteConnection({
   actor,
   id,

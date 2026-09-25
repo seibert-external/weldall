@@ -3,8 +3,8 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@astryxdesign/core/Button";
 import { Banner } from "@astryxdesign/core/Banner";
-import type { getAuthorizationAttempt } from "@/server/connectors/connections";
-import type { ScopeDescriptor } from "@/server/connectors/scopes";
+import type { getAuthorizationAttempt } from "@/server/connectors/core/connections";
+import type { ScopeDescriptor } from "@/server/connectors/providers/google/setup";
 
 /** Shared rendering knows no provider scope IDs; descriptions and grouping come from the connector. */
 /** Lets an owner choose optional OAuth scopes within the administrator-approved connector policy. */
@@ -66,7 +66,7 @@ export function SetupForm({ id }: { id: string }) {
       const response = await fetch(`/api/connectors/setup/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-weldall-csrf": "1" },
-        body: JSON.stringify({ selectedScopes: selected ?? query.data?.selectedScopes }),
+        body: JSON.stringify({ selection: { scopes: selected ?? query.data?.selection?.scopes } }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error_description);
@@ -100,23 +100,14 @@ export function SetupForm({ id }: { id: string }) {
       <p>Choose what this connection may access. Select at least one API permission.</p>
       <ScopeChoices
         scopes={attempt.scopes}
-        selected={selected ?? attempt.selectedScopes}
+        selected={selected ?? attempt.selection?.scopes ?? []}
         onChange={setSelected}
       />
       <p>
-        Requested capabilities:{" "}
-        {[
-          ...new Set(
-            attempt.scopes
-              .filter((s) => !s.required && (selected ?? attempt.selectedScopes).includes(s.id))
-              .flatMap((s) => s.capabilities),
-          ),
-        ].join(", ") || "None — choose at least one."}
-      </p>
-      <p>
-        Broader permissions include the capabilities described above even if narrower boxes are
-        unticked. Google may grant fewer permissions. Reconnect changes take effect only after
-        successful authorization; unchecking a box does not revoke Google's underlying grant.
+        Broad scopes permit every operation Google authorizes with them. Google must grant exactly
+        the requested scopes; reduced or expanded grants are rejected. Reconnect changes take effect
+        only after successful authorization; unchecking a box does not revoke Google's underlying
+        grant.
       </p>
       {submit.error && (
         <Banner status="error" title="Cannot continue" description={submit.error.message} />

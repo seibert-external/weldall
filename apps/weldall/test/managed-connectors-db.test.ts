@@ -12,12 +12,12 @@ import {
   getIacState,
 } from "../src/server/iac/service";
 import { digest } from "../src/server/iac/contracts";
-import { executeConnectionRequest } from "../src/server/connectors/execution";
+import { executeConnectionRequest } from "../src/server/connectors/core/execution";
 import {
   saveConnectorConfiguration,
   runConnectorTransaction as transaction,
-  saveConnectorClientSecret,
-  readConnectorClientSecret,
+  saveConnectorSecrets,
+  readConnectorSecrets,
   listManagedConnectorConfiguration as listConfiguration,
 } from "../src/server/connectors/configuration";
 import { decrypt, saveSecret } from "../src/server/connectors/encryption";
@@ -32,19 +32,20 @@ import {
   findOwnedConnection,
   startConnection,
   submitScopeSelection,
-} from "../src/server/connectors/connections";
+} from "../src/server/connectors/core/connections";
 import {
   completeGoogleAuthorization as completeGoogle,
   refreshGoogleCredentials as refreshGoogle,
   revokeGoogleAuthorization as revokeGoogle,
-} from "../src/server/connectors/google";
-import { requiredScopes } from "../src/server/connectors/scopes";
+} from "../src/server/connectors/providers/google/oauth";
+import { googleProvider } from "../src/server/connectors/providers/google";
+import { requiredScopes } from "../src/server/connectors/providers/google/setup";
 import { createPostgresReplayStore } from "../src/server/oauth/replay";
 import { parseDesiredState } from "../src/server/iac/contracts";
 import { createPlan, loadPlanningState } from "../src/server/iac/planner";
 
-vi.mock("../src/server/connectors/google", async (original) => ({
-  ...(await original<typeof import("../src/server/connectors/google")>()),
+vi.mock("../src/server/connectors/providers/google/oauth", async (original) => ({
+  ...(await original<typeof import("../src/server/connectors/providers/google/oauth")>()),
   completeGoogleAuthorization: vi.fn(),
   refreshGoogleCredentials: vi.fn(),
   revokeGoogleAuthorization: vi.fn(),
@@ -69,10 +70,11 @@ const config = (key: string) => ({
   type: "google" as const,
   enabled: false,
   envelopeProvider: "LOCAL_ENV" as const,
-  clientId: "test.apps.googleusercontent.com",
-  enabledApis: ["gmail", "calendar"],
-  allowedScopes: [read, calendar].sort(),
-  defaultScopes: [calendar],
+  provider: {
+    clientId: "test.apps.googleusercontent.com",
+    allowedScopes: [read, calendar].sort(),
+    defaultScopes: [calendar],
+  },
 });
 const credentials = () => ({
   accessToken: "never-public-access",
@@ -93,9 +95,9 @@ async function fixture() {
       actor,
     }),
   );
-  await saveConnectorClientSecret({
+  await saveConnectorSecrets({
     id: connector.id,
-    secret: "never-public-client-secret",
+    secrets: { clientSecret: "never-public-client-secret" },
     expectedVersion: connector.version,
     actor,
   });
@@ -128,7 +130,11 @@ async function authorize({
       ...(reconnect ? { reconnect } : {}),
     },
   });
-  const { url } = await submitScopeSelection({ actor, id: attempt.id, selected });
+  const { url } = await submitScopeSelection({
+    actor,
+    id: attempt.id,
+    selection: { scopes: selected },
+  });
   return { attempt, state: new URL(url).searchParams.get("state")! };
 }
 /** Creates a ready connection fixture with encrypted provider credentials. */
@@ -192,11 +198,15 @@ describe.skipIf(!approvedTarget)(
     it("stores LOCAL_ENV and keeps client secrets in fixed application encryption", async () => {
       const f = await fixture();
       expect(f.connector.envelopeProvider).toBe("LOCAL_ENV");
-      expect(readConnectorClientSecret(f.connector)).toBe("never-public-client-secret");
+      expect(readConnectorSecrets(f.connector)).toEqual({
+        clientSecret: "never-public-client-secret",
+      });
       const original = process.env.WELDALL_CONNECTOR_KEK!;
       try {
         delete process.env.WELDALL_CONNECTOR_KEK;
-        expect(readConnectorClientSecret(f.connector)).toBe("never-public-client-secret");
+        expect(readConnectorSecrets(f.connector)).toEqual({
+          clientSecret: "never-public-client-secret",
+        });
       } finally {
         process.env.WELDALL_CONNECTOR_KEK = original;
       }
@@ -224,11 +234,11 @@ describe.skipIf(!approvedTarget)(
           id: undefined,
           expectedVersion: null,
           actor,
-          clientSecret: "new-client-secret",
+          providerSecrets: { clientSecret: "new-client-secret" },
         }),
       );
       expect(connector.enabled).toBe(true);
-      expect(readConnectorClientSecret(connector)).toBe("new-client-secret");
+      expect(readConnectorSecrets(connector)).toEqual({ clientSecret: "new-client-secret" });
       const publicRow = (await listConfiguration()).connectors.find(
         (row) => row.id === connector.id,
       );
@@ -249,7 +259,7 @@ describe.skipIf(!approvedTarget)(
           actor,
         }),
       );
-      expect(renamed.encryptedClientSecret).toBe(f.connector.encryptedClientSecret);
+      expect(renamed.encryptedProviderSecrets).toBe(f.connector.encryptedProviderSecrets);
       const replaced = await transaction((tx) =>
         saveConnectorConfiguration({
           tx,
@@ -257,10 +267,10 @@ describe.skipIf(!approvedTarget)(
           id: renamed.id,
           expectedVersion: renamed.version,
           actor,
-          clientSecret: "replacement-secret",
+          providerSecrets: { clientSecret: "replacement-secret" },
         }),
       );
-      expect(readConnectorClientSecret(replaced)).toBe("replacement-secret");
+      expect(readConnectorSecrets(replaced)).toEqual({ clientSecret: "replacement-secret" });
       expect(replaced.version).toBe(renamed.version + 1);
       await expect(
         transaction((tx) =>
@@ -270,15 +280,13 @@ describe.skipIf(!approvedTarget)(
             id: renamed.id,
             expectedVersion: renamed.version,
             actor,
-            clientSecret: "stale-secret",
+            providerSecrets: { clientSecret: "stale-secret" },
           }),
         ),
       ).rejects.toThrow("Configuration changed");
       expect(
-        readConnectorClientSecret(
-          await db.connector.findUniqueOrThrow({ where: { id: renamed.id } }),
-        ),
-      ).toBe("replacement-secret");
+        readConnectorSecrets(await db.connector.findUniqueOrThrow({ where: { id: renamed.id } })),
+      ).toEqual({ clientSecret: "replacement-secret" });
     });
     it("can save a replacement client ID and secret together without disabling an unused connector", async () => {
       const f = await fixture();
@@ -287,18 +295,23 @@ describe.skipIf(!approvedTarget)(
           tx,
           value: {
             ...config(f.key),
-            clientId: "replacement.apps.googleusercontent.com",
+            provider: {
+              ...config(f.key).provider,
+              clientId: "replacement.apps.googleusercontent.com",
+            },
             enabled: true,
           },
           id: f.connector.id,
           expectedVersion: f.connector.version,
           actor,
-          clientSecret: "replacement-client-secret",
+          providerSecrets: { clientSecret: "replacement-client-secret" },
         }),
       );
       expect(changed.enabled).toBe(true);
-      expect(changed.clientId).toBe("replacement.apps.googleusercontent.com");
-      expect(readConnectorClientSecret(changed)).toBe("replacement-client-secret");
+      expect(changed.providerConfig).toMatchObject({
+        clientId: "replacement.apps.googleusercontent.com",
+      });
+      expect(readConnectorSecrets(changed)).toEqual({ clientSecret: "replacement-client-secret" });
     });
     it("does not partially save configuration when the submitted secret is invalid or encryption fails", async () => {
       const f = await fixture();
@@ -310,10 +323,10 @@ describe.skipIf(!approvedTarget)(
             id: f.connector.id,
             expectedVersion: f.connector.version,
             actor,
-            clientSecret: "   ",
+            providerSecrets: { clientSecret: "   " },
           }),
         ),
-      ).rejects.toThrow("A client secret is required");
+      ).rejects.toThrow();
       expect(await db.connector.findUniqueOrThrow({ where: { id: f.connector.id } })).toEqual(
         f.connector,
       );
@@ -329,7 +342,7 @@ describe.skipIf(!approvedTarget)(
               id: undefined,
               expectedVersion: null,
               actor,
-              clientSecret: "never-saved-secret",
+              providerSecrets: { clientSecret: "never-saved-secret" },
             }),
           ),
         ).rejects.toThrow("Application encryption is unavailable");
@@ -347,7 +360,10 @@ describe.skipIf(!approvedTarget)(
             value: {
               ...config(f.key),
               enabled: true,
-              clientId: "replacement.apps.googleusercontent.com",
+              provider: {
+                ...config(f.key).provider,
+                clientId: "replacement.apps.googleusercontent.com",
+              },
             },
             id: f.connector.id,
             expectedVersion: f.connector.version,
@@ -358,13 +374,19 @@ describe.skipIf(!approvedTarget)(
       const changed = await transaction((tx) =>
         saveConnectorConfiguration({
           tx,
-          value: { ...config(f.key), clientId: "replacement.apps.googleusercontent.com" },
+          value: {
+            ...config(f.key),
+            provider: {
+              ...config(f.key).provider,
+              clientId: "replacement.apps.googleusercontent.com",
+            },
+          },
           id: f.connector.id,
           expectedVersion: f.connector.version,
           actor,
         }),
       );
-      expect(changed.encryptedClientSecret).toBeNull();
+      expect(changed.encryptedProviderSecrets).toBeNull();
     });
     it("checks ownership before secret decryption", async () => {
       const f = await ready();
@@ -392,8 +414,8 @@ describe.skipIf(!approvedTarget)(
           name: `${f.key}-recent-${i}`,
           accountId: `account-${i}`,
           accountName: `account-${i}@example.com`,
-          selectedScopes: [],
-          grantedScopes: [],
+          providerSelection: { scopes: selected },
+          providerGrant: { scopes: selected },
           status: "DISCONNECTED" as const,
         })),
       });
@@ -437,16 +459,47 @@ describe.skipIf(!approvedTarget)(
       await transaction((tx) =>
         saveConnectorConfiguration({
           tx,
-          value: { ...config(f.key), enabled: true, allowedScopes: [read], defaultScopes: [] },
+          value: {
+            ...config(f.key),
+            enabled: true,
+            provider: { ...config(f.key).provider, allowedScopes: [read], defaultScopes: [] },
+          },
           id: f.connector.id,
           expectedVersion: f.connector.version,
           actor,
         }),
       );
-      await expect(submitScopeSelection({ actor, id: a.id, selected })).rejects.toThrow(
-        "configuration changed",
-      );
+      await expect(
+        submitScopeSelection({ actor, id: a.id, selection: { scopes: selected } }),
+      ).rejects.toThrow("configuration changed");
     });
+    it.each(["reduced", "expanded", "alias"])(
+      "retains %s callback credentials only for revocation",
+      async (mode) => {
+        const f = await fixture();
+        const { state, attempt } = await authorize({ key: f.key, name: f.key });
+        const scopes =
+          mode === "reduced"
+            ? requiredScopes
+            : mode === "expanded"
+              ? [...selected, read]
+              : selected.map((scope) =>
+                  scope === "https://www.googleapis.com/auth/userinfo.email" ? "email" : scope,
+                );
+        vi.mocked(completeGoogle).mockResolvedValueOnce({
+          accountId: "account",
+          accountName: "account@example.com",
+          credentials: { ...credentials(), grantedScopes: scopes },
+        });
+        expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("failed");
+        expect((await getAuthorizationAttempt({ actor, id: attempt.id })).status).toBe(
+          "NEEDS_REVOCATION",
+        );
+        expect(
+          await db.connection.findFirst({ where: { connectorId: f.connector.id } }),
+        ).toBeNull();
+      },
+    );
     it("keeps stable identity on reconnect and rejects replay or account switching", async () => {
       const f = await ready();
       const next = await authorize({ key: f.key, name: f.key, reconnect: f.id });
@@ -507,7 +560,7 @@ describe.skipIf(!approvedTarget)(
       expect(await disconnectConnection({ actor, selector: f.id })).toMatchObject({
         status: "DISCONNECTED",
         revocationConfirmed: false,
-        message: expect.stringContaining("Google account settings"),
+        message: expect.stringContaining("provider account settings"),
       });
       expect(revokeGoogle).toHaveBeenCalledWith("rotated");
       await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not found");
@@ -780,7 +833,7 @@ describe.skipIf(!approvedTarget)(
       );
       expect((await planned()).actions[0]?.action).toBe("noop");
     });
-    it("executes only allowed operations centrally and filters provider credentials", async () => {
+    it("checks freshness on each generic dispatch and audits fingerprints without URLs", async () => {
       const f = await ready();
       const fetcher = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ items: [] }), {
@@ -792,11 +845,15 @@ describe.skipIf(!approvedTarget)(
         }),
       );
       vi.stubGlobal("fetch", fetcher);
-      const url = `https://weldall.example.com/connectors/${f.key}/calendar/v3/calendars/primary/events`;
+      const fresh = vi.spyOn(googleProvider, "ensureGrantCurrent");
+      const url = `https://weldall.example.com/connectors/${f.key}`;
+      const target =
+        "https://www.googleapis.com/calendar/future-v99/private@example.com/events?arbitrary=private-query";
       const response = await executeConnectionRequest({
         request: new Request(url, {
           headers: {
             "x-weldall-connection": f.id,
+            "x-weldall-upstream-url": target,
             authorization: "DPoP weldall",
             dpop: "proof",
             cookie: "private",
@@ -804,7 +861,6 @@ describe.skipIf(!approvedTarget)(
         }),
         actor,
         connectorKey: f.key,
-        path: "/calendar/v3/calendars/primary/events",
       });
       expect(await response.json()).toEqual({ items: [] });
       expect(response.headers.get("set-cookie")).toBeNull();
@@ -814,17 +870,76 @@ describe.skipIf(!approvedTarget)(
         "Bearer never-public-access",
       );
       expect(fetcher.mock.calls[0]?.[1].headers.get("dpop")).toBeNull();
+      expect(fresh).toHaveBeenCalledTimes(1);
+      const audit = await db.auditEvent.findMany({
+        where: { subjectId: f.id, eventType: "connector.request" },
+      });
+      expect(audit[0]?.metadata).toMatchObject({
+        provider: "google",
+        method: "GET",
+        requestFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        status: 200,
+      });
+      expect(JSON.stringify(audit)).not.toMatch(
+        /private@example|private-query|future-v99|never-public/,
+      );
       await expect(
         executeConnectionRequest({
           request: new Request(url, {
-            method: "POST",
-            headers: { "x-weldall-connection": f.id },
+            headers: { "x-weldall-connection": f.id, "x-weldall-upstream-url": target },
+          }),
+          actor,
+          connectorKey: "different-connector",
+        }),
+      ).rejects.toThrow("not available");
+      await expect(
+        executeConnectionRequest({
+          request: new Request(url, {
+            headers: { "x-weldall-connection": f.id, "x-weldall-upstream-url": target },
+          }),
+          actor: { ...actor, id: "different-owner" },
+          connectorKey: f.key,
+        }),
+      ).rejects.toThrow("not found");
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      fresh.mockRestore();
+    });
+    it("fails closed on unknown providers, unsafe origins, rate limits and authentication failures", async () => {
+      const f = await ready();
+      const fetcher = vi.fn().mockResolvedValue(new Response("unauthorized", { status: 401 }));
+      vi.stubGlobal("fetch", fetcher);
+      const execute = (target = "https://gmail.googleapis.com/arbitrary") =>
+        executeConnectionRequest({
+          request: new Request(`https://weldall.example.com/connectors/${f.key}`, {
+            headers: { "x-weldall-connection": f.id, "x-weldall-upstream-url": target },
           }),
           actor,
           connectorKey: f.key,
-          path: "/gmail/v1/users/me/messages/send",
-        }),
-      ).rejects.toThrow("not available");
+        });
+      await expect(execute("https://evil.example/private")).rejects.toMatchObject({
+        code: "invalid_target",
+      });
+      await db.connector.update({
+        where: { id: f.connector.id },
+        data: { providerType: "unknown" },
+      });
+      await expect(execute()).rejects.toMatchObject({ code: "unsupported_provider" });
+      await db.connector.update({
+        where: { id: f.connector.id },
+        data: { providerType: "google" },
+      });
+      await db.connection.update({
+        where: { id: f.id },
+        data: { rateWindow: new Date(), rateCount: 60 },
+      });
+      await expect(execute()).rejects.toMatchObject({ code: "rate_limit" });
+      expect(fetcher).not.toHaveBeenCalled();
+      await db.connection.update({ where: { id: f.id }, data: { rateCount: 0 } });
+      expect((await execute()).status).toBe(401);
+      expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe(
+        "RECONNECT_REQUIRED",
+      );
+      await expect(execute()).rejects.toThrow("not available");
       expect(fetcher).toHaveBeenCalledTimes(1);
     });
     it("applies, detects UI drift, preserves secrets, imports, moves and unmanages introduced primitives", async () => {
@@ -883,9 +998,9 @@ describe.skipIf(!approvedTarget)(
       const result = await applyIac(request, iacActor);
       expect(await applyIac(request, iacActor)).toEqual(result);
       let connector = await db.connector.findUniqueOrThrow({ where: { key: name } });
-      await saveConnectorClientSecret({
+      await saveConnectorSecrets({
         id: connector.id,
-        secret: "iac-secret",
+        secrets: { clientSecret: "iac-secret" },
         expectedVersion: connector.version,
         actor,
       });
@@ -915,7 +1030,7 @@ describe.skipIf(!approvedTarget)(
       );
       const restored = await db.connector.findUniqueOrThrow({ where: { id: connector.id } });
       expect(restored.name).toBe("Google");
-      expect(restored.encryptedClientSecret).toBe(connector.encryptedClientSecret);
+      expect(restored.encryptedProviderSecrets).toBe(connector.encryptedProviderSecrets);
       const manual = await fixture();
       const imported = await importIac(
         {

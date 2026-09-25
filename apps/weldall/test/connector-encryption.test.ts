@@ -26,10 +26,11 @@ const config = {
   type: "google",
   enabled: false,
   envelopeProvider: "LOCAL_ENV",
-  clientId: "client",
-  enabledApis: ["gmail"],
-  allowedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
-  defaultScopes: [],
+  provider: {
+    clientId: "client",
+    allowedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+    defaultScopes: [],
+  },
 };
 const manifest = (value: unknown) => ({
   apiVersion: "weldall.dev/v1",
@@ -225,13 +226,13 @@ describe("provider contracts", () => {
 
 describe("fixed application encryption", () => {
   it("keeps OAuth client secrets independent of connector KEKs and bound to purpose and ID", () => {
-    const value = seal("connector-client-secret", "connector", "client-secret");
+    const value = seal("connector-provider-secrets", "connector", "client-secret");
     vi.stubEnv("WELDALL_CONNECTOR_KEK", undefined);
-    expect(unseal("connector-client-secret", "connector", value)).toBe("client-secret");
+    expect(unseal("connector-provider-secrets", "connector", value)).toBe("client-secret");
     expect(() => unseal("provider", "connector", value)).toThrow();
-    expect(() => unseal("connector-client-secret", "other", value)).toThrow();
+    expect(() => unseal("connector-provider-secrets", "other", value)).toThrow();
     vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 10).toString("base64"));
-    expect(() => unseal("connector-client-secret", "connector", value)).toThrow();
+    expect(() => unseal("connector-provider-secrets", "connector", value)).toThrow();
   });
   it.each([1, 7])(
     "reads existing main group-provider ciphertext with stored AAD marker %i",

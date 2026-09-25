@@ -3,7 +3,7 @@ import {
   createConnectorErrorResponse,
   createJsonResponse,
 } from "@/server/connectors/http";
-import { listConnectors } from "@/server/connectors/connections";
+import { listConnectors } from "@/server/connectors/core/connections";
 
 /** Lists enabled connector catalogs and scope choices for the authenticated CLI caller. */
 export async function GET(request: Request) {

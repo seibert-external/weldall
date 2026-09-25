@@ -8,7 +8,7 @@ import {
   buildConnectionMetadata,
   disconnectConnection,
   findOwnedConnection,
-} from "@/server/connectors/connections";
+} from "@/server/connectors/core/connections";
 
 type Context = { params: Promise<{ selector: string }> };
 

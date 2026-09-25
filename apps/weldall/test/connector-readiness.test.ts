@@ -23,7 +23,17 @@ async function fixture() {
           {
             id: "connector",
             envelopeProvider: "LOCAL_ENV",
-            encryptedClientSecret: seal("connector-client-secret", "connector", "client-secret"),
+            providerType: "google",
+            providerConfig: {
+              clientId: "client",
+              allowedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+              defaultScopes: [],
+            },
+            encryptedProviderSecrets: seal(
+              "connector-provider-secrets",
+              "connector",
+              JSON.stringify({ clientSecret: "client-secret" }),
+            ),
           },
         ])
         .mockResolvedValue([]),
@@ -64,7 +74,7 @@ describe("connector deployment readiness", () => {
         findMany: vi
           .fn()
           .mockResolvedValue([
-            { id: "id", envelopeProvider: "LOCAL_ENV", encryptedClientSecret: null },
+            { id: "id", envelopeProvider: "LOCAL_ENV", encryptedProviderSecrets: null },
           ]),
       },
     };

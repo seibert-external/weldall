@@ -8,7 +8,7 @@ import {
   type ConnectorActor,
   type ConnectorConfig,
 } from "./contracts";
-import { validateConnectorScopeConfig } from "./scopes";
+import { getConnectorProvider } from "./registry";
 import { encrypt } from "./encryption";
 import { writeConnectorAuditLog } from "./audit";
 
@@ -38,22 +38,24 @@ export function buildConnectorState(row: Connector): ConnectorConfig {
   return connectorConfig.parse({
     key: row.key,
     name: row.name,
-    type: row.type,
+    type: row.providerType,
     enabled: row.enabled,
     envelopeProvider: row.envelopeProvider,
-    clientId: row.clientId,
-    enabledApis: row.enabledApis,
-    allowedScopes: row.allowedScopes,
-    defaultScopes: row.defaultScopes,
+    provider: getConnectorProvider(row.providerType).parseConfiguration(row.providerConfig),
   });
 }
 
 /** Reads fixed application encryption, never the connector envelope provider. */
-export function readConnectorClientSecret(connector: Connector): string {
-  if (!connector.encryptedClientSecret)
+export function readConnectorSecrets(connector: Connector) {
+  const provider = getConnectorProvider(connector.providerType);
+  if (!connector.encryptedProviderSecrets)
     throw new ConnectorError("unavailable", "Connector is not configured.", 503);
   try {
-    return unseal("connector-client-secret", connector.id, connector.encryptedClientSecret);
+    return provider.parseSecrets(
+      JSON.parse(
+        unseal("connector-provider-secrets", connector.id, connector.encryptedProviderSecrets),
+      ),
+    );
   } catch {
     throw new ConnectorError(
       "credential_unavailable",
@@ -70,7 +72,7 @@ export async function saveConnectorConfiguration({
   id,
   expectedVersion,
   actor,
-  clientSecret,
+  providerSecrets,
 }: {
   tx: Tx;
   value: unknown;
@@ -78,10 +80,11 @@ export async function saveConnectorConfiguration({
   expectedVersion: number | null;
   actor: ConnectorActor;
   /** Write-only UI input, deliberately separate from the declarative configuration. */
-  clientSecret?: string;
+  providerSecrets?: unknown;
 }) {
   const config = connectorConfig.parse(value);
-  validateConnectorScopeConfig(config);
+  const provider = getConnectorProvider(config.type);
+  const providerConfig = provider.parseConfiguration(config.provider);
   const current = id ? await tx.connector.findUniqueOrThrow({ where: { id } }) : null;
   assertConfigurationVersion({ current, expected: expectedVersion });
   if (current && current.key !== config.key)
@@ -92,7 +95,13 @@ export async function saveConnectorConfiguration({
       "Connector envelope provider cannot change.",
       409,
     );
-  const clientIdChanged = Boolean(current && current.clientId !== config.clientId);
+  if (current && current.providerType !== config.type)
+    throw new ConnectorError("immutable_provider", "Connector provider type cannot change.", 409);
+  const clientIdChanged = Boolean(
+    current &&
+    provider.configurationIdentity(current.providerConfig) !==
+      provider.configurationIdentity(providerConfig),
+  );
   if (
     current &&
     clientIdChanged &&
@@ -104,7 +113,7 @@ export async function saveConnectorConfiguration({
       "Disconnect and delete connections and attempts before changing the OAuth client.",
       409,
     );
-  if (clientIdChanged && config.enabled && clientSecret === undefined)
+  if (clientIdChanged && config.enabled && providerSecrets === undefined)
     throw new ConnectorError(
       "missing_secret",
       "Provision the new OAuth client secret before enabling the connector.",
@@ -117,42 +126,42 @@ export async function saveConnectorConfiguration({
     context: "readiness",
   });
   const connectorId = current?.id ?? randomUUID();
-  const encryptedClientSecret =
-    clientSecret !== undefined
-      ? encryptClientSecret(connectorId, clientSecret)
+  const encryptedProviderSecrets =
+    providerSecrets !== undefined
+      ? encryptProviderSecrets({ id: connectorId, secrets: provider.parseSecrets(providerSecrets) })
       : clientIdChanged
         ? null
-        : (current?.encryptedClientSecret ?? null);
+        : (current?.encryptedProviderSecrets ?? null);
   if (config.enabled) {
-    if (!encryptedClientSecret)
+    if (!encryptedProviderSecrets)
       throw new ConnectorError(
         "missing_secret",
         "Provision the OAuth client secret before enabling the connector.",
         409,
       );
-    if (clientSecret === undefined && current) readConnectorClientSecret(current);
+    if (providerSecrets === undefined && current) readConnectorSecrets(current);
   }
   if (
     current &&
-    clientSecret === undefined &&
+    providerSecrets === undefined &&
     isDeepStrictEqual(buildConnectorState(current), config)
   )
     return current;
+  const { type, provider: _provider, ...coreConfig } = config;
+  const data = { ...coreConfig, providerType: type, providerConfig, encryptedProviderSecrets };
   const row = current
     ? await tx.connector.update({
         where: { id: current.id, version: expectedVersion! },
         data: {
-          ...config,
-          encryptedClientSecret,
+          ...data,
           version: { increment: 1 },
           updatedBy: actor.id,
         },
       })
     : await tx.connector.create({
         data: {
-          ...config,
+          ...data,
           id: connectorId,
-          encryptedClientSecret,
           createdBy: actor.id,
           updatedBy: actor.id,
         },
@@ -164,7 +173,7 @@ export async function saveConnectorConfiguration({
     subjectId: row.id,
     operation: "connector.saved",
   });
-  if (clientSecret !== undefined)
+  if (providerSecrets !== undefined)
     await writeConnectorAuditLog({
       tx,
       actor,
@@ -175,11 +184,9 @@ export async function saveConnectorConfiguration({
   return row;
 }
 
-function encryptClientSecret(id: string, secret: string): string {
-  if (!secret.trim() || secret.length > 10_000)
-    throw new ConnectorError("invalid_secret", "A client secret is required.");
+function encryptProviderSecrets({ id, secrets }: { id: string; secrets: object }): string {
   try {
-    return seal("connector-client-secret", id, secret);
+    return seal("connector-provider-secrets", id, JSON.stringify(secrets));
   } catch {
     throw new ConnectorError(
       "credential_unavailable",
@@ -190,26 +197,27 @@ function encryptClientSecret(id: string, secret: string): string {
 }
 
 /** Replaces only the fixed-encrypted OAuth client secret; provider credentials are separate. */
-export async function saveConnectorClientSecret({
+export async function saveConnectorSecrets({
   id,
-  secret,
+  secrets,
   expectedVersion,
   actor,
 }: {
   id: string;
-  secret: string;
+  secrets: unknown;
   expectedVersion: number;
   actor: ConnectorActor;
 }) {
-  if (!secret.trim() || secret.length > 10_000)
-    throw new ConnectorError("invalid_secret", "A client secret is required.");
   return runConnectorTransaction(async (tx) => {
     const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
     assertConfigurationVersion({ current: connector, expected: expectedVersion });
-    const encryptedClientSecret = encryptClientSecret(id, secret);
+    const encryptedProviderSecrets = encryptProviderSecrets({
+      id,
+      secrets: getConnectorProvider(connector.providerType).parseSecrets(secrets),
+    });
     await tx.connector.update({
       where: { id, version: expectedVersion },
-      data: { encryptedClientSecret, version: { increment: 1 }, updatedBy: actor.id },
+      data: { encryptedProviderSecrets, version: { increment: 1 }, updatedBy: actor.id },
     });
     await writeConnectorAuditLog({
       tx,
@@ -264,7 +272,7 @@ export async function listManagedConnectorConfiguration() {
       version: row.version,
       config: buildConnectorState(row),
       managed: Boolean(row.iacBinding),
-      secretConfigured: Boolean(row.encryptedClientSecret),
+      secretConfigured: Boolean(row.encryptedProviderSecrets),
     })),
   };
 }

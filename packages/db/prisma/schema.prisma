@@ -404,25 +404,22 @@ model EncryptedValue {
 }
 
 model Connector {
-  id                    String                    @id @default(cuid())
-  key                   String                    @unique
-  name                  String
-  type                  String                    @default("google")
-  enabled               Boolean                   @default(false)
-  enabledApis           String[]
-  allowedScopes         String[]
-  defaultScopes         String[]
-  clientId              String
-  envelopeProvider      EnvelopeProvider
-  encryptedClientSecret String?
-  version               Int                       @default(1)
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
-  createdBy             String
-  updatedBy             String
-  connections           Connection[]
-  attempts              ConnectionAuthorization[]
-  iacBinding            IacObjectBinding?
+  id                       String                    @id @default(cuid())
+  key                      String                    @unique
+  name                     String
+  providerType             String
+  enabled                  Boolean                   @default(false)
+  providerConfig           Json
+  envelopeProvider         EnvelopeProvider
+  encryptedProviderSecrets String?
+  version                  Int                       @default(1)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  createdBy                String
+  updatedBy                String
+  connections              Connection[]
+  attempts                 ConnectionAuthorization[]
+  iacBinding               IacObjectBinding?
 }
 
 enum ConnectionStatus {
@@ -434,29 +431,29 @@ enum ConnectionStatus {
 }
 
 model Connection {
-  id               String                    @id @default(cuid())
-  ownerId          String
-  connectorId      String
-  name             String
-  accountId        String
-  accountName      String
-  selectedScopes   String[]
-  grantedScopes    String[]
-  status           ConnectionStatus          @default(READY)
-  version          Int                       @default(1)
-  credentialId     String?                   @unique
-  refreshStartedAt DateTime?
-  revocationError  String?
-  lastUsedAt       DateTime?
-  requestCount     Int                       @default(0)
-  rateWindow       DateTime                  @default(now())
-  rateCount        Int                       @default(0)
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
-  owner            User                      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  connector        Connector                 @relation(fields: [connectorId], references: [id], onDelete: Restrict)
-  credential       EncryptedValue?           @relation(fields: [credentialId], references: [id], onDelete: Restrict)
-  attempts         ConnectionAuthorization[]
+  id                String                    @id @default(cuid())
+  ownerId           String
+  connectorId       String
+  name              String
+  accountId         String
+  accountName       String
+  providerSelection Json
+  providerGrant     Json
+  status            ConnectionStatus          @default(READY)
+  version           Int                       @default(1)
+  credentialId      String?                   @unique
+  refreshStartedAt  DateTime?
+  revocationError   String?
+  lastUsedAt        DateTime?
+  requestCount      Int                       @default(0)
+  rateWindow        DateTime                  @default(now())
+  rateCount         Int                       @default(0)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  owner             User                      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  connector         Connector                 @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  credential        EncryptedValue?           @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  attempts          ConnectionAuthorization[]
 
   @@unique([ownerId, name])
   @@index([connectorId, status])
@@ -471,7 +468,7 @@ model ConnectionAuthorization {
   connectorVersion  Int
   name              String
   status            String          @default("SETUP")
-  selectedScopes    String[]        @default([])
+  providerSelection Json
   stateHash         String?         @unique
   payloadId         String?         @unique
   expiresAt         DateTime

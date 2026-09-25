@@ -7,7 +7,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { scopeCatalog } from "@/server/connectors/scopes";
+import { scopeCatalog } from "@/server/connectors/providers/google/setup";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { PlanetLoader } from "../../_components/planet-loader";
@@ -171,18 +171,10 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           Effective access
         </h2>
         <Text color="secondary">
-          Currently usable capabilities after applying connector policy, selected permissions,
-          Google grants and connection health.
+          {connection.connectorEnabled && connection.status === "READY"
+            ? "Ready connections may call any operation Google authorizes with these exact scopes on reviewed Google API origins."
+            : "No access is currently available."}
         </Text>
-        <div className="flex flex-wrap gap-2">
-          {connection.capabilities.length ? (
-            connection.capabilities.map((capability) => (
-              <Badge key={capability} label={capability} variant="neutral" />
-            ))
-          ) : (
-            <Text color="secondary">No access is currently available.</Text>
-          )}
-        </div>
         <div className="grid gap-6 lg:grid-cols-2">
           <ScopeList title="Selected permissions" scopes={connection.selectedScopes} />
           <ScopeList title="Granted by Google" scopes={connection.grantedScopes} />

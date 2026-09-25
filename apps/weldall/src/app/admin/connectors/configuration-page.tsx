@@ -26,7 +26,7 @@ import {
 } from "@tanstack/react-table";
 import type { ConnectorConfig } from "@/server/connectors/contracts";
 import type { listManagedConnectorConfiguration } from "@/server/connectors/configuration";
-import { scopeCatalog } from "@/server/connectors/scopes";
+import { scopeCatalog } from "@/server/connectors/providers/google/setup";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
@@ -41,10 +41,6 @@ type Configuration = Awaited<ReturnType<typeof listManagedConnectorConfiguration
 type ConnectorRow = Configuration["connectors"][number];
 type ConnectorAction = { connector: ConnectorRow };
 const emptyConnectors: ConnectorRow[] = [];
-const apiOptions = [
-  { value: "gmail", label: "Gmail" },
-  { value: "calendar", label: "Google Calendar" },
-];
 
 /** Renders the connector-definition admin workspace backed by shared tRPC configuration data. */
 /** Coordinates connector administration, filtering, editing, and lifecycle mutations. */
@@ -101,23 +97,8 @@ export function ManagedConfiguration() {
         ),
       },
       {
-        id: "apis",
-        accessorFn: (row) => row.config.enabledApis.join(", "),
-        header: "APIs",
-        size: 210,
-        minSize: 150,
-        maxSize: 300,
-        cell: ({ row }) => (
-          <div className="flex flex-wrap gap-1">
-            {row.original.config.enabledApis.map((api) => (
-              <Badge key={api} label={api === "gmail" ? "Gmail" : "Calendar"} variant="info" />
-            ))}
-          </div>
-        ),
-      },
-      {
         id: "permissions",
-        accessorFn: (row) => row.config.allowedScopes.length,
+        accessorFn: (row) => row.config.provider.allowedScopes.length,
         header: "Permissions",
         size: 150,
         minSize: 120,
@@ -360,21 +341,24 @@ function ConnectorDialog({
     defaultValues: {
       key: config?.key ?? "",
       name: config?.name ?? "",
-      clientId: config?.clientId ?? "",
+      clientId: config?.provider.clientId ?? "",
       clientSecret: "",
       envelopeProvider: config?.envelopeProvider ?? ("LOCAL_ENV" as const),
-      enabledApis: config?.enabledApis ?? (["gmail", "calendar"] as ("gmail" | "calendar")[]),
-      allowedScopes: config?.allowedScopes ?? [],
-      defaultScopes: config?.defaultScopes ?? [],
+      allowedScopes: config?.provider.allowedScopes ?? [],
+      defaultScopes: config?.provider.defaultScopes ?? [],
       enabled: config?.enabled ?? false,
     },
     onSubmit: async ({ value }) => {
-      const { clientSecret, ...configuration } = value;
+      const { clientSecret, clientId, allowedScopes, defaultScopes, ...configuration } = value;
       await saveMutation.mutateAsync({
         ...(connector ? { id: connector.id } : {}),
         version: connector?.version ?? null,
-        config: { ...configuration, type: "google" } satisfies ConnectorConfig,
-        ...(clientSecret ? { clientSecret } : {}),
+        config: {
+          ...configuration,
+          type: "google",
+          provider: { clientId, allowedScopes, defaultScopes },
+        } satisfies ConnectorConfig,
+        ...(clientSecret ? { providerSecrets: { clientSecret } } : {}),
       });
       await onSaved();
     },
@@ -474,7 +458,7 @@ function ConnectorDialog({
                 <form.Subscribe selector={(state) => state.values.clientId}>
                   {(clientId) => {
                     const keepsExistingSecret = Boolean(
-                      connector?.secretConfigured && clientId === config?.clientId,
+                      connector?.secretConfigured && clientId === config?.provider.clientId,
                     );
                     const validateSecret = ({ value }: { value: string }) =>
                       value || !keepsExistingSecret
@@ -507,49 +491,10 @@ function ConnectorDialog({
                   }}
                 </form.Subscribe>
                 <EnvelopeProviderField existing={Boolean(connector)} />
-                <form.Field
-                  name="enabledApis"
-                  validators={{
-                    onChange: ({ value }) =>
-                      value.length ? undefined : "Enable at least one API.",
-                    onSubmit: ({ value }) =>
-                      value.length ? undefined : "Enable at least one API.",
-                  }}
-                >
-                  {(field) => (
-                    <MultiSelector
-                      label="Enabled APIs"
-                      onChange={(values) => {
-                        const enabledApis = values as ("gmail" | "calendar")[];
-                        field.handleChange(enabledApis);
-                        const allowed = form.state.values.allowedScopes.filter((id) =>
-                          isScopeForEnabledApi({ id, enabledApis }),
-                        );
-                        form.setFieldValue("allowedScopes", allowed);
-                        form.setFieldValue(
-                          "defaultScopes",
-                          form.state.values.defaultScopes.filter((id) => allowed.includes(id)),
-                        );
-                      }}
-                      options={apiOptions}
-                      {...getFieldStatusProps(field)}
-                      value={field.state.value}
-                      width="100%"
-                    />
-                  )}
-                </form.Field>
-                <form.Subscribe
-                  selector={(state) =>
-                    [state.values.enabledApis, state.values.allowedScopes] as const
-                  }
-                >
-                  {([enabledApis, allowedScopes]) => {
+                <form.Subscribe selector={(state) => state.values.allowedScopes}>
+                  {(allowedScopes) => {
                     const allowedScopeOptions = scopeCatalog
-                      .filter(
-                        (scope) =>
-                          !scope.required &&
-                          enabledApis.includes(scope.group.toLowerCase() as "gmail" | "calendar"),
-                      )
+                      .filter((scope) => !scope.required)
                       .map((scope) => ({
                         value: scope.id,
                         label: `${scope.group}: ${scope.label}`,
@@ -615,7 +560,9 @@ function ConnectorDialog({
                   {([clientSecret, clientId]) => {
                     const hasSecret =
                       Boolean(clientSecret.trim()) ||
-                      Boolean(connector?.secretConfigured && clientId === config?.clientId);
+                      Boolean(
+                        connector?.secretConfigured && clientId === config?.provider.clientId,
+                      );
                     return (
                       <form.Field name="enabled">
                         {(field) => (
@@ -678,17 +625,6 @@ function ConnectorDialog({
   );
 }
 
-/** Checks whether an OAuth scope belongs to one of the connector's enabled Google APIs. */
-function isScopeForEnabledApi({
-  id,
-  enabledApis,
-}: {
-  id: string;
-  enabledApis: ("gmail" | "calendar")[];
-}) {
-  const scope = scopeCatalog.find((candidate) => candidate.id === id);
-  return Boolean(scope && enabledApis.includes(scope.group.toLowerCase() as "gmail" | "calendar"));
-}
 /** Validates stable connector identifiers used by URLs, IaC, and CLI selectors. */
 function validateIdentity({ value, label }: { value: unknown; label: string }) {
   const key = String(value).trim();

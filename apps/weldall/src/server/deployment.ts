@@ -2,7 +2,8 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { db, ensureSystemScopes } from "@weldall/db";
 import { decryptProviderToken } from "./group-providers/credentials";
 import { WELDALL_RESOURCE } from "./oauth/constants";
-import { unseal } from "./auth/oidc-credentials";
+import { readConnectorSecrets } from "./connectors/configuration";
+import { getConnectorProvider } from "./connectors/registry";
 import { decrypt, encrypt } from "./connectors/encryption";
 
 const LOCAL_WELDALL_RESOURCE = "https://weldall.seibert.localdev/api";
@@ -102,7 +103,6 @@ export async function verifyConnectorEncryption(prisma: PrismaClient = db): Prom
       orderBy: { id: "asc" },
       take: 100,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      select: { id: true, envelopeProvider: true, encryptedClientSecret: true },
     });
     if (!connectors.length) break;
     for (const connector of connectors) {
@@ -111,8 +111,8 @@ export async function verifyConnectorEncryption(prisma: PrismaClient = db): Prom
         plaintext: "readiness",
         context: "readiness",
       });
-      if (connector.encryptedClientSecret)
-        unseal("connector-client-secret", connector.id, connector.encryptedClientSecret);
+      getConnectorProvider(connector.providerType).parseConfiguration(connector.providerConfig);
+      if (connector.encryptedProviderSecrets) readConnectorSecrets(connector);
     }
     cursor = connectors.at(-1)!.id;
   }

@@ -12,7 +12,6 @@ export interface ConnectorScopeSummary {
   description: string;
   group: string;
   required: boolean;
-  capabilities: string[];
 }
 
 export interface ConnectorSummary {
@@ -21,7 +20,6 @@ export interface ConnectorSummary {
   type: string;
   scopes: ConnectorScopeSummary[];
   defaultScopes: string[];
-  requestPrefix: string;
 }
 
 export interface ConnectionSummary {
@@ -40,7 +38,6 @@ export interface ConnectionSummary {
   revocationError: string | null;
   createdAt: string;
   updatedAt: string;
-  capabilities: string[];
   connectorKey: string;
   connectorEnabled: boolean;
 }
@@ -50,8 +47,7 @@ export interface ConnectionAttempt {
   status: string;
   connector: { key: string; name: string; version: number };
   scopes: ConnectorScopeSummary[];
-  selectedScopes: string[];
-  capabilities: string[];
+  selection: { scopes: string[] };
   expiresAt: string;
   connection: ConnectionSummary | null;
 }
@@ -88,7 +84,6 @@ export const isConnectionSummary = (value: unknown): value is ConnectionSummary 
   isNullableString(value.revocationError) &&
   typeof value.createdAt === "string" &&
   typeof value.updatedAt === "string" &&
-  isStringArray(value.capabilities) &&
   typeof value.connectorKey === "string" &&
   typeof value.connectorEnabled === "boolean";
 
@@ -99,8 +94,7 @@ const isConnectorScopeSummary = (value: unknown): value is ConnectorScopeSummary
   typeof value.label === "string" &&
   typeof value.description === "string" &&
   typeof value.group === "string" &&
-  typeof value.required === "boolean" &&
-  isStringArray(value.capabilities);
+  typeof value.required === "boolean";
 
 /** Validates connector discovery metadata before CLI rendering. */
 const isConnectorSummary = (value: unknown): value is ConnectorSummary =>
@@ -110,8 +104,7 @@ const isConnectorSummary = (value: unknown): value is ConnectorSummary =>
   typeof value.type === "string" &&
   Array.isArray(value.scopes) &&
   value.scopes.every(isConnectorScopeSummary) &&
-  isStringArray(value.defaultScopes) &&
-  typeof value.requestPrefix === "string";
+  isStringArray(value.defaultScopes);
 
 /** Validates authorization-attempt state before CLI recovery output. */
 const isConnectionAttempt = (value: unknown): value is ConnectionAttempt =>
@@ -124,8 +117,8 @@ const isConnectionAttempt = (value: unknown): value is ConnectionAttempt =>
   typeof value.connector.version === "number" &&
   Array.isArray(value.scopes) &&
   value.scopes.every(isConnectorScopeSummary) &&
-  isStringArray(value.selectedScopes) &&
-  isStringArray(value.capabilities) &&
+  isRecord(value.selection) &&
+  isStringArray(value.selection.scopes) &&
   typeof value.expiresAt === "string" &&
   (value.connection === null || isConnectionSummary(value.connection));
 
@@ -300,26 +293,24 @@ export async function connectAccount({
     hint: `Check weldall connections status ${attempt.id}. Completed connections remain available even if the CLI was interrupted.`,
   });
 }
-/** Restricts arbitrary CLI request targets to this installation's managed connector proxy. */
-export function validateConnectionTarget({
-  config,
-  raw,
-}: {
-  config: WeldallConfig;
-  raw: string;
-}): URL {
-  const url = new URL(raw);
+/** Checks basic metadata syntax, not provider authorization; only the server may trust the target. */
+export function validateConnectionTarget(raw: string): void {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new CliError("A full HTTPS provider URL is required");
+  }
   if (
-    url.origin !== config.issuer ||
-    !/^\/connectors\/[a-z0-9][a-z0-9._-]{0,119}\//.test(url.pathname) ||
+    !raw.startsWith("https://") ||
+    /[\s\\\x00-\x1f\x7f]/.test(raw) ||
+    Buffer.byteLength(raw) > 8192 ||
     url.username ||
     url.password ||
-    url.hash
+    raw.includes("#") ||
+    url.port
   )
-    throw new CliError(
-      "Connection requests must use this Weldall installation's /connectors/<key>/ URL",
-    );
-  return url;
+    throw new CliError("A full HTTPS provider URL without credentials or fragments is required");
 }
 /** Streams one authenticated CLI request through Weldall's owner-selected connector proxy. */
 export async function requestConnection({
@@ -331,7 +322,11 @@ export async function requestConnection({
   selector: string;
   input: PreparedRequest;
 }) {
-  const url = validateConnectionTarget({ config, raw: input.url });
+  validateConnectionTarget(input.url);
+  const connection = await showConnection({ config, selector });
+  if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(connection.connectorKey))
+    throw new CliError("Invalid connector key");
+  const url = new URL(`/connectors/${connection.connectorKey}`, config.issuer);
   return withAccess(config, async (session) => {
     const headers = new Headers(input.headers);
     headers.set("authorization", `DPoP ${session.accessToken}`);
@@ -344,7 +339,8 @@ export async function requestConnection({
         accessToken: session.accessToken,
       }),
     );
-    headers.set("x-weldall-connection", selector);
+    headers.set("x-weldall-connection", connection.id);
+    headers.set("x-weldall-upstream-url", input.url);
     if (input.json !== undefined) headers.set("content-type", "application/json");
     return successfulResponseStream(
       await fetch(url, {

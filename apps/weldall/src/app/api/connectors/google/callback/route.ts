@@ -1,6 +1,7 @@
-import { completeConnection } from "@/server/connectors/connections";
+import { completeConnection } from "@/server/connectors/core/connections";
 import { privateHeaders } from "@/server/connectors/http";
-import { errorForLog, logger } from "@/server/observability/logger";
+import { ConnectorError } from "@/server/connectors/contracts";
+import { logger } from "@/server/observability/logger";
 import { WELDALL_ISSUER } from "@/server/oauth/constants";
 /** Redirects the provider callback onto Weldall's locked-down browser result page. */
 const createCompletionRedirect = (outcome: "success" | "cancelled" | "failed") =>
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
       {
         event: "connector.connection.completion.failed",
         provider: "google",
-        error: errorForLog(error),
+        error: { code: error instanceof ConnectorError ? error.code : "completion_error" },
       },
       "Connector connection completion failed",
     );

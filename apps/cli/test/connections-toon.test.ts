@@ -29,7 +29,6 @@ const connection = (overrides: Partial<ConnectionSummary> = {}): ConnectionSumma
   revocationError: null,
   createdAt: "2026-08-01T09:00:00.000Z",
   updatedAt: "2026-09-01T12:00:00.000Z",
-  capabilities: ["calendar.events.read", "calendar.events.write"],
   connectorKey: "google",
   connectorEnabled: true,
   ...overrides,
@@ -46,7 +45,6 @@ const connector = (overrides: Partial<ConnectorSummary> = {}): ConnectorSummary 
       description: "Required identity scope.",
       group: "Identity",
       required: true,
-      capabilities: [],
     },
     {
       id: "calendar.events",
@@ -54,11 +52,9 @@ const connector = (overrides: Partial<ConnectorSummary> = {}): ConnectorSummary 
       description: "Manage calendar events.",
       group: "Calendar",
       required: false,
-      capabilities: ["Read calendar events", "Create, update and delete calendar events"],
     },
   ],
   defaultScopes: ["calendar.events"],
-  requestPrefix: "https://weldall.example.com/connectors/google/",
   ...overrides,
 });
 
@@ -66,9 +62,8 @@ const attempt = (overrides: Partial<ConnectionAttempt> = {}): ConnectionAttempt 
   id: "attempt-1",
   status: "COMPLETED",
   connector: { key: "google", name: "Google Workspace", version: 4 },
-  scopes: ["openid", "calendar.events"],
-  selectedScopes: ["calendar.events"],
-  capabilities: ["calendar.events.read"],
+  scopes: connector().scopes,
+  selection: { scopes: ["calendar.events"] },
   expiresAt: "2026-09-01T12:10:00.000Z",
   connection: connection(),
   ...overrides,
@@ -86,8 +81,9 @@ describe("managed connection TOON output", () => {
 
     expect(output).toContain("connections[2\t]");
     expect(rows(output)).toHaveLength(2);
-    expect(output).toContain("calendar.events.read|calendar.events.write");
-    expect(output).toContain("https://weldall.example.com/connectors/google/");
+    expect(output).toContain("openid|calendar.events");
+    expect(output).toContain("https://weldall.example.com");
+    expect(output).not.toContain("requestPrefix");
   });
 
   it("leaves ownership and database plumbing in --json", () => {
@@ -115,7 +111,6 @@ describe("managed connection TOON output", () => {
         type: "google",
         scopes: "openid|calendar.events",
         defaultScopes: "calendar.events",
-        requestPrefix: "https://weldall.example.com/connectors/google/",
       },
     ]);
   });

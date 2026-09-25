@@ -6,7 +6,7 @@ import {
 import {
   cancelAuthorizationAttempt,
   getAuthorizationAttempt,
-} from "@/server/connectors/connections";
+} from "@/server/connectors/core/connections";
 
 type Context = { params: Promise<{ id: string }> };
 

@@ -38,7 +38,7 @@ function key() {
  * Fixed application encryption for OIDC, login attempts, and connector OAuth client secrets.
  * AES-GCM authenticated data binds the ciphertext to its purpose and row id to prevent swaps.
  */
-type FixedSecretPurpose = "provider" | "attempt" | "connector-client-secret";
+type FixedSecretPurpose = "provider" | "attempt" | "connector-provider-secrets";
 export function seal(purpose: FixedSecretPurpose, id: string, value: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key(), iv);

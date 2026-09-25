@@ -1,5 +1,5 @@
 import type { BadgeVariant } from "@astryxdesign/core/Badge";
-import type { listConnections } from "@/server/connectors/connections";
+import type { listConnections } from "@/server/connectors/core/connections";
 
 type ServerConnection = Awaited<ReturnType<typeof listConnections>>[number];
 export type ConnectionRow = Omit<ServerConnection, "createdAt" | "updatedAt" | "lastUsedAt"> & {

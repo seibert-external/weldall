@@ -18,7 +18,6 @@ const connection: ConnectionRow = {
   connectorEnabled: true,
   status: "READY",
   version: 1,
-  capabilities: ["calendar.read"],
   selectedScopes: ["openid", "https://www.googleapis.com/auth/calendar.readonly"],
   grantedScopes: [
     "openid",
@@ -94,7 +93,6 @@ describe("connection detail rendering", () => {
           ...connection,
           status: "REVOCATION_PENDING",
           connectorEnabled: false,
-          capabilities: [],
           revocationError: "Google revocation unconfirmed",
         }}
       />,

@@ -428,7 +428,7 @@ export const requestCommand = define({
     },
     connection: {
       type: "string",
-      description: "Owner-managed connection name or ID; request a Weldall /connectors/<key>/ URL",
+      description: "Owner-managed connection name or ID; pass a full provider HTTPS URL",
     },
     header: {
       type: "string",
@@ -509,6 +509,7 @@ export const requestCommand = define({
     },
   },
   examples:
+    "weldall request --connection my-google https://gmail.googleapis.com/gmail/v1/users/me/messages\n" +
     "weldall request --scope expenses:read https://expenses.example/api/expenses\n" +
     "weldall request -X POST --scope expenses:create --json '{\"amount\":24}' https://expenses.example/api/expenses\n" +
     "weldall request -X PUT --scope files:write -T ./report.pdf -H 'Content-Type: application/pdf' https://files.example/api/report.pdf\n" +
@@ -523,7 +524,7 @@ export const requestCommand = define({
       throw new CliError("Managed connection permissions come from setup; do not pass --scope");
     if (context.values.connection && context.values.paginate)
       throw new CliError(
-        "Google uses pageToken pagination; pass nextPageToken in the next connector URL, not --paginate offset",
+        "Google uses pageToken pagination; pass nextPageToken in the next provider URL, not --paginate offset",
       );
     if (context.values.paginate !== undefined) {
       if (context.values.method !== "GET")
@@ -588,7 +589,8 @@ export const requestCommand = define({
 
     const config = await resolveWeldallConfig();
     const input = {
-      url: parseRequestUrl(context.values.url),
+      // Preserve raw provider metadata so server validation sees ambiguous encodings and dot segments.
+      url: context.values.connection ? context.values.url : parseRequestUrl(context.values.url),
       method: context.values.method,
       scopes,
       headers,
@@ -795,7 +797,6 @@ const connectorColumns = [
   { header: "Name" },
   { header: "Type" },
   { header: "Default/All", align: "right" },
-  { header: "Request prefix" },
 ] satisfies readonly TableColumn[];
 
 /** Formats server timestamps for compact human-readable connection tables. */
@@ -832,7 +833,6 @@ const buildConnectorRows = (connectors: readonly ConnectorSummary[]) =>
     connector.name,
     connector.type,
     `${connector.defaultScopes.length}/${connector.scopes.length}`,
-    connector.requestPrefix,
   ]);
 
 /** Prints one connection's credential-free details for a human CLI user. */
@@ -844,7 +844,6 @@ const printConnectionDetails = (connection: ConnectionSummary) => {
     ["Status", connection.status],
     ["Account", connection.accountName],
     ["Account ID", connection.accountId],
-    ["Capabilities", connection.capabilities.join(", ") || "—"],
     ["Selected scopes", connection.selectedScopes.join(", ") || "—"],
     ["Granted scopes", connection.grantedScopes.join(", ") || "—"],
     ["Last used", formatShortTimestamp(connection.lastUsedAt)],
@@ -863,8 +862,7 @@ const printConnectionAttempt = (attempt: ConnectionAttempt) => {
     ["Status", attempt.status],
     ["Connector", `${attempt.connector.name} (${attempt.connector.key})`],
     ["Expires", formatShortTimestamp(attempt.expiresAt)],
-    ["Selected scopes", attempt.selectedScopes.join(", ") || "—"],
-    ["Capabilities", attempt.capabilities.join(", ") || "—"],
+    ["Selected scopes", attempt.selection.scopes.join(", ") || "—"],
   ];
   if (attempt.connection)
     fields.push(["Connection", `${attempt.connection.name} (${attempt.connection.id})`]);

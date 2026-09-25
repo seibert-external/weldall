@@ -8,7 +8,7 @@ import type {
 import { TOON_OPTIONS, joined } from "./toon.js";
 
 /**
- * Projects one connection to the selectors and capabilities agents can act on. Owner IDs, database
+ * Projects one connection to the selectors and exact scopes agents can act on. Owner IDs, database
  * connector IDs, versions, and policy bookkeeping remain in the stable JSON representation.
  */
 const buildConnectionRow = ({
@@ -23,13 +23,13 @@ const buildConnectionRow = ({
   connector: connection.connectorKey,
   account: connection.accountName,
   status: connection.status,
-  capabilities: joined(connection.capabilities),
-  requestPrefix: `${issuer}/connectors/${connection.connectorKey}/`,
+  scopes: joined(connection.grantedScopes),
+  issuer,
   requestCount: connection.requestCount,
   lastUsedAt: connection.lastUsedAt ?? "",
 });
 
-/** Encodes connection selectors and capabilities for compact agent-oriented CLI output. */
+/** Encodes connection selectors and scopes for compact agent-oriented CLI output. */
 export function encodeConnectionsToon({
   connections,
   issuer,
@@ -53,7 +53,6 @@ export function encodeConnectorsToon(connectors: readonly ConnectorSummary[]): s
         type: connector.type,
         scopes: joined(connector.scopes.map((scope) => scope.id)),
         defaultScopes: joined(connector.defaultScopes),
-        requestPrefix: connector.requestPrefix,
       })),
     },
     TOON_OPTIONS,
@@ -89,8 +88,7 @@ export function encodeConnectionAttemptToon(attempt: ConnectionAttempt): string 
       status: attempt.status,
       connector: attempt.connector.key,
       expiresAt: attempt.expiresAt,
-      selectedScopes: attempt.selectedScopes,
-      capabilities: attempt.capabilities,
+      selectedScopes: attempt.selection.scopes,
       connection: attempt.connection?.name ?? "",
     },
     TOON_OPTIONS,

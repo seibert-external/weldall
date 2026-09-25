@@ -194,18 +194,18 @@ connectors:
     type: google
     enabled: false
     envelopeProvider: LOCAL_ENV
-    clientId: YOUR_CLIENT_ID.apps.googleusercontent.com
-    enabledApis: [gmail, calendar]
-    allowedScopes:
-      - https://www.googleapis.com/auth/gmail.readonly
-      - https://www.googleapis.com/auth/calendar.readonly
-    defaultScopes:
-      - https://www.googleapis.com/auth/calendar.readonly
+    provider:
+      clientId: YOUR_CLIENT_ID.apps.googleusercontent.com
+      allowedScopes:
+        - https://www.googleapis.com/auth/gmail.readonly
+        - https://www.googleapis.com/auth/calendar.readonly
+      defaultScopes:
+        - https://www.googleapis.com/auth/calendar.readonly
 ```
 
-Provision `WELDALL_CONNECTOR_KEK` on every **server** before apply. Every `LOCAL_ENV` connector uses that single deployment KEK to wrap fresh per-write DEKs. `WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts the connector OAuth client secret and ordinary application secrets. Neither CLI nor CI resolves or uploads these keys. Arbitrary environment-variable names, provider configuration, unknown providers and `OPENBAO` are rejected. OpenBao is not yet supported; provider changes are rejected server-side even for disabled connectors.
+Provision `WELDALL_CONNECTOR_KEK` on every **server** before apply. Every `LOCAL_ENV` connector uses that single deployment KEK to wrap fresh per-write DEKs. `WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts the connector OAuth client secret and ordinary application secrets. Neither CLI nor CI resolves or uploads these keys. Arbitrary environment-variable names, unknown provider configuration fields, declarative secrets, unknown provider types and `OPENBAO` are rejected. OpenBao is not yet supported; provider changes are rejected server-side even for disabled connectors.
 
-Create a connector disabled, provision its write-only OAuth client secret in the admin UI, then apply `enabled: true`. Later applies preserve the secret unless `clientId` changes; replacing the OAuth client requires removing connections and attempts, applying the new client ID while disabled, provisioning the new secret, then enabling. Users cannot remove required account-identity permissions, but may untick optional API permissions within `allowedScopes`.
+Create a connector disabled, provision its write-only OAuth client secret in the admin UI, then apply `enabled: true`. Later applies preserve the secret unless `provider.clientId` changes; replacing the OAuth client requires removing connections and attempts, applying the new client ID while disabled, provisioning the new secret, then enabling. Users cannot remove required account-identity permissions, but may untick optional API permissions within `provider.allowedScopes`. The granted scope set must exactly equal the requested set; scopes are deduplicated and sorted without aliases or implications.
 
 UI edits remain allowed except for immutable identity/provider fields; the next approved apply restores mutable manifest values. Disconnect and remove connections/attempts before deleting a connector. Refresh and credential writes do not create configuration drift. No key rotation is supported. Restore the corresponding deployment secrets with database backups; losing or replacing a key makes its protected secrets unavailable. Encryption protects database-only disclosure, not application-process/environment compromise. Obtain a fresh plan after upgrading the CLI/server because canonical manifest digests change.
 
@@ -215,7 +215,7 @@ weldall state mv connector.google connector.renamed
 weldall unmanage connector.google --yes # remove its declaration first
 ```
 
-State moves retain database IDs, ciphertext references and provider authorizations. Unmanage removes only the IaC binding. Connections themselves, provider consent and tokens are not declarative inputs. See [managed connections](./managed-connectors/) for setup, supported operations and recovery.
+State moves retain database IDs, ciphertext references and provider authorizations. Unmanage removes only the IaC binding. Connections themselves, provider consent and tokens are not declarative inputs. See [managed connections](./managed-connectors/) for setup, reviewed origins and recovery.
 
 ## Essential CLI commands
 

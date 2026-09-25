@@ -5,7 +5,10 @@ import {
   createJsonResponse,
   parseJsonRequestBody,
 } from "@/server/connectors/http";
-import { getAuthorizationAttempt, submitScopeSelection } from "@/server/connectors/connections";
+import {
+  getAuthorizationAttempt,
+  submitScopeSelection,
+} from "@/server/connectors/core/connections";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -29,13 +32,13 @@ export async function POST(request: Request, context: Context) {
     const actor = await authenticateConnectorActor({ request, browser: true });
     const body = await parseJsonRequestBody({
       request,
-      schema: z.object({ selectedScopes: z.array(z.string().max(160)).max(20) }).strict(),
+      schema: z.object({ selection: z.unknown() }).strict(),
     });
     return createJsonResponse(
       await submitScopeSelection({
         actor,
         id: (await context.params).id,
-        selected: body.selectedScopes,
+        selection: body.selection,
       }),
     );
   } catch (error) {

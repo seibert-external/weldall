@@ -101,12 +101,12 @@ weldall connectors
 weldall connections connect google --name my-google
 weldall connections list
 weldall request --connection my-google \
-  https://weldall.example.com/connectors/google/calendar/v3/calendars/primary/events
+  https://www.googleapis.com/calendar/v3/calendars/primary/events
 weldall connections reconnect my-google
 weldall connections disconnect my-google
 ```
 
-These commands use the existing Weldall API session, not downstream token exchange. Use `--connection` without `--scope`; normal resource requests still require `--scope`. Google pagination uses `pageToken` in subsequent Weldall URLs, not `--paginate offset`. Connector transfers are limited to 10 MiB and supported Google operations; no arbitrary proxying. Disconnect blocks requests, attempts provider revocation, then always deletes the connection and encrypted retry material so its name can be reused immediately. It exits nonzero and directs the user to Google account settings if revocation is unconfirmed. Google revocation may affect other authorizations for the same account/client.
+These commands use the existing Weldall API session, not downstream token exchange. Use `--connection` without `--scope`; normal resource requests still require `--scope`. Google pagination uses `pageToken` in subsequent provider URLs, not `--paginate offset`. Connector transfers use bounded buffering up to 10 MiB. Arbitrary paths and query parameters are accepted only on server-reviewed Google origins; Google authorizes operations using the exact granted scopes. The CLI sends the provider URL as untrusted metadata to Weldall, never as a direct authenticated fetch target. Disconnect blocks requests, attempts provider revocation, then always deletes the connection and encrypted retry material so its name can be reused immediately. It exits nonzero and directs the user to Google account settings if revocation is unconfirmed. Google revocation may affect other authorizations for the same account/client.
 
 `connections status <attempt-id>` recovers setup status after interruption; `connections cancel <attempt-id>` cancels or retries cleanup of an unused grant. `connections show <name-or-id>` reports selected/granted permissions and health. The admin UI's separate Disconnect action uses the same best-effort revocation and permanent local removal. Connection and connector lists render as terminal tables by default; use `--json` for stable machine-readable data or `--agentic` for compact TOON. `show` and `status` support the same output flags. See the [managed connector guide](../docs/src/content/docs/managed-connectors.md) for administration and limits. Existing Weldall login/session storage is unchanged.
 

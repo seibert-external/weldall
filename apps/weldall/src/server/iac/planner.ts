@@ -1,6 +1,6 @@
 import type { Prisma } from "@weldall/db";
 import { buildConnectorState } from "../connectors/configuration";
-import { validateConnectorScopeConfig } from "../connectors/scopes";
+import { getConnectorProvider } from "../connectors/registry";
 import {
   canonicalJson,
   digest,
@@ -464,14 +464,27 @@ export async function loadPlanningState({
   const bindingByTarget = new Map(objects.map((object) => [object.id, object]));
   const externalBlockers: IacBlocker[] = [];
   for (const [address, config] of Object.entries(manifest.connectors)) {
+    try {
+      getConnectorProvider(config.type).parseConfiguration(config.provider);
+    } catch {
+      externalBlockers.push({
+        code: "INVALID_SCOPES",
+        address: `connector.${address}`,
+        message: "Scopes must be known to the provider and defaults must be allowed.",
+      });
+      continue;
+    }
     const current = connectors.find((c) => c.key === config.key);
-    if (current && current.envelopeProvider !== config.envelopeProvider)
+    if (
+      current &&
+      (current.envelopeProvider !== config.envelopeProvider || current.providerType !== config.type)
+    )
       externalBlockers.push({
         code: "IMMUTABLE_PROVIDER",
         address: `connector.${address}`,
         message: "Connector envelope provider cannot change.",
       });
-    if (config.enabled && !current?.encryptedClientSecret)
+    if (config.enabled && !current?.encryptedProviderSecrets)
       externalBlockers.push({
         code: "MISSING_SECRET",
         address: `connector.${address}`,
@@ -479,7 +492,9 @@ export async function loadPlanningState({
       });
     if (
       current &&
-      current.clientId !== config.clientId &&
+      (current.providerType !== config.type ||
+        getConnectorProvider(config.type).configurationIdentity(current.providerConfig) !==
+          getConnectorProvider(config.type).configurationIdentity(config.provider)) &&
       (current._count.connections || current._count.attempts)
     )
       externalBlockers.push({
@@ -487,15 +502,6 @@ export async function loadPlanningState({
         address: `connector.${address}`,
         message: "Disconnect and remove connections/attempts before replacing the OAuth client.",
       });
-    try {
-      validateConnectorScopeConfig(config);
-    } catch {
-      externalBlockers.push({
-        code: "INVALID_SCOPES",
-        address: `connector.${address}`,
-        message: "Scopes must belong to enabled APIs and defaults must be allowed.",
-      });
-    }
   }
   for (const item of connectors) {
     const object = objects.find((o) => o.id === item.id)!;

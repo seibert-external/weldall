@@ -18,13 +18,42 @@ vi.mock("../src/services/auth.js", () => ({
     operation({ accessToken: "weldall-token", credentials: { refreshToken: "weldall-refresh" } }),
 }));
 const config = { issuer: "https://weldall.example.com" } as WeldallConfig;
+const connection = {
+  id: "connection-id",
+  ownerId: "owner",
+  connectorId: "connector",
+  name: "my-google",
+  accountId: "account",
+  accountName: "account@example.com",
+  selectedScopes: ["openid"],
+  grantedScopes: ["openid"],
+  status: "READY",
+  version: 1,
+  lastUsedAt: null,
+  requestCount: 0,
+  revocationError: null,
+  createdAt: "now",
+  updatedAt: "now",
+  connectorKey: "google",
+  connectorEnabled: true,
+};
+const scope = {
+  id: "openid",
+  label: "Identity",
+  description: "Required identity scope.",
+  group: "Identity",
+  required: true,
+};
 afterEach(() => vi.unstubAllGlobals());
 
 describe("managed connection CLI", () => {
-  it("sends Weldall authentication only to its own connector URL and preserves payload/output", async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response('{"items":[]}'));
+  it("sends credentials only to Weldall and the provider URL only as untrusted metadata", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(connection))
+      .mockResolvedValueOnce(Response.json({ items: [] }));
     vi.stubGlobal("fetch", fetcher);
-    const url = `${config.issuer}/connectors/google/calendar/v3/calendars/primary/events`;
+    const url = "https://gmail.googleapis.com/future/arbitrary/path?newParam=yes";
     const response = await requestConnection({
       config,
       selector: "my-google",
@@ -32,181 +61,119 @@ describe("managed connection CLI", () => {
         url,
         method: "POST",
         json: { summary: "Meeting" },
+        headers: {
+          "x-weldall-upstream-url": "https://evil.example",
+          "x-weldall-connection": "other",
+        },
       },
     });
     expect(await response.json()).toEqual({ items: [] });
-    const options = fetcher.mock.calls[0]![1];
+    expect(String(fetcher.mock.calls[0]![0])).toBe(`${config.issuer}/api/me/connections/my-google`);
+    expect(String(fetcher.mock.calls[1]![0])).toBe(`${config.issuer}/connectors/google`);
+    const options = fetcher.mock.calls[1]![1];
     expect(options.headers.get("authorization")).toBe("DPoP weldall-token");
-    expect(options.headers.get("x-weldall-connection")).toBe("my-google");
+    expect(options.headers.get("x-weldall-connection")).toBe(connection.id);
+    expect(options.headers.get("x-weldall-upstream-url")).toBe(url);
+    expect(options.headers.has("x-weldall-required-scope")).toBe(false);
     expect(options.body).toBe('{"summary":"Meeting"}');
     expect(options.redirect).toBe("error");
+    expect(fetcher).toHaveBeenCalledTimes(2);
     for (const target of [
-      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-      "https://evil.example/connectors/google/mail",
-      "https://user:pass@weldall.example.com/connectors/google/mail",
+      "http://gmail.googleapis.com/a",
+      "https://user:pass@google.com/a",
       `${url}#fragment`,
+      "not a URL",
     ])
-      expect(() => validateConnectionTarget({ config, raw: target })).toThrow();
-    expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(() => validateConnectionTarget(target)).toThrow();
+    // Client checks are not authorization; the adapter rejects this origin on the server.
+    expect(() => validateConnectionTarget("https://evil.example/a")).not.toThrow();
   });
-  it("polls metadata through Weldall, never a provider credential endpoint", async () => {
+  it("polls metadata only through Weldall", async () => {
     const fetcher = vi
       .fn()
       .mockResolvedValue(Response.json({ status: "COMPLETED", connection: { id: "connection" } }));
     vi.stubGlobal("fetch", fetcher);
     expect(
       await requestConnectionApi({ config, path: "connection-authorizations/attempt" }),
-    ).toEqual({
-      status: "COMPLETED",
-      connection: { id: "connection" },
-    });
+    ).toMatchObject({ status: "COMPLETED" });
     expect(fetcher.mock.calls[0]![0]).toBe(
       `${config.issuer}/api/me/connection-authorizations/attempt`,
     );
-    expect(fetcher.mock.calls[0]![1].headers.authorization).toBe("DPoP weldall-token");
   });
-  it("accepts the server's rich connector scope descriptors", async () => {
+  it("accepts provider scope descriptors and selection without capabilities", async () => {
     const connector = {
       key: "google",
-      name: "Google Workspace",
+      name: "Google",
       type: "google",
-      scopes: [
-        {
-          id: "openid",
-          label: "Identify your Google account",
-          description: "Required identity scope.",
-          group: "Identity",
-          required: true,
-          capabilities: [],
-        },
-        {
-          id: "https://www.googleapis.com/auth/calendar.events",
-          label: "Read and edit events",
-          description: "Manage calendar events.",
-          group: "Calendar",
-          required: false,
-          capabilities: ["Read calendar events"],
-        },
-      ],
-      defaultScopes: ["https://www.googleapis.com/auth/calendar.events"],
-      requestPrefix: `${config.issuer}/connectors/google/`,
+      scopes: [scope],
+      defaultScopes: [],
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([connector])));
-
-    await expect(listConnectors(config)).resolves.toEqual([connector]);
-  });
-
-  it("accepts rich authorization-attempt scope descriptors from the server", async () => {
     const attempt = {
-      id: "attempt_123",
+      id: "attempt",
       status: "SETUP",
-      connector: { key: "google", name: "Google Workspace", version: 2 },
-      scopes: [
-        {
-          id: "openid",
-          label: "Identify your Google account",
-          description: "Required identity scope.",
-          group: "Identity",
-          required: true,
-          capabilities: [],
-        },
-        {
-          id: "https://www.googleapis.com/auth/calendar.events",
-          label: "Read and edit events",
-          description: "Manage calendar events.",
-          group: "Calendar",
-          required: false,
-          capabilities: ["Read calendar events"],
-        },
-      ],
-      selectedScopes: ["openid"],
-      capabilities: ["Read calendar events"],
-      expiresAt: "2026-09-24T12:00:00.000Z",
+      connector: { key: "google", name: "Google", version: 2 },
+      scopes: [scope],
+      selection: { scopes: ["openid"] },
+      expiresAt: "now",
       connection: null,
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(attempt)));
-
-    await expect(showConnectionAttempt({ config, id: attempt.id })).resolves.toEqual(attempt);
-  });
-
-  it("rejects malformed authorization-attempt scope descriptors", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        Response.json({
-          id: "attempt_123",
-          status: "SETUP",
-          connector: { key: "google", name: "Google Workspace", version: 2 },
-          scopes: [
-            {
-              id: "openid",
-              label: "Identify your Google account",
-              description: "Required identity scope.",
-              group: "Identity",
-              required: true,
-              capabilities: "identity",
-            },
-          ],
-          selectedScopes: ["openid"],
-          capabilities: [],
-          expiresAt: "2026-09-24T12:00:00.000Z",
-          connection: null,
-        }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json([connector]))
+        .mockResolvedValueOnce(Response.json(attempt))
+        .mockResolvedValueOnce(
+          Response.json({ ...attempt, scopes: [{ ...scope, required: "yes" }] }),
+        ),
     );
-
-    await expect(showConnectionAttempt({ config, id: "attempt_123" })).rejects.toThrow(
-      "Weldall returned an invalid connection setup status",
+    await expect(listConnectors(config)).resolves.toEqual([connector]);
+    await expect(showConnectionAttempt({ config, id: "attempt" })).resolves.toEqual(attempt);
+    await expect(showConnectionAttempt({ config, id: "attempt" })).rejects.toThrow(
+      "invalid connection setup status",
     );
   });
-
-  it("requires an explicit local provider without resolving deployment secrets locally", () => {
+  it("canonicalizes provider configuration and rejects removed fields, secrets and unsupported types", () => {
+    const read = "https://www.googleapis.com/auth/gmail.readonly";
+    const google = {
+      key: "google",
+      name: "Google",
+      type: "google",
+      enabled: false,
+      envelopeProvider: "LOCAL_ENV",
+      provider: { clientId: "client", allowedScopes: [read], defaultScopes: [] },
+    };
     const manifest = {
       apiVersion: "weldall.dev/v1" as const,
       workspace: { name: "test", issuer: config.issuer },
-      connectors: {
-        google: {
-          key: "google",
-          name: "Google",
-          type: "google",
-          enabled: false,
-          envelopeProvider: "LOCAL_ENV",
-          clientId: "client",
-          enabledApis: ["gmail"],
-          allowedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
-          defaultScopes: [],
-        },
-      },
+      connectors: { google },
     };
     expect(serverManifest(manifest, newLock(manifest)).connectors).toEqual(manifest.connectors);
-    for (const envelopeProvider of [undefined, "OPENBAO", "unknown"]) {
+    expect(canonicalServerManifest(manifest).connectors).toEqual(manifest.connectors);
+    for (const extra of [
+      { enabledApis: ["gmail"] },
+      { clientId: "flat" },
+      { clientSecret: "secret" },
+      { envelopeProvider: "OPENBAO" },
+      { type: "unknown" },
+      { provider: { ...google.provider, clientSecret: "secret" } },
+      { provider: { ...google.provider, enabledApis: ["gmail"] } },
+      { provider: { ...google.provider, allowedScopes: ["unknown"] } },
+    ]) {
       expect(() =>
         serverManifest(
-          {
-            ...manifest,
-            connectors: { google: { ...manifest.connectors.google, envelopeProvider } },
-          },
+          { ...manifest, connectors: { google: { ...google, ...extra } } },
           newLock(manifest),
         ),
       ).toThrow();
     }
-    for (const extra of [{ variable: "ARBITRARY_ENV" }, { providerConfig: {} }]) {
-      expect(() =>
-        serverManifest(
-          { ...manifest, connectors: { google: { ...manifest.connectors.google, ...extra } } },
-          newLock(manifest),
-        ),
-      ).toThrow("Unknown connectors field");
-    }
-    expect(canonicalServerManifest(manifest).connectors).toEqual(manifest.connectors);
-    expect(() =>
-      serverManifest(
-        {
-          ...manifest,
-          connectors: { google: { ...manifest.connectors.google, clientSecret: "forbidden" } },
+    expect(
+      canonicalServerManifest({
+        ...manifest,
+        connectors: {
+          google: { ...google, provider: { ...google.provider, allowedScopes: [read, read] } },
         },
-        newLock(manifest),
-      ),
-    ).toThrow("Unknown connectors field");
+      }).connectors,
+    ).toEqual(manifest.connectors);
   });
 });

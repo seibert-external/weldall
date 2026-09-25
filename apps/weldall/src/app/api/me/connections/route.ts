@@ -5,7 +5,7 @@ import {
   createJsonResponse,
   parseJsonRequestBody,
 } from "@/server/connectors/http";
-import { listConnections, startConnection } from "@/server/connectors/connections";
+import { listConnections, startConnection } from "@/server/connectors/core/connections";
 
 /** Lists the authenticated CLI caller's managed connections without provider credentials. */
 export async function GET(request: Request) {

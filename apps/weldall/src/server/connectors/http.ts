@@ -7,7 +7,7 @@ import { WELDALL_ISSUER } from "../oauth/constants";
 import { auditRequestIdentifiers } from "../audit/service";
 import { hasEffectiveSystemScopeFor } from "../policy/resources";
 import { ConnectorError, type ConnectorActor } from "./contracts";
-import { readBoundedBody } from "./google";
+import { readBoundedBody } from "./core/transport";
 
 export const privateHeaders = {
   "cache-control": "no-store",
@@ -85,7 +85,7 @@ export function createConnectorErrorResponse(error: unknown) {
 /** Creates the locked-down browser completion page shown after the Google OAuth callback. */
 export function createConnectorCompletionResponse(outcome: "success" | "cancelled" | "failed") {
   const message = {
-    success: "Connection ready. Return to the CLI to see the granted capabilities.",
+    success: "Connection ready. Return to the CLI to see the granted scopes.",
     cancelled: "Authorization cancelled. Return to the CLI.",
     failed: "Authorization failed. Return to the CLI to check status and any required cleanup.",
   }[outcome];
