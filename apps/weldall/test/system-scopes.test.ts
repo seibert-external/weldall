@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   db,
   ensureSystemScopes,
+  isMachineOnlySystemScope,
   LOGIN_SCOPE_KEY,
   Prisma,
+  STATISTICS_SCOPE_KEY,
   SYSTEM_SCOPE_DEFINITIONS,
 } from "@weldall/db";
 import { seedProduction } from "../../../packages/db/prisma/seed.js";
@@ -13,6 +15,16 @@ import { prepareProductionDatabase } from "../src/server/deployment.js";
 const rollback = new Error("rollback system scope test");
 
 describe("built-in system scope provisioning", () => {
+  it("defines weldall:statistics as a system scope for people", () => {
+    expect(STATISTICS_SCOPE_KEY).toBe("weldall:statistics");
+    expect(SYSTEM_SCOPE_DEFINITIONS).toContainEqual({
+      id: "scope-weldall-statistics",
+      key: STATISTICS_SCOPE_KEY,
+      description: "View org-wide Weldall usage statistics.",
+    });
+    expect(isMachineOnlySystemScope(STATISTICS_SCOPE_KEY)).toBe(false);
+  });
+
   it("creates missing system scopes and reruns without granting login", async () => {
     const grantsBefore = await db.emailScopeGrant.count({
       where: { scope: { key: LOGIN_SCOPE_KEY } },

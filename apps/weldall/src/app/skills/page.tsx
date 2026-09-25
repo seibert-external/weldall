@@ -8,6 +8,7 @@ import { resolveLucideIconNode } from "@/server/skills/appearance-icons";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { listVisibleSkills } from "@/server/skills/service";
 import { getSkillRetrievalCountsBySlugs } from "@/server/skills/retrieval-metrics";
+import { canViewStatistics } from "@/server/statistics/access";
 import { DirectoryHeader } from "../_components/directory-header";
 import { DirectoryUserMenu } from "../_components/directory-user-menu";
 import { SkillDirectory } from "../_components/skill-directory";
@@ -22,9 +23,10 @@ export default async function SkillsPage() {
   if (!session?.user.email) redirect("/login");
 
   after(() => refreshDueCatalogs());
-  const [{ items: skills }, isAdmin] = await Promise.all([
+  const [{ items: skills }, isAdmin, canSeeStatistics] = await Promise.all([
     listVisibleSkills(session.user.email),
     isAdminEmail(session.user.email),
+    canViewStatistics(session.user.email),
   ]);
   const retrievalCounts = await getSkillRetrievalCountsBySlugs(skills.map(({ slug }) => slug));
 
@@ -38,7 +40,11 @@ export default async function SkillsPage() {
   return (
     <div className="skill-directory-page">
       <DirectoryHeader logoUrls={logoUrls}>
-        <DirectoryUserMenu email={session.user.email} isAdmin={isAdmin} />
+        <DirectoryUserMenu
+          email={session.user.email}
+          isAdmin={isAdmin}
+          canViewStatistics={canSeeStatistics}
+        />
       </DirectoryHeader>
       <main className="skill-directory-main">
         <SkillDirectory retrievalCounts={retrievalCounts} skills={directorySkills} />
