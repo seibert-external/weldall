@@ -1,5 +1,6 @@
 import { completeConnection } from "@/server/connectors/connections";
 import { privateHeaders } from "@/server/connectors/http";
+import { errorForLog, logger } from "@/server/observability/logger";
 import { WELDALL_ISSUER } from "@/server/oauth/constants";
 /** Redirects the provider callback onto Weldall's locked-down browser result page. */
 const createCompletionRedirect = (outcome: "success" | "cancelled" | "failed") =>
@@ -26,7 +27,15 @@ export async function GET(request: Request) {
         cancelled: query.get("error") === "access_denied",
       }),
     );
-  } catch {
+  } catch (error) {
+    logger.error(
+      {
+        event: "connector.connection.completion.failed",
+        provider: "google",
+        error: errorForLog(error),
+      },
+      "Connector connection completion failed",
+    );
     return createCompletionRedirect("failed");
   }
 }

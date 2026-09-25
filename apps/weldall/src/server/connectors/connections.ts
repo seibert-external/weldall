@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { db, type Connector, type Connection, type Prisma } from "@weldall/db";
 import { z } from "zod";
 import { WELDALL_ISSUER } from "../oauth/constants";
+import { errorForLog, logger } from "../observability/logger";
 import { ConnectorError, connectionName, type ConnectorActor } from "./contracts";
 import { readConnectorClientSecret, runConnectorTransaction } from "./configuration";
 import {
@@ -426,7 +427,18 @@ export async function completeConnection({
         verifier: payload.verifier,
       },
     });
-  } catch {
+  } catch (error) {
+    logger.error(
+      {
+        event: "connector.connection.completion.failed",
+        provider: "google",
+        phase: "provider_authorization",
+        authorizationId: a.id,
+        connectorId: a.connectorId,
+        error: errorForLog(error),
+      },
+      "Connector provider authorization failed",
+    );
     await runConnectorTransaction(async (tx) => {
       await tx.connectionAuthorization.update({ where: { id: a.id }, data: { status: "FAILED" } });
       await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
@@ -544,7 +556,18 @@ export async function completeConnection({
       });
     });
     return "success" as const;
-  } catch {
+  } catch (error) {
+    logger.error(
+      {
+        event: "connector.connection.completion.failed",
+        provider: "google",
+        phase: "grant_validation_or_persistence",
+        authorizationId: a.id,
+        connectorId: a.connectorId,
+        error: errorForLog(error),
+      },
+      "Connector grant validation or persistence failed",
+    );
     await writeConnectorAuditLog({
       tx: db,
       actor,
