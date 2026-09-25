@@ -131,7 +131,7 @@ weldall logout
 `weldall status` gives people the friendly overview: the signed-in display name and verified email,
 which Weldall host is active, and what that account is allowed to do. `weldall scopes` shows every
 scope assigned to the account, including host permissions and scopes without an enabled resource,
-then groups scopes that are currently usable by enabled APIs. It explains common permission names
+then groups scopes that are currently usable through enabled resources. It explains common permission names
 such as `expenses:read` while still showing the exact scope needed by scripts and API requests.
 
 `weldall request` accepts an absolute HTTPS URL, explicit repeatable `--scope` values, an optional
