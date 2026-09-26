@@ -3,6 +3,11 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@astryxdesign/core/Button";
 import { Banner } from "@astryxdesign/core/Banner";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Link } from "@astryxdesign/core/Link";
+import { VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import type { getAuthorizationAttempt } from "@/server/connectors/core/connections";
 import type { ScopeDescriptor } from "@/server/connectors/providers/google/setup";
 
@@ -18,32 +23,34 @@ export function ScopeChoices({
   onChange: (value: string[]) => void;
 }) {
   return (
-    <>
+    <VStack gap={4} hAlign="stretch">
       {[...new Set(scopes.map((s) => s.group))].map((group) => (
-        <fieldset key={group} className="my-4">
-          <legend>{group}</legend>
-          {scopes
-            .filter((s) => s.group === group)
-            .map((s) => (
-              <label key={s.id} className="my-3 block">
-                <input
-                  type="checkbox"
-                  checked={s.required || selected.includes(s.id)}
-                  disabled={s.required}
-                  onChange={(e) =>
-                    onChange(
-                      e.target.checked ? [...selected, s.id] : selected.filter((id) => id !== s.id),
-                    )
+        <fieldset key={group}>
+          <legend className="mb-3">
+            <Text type="label">{group}</Text>
+          </legend>
+          <VStack gap={3} hAlign="stretch">
+            {scopes
+              .filter((s) => s.group === group)
+              .map((s) => (
+                <CheckboxInput
+                  key={s.id}
+                  label={s.label}
+                  description={s.description}
+                  value={s.required || selected.includes(s.id)}
+                  isDisabled={s.required}
+                  isRequired={s.required}
+                  isOptional={!s.required}
+                  width="100%"
+                  onChange={(checked) =>
+                    onChange(checked ? [...selected, s.id] : selected.filter((id) => id !== s.id))
                   }
-                />{" "}
-                {s.label}
-                {s.required ? " (required)" : " (optional)"}
-                <span className="block text-sm">{s.description}</span>
-              </label>
-            ))}
+                />
+              ))}
+          </VStack>
         </fieldset>
       ))}
-    </>
+    </VStack>
   );
 }
 /** Drives the browser step that confirms scopes before redirecting to provider authorization. */
@@ -73,22 +80,22 @@ export function SetupForm({ id }: { id: string }) {
       window.location.assign(result.url);
     },
   });
-  if (query.isPending) return <p>Loading connection setup…</p>;
+  if (query.isPending) return <Text color="secondary">Loading connection setup…</Text>;
   if (query.error)
     return (
-      <>
+      <VStack gap={3} hAlign="stretch">
         <Banner status="error" title="Setup unavailable" description={query.error.message} />
-        <p>
-          <a href="/login" target="_blank" rel="noreferrer">
+        <Text as="p" color="secondary">
+          <Link href="/login" isExternalLink>
             Sign in to Weldall
-          </a>{" "}
+          </Link>{" "}
           as the initiating CLI user, then reload this page.
-        </p>
-      </>
+        </Text>
+      </VStack>
     );
   const attempt = query.data!;
   if (attempt.status !== "SETUP")
-    return <p>Authorization status: {attempt.status}. Return to the CLI.</p>;
+    return <Text as="p">Authorization status: {attempt.status}. Return to the CLI.</Text>;
   return (
     <form
       onSubmit={(e) => {
@@ -96,28 +103,31 @@ export function SetupForm({ id }: { id: string }) {
         submit.mutate();
       }}
     >
-      <h1>Connect your {attempt.connector.name} account</h1>
-      <p>Choose what this connection may access. Select at least one API permission.</p>
-      <ScopeChoices
-        scopes={attempt.scopes}
-        selected={selected ?? attempt.selection?.scopes ?? []}
-        onChange={setSelected}
-      />
-      <p>
-        Broad scopes permit every operation Google authorizes with them. Google must grant exactly
-        the requested scopes; reduced or expanded grants are rejected. Reconnect changes take effect
-        only after successful authorization; unchecking a box does not revoke Google's underlying
-        grant.
-      </p>
-      {submit.error && (
-        <Banner status="error" title="Cannot continue" description={submit.error.message} />
-      )}
-      <Button
-        type="submit"
-        label="Continue to Google"
-        isLoading={submit.isPending}
-        isDisabled={submit.isPending}
-      />
+      <VStack gap={5} hAlign="stretch">
+        <VStack gap={2} hAlign="stretch">
+          <Text as="p" className="mt-4">
+            You are about to connect an account to {attempt.connector.name} in Weldall CLI.
+          </Text>
+        </VStack>
+        <ScopeChoices
+          scopes={attempt.scopes}
+          selected={selected ?? attempt.selection?.scopes ?? []}
+          onChange={setSelected}
+        />
+        <Text as="p">
+          You can disconnect the account or change the permissions via Weldall CLI. Just ask your
+          agent.
+        </Text>
+        {submit.error && (
+          <Banner status="error" title="Cannot continue" description={submit.error.message} />
+        )}
+        <Button
+          type="submit"
+          label="Continue to Google"
+          isLoading={submit.isPending}
+          isDisabled={submit.isPending}
+        />
+      </VStack>
     </form>
   );
 }

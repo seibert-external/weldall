@@ -1,3 +1,4 @@
+import { VStack } from "@astryxdesign/core/Stack";
 import { SetupForm } from "./setup-form";
 export const metadata = {
   title: "Connect an account",
@@ -7,8 +8,19 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <SetupForm id={(await params).id} />
-    </main>
+    <div className="login-shell">
+      <main className="login-panel setup-panel">
+        <VStack gap={5} hAlign="stretch">
+          <img
+            src="/assets/images/weldall.png"
+            alt="Weldall"
+            width={182}
+            height={51}
+            className="login-auth-logo"
+          />
+          <SetupForm id={(await params).id} />
+        </VStack>
+      </main>
+    </div>
   );
 }
