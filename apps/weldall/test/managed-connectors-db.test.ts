@@ -46,6 +46,7 @@ import { parseDesiredState } from "../src/server/iac/contracts";
 import { createPlan, loadPlanningState } from "../src/server/iac/planner";
 import { scopeKeySchema } from "../src/server/policy/scope-key";
 import { mutateScope } from "../src/server/domain/primitive-mutations";
+import { listAuditEvents } from "../src/server/audit/service";
 
 vi.mock("../src/server/connectors/providers/google/oauth", async (original) => ({
   ...(await original<typeof import("../src/server/connectors/providers/google/oauth")>()),
@@ -212,6 +213,55 @@ describe.skipIf(!approvedTarget)(
       await db.replayMarker.deleteMany({ where: { key: { startsWith: prefix } } });
       vi.unstubAllEnvs();
     });
+    it.each([
+      ["connect", "connection.connected", "success"],
+      ["reconnect", "connection.reconnected", "success"],
+      ["provider-error", "authorization.failed", "failed"],
+      ["account-switch", "authorization.cleanup_required", "failed"],
+    ] as const)(
+      "records the owner's email in %s callback audit events",
+      async (mode, operation, outcome) => {
+        const existing = mode === "reconnect" || mode === "account-switch" ? await ready() : null;
+        const f = existing ?? (await fixture());
+        const { attempt, state } = await authorize({
+          key: f.key,
+          name: f.key,
+          ...(existing ? { reconnect: existing.id } : {}),
+        });
+        if (mode === "provider-error") {
+          vi.mocked(completeGoogle).mockRejectedValueOnce(new Error("Provider unavailable"));
+        } else {
+          vi.mocked(completeGoogle).mockResolvedValueOnce({
+            accountId: mode === "account-switch" ? "different-account" : "google-account",
+            accountName: "google@example.com",
+            credentials: credentials(),
+          });
+        }
+        expect(await completeConnection({ state, code: "code", cancelled: false })).toBe(outcome);
+        const event = await db.auditEvent.findFirstOrThrow({
+          where: {
+            requestId: attempt.id,
+            eventType: "connector.lifecycle",
+            metadata: { path: ["operation"], equals: operation },
+          },
+        });
+        expect(event).toMatchObject({
+          actorType: "user",
+          actorId: actor.id,
+          actorEmail: actor.email,
+          outcome,
+        });
+        const filtered = await listAuditEvents({
+          page: 1,
+          pageSize: 100,
+          email: actor.email,
+          eventType: "connector.lifecycle",
+          sort: "occurredAt.desc",
+        });
+        expect(filtered.items.map(({ id }) => id)).toContain(event.id);
+      },
+    );
+
     it("requires all configured Weldall scopes for discovery and connection setup", async () => {
       const scopeKey = scopeKeySchema.parse(`${prefix}:connector-use`);
       await db.scope.create({

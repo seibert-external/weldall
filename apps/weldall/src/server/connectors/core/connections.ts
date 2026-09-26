@@ -451,7 +451,7 @@ export async function completeConnection({
   });
   if (!claimed) return "cancelled" as const;
   const { a, payload } = claimed;
-  const actor = { id: a.ownerId, requestId: a.id };
+  const actor = scopeActor;
   const provider = getConnectorProvider(a.connector.providerType);
   let result: Awaited<ReturnType<typeof provider.completeAuthorization>>;
   try {
