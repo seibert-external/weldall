@@ -382,7 +382,6 @@ describe("native YAML workspaces", () => {
     };
     const canonical = {
       ...omittedAndUnsorted,
-      connectors: {},
       scopes: {},
       resources: {
         api: {
@@ -398,8 +397,12 @@ describe("native YAML workspaces", () => {
       groupAssignments: {},
     };
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(canonicalManifestDigest(canonical));
+    // Preserve the pre-connector wire format and digest, even for an explicitly empty section.
+    expect(canonicalManifestDigest({ ...canonical, connectors: {} })).toBe(
+      canonicalManifestDigest(canonical),
+    );
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(
-      "3eebe93e22e7fc279c0b7267f99381a553b55e0caaa894735bf6e6c79d0a3874",
+      "c2e1311af97134bca5534c104566d7efa1d873bc61d3ff8f71f2ddf3caa6a054",
     );
     const lock = {
       version: 1 as const,
@@ -408,6 +411,9 @@ describe("native YAML workspaces", () => {
       objects: {},
     };
     expect(serverManifest(omittedAndUnsorted as any, lock)).toEqual(canonical);
+    expect(serverManifest({ ...omittedAndUnsorted, connectors: {} } as any, lock)).toEqual(
+      canonical,
+    );
   });
 
   it("reconstructs the complete lock from authoritative state, including no-op objects", () => {
@@ -526,7 +532,7 @@ describe("native YAML workspaces", () => {
           },
         },
       }),
-    ).toBe("eb6a5c9f9aae3d8bb25ba602e680ca6e7aca2f799a299e68a6f836d200131cd1");
+    ).toBe("990a499264dbf19bde564967075d9abaa74fbcdffec75d1141fdecf723607ff3");
 
     await workspace(
       root,

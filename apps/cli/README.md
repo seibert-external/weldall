@@ -94,6 +94,8 @@ These commands appear in `weldall --help` only while `WELDALL_M2M_CLIENT_ID`, `W
 
 ## Managed Google connections
 
+Connector commands and connector IaC declarations require a server with managed-connector support. Upgrading the CLI does not require upgrading the server for existing login, scopes, skills, `request --scope`, or connector-free IaC workflows.
+
 Provider credentials stay encrypted on Weldall, never in the CLI. Connect once and use the same owner-only connection from any signed-in device. Browser setup must use the initiating Weldall account; optional permissions can be unticked before Google consent.
 
 ```sh

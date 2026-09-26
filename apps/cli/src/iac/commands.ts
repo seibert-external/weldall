@@ -7,7 +7,6 @@ import { stringify } from "yaml";
 import { CliError } from "../errors.js";
 import { IacClient } from "./client.js";
 import {
-  canonicalManifestDigest,
   expandIncludes,
   loadWorkspace,
   MANIFEST_FILE,
@@ -350,11 +349,13 @@ export const iacUnmanageCommand = define({
       throw new CliError("Remove the declaration before unmanaging it");
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
     const manifest = serverManifest(workspace.manifest, workspace.lock);
+    // Use the server's canonical digest, as up does: manifest defaults vary across server versions.
+    const plan = await client.request("/plan", "POST", { manifest });
     const result = await client.request("/unmanage", "POST", {
       workspaceId: workspace.lock.workspace.id,
       address: context.values.address,
       manifest,
-      configDigest: canonicalManifestDigest(manifest),
+      configDigest: plan.configDigest,
       operationId: stableOperationId(
         workspace.lock.workspace.id,
         String(workspace.lock.workspace.observedRevision),

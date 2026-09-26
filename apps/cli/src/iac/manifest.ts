@@ -538,15 +538,20 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
           },
         }
       : {}),
-    connectors: canonicalRecords("connectors", (value) => ({
-      ...value,
-      requiredScopes: canonicalSet(value.requiredScopes),
-      provider: {
-        ...value.provider,
-        allowedScopes: canonicalSet(value.provider.allowedScopes),
-        defaultScopes: canonicalSet(value.provider.defaultScopes),
-      },
-    })),
+    // Older IaC v1 servers reject unknown fields, even an empty connector section.
+    ...(Object.keys(manifest.connectors ?? {}).length
+      ? {
+          connectors: canonicalRecords("connectors", (value) => ({
+            ...value,
+            requiredScopes: canonicalSet(value.requiredScopes),
+            provider: {
+              ...value.provider,
+              allowedScopes: canonicalSet(value.provider.allowedScopes),
+              defaultScopes: canonicalSet(value.provider.defaultScopes),
+            },
+          })),
+        }
+      : {}),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({
       ...value,
