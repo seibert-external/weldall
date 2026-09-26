@@ -31,7 +31,3 @@ export interface ConnectorActor {
 export interface AuthorizedConnectorActor extends ConnectorActor {
   scopeKeys: readonly ScopeKey[];
 }
-/** Server-authenticated browser identity; the session ID never comes from request input. */
-export interface ConnectorBrowserActor extends AuthorizedConnectorActor {
-  sessionId: string;
-}

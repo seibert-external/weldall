@@ -72,9 +72,8 @@ const actor = {
   requestId: prefix,
   email: `${prefix}@example.com`,
   scopeKeys: [],
-  sessionId: `browser-${prefix}`,
 };
-/** Existing lifecycle cases return through the same authenticated browser that submitted setup. */
+/** Existing lifecycle cases return as the authenticated setup owner. */
 const completeConnection = (
   input: Omit<Parameters<typeof completeBrowserConnection>[0], "browser">,
 ) => completeBrowserConnection({ ...input, browser: actor });
@@ -389,48 +388,35 @@ describe.skipIf(!approvedTarget)(
       }
     });
 
-    it.each([
-      ["different owner", { id: "other-owner", sessionId: actor.sessionId }],
-      ["different browser session", { id: actor.id, sessionId: "other-session" }],
-      ["missing browser session", { id: actor.id, sessionId: "" }],
-    ])(
-      "rejects a %s before consuming callback state or exchanging a code",
-      async (_label, browser) => {
-        const f = await fixture();
-        const { state, attempt } = await authorize({ key: f.key, name: f.key });
-        const before = await db.connectionAuthorization.findUniqueOrThrow({
-          where: { id: attempt.id },
-        });
-        for (const cancelled of [false, true])
-          await expect(
-            completeBrowserConnection({ browser, state, code: "code", cancelled }),
-          ).rejects.toBeInstanceOf(Error);
-        expect(completeGoogle).not.toHaveBeenCalled();
-        expect(
-          await db.connectionAuthorization.findUniqueOrThrow({ where: { id: attempt.id } }),
-        ).toEqual(before);
-        expect(await db.connection.count({ where: { connectorId: f.connector.id } })).toBe(0);
-        const envelope = await db.encryptedValue.findUniqueOrThrow({
-          where: { id: before.payloadId! },
-        });
-        const payload = JSON.parse(
-          await decrypt({ envelope, context: `attempt:${attempt.id}:oauth` }),
-        );
-        expect(payload.browserSessionHash).toMatch(/^[a-f0-9]{64}$/);
-        expect(JSON.stringify(payload)).not.toContain(actor.sessionId);
-        expect(
-          JSON.stringify(await getAuthorizationAttempt({ actor, id: attempt.id })),
-        ).not.toMatch(/browserSessionHash|sessionId/);
+    it("rejects a different owner before consuming callback state or exchanging a code", async () => {
+      const f = await fixture();
+      const { state, attempt } = await authorize({ key: f.key, name: f.key });
+      const before = await db.connectionAuthorization.findUniqueOrThrow({
+        where: { id: attempt.id },
+      });
+      for (const cancelled of [false, true])
+        await expect(
+          completeBrowserConnection({
+            browser: { id: "other-owner" },
+            state,
+            code: "code",
+            cancelled,
+          }),
+        ).rejects.toMatchObject({ code: "not_found", status: 404 });
+      expect(completeGoogle).not.toHaveBeenCalled();
+      expect(
+        await db.connectionAuthorization.findUniqueOrThrow({ where: { id: attempt.id } }),
+      ).toEqual(before);
+      expect(await db.connection.count({ where: { connectorId: f.connector.id } })).toBe(0);
 
-        vi.mocked(completeGoogle).mockResolvedValueOnce({
-          accountId: "owner-account",
-          accountName: "owner@example.com",
-          credentials: credentials(),
-        });
-        expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("success");
-        expect(completeGoogle).toHaveBeenCalledOnce();
-      },
-    );
+      vi.mocked(completeGoogle).mockResolvedValueOnce({
+        accountId: "owner-account",
+        accountName: "owner@example.com",
+        credentials: credentials(),
+      });
+      expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("success");
+      expect(completeGoogle).toHaveBeenCalledOnce();
+    });
 
     it("retains unverified identity tokens only for explicit revocation and retries failed cleanup", async () => {
       const f = await fixture();

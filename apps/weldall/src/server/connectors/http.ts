@@ -6,11 +6,7 @@ import { authenticateCliApiRequest } from "../oauth/cli-api";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { auditRequestIdentifiers } from "../audit/service";
 import { effectiveScopesRequiringSystemScopeFor } from "../policy/resources";
-import {
-  ConnectorError,
-  type AuthorizedConnectorActor,
-  type ConnectorBrowserActor,
-} from "./contracts";
+import { ConnectorError, type AuthorizedConnectorActor } from "./contracts";
 import { readBoundedBody } from "./core/transport";
 
 export const privateHeaders = {
@@ -37,16 +33,13 @@ export async function authenticateConnectorBrowserActor({
   request,
 }: {
   request: Request;
-}): Promise<ConnectorBrowserActor> {
+}): Promise<AuthorizedConnectorActor> {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user.emailVerified || !session.session.id)
+  if (!session?.user.emailVerified)
     throw new ConnectorError("unauthorized", "Sign in to Weldall to continue setup.", 401);
   if (!isTrustedBrowserRequest(request))
     throw new ConnectorError("csrf", "Untrusted browser request.", 403);
-  return {
-    ...(await authorizeConnectorActor({ request, user: session.user })),
-    sessionId: session.session.id,
-  };
+  return authorizeConnectorActor({ request, user: session.user });
 }
 /** Requires live login permission for either authenticated transport. */
 async function authorizeConnectorActor({

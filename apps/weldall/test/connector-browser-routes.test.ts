@@ -50,11 +50,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe("connector browser session boundary", () => {
+describe("connector browser authentication", () => {
   it.each([
     ["missing or expired session", null],
     ["unverified user", { ...session, user: { ...session.user, emailVerified: false } }],
-    ["missing session identity", { ...session, session: { id: "" } }],
   ])("rejects callbacks with %s before claiming state", async (_label, value) => {
     mocks.getSession.mockResolvedValue(value);
     const request = new Request(
@@ -73,12 +72,12 @@ describe("connector browser session boundary", () => {
     expect(mocks.completeConnection).not.toHaveBeenCalled();
   });
 
-  it("passes only the authenticated session to callback ownership and binding checks", async () => {
-    const request = callbackRequest("state=state&code=code&sessionId=forged&id=attacker");
+  it("uses the authenticated Weldall user for callback ownership, not the query parameters", async () => {
+    const request = callbackRequest("state=state&code=code&id=attacker");
     const response = await callback(request);
     expect(mocks.getSession).toHaveBeenCalledWith({ headers: request.headers });
     expect(mocks.completeConnection).toHaveBeenCalledWith({
-      browser: expect.objectContaining({ id: session.user.id, sessionId: session.session.id }),
+      browser: expect.objectContaining({ id: session.user.id }),
       state: "state",
       code: "code",
       cancelled: false,
@@ -91,11 +90,11 @@ describe("connector browser session boundary", () => {
     expect(await response.text()).not.toContain(session.session.id);
   });
 
-  it("also binds provider cancellation to the authenticated browser", async () => {
+  it("also authenticates the Weldall user for provider cancellation", async () => {
     mocks.completeConnection.mockResolvedValue("cancelled");
     const response = await callback(callbackRequest("state=state&error=access_denied"));
     expect(mocks.completeConnection).toHaveBeenCalledWith({
-      browser: expect.objectContaining({ id: session.user.id, sessionId: session.session.id }),
+      browser: expect.objectContaining({ id: session.user.id }),
       state: "state",
       code: null,
       cancelled: true,
@@ -103,19 +102,29 @@ describe("connector browser session boundary", () => {
     expect(response.headers.get("location")).toMatch(/\/cancelled$/);
   });
 
-  it("binds setup to the current session without disclosing it in the response", async () => {
+  it("accepts another valid session of the same Weldall user after setup", async () => {
     const response = await submit(setupRequest(), context);
     expect(response.status).toBe(200);
     expect(mocks.submitScopeSelection).toHaveBeenCalledWith({
-      actor: expect.objectContaining({ id: session.user.id, sessionId: session.session.id }),
+      actor: expect.objectContaining({ id: session.user.id }),
       id: "attempt",
       selection: { scopes: ["openid"] },
     });
     expect(await response.json()).toEqual({ url: "https://accounts.google.com/authorize" });
+    mocks.getSession.mockResolvedValue({ ...session, session: { id: "another-valid-session" } });
+    expect((await callback(callbackRequest())).headers.get("location")).toMatch(/\/success$/);
+    expect(mocks.completeConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        browser: {
+          ...mocks.submitScopeSelection.mock.calls[0][0].actor,
+          requestId: expect.any(String),
+        },
+      }),
+    );
   });
 
-  it("rejects caller-supplied session bindings and untrusted setup POSTs", async () => {
-    const forged = await submit(setupRequest({ selection: {}, sessionId: "forged" }), context);
+  it("rejects caller-supplied ownership and untrusted setup POSTs", async () => {
+    const forged = await submit(setupRequest({ selection: {}, ownerId: "attacker" }), context);
     expect(forged.status).toBe(400);
     const request = setupRequest();
     request.headers.set("origin", "https://attacker.example.com");

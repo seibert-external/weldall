@@ -8,7 +8,6 @@ import {
   connectionName,
   type AuthorizedConnectorActor,
   type ConnectorActor,
-  type ConnectorBrowserActor,
 } from "../contracts";
 import { readConnectorSecrets, runConnectorTransaction } from "../configuration";
 import { getConnectorProvider } from "../registry";
@@ -37,7 +36,6 @@ const hashValue = (value: string) => createHash("sha256").update(value).digest("
 const attemptPayload = z
   .object({
     attempt: z.unknown(),
-    browserSessionHash: z.string().regex(/^[a-f0-9]{64}$/),
     credentials: z.unknown().optional(),
   })
   .strict();
@@ -322,18 +320,16 @@ export async function getAuthorizationAttempt({
         : null,
   };
 }
-/** Binds provider authorization to the owner and the authenticated browser session submitting setup. */
+/** Validates owner setup through the provider and binds its authorization attempt to this owner. */
 export async function submitScopeSelection({
   actor,
   id,
   selection,
 }: {
-  actor: ConnectorBrowserActor;
+  actor: AuthorizedConnectorActor;
   id: string;
   selection: unknown;
 }) {
-  if (!actor.sessionId)
-    throw new ConnectorError("invalid_browser_session", "Sign in again and restart setup.", 403);
   return runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUniqueOrThrow({
       where: { id },
@@ -367,10 +363,7 @@ export async function submitScopeSelection({
       tx,
       provider: a.connector.envelopeProvider,
       context: `attempt:${id}:oauth`,
-      value: JSON.stringify({
-        attempt: authorization.attempt,
-        browserSessionHash: hashValue(actor.sessionId),
-      }),
+      value: JSON.stringify({ attempt: authorization.attempt }),
     });
     await tx.connectionAuthorization.update({
       where: { id, status: "SETUP" },
@@ -385,7 +378,7 @@ export async function submitScopeSelection({
   });
 }
 /**
- * Verifies the returning browser before claiming single-use state or exchanging a code, then
+ * Verifies the authenticated owner before claiming single-use state or exchanging a code, then
  * revalidates connector policy and revisions when committing the resulting connection.
  */
 export async function completeConnection({
@@ -394,7 +387,7 @@ export async function completeConnection({
   code,
   cancelled,
 }: {
-  browser: Pick<ConnectorBrowserActor, "id" | "sessionId">;
+  browser: Pick<ConnectorActor, "id">;
   state: string;
   code: string | null;
   cancelled: boolean;
@@ -414,8 +407,6 @@ export async function completeConnection({
     pending.connectorVersion !== pending.connector.version
   )
     throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
-  if (!browser?.sessionId)
-    throw new ConnectorError("invalid_browser_session", "Sign in again and restart setup.", 403);
   assertConnectionOwner({ ownerId: pending.ownerId, actorId: browser.id });
   const scopeKeys = await effectiveScopesRequiringSystemScopeFor({
     email: pending.owner.email,
@@ -453,12 +444,6 @@ export async function completeConnection({
     const payload = attemptPayload.parse(
       JSON.parse(await readSecret({ tx, id: a.payloadId, context: `attempt:${a.id}:oauth` })),
     );
-    if (payload.browserSessionHash !== hashValue(browser.sessionId))
-      throw new ConnectorError(
-        "invalid_browser_session",
-        "Complete setup in the same signed-in browser session that started it.",
-        403,
-      );
     await tx.connectionAuthorization.update({
       where: { id: a.id, status: "AUTHORIZING" },
       data: { status: cancelled ? "CANCELLED" : "PROCESSING", stateHash: null },
