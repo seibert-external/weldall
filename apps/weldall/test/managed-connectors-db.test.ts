@@ -1156,18 +1156,20 @@ describe.skipIf(!approvedTarget)(
       const scopes = await db.scope.findMany({
         where: { key: { in: ["weldall:administer", "weldall:iac"] } },
       });
-      await db.emailScopeAssignment.create({
-        data: {
+      const adminScope = scopes.find((s) => s.key === "weldall:administer")!;
+      const assignment = await db.emailScopeAssignment.upsert({
+        where: { normalizedEmail: actor.email },
+        create: {
           normalizedEmail: actor.email,
           createdBy: actor.id,
           updatedBy: actor.id,
-          grants: {
-            create: {
-              scopeId: scopes.find((s) => s.key === "weldall:administer")!.id,
-              createdBy: actor.id,
-            },
-          },
         },
+        update: { updatedBy: actor.id },
+      });
+      await db.emailScopeGrant.upsert({
+        where: { assignmentId_scopeId: { assignmentId: assignment.id, scopeId: adminScope.id } },
+        create: { assignmentId: assignment.id, scopeId: adminScope.id, createdBy: actor.id },
+        update: {},
       });
       const keys = await generateEs256KeyPair(),
         thumbprint = await calculateJwkThumbprint(keys.publicJwk);
