@@ -1162,8 +1162,8 @@ function compareBindingDeletes(left: any, right: any) {
     SKILL: 1,
     MACHINE: 2,
     RESOURCE: 3,
-    SCOPE: 4,
-    CONNECTOR: 5,
+    CONNECTOR: 4,
+    SCOPE: 5,
   };
   return (
     (rank[left.kind] ?? 9) - (rank[right.kind] ?? 9) || right.address.localeCompare(left.address)

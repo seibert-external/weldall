@@ -21,7 +21,7 @@ import {
   getConnectorRequiredScopeKeys,
   connectorScopeInclude,
 } from "../access";
-import { effectiveScopesFor } from "../../policy/resources";
+import { effectiveScopesRequiringSystemScopeFor } from "../../policy/resources";
 
 type Tx = Prisma.TransactionClient;
 /** Callback routing is fixed by the reviewed provider discriminator, never caller input. */
@@ -404,11 +404,21 @@ export async function completeConnection({
     pending.connectorVersion !== pending.connector.version
   )
     throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
+  const scopeKeys = await effectiveScopesRequiringSystemScopeFor({
+    email: pending.owner.email,
+    requiredSystemScope: "weldall:login",
+  });
+  if (!scopeKeys)
+    throw new ConnectorError(
+      "unauthorized",
+      "Sign in to Weldall with an active login permission.",
+      401,
+    );
   const scopeActor: AuthorizedConnectorActor = {
     id: pending.ownerId,
     email: pending.owner.email,
     requestId: pending.id,
-    scopeKeys: await effectiveScopesFor(pending.owner.email),
+    scopeKeys,
   };
   assertConnectorAccess({ connector: pending.connector, actor: scopeActor });
   const claimed = await runConnectorTransaction(async (tx) => {

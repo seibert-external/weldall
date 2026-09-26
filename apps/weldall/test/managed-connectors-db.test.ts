@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { db, ensureSystemScopes } from "@weldall/db";
+import { db, ensureSystemScopes, IAC_SCOPE_KEY } from "@weldall/db";
 import { calculateJwkThumbprint } from "jose";
 import { generateEs256KeyPair } from "@weldall/sdk";
 import {
@@ -162,8 +162,18 @@ describe.skipIf(!approvedTarget)(
       if (!approvedTarget) throw new Error("Unsafe database target");
       vi.stubEnv("WELDALL_CONNECTOR_KEK", randomBytes(32).toString("base64"));
       vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", randomBytes(32).toString("base64"));
+      await ensureSystemScopes(db, actor.id);
+      const loginScope = await db.scope.findUniqueOrThrow({ where: { key: "weldall:login" } });
       await db.user.create({
         data: { id: actor.id, name: "Test", email: actor.email, emailVerified: true },
+      });
+      await db.emailScopeAssignment.create({
+        data: {
+          normalizedEmail: actor.email,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+          grants: { create: { scopeId: loginScope.id, createdBy: actor.id } },
+        },
       });
     });
     afterEach(() => {
@@ -192,9 +202,11 @@ describe.skipIf(!approvedTarget)(
       await db.encryptedValue.deleteMany({
         where: { id: { in: values.map(({ id }) => id) } },
       });
-      await db.iacWorkspace.deleteMany({ where: { name: prefix } });
-      await db.machineClient.deleteMany({ where: { clientId: actor.id } });
-      await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: actor.email } });
+      await db.iacWorkspace.deleteMany({ where: { name: { startsWith: prefix } } });
+      await db.machineClient.deleteMany({ where: { clientId: { startsWith: prefix } } });
+      await db.emailScopeAssignment.deleteMany({
+        where: { normalizedEmail: { startsWith: prefix } },
+      });
       await db.user.delete({ where: { id: actor.id } });
       await db.auditEvent.deleteMany({ where: { actorId: actor.id } });
       await db.replayMarker.deleteMany({ where: { key: { startsWith: prefix } } });
@@ -247,12 +259,14 @@ describe.skipIf(!approvedTarget)(
         "not available",
       );
       expect(completeGoogle).not.toHaveBeenCalled();
-      const assignment = await db.emailScopeAssignment.create({
+      const assignment = await db.emailScopeAssignment.findUniqueOrThrow({
+        where: { normalizedEmail: actor.email },
+      });
+      await db.emailScopeGrant.create({
         data: {
-          normalizedEmail: actor.email,
+          assignmentId: assignment.id,
+          scopeId: scope.id,
           createdBy: actor.id,
-          updatedBy: actor.id,
-          grants: { create: { scopeId: scope.id, createdBy: actor.id } },
         },
       });
       vi.mocked(completeGoogle).mockResolvedValueOnce({
@@ -261,7 +275,9 @@ describe.skipIf(!approvedTarget)(
         credentials: credentials(),
       });
       expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("success");
-      await db.emailScopeAssignment.delete({ where: { id: assignment.id } });
+      await db.emailScopeGrant.delete({
+        where: { assignmentId_scopeId: { assignmentId: assignment.id, scopeId: scope.id } },
+      });
       await expect(
         db.$transaction((tx) =>
           mutateScope({
@@ -277,6 +293,32 @@ describe.skipIf(!approvedTarget)(
           }),
         ),
       ).rejects.toThrow(`required by connector ${f.key}`);
+    });
+
+    it("requires live login permission at callback before provider exchange", async () => {
+      const f = await fixture();
+      const { state } = await authorize({ key: f.key, name: `${f.key}-login-revoked` });
+      const loginScope = await db.scope.findUniqueOrThrow({ where: { key: "weldall:login" } });
+      const assignment = await db.emailScopeAssignment.findUniqueOrThrow({
+        where: { normalizedEmail: actor.email },
+      });
+      await db.emailScopeGrant.delete({
+        where: { assignmentId_scopeId: { assignmentId: assignment.id, scopeId: loginScope.id } },
+      });
+      try {
+        await expect(
+          completeConnection({ state, code: "code", cancelled: false }),
+        ).rejects.toMatchObject({ code: "unauthorized", status: 401 });
+        expect(completeGoogle).not.toHaveBeenCalled();
+      } finally {
+        await db.emailScopeGrant.upsert({
+          where: {
+            assignmentId_scopeId: { assignmentId: assignment.id, scopeId: loginScope.id },
+          },
+          create: { assignmentId: assignment.id, scopeId: loginScope.id, createdBy: actor.id },
+          update: {},
+        });
+      }
     });
 
     it("stores LOCAL_ENV and keeps client secrets in fixed application encryption", async () => {
@@ -919,6 +961,85 @@ describe.skipIf(!approvedTarget)(
         }),
       );
       expect((await planned()).actions[0]?.action).toBe("noop");
+    });
+    it("deletes a connector before a same-apply required scope removal", async () => {
+      const iacScope = await db.scope.findUniqueOrThrow({ where: { key: IAC_SCOPE_KEY } });
+      const keys = await generateEs256KeyPair();
+      const thumbprint = await calculateJwkThumbprint(keys.publicJwk, "sha256");
+      const runner = await db.machineClient.create({
+        data: {
+          clientId: `${prefix}-connector-delete-runner`,
+          name: "Connector delete runner",
+          createdBy: actor.id,
+          updatedBy: actor.id,
+          keys: {
+            create: {
+              kid: "current",
+              publicJwk: keys.publicJwk,
+              thumbprint,
+              createdBy: actor.id,
+            },
+          },
+          allowedScopes: { create: { scopeId: iacScope.id } },
+        },
+      });
+      const iacActor = {
+        clientId: runner.clientId,
+        keyId: "current",
+        keyThumbprint: thumbprint,
+        requestId: `${prefix}-connector-delete-apply`,
+      };
+      const workspace = {
+        id: randomUUID(),
+        name: `${prefix}-connector-delete`,
+        issuer: "https://weldall.example.com",
+      };
+      const adminEmail = `${prefix}-connector-delete-admin@example.com`;
+      await db.user.create({
+        data: {
+          id: `${prefix}-connector-delete-admin`,
+          name: "Connector delete admin",
+          email: adminEmail,
+          emailVerified: true,
+        },
+      });
+      const scopeKey = `${prefix}:connector-delete`;
+      const current = parseDesiredState({
+        apiVersion: "weldall.dev/v1",
+        workspace,
+        emailAssignments: { admin: { email: adminEmail, scopes: ["weldall:administer"] } },
+        scopes: { connector_delete: { key: scopeKey, description: "Connector delete" } },
+        connectors: {
+          google: {
+            ...config(`${prefix}-iac-delete-google`),
+            requiredScopes: [scopeKey],
+          },
+        },
+      });
+      const apply = async (manifest: typeof current) => {
+        const plan = await planIac(manifest);
+        expect(plan.blockers).toEqual([]);
+        await applyIac(
+          {
+            manifest,
+            plannedRevision: plan.revision,
+            configDigest: plan.configDigest,
+            planDigest: plan.digest,
+            operationId: randomUUID(),
+          },
+          iacActor,
+        );
+      };
+      await apply(current);
+      const removed = parseDesiredState({
+        apiVersion: "weldall.dev/v1",
+        workspace,
+        emailAssignments: { admin: { email: adminEmail, scopes: ["weldall:administer"] } },
+      });
+      await apply(removed);
+      await expect(db.connector.findUnique({ where: { key: `${prefix}-iac-delete-google` } }))
+        .resolves.toBeNull();
+      await expect(db.scope.findUnique({ where: { key: scopeKey } })).resolves.toBeNull();
     });
     it("checks freshness on each generic dispatch and audits fingerprints without URLs", async () => {
       const f = await ready();
