@@ -30,4 +30,4 @@ If you use connectors, set **`WELDALL_CONNECTOR_KEK`** on the Weldall server: an
 
 Today, connectors use `LOCAL_ENV`: this key wraps the keys that encrypt stored connection credentials. **If an attacker gets both the database and the KEK, those credentials are exposed.** Database encryption alone is not protection against that combination.
 
-OpenBao integration and KMS support are coming soon; neither is available yet. Key rotation is not currently supported.
+OpenBao, KMS, and key rotation are not currently supported.

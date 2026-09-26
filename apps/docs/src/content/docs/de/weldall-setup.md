@@ -46,14 +46,14 @@ Das ES256-Schlüsselpaar wird einmalig erzeugt und im Secret Manager aufbewahrt.
 
 Für den Installer nötig:
 
-| Variable                            | Zweck                                                                            |
-| ----------------------------------- | -------------------------------------------------------------------------------- |
-| `WELDALL_SETUP_TOKEN`               | Base64url-Token aus mindestens 32 Zufallsbytes, das das Setup autorisiert.       |
-| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Base64-kodierter 32-Byte-AES-Schlüssel, der Provider-Zugangsdaten verschlüsselt. |
+| Variable                            | Zweck                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `WELDALL_SETUP_TOKEN`               | Base64url-Token aus mindestens 32 Zufallsbytes, das das Setup autorisiert. |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Base64-kodierter 32-Byte-AES-Schlüssel für Anwendungs-Secrets.             |
 
 Der erste Start braucht beide: ohne sie bleibt der Installer geschlossen.
 
-Wenn du [Connectors](../connectors/) nutzt, setze zusätzlich `WELDALL_CONNECTOR_KEK` auf einen unabhängigen, Base64-kodierten Zufallsschlüssel mit 32 Bytes. Bewahre ihn unverändert und getrennt von Datenbank-Backups auf: Wer Datenbank und Schlüssel erbeutet, kann gespeicherte Verbindungszugangsdaten entschlüsseln. OpenBao- und KMS-Unterstützung kommen bald.
+Wenn du [Connectors](../connectors/) nutzt, setze zusätzlich `WELDALL_CONNECTOR_KEK` auf einen unabhängigen, Base64-kodierten Zufallsschlüssel mit 32 Bytes. Bewahre ihn unverändert und getrennt von Datenbank-Backups auf: Wer Datenbank und Schlüssel erbeutet, kann gespeicherte Verbindungszugangsdaten entschlüsseln. OpenBao, KMS und Schlüsselrotation werden nicht unterstützt.
 
 Optionale Variablen:
 
@@ -70,7 +70,7 @@ pnpm install --frozen-lockfile
 pnpm secrets:generate
 ```
 
-Der Befehl gibt Umgebungszeilen für den gesamten Workspace aus. Für den Container übernimmst du `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN` und `WELDALL_CREDENTIAL_ENCRYPTION_KEY` in deinen Secret Manager. `POSTGRES_URL` und `WELDALL_ISSUER` setzt du selbst.
+Der Befehl gibt Umgebungszeilen für den gesamten Workspace aus. Für den Container übernimmst du `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN` und `WELDALL_CREDENTIAL_ENCRYPTION_KEY` in deinen Secret Manager. Wenn du Connectors nutzt, übernimm auch `WELDALL_CONNECTOR_KEK`. `POSTGRES_URL` und `WELDALL_ISSUER` setzt du selbst.
 
 :::note[Entwicklungseinträge]
 Lass den Rest der Ausgabe weg: `WELDALL_DEPLOYMENT_MODE=development`, `NODE_USE_SYSTEM_CA`, `DEV_IDP_*`, `EXPENSES_*` und `DEV_M2M_*` gehören zum lokalen Entwicklungsstack. Der Container verlangt `WELDALL_DEPLOYMENT_MODE=production` und startet mit keinem anderen Wert.
@@ -90,6 +90,7 @@ docker run -d --name weldall \
   -e BETTER_AUTH_SECRET=... \
   -e WELDALL_SETUP_TOKEN=... \
   -e WELDALL_CREDENTIAL_ENCRYPTION_KEY=... \
+  -e WELDALL_CONNECTOR_KEK=... \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \
