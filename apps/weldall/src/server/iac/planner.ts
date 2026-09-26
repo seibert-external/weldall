@@ -1,5 +1,6 @@
 import type { Prisma } from "@weldall/db";
 import { buildConnectorState } from "../connectors/configuration";
+import { connectorScopeInclude } from "../connectors/access";
 import { getConnectorProvider } from "../connectors/registry";
 import {
   canonicalJson,
@@ -258,7 +259,7 @@ const actionRank: Record<IacAction["action"], number> = {
   noop: 7,
 };
 const kindRank: Record<IacKind, number> = {
-  connector: 1,
+  connector: 2,
   scope: 1,
   resource: 2,
   machine: 3,
@@ -313,7 +314,10 @@ export async function loadPlanningState({
       tx.cliSettings.findUnique({ where: { id: "default" } }),
     ]);
   const connectors = await tx.connector.findMany({
-    include: { _count: { select: { connections: true, attempts: true } } },
+    include: {
+      _count: { select: { connections: true, attempts: true } },
+      ...connectorScopeInclude,
+    },
   });
   const bindingTargets = new Map<string, (typeof bindings)[number]>();
   for (const binding of bindings) {
@@ -533,6 +537,19 @@ export async function loadPlanningState({
     )
       externalBlockers.push({ code: "EXTERNAL_REFERENCE", address: target.address, message });
   };
+  for (const connector of connectors)
+    for (const requiredScope of connector.requiredScopes) {
+      const target = objects.find(
+        (object) => object.kind === "scope" && object.id === requiredScope.scopeId,
+      );
+      if (target)
+        addReferenceBlocker(
+          target,
+          connector.id,
+          (state) => state.requiredScopes.includes(target.identity),
+          `Scope ${target.identity} is required by connector ${connector.key}`,
+        );
+    }
   for (const resource of resources)
     for (const scope of resource.scopes) {
       const target = objects.find(

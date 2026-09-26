@@ -11,8 +11,12 @@ import {
 import { getConnectorProvider } from "./registry";
 import { encrypt } from "./encryption";
 import { writeConnectorAuditLog } from "./audit";
+import { connectorRequiredScopeKeys, connectorScopeInclude } from "./access";
 
 type Tx = Prisma.TransactionClient;
+type ConnectorWithRequiredScopes = Connector & {
+  requiredScopes: { scope: { key: string } }[];
+};
 
 /** Runs lifecycle writes with serializable compare-and-set semantics. */
 export const runConnectorTransaction = <T>(operation: (tx: Tx) => Promise<T>) =>
@@ -34,15 +38,35 @@ export function assertConfigurationVersion({
 }
 
 /** Explicit allowlist keeps the fixed-encrypted, write-only client secret out of UI and IaC. */
-export function buildConnectorState(row: Connector): ConnectorConfig {
+export function buildConnectorState(row: ConnectorWithRequiredScopes): ConnectorConfig {
   return connectorConfig.parse({
     key: row.key,
     name: row.name,
     type: row.providerType,
     enabled: row.enabled,
     envelopeProvider: row.envelopeProvider,
+    requiredScopes: connectorRequiredScopeKeys(row),
     provider: getConnectorProvider(row.providerType).parseConfiguration(row.providerConfig),
   });
+}
+
+/** Resolves required scope keys to stable relational identifiers without accepting unknown scopes. */
+async function resolveRequiredScopes({
+  tx,
+  scopeKeys,
+}: {
+  tx: Tx;
+  scopeKeys: string[];
+}): Promise<{ id: string; key: string }[]> {
+  const scopes = scopeKeys.length
+    ? await tx.scope.findMany({
+        where: { key: { in: scopeKeys } },
+        select: { id: true, key: true },
+      })
+    : [];
+  if (scopes.length !== scopeKeys.length)
+    throw new ConnectorError("invalid_scope", "One or more required scopes do not exist.");
+  return scopes.sort((left, right) => left.key.localeCompare(right.key));
 }
 
 /** Reads fixed application encryption, never the connector envelope provider. */
@@ -85,7 +109,10 @@ export async function saveConnectorConfiguration({
   const config = connectorConfig.parse(value);
   const provider = getConnectorProvider(config.type);
   const providerConfig = provider.parseConfiguration(config.provider);
-  const current = id ? await tx.connector.findUniqueOrThrow({ where: { id } }) : null;
+  const requiredScopes = await resolveRequiredScopes({ tx, scopeKeys: config.requiredScopes });
+  const current = id
+    ? await tx.connector.findUniqueOrThrow({ where: { id }, include: connectorScopeInclude })
+    : null;
   assertConfigurationVersion({ current, expected: expectedVersion });
   if (current && current.key !== config.key)
     throw new ConnectorError("immutable_identity", "Connector identity cannot change.", 409);
@@ -147,16 +174,21 @@ export async function saveConnectorConfiguration({
     isDeepStrictEqual(buildConnectorState(current), config)
   )
     return current;
-  const { type, provider: _provider, ...coreConfig } = config;
+  const { type, provider: _provider, requiredScopes: _requiredScopes, ...coreConfig } = config;
   const data = { ...coreConfig, providerType: type, providerConfig, encryptedProviderSecrets };
   const row = current
     ? await tx.connector.update({
         where: { id: current.id, version: expectedVersion! },
         data: {
           ...data,
+          requiredScopes: {
+            deleteMany: {},
+            create: requiredScopes.map(({ id: scopeId }) => ({ scopeId })),
+          },
           version: { increment: 1 },
           updatedBy: actor.id,
         },
+        include: connectorScopeInclude,
       })
     : await tx.connector.create({
         data: {
@@ -164,7 +196,11 @@ export async function saveConnectorConfiguration({
           id: connectorId,
           createdBy: actor.id,
           updatedBy: actor.id,
+          requiredScopes: {
+            create: requiredScopes.map(({ id: scopeId }) => ({ scopeId })),
+          },
         },
+        include: connectorScopeInclude,
       });
   await writeConnectorAuditLog({
     tx,
@@ -263,7 +299,7 @@ export async function deleteConnectorConfiguration({
 /** Lists only non-secret configuration and presence flags. */
 export async function listManagedConnectorConfiguration() {
   const connectors = await db.connector.findMany({
-    include: { iacBinding: true },
+    include: { iacBinding: true, ...connectorScopeInclude },
     orderBy: { key: "asc" },
   });
   return {

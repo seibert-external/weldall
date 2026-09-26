@@ -10,6 +10,7 @@ import {
   saveConnectorConfiguration,
 } from "../connectors/configuration";
 import { ConnectorError } from "../connectors/contracts";
+import { connectorScopeInclude } from "../connectors/access";
 import {
   deleteMachine,
   mutateEmailAssignment,
@@ -252,8 +253,8 @@ async function executeDesiredState({
   // anything they formerly referenced. Replacements are then created and all
   // desired relations are reconnected before commit.
   for (const kind of [
-    "connector",
     "scope",
+    "connector",
     "resource",
     "machine",
     "emailAssignment",
@@ -272,7 +273,16 @@ async function executeDesiredState({
           ))
       )
         continue;
-      if (kind === "resource" && replacementScopes.size) {
+      if (kind === "connector" && replacementScopes.size) {
+        const state = item.state as { requiredScopes: string[] };
+        await reconcileObject({
+          item,
+          state: {
+            ...(item.state as object),
+            requiredScopes: withoutReplacedScopes(state.requiredScopes),
+          },
+        });
+      } else if (kind === "resource" && replacementScopes.size) {
         const state = item.state as { scopes: string[] };
         await reconcileObject({
           item,
@@ -371,6 +381,7 @@ async function executeDesiredState({
 
   if (replacementResources.size || replacementScopes.size)
     for (const kind of [
+      "connector",
       "resource",
       "machine",
       "emailAssignment",
@@ -424,9 +435,9 @@ async function upsertObject({
     if (!current && (await tx.scope.findUnique({ where: { key: state.key } })))
       throw new IacError("MANUAL_COLLISION", `${state.key} must be imported`, 409);
     return (
-      await mutateScope(
+      await mutateScope({
         tx,
-        current
+        input: current
           ? {
               action: "update",
               id: current.id,
@@ -434,8 +445,8 @@ async function upsertObject({
               expectedVersion: current.version,
             }
           : { action: "create", key: state.key, description: state.description },
-        mutation,
-      )
+        actor: mutation,
+      })
     ).id;
   }
   if (kind === "resource") {
@@ -1097,11 +1108,11 @@ async function deleteBoundObject({
     });
   } else if (binding.scopeId) {
     const current = await tx.scope.findUniqueOrThrow({ where: { id: binding.scopeId } });
-    await mutateScope(
+    await mutateScope({
       tx,
-      { action: "delete", id: current.id, expectedVersion: current.version },
+      input: { action: "delete", id: current.id, expectedVersion: current.version },
       actor,
-    );
+    });
   } else if (binding.resourceId) {
     const current = await tx.downstreamResource.findUniqueOrThrow({
       where: { id: binding.resourceId },
@@ -1229,7 +1240,11 @@ async function findNatural({
   identity: string;
 }): Promise<any> {
   let row: any;
-  if (kind === "connector") row = await tx.connector.findUnique({ where: { key: identity } });
+  if (kind === "connector")
+    row = await tx.connector.findUnique({
+      where: { key: identity },
+      include: connectorScopeInclude,
+    });
   else if (kind === "scope") row = await tx.scope.findUnique({ where: { key: identity } });
   else if (kind === "resource")
     row = await tx.downstreamResource.findUnique({

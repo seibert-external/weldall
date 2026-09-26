@@ -187,6 +187,11 @@ The slug is the skill identity, so changing it replaces the skill. An IaC-manage
 `connectors` use the same plan/apply, explicit import, state move and unmanage rules as other primitives. These non-secret definitions are persisted in PostgreSQL, not a runtime YAML registry. IaC creation requires the explicit immutable `envelopeProvider: LOCAL_ENV`.
 
 ```yaml
+scopes:
+  google_use:
+    key: workspace:google
+    description: Create and use Google connections
+
 connectors:
   google:
     key: google
@@ -194,6 +199,8 @@ connectors:
     type: google
     enabled: false
     envelopeProvider: LOCAL_ENV
+    requiredScopes:
+      - workspace:google
     provider:
       clientId: YOUR_CLIENT_ID.apps.googleusercontent.com
       allowedScopes:
@@ -206,6 +213,8 @@ connectors:
 Provision `WELDALL_CONNECTOR_KEK` on every **server** before apply. Every `LOCAL_ENV` connector uses that single deployment KEK to wrap fresh per-write DEKs. `WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts the connector OAuth client secret and ordinary application secrets. Neither CLI nor CI resolves or uploads these keys. Arbitrary environment-variable names, unknown provider configuration fields, declarative secrets, unknown provider types and `OPENBAO` are rejected. OpenBao is not yet supported; provider changes are rejected server-side even for disabled connectors.
 
 Create a connector disabled, provision its write-only OAuth client secret in the admin UI, then apply `enabled: true`. Later applies preserve the secret unless `provider.clientId` changes; replacing the OAuth client requires removing connections and attempts, applying the new client ID while disabled, provisioning the new secret, then enabling. Users cannot remove required account-identity permissions, but may untick optional API permissions within `provider.allowedScopes`. The granted scope set must exactly equal the requested set; scopes are deduplicated and sorted without aliases or implications.
+
+`requiredScopes` controls who may create and use connections. An empty list allows every authenticated user; otherwise users must hold every listed Weldall scope. Scope assignments remain separate resources.
 
 UI edits remain allowed except for immutable identity/provider fields; the next approved apply restores mutable manifest values. Disconnect and remove connections/attempts before deleting a connector. Refresh and credential writes do not create configuration drift. No key rotation is supported. Restore the corresponding deployment secrets with database backups; losing or replacing a key makes its protected secrets unavailable. Encryption protects database-only disclosure, not application-process/environment compromise. Obtain a fresh plan after upgrading the CLI/server because canonical manifest digests change.
 

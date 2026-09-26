@@ -55,7 +55,15 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "name", "type", "enabled", "envelopeProvider", "provider"],
+        "required": [
+          "key",
+          "name",
+          "type",
+          "enabled",
+          "envelopeProvider",
+          "requiredScopes",
+          "provider"
+        ],
         "properties": {
           "key": {
             "type": "string",
@@ -77,6 +85,18 @@
           "envelopeProvider": {
             "const": "LOCAL_ENV",
             "description": "Immutable after creation. All local connectors use the deployment-wide KEK; OpenBao is not supported yet."
+          },
+          "requiredScopes": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "description": "Users must hold every listed Weldall scope to create or use connections. An empty set allows every authenticated user.",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$"
+            }
           },
           "provider": {
             "type": "object",

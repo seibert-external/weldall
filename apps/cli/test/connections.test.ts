@@ -105,6 +105,7 @@ describe("managed connection CLI", () => {
       key: "google",
       name: "Google",
       type: "google",
+      requiredScopes: [],
       scopes: [scope],
       defaultScopes: [],
     };
@@ -141,6 +142,7 @@ describe("managed connection CLI", () => {
       type: "google",
       enabled: false,
       envelopeProvider: "LOCAL_ENV",
+      requiredScopes: ["expenses:read"],
       provider: { clientId: "client", allowedScopes: [read], defaultScopes: [] },
     };
     const manifest = {
@@ -156,6 +158,7 @@ describe("managed connection CLI", () => {
       { clientSecret: "secret" },
       { envelopeProvider: "OPENBAO" },
       { type: "unknown" },
+      { requiredScopes: ["INVALID"] },
       { provider: { ...google.provider, clientSecret: "secret" } },
       { provider: { ...google.provider, enabledApis: ["gmail"] } },
       { provider: { ...google.provider, allowedScopes: ["unknown"] } },
@@ -171,7 +174,11 @@ describe("managed connection CLI", () => {
       canonicalServerManifest({
         ...manifest,
         connectors: {
-          google: { ...google, provider: { ...google.provider, allowedScopes: [read, read] } },
+          google: {
+            ...google,
+            requiredScopes: ["expenses:read", "expenses:read"],
+            provider: { ...google.provider, allowedScopes: [read, read] },
+          },
         },
       }).connectors,
     ).toEqual(manifest.connectors);

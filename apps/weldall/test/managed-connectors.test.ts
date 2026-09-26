@@ -17,6 +17,8 @@ import {
 import { fingerprintConnectorRequest } from "../src/server/connectors/audit";
 import { revokeGoogleAuthorization } from "../src/server/connectors/providers/google/oauth";
 import { connectorConfig } from "../src/server/connectors/contracts";
+import { assertConnectorAccess, canAccessConnector } from "../src/server/connectors/access";
+import { scopeKeySchema } from "../src/server/policy/scope-key";
 import {
   parseDesiredState,
   importRequestSchema,
@@ -33,6 +35,7 @@ const config = {
   type: "google",
   enabled: false,
   envelopeProvider: "LOCAL_ENV",
+  requiredScopes: [],
   provider: providerConfig,
 };
 const scopes = canonicalScopes([...requiredScopes, read]);
@@ -121,12 +124,41 @@ describe("managed provider boundaries", () => {
     for (const value of [
       { ...config, enabledApis: ["gmail"] },
       { ...config, type: "atlassian" },
+      { ...config, requiredScopes: ["INVALID"] },
       { ...config, provider: { ...providerConfig, enabledApis: ["gmail"] } },
       { ...config, provider: { ...providerConfig, clientSecret: "secret" } },
     ])
       expect(connectorConfig.safeParse(value).success).toBe(false);
     for (const type of ["atlassian", "__proto__", "constructor", "Google", ""])
       expect(() => getConnectorProvider(type)).toThrow("Unsupported provider");
+  });
+  it("requires every configured Weldall scope while leaving empty policies unrestricted", () => {
+    const readScope = scopeKeySchema.parse("expenses:read");
+    const approveScope = scopeKeySchema.parse("expenses:approve");
+    const connector = {
+      requiredScopes: [{ scope: { key: readScope } }, { scope: { key: approveScope } }],
+    };
+    expect(
+      canAccessConnector({
+        connector: { requiredScopes: [] },
+        actor: { scopeKeys: [] },
+      }),
+    ).toBe(true);
+    expect(
+      canAccessConnector({
+        connector,
+        actor: { scopeKeys: [approveScope, readScope] },
+      }),
+    ).toBe(true);
+    expect(
+      canAccessConnector({
+        connector,
+        actor: { scopeKeys: [readScope] },
+      }),
+    ).toBe(false);
+    expect(() => assertConnectorAccess({ connector, actor: { scopeKeys: [readScope] } })).toThrow(
+      "not available",
+    );
   });
   it("binds consent to OAuth PKCE and excludes incremental grants", async () => {
     const result = await googleProvider.beginAuthorization({
@@ -332,6 +364,27 @@ describe("managed provider boundaries", () => {
     await expect(revokeGoogleAuthorization("token")).resolves.toBeUndefined();
     await expect(revokeGoogleAuthorization("token")).rejects.toThrow("unconfirmed");
     expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("error");
+  });
+  it("orders declared scopes before connectors that require them", () => {
+    const manifest = parseDesiredState({
+      apiVersion: "weldall.dev/v1",
+      workspace: {
+        id: "67ade6dc-0000-4000-8000-000000000000",
+        name: "test",
+        issuer: "https://weldall.example.com",
+      },
+      scopes: {
+        google: { key: "workspace:google", description: "Use Google connections" },
+      },
+      connectors: {
+        google: { ...config, requiredScopes: ["workspace:google"] },
+      },
+    });
+    const plan = createPlan(manifest, { revision: 0, objects: [] });
+    expect(plan.actions.map(({ address }) => address)).toEqual([
+      "scope.google",
+      "connector.google",
+    ]);
   });
   it("plans nested configuration drift without declarative secrets", () => {
     const manifest = parseDesiredState({

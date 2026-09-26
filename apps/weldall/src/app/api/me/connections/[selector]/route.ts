@@ -9,17 +9,20 @@ import {
   disconnectConnection,
   findOwnedConnection,
 } from "@/server/connectors/core/connections";
+import { assertConnectorAccess } from "@/server/connectors/access";
 
 type Context = { params: Promise<{ selector: string }> };
 
 /** Returns credential-free metadata for one owner-selected managed connection. */
 export async function GET(request: Request, context: Context) {
   try {
+    const actor = await authenticateConnectorActor({ request });
     const row = await findOwnedConnection({
       tx: db,
       selector: (await context.params).selector,
-      actor: await authenticateConnectorActor({ request }),
+      actor,
     });
+    assertConnectorAccess({ connector: row.connector, actor });
     return createJsonResponse(buildConnectionMetadata({ row, connector: row.connector }));
   } catch (error) {
     return createConnectorErrorResponse(error);

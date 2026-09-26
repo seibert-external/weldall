@@ -1,9 +1,10 @@
 import { db, type Prisma } from "@weldall/db";
-import { ConnectorError, type ConnectorActor } from "../contracts";
+import { ConnectorError, type AuthorizedConnectorActor } from "../contracts";
 import { runConnectorTransaction } from "../configuration";
 import { accessCredentials, findOwnedConnection } from "./connections";
 import { getConnectorProvider } from "../registry";
 import { fingerprintConnectorRequest, writeConnectorAuditLog } from "../audit";
+import { assertConnectorAccess } from "../access";
 import {
   assertHeaderSize,
   dispatchUpstream,
@@ -20,7 +21,7 @@ export async function executeConnectionRequest({
   connectorKey,
 }: {
   request: Request;
-  actor: ConnectorActor;
+  actor: AuthorizedConnectorActor;
   connectorKey: string;
 }) {
   assertHeaderSize(request.headers);
@@ -40,6 +41,7 @@ export async function executeConnectionRequest({
   };
   try {
     const initial = await findOwnedConnection({ tx: db, selector, actor });
+    assertConnectorAccess({ connector: initial.connector, actor });
     connectionId = initial.id;
     const provider = getConnectorProvider(initial.connector.providerType);
     details = { ...details, provider: provider.type };
@@ -108,6 +110,7 @@ export async function executeConnectionRequest({
     signal.throwIfAborted();
     await runConnectorTransaction(async (tx) => {
       const row = await findOwnedConnection({ tx, selector: initial.id, actor });
+      assertConnectorAccess({ connector: row.connector, actor });
       authorize(row);
       if (
         row.version !== credentialState.version ||

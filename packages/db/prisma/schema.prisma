@@ -23,20 +23,21 @@ model User {
 }
 
 model Scope {
-  id                 String                @id @default(cuid())
-  key                String                @unique
-  description        String
-  isSystem           Boolean               @default(false)
-  version            Int                   @default(1)
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  createdBy          String
-  updatedBy          String
-  grants             EmailScopeGrant[]
-  groupGrants        GroupScopeGrant[]
-  resources          ResourceScope[]
-  allowedForMachines MachineAllowedScope[]
-  iacBinding         IacObjectBinding?
+  id                   String                   @id @default(cuid())
+  key                  String                   @unique
+  description          String
+  isSystem             Boolean                  @default(false)
+  version              Int                      @default(1)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  createdBy            String
+  updatedBy            String
+  grants               EmailScopeGrant[]
+  groupGrants          GroupScopeGrant[]
+  resources            ResourceScope[]
+  allowedForMachines   MachineAllowedScope[]
+  requiredByConnectors ConnectorRequiredScope[]
+  iacBinding           IacObjectBinding?
 
   @@index([updatedAt])
 }
@@ -419,7 +420,18 @@ model Connector {
   updatedBy                String
   connections              Connection[]
   attempts                 ConnectionAuthorization[]
+  requiredScopes           ConnectorRequiredScope[]
   iacBinding               IacObjectBinding?
+}
+
+model ConnectorRequiredScope {
+  connectorId String
+  scopeId     String
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  scope       Scope     @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([connectorId, scopeId])
+  @@index([scopeId])
 }
 
 enum ConnectionStatus {

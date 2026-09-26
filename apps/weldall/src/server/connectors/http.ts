@@ -5,8 +5,8 @@ import { isTrustedBrowserRequest } from "../auth/browser-request";
 import { authenticateCliApiRequest } from "../oauth/cli-api";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { auditRequestIdentifiers } from "../audit/service";
-import { hasEffectiveSystemScopeFor } from "../policy/resources";
-import { ConnectorError, type ConnectorActor } from "./contracts";
+import { effectiveScopesRequiringSystemScopeFor } from "../policy/resources";
+import { ConnectorError, type AuthorizedConnectorActor } from "./contracts";
 import { readBoundedBody } from "./core/transport";
 
 export const privateHeaders = {
@@ -21,14 +21,20 @@ export async function authenticateConnectorActor({
 }: {
   request: Request;
   browser?: boolean;
-}): Promise<ConnectorActor> {
+}): Promise<AuthorizedConnectorActor> {
   const user = browser
     ? (await auth.api.getSession({ headers: request.headers }))?.user
     : await authenticateCliApiRequest(request, {
         expectedUrl: `${WELDALL_ISSUER}${new URL(request.url).pathname}`,
         requiredScope: "weldall:scopes",
       });
-  if (!user || !(await hasEffectiveSystemScopeFor(user.email, "weldall:login")))
+  const scopeKeys = user
+    ? await effectiveScopesRequiringSystemScopeFor({
+        email: user.email,
+        requiredSystemScope: "weldall:login",
+      })
+    : null;
+  if (!user || !scopeKeys)
     throw new ConnectorError(
       "unauthorized",
       "Sign in to Weldall with an active login permission.",
@@ -36,7 +42,7 @@ export async function authenticateConnectorActor({
     );
   if (browser && !isTrustedBrowserRequest(request))
     throw new ConnectorError("csrf", "Untrusted browser request.", 403);
-  return { id: user.id, email: user.email, ...auditRequestIdentifiers(request) };
+  return { id: user.id, email: user.email, scopeKeys, ...auditRequestIdentifiers(request) };
 }
 /** Parses a bounded JSON body for connector routes and applies the route's Zod contract. */
 export async function parseJsonRequestBody<T extends z.ZodType>({

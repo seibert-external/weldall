@@ -233,7 +233,15 @@ function validatePrimitive({
   object: Record<string, unknown>;
 }) {
   const fields: Record<typeof section, string[]> = {
-    connectors: ["key", "name", "type", "enabled", "envelopeProvider", "provider"],
+    connectors: [
+      "key",
+      "name",
+      "type",
+      "enabled",
+      "envelopeProvider",
+      "requiredScopes",
+      "provider",
+    ],
     scopes: ["key", "description"],
     resources: [
       "key",
@@ -304,6 +312,9 @@ function validatePrimitive({
       throw new CliError("Only the LOCAL_ENV envelope provider is supported");
     if (object.type !== "google" || typeof object.enabled !== "boolean")
       throw new CliError("Invalid connector type or enabled flag");
+    const requiredScopes = validateStringList({ field: "requiredScopes" });
+    if (!requiredScopes.every((scope) => /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/.test(scope)))
+      throw new CliError("Invalid connectors.requiredScopes");
     validateGoogleConfiguration(object.provider);
   } else if (section === "scopes") {
     validateText({
@@ -529,6 +540,7 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
       : {}),
     connectors: canonicalRecords("connectors", (value) => ({
       ...value,
+      requiredScopes: canonicalSet(value.requiredScopes),
       provider: {
         ...value.provider,
         allowedScopes: canonicalSet(value.provider.allowedScopes),

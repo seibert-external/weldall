@@ -3,13 +3,25 @@ import { db, type Connector, type Connection, type Prisma } from "@weldall/db";
 import { z } from "zod";
 import { WELDALL_ISSUER } from "../../oauth/constants";
 import { logger } from "../../observability/logger";
-import { ConnectorError, connectionName, type ConnectorActor } from "../contracts";
+import {
+  ConnectorError,
+  connectionName,
+  type AuthorizedConnectorActor,
+  type ConnectorActor,
+} from "../contracts";
 import { readConnectorSecrets, runConnectorTransaction } from "../configuration";
 import { getConnectorProvider } from "../registry";
 import { ProviderTokenError, RejectedProviderCredentials } from "../errors";
 import type { ProviderGrant } from "../provider";
 import { readSecret, saveSecret } from "../encryption";
 import { writeConnectorAuditLog } from "../audit";
+import {
+  assertConnectorAccess,
+  canAccessConnector,
+  connectorRequiredScopeKeys,
+  connectorScopeInclude,
+} from "../access";
+import { effectiveScopesFor } from "../../policy/resources";
 
 type Tx = Prisma.TransactionClient;
 /** Callback routing is fixed by the reviewed provider discriminator, never caller input. */
@@ -94,11 +106,11 @@ export async function findOwnedConnection({
   const row =
     (await tx.connection.findFirst({
       where: { ownerId: actor.id, id: selector },
-      include: { connector: true },
+      include: { connector: { include: connectorScopeInclude } },
     })) ??
     (await tx.connection.findUnique({
       where: { ownerId_name: { ownerId: actor.id, name: selector } },
-      include: { connector: true },
+      include: { connector: { include: connectorScopeInclude } },
     }));
   if (!row) throw new ConnectorError("not_found", "Connection not found.", 404);
   assertConnectionOwner({ ownerId: row.ownerId, actorId: actor.id });
@@ -132,15 +144,24 @@ export async function getConnectionDetails(id: string) {
   return { ...buildConnectionMetadata({ row, connector }), owner };
 }
 /** Lists enabled connector catalogs and setup metadata exposed to authenticated CLI users. */
-export async function listConnectors() {
-  return (await db.connector.findMany({ where: { enabled: true }, orderBy: { key: "asc" } })).map(
-    (c) => ({
-      key: c.key,
-      name: c.name,
-      type: getConnectorProvider(c.providerType).type,
-      ...getConnectorProvider(c.providerType).describeSetup({ config: c.providerConfig }),
-    }),
-  );
+export async function listConnectors(actor: AuthorizedConnectorActor) {
+  return (
+    await db.connector.findMany({
+      where: { enabled: true },
+      include: connectorScopeInclude,
+      orderBy: { key: "asc" },
+    })
+  )
+    .filter((connector) => canAccessConnector({ connector, actor }))
+    .map((connector) => ({
+      key: connector.key,
+      name: connector.name,
+      type: getConnectorProvider(connector.providerType).type,
+      requiredScopes: connectorRequiredScopeKeys(connector),
+      ...getConnectorProvider(connector.providerType).describeSetup({
+        config: connector.providerConfig,
+      }),
+    }));
 }
 /** Stops setup and execution when an administrator has disabled the connector. */
 function assertConnectorEnabled(connector: Connector) {
@@ -183,14 +204,18 @@ export async function startConnection({
   actor,
   input,
 }: {
-  actor: ConnectorActor;
+  actor: AuthorizedConnectorActor;
   input: { connector: string; name: string; reconnect?: string | undefined };
 }) {
   await cleanupAttempts();
   return runConnectorTransaction(async (tx) => {
-    const connector = await tx.connector.findUnique({ where: { key: input.connector } });
+    const connector = await tx.connector.findUnique({
+      where: { key: input.connector },
+      include: connectorScopeInclude,
+    });
     if (!connector) throw new ConnectorError("not_found", "Connector not found.", 404);
     assertConnectorEnabled(connector);
+    assertConnectorAccess({ connector, actor });
     const prior = input.reconnect
       ? await findOwnedConnection({ tx, selector: input.reconnect, actor })
       : null;
@@ -264,15 +289,19 @@ export async function getAuthorizationAttempt({
   actor,
   id,
 }: {
-  actor: ConnectorActor;
+  actor: AuthorizedConnectorActor;
   id: string;
 }) {
   const a = await db.connectionAuthorization.findUnique({
     where: { id },
-    include: { connector: true, connection: { select: metadataSelect } },
+    include: {
+      connector: { include: connectorScopeInclude },
+      connection: { select: metadataSelect },
+    },
   });
   if (!a) throw new ConnectorError("not_found", "Authorization attempt not found.", 404);
   assertConnectionOwner({ ownerId: a.ownerId, actorId: actor.id });
+  assertConnectorAccess({ connector: a.connector, actor });
   const status =
     a.expiresAt <= new Date() && ["SETUP", "AUTHORIZING"].includes(a.status) ? "EXPIRED" : a.status;
   return {
@@ -296,17 +325,18 @@ export async function submitScopeSelection({
   id,
   selection,
 }: {
-  actor: ConnectorActor;
+  actor: AuthorizedConnectorActor;
   id: string;
   selection: unknown;
 }) {
   return runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUniqueOrThrow({
       where: { id },
-      include: { connector: true },
+      include: { connector: { include: connectorScopeInclude } },
     });
     assertConnectionOwner({ ownerId: a.ownerId, actorId: actor.id });
     assertConnectorEnabled(a.connector);
+    assertConnectorAccess({ connector: a.connector, actor });
     if (
       a.status !== "SETUP" ||
       a.expiresAt <= new Date() ||
@@ -359,10 +389,32 @@ export async function completeConnection({
   code: string | null;
   cancelled: boolean;
 }) {
+  const pending = await db.connectionAuthorization.findUnique({
+    where: { stateHash: hashValue(state) },
+    include: {
+      connector: { include: connectorScopeInclude },
+      owner: { select: { email: true, emailVerified: true } },
+    },
+  });
+  if (
+    !pending ||
+    !pending.owner.emailVerified ||
+    pending.status !== "AUTHORIZING" ||
+    pending.expiresAt <= new Date() ||
+    pending.connectorVersion !== pending.connector.version
+  )
+    throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
+  const scopeActor: AuthorizedConnectorActor = {
+    id: pending.ownerId,
+    email: pending.owner.email,
+    requestId: pending.id,
+    scopeKeys: await effectiveScopesFor(pending.owner.email),
+  };
+  assertConnectorAccess({ connector: pending.connector, actor: scopeActor });
   const claimed = await runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUnique({
       where: { stateHash: hashValue(state) },
-      include: { connector: true },
+      include: { connector: { include: connectorScopeInclude } },
     });
     if (
       !a ||
@@ -373,6 +425,7 @@ export async function completeConnection({
     )
       throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
     assertConnectorEnabled(a.connector);
+    assertConnectorAccess({ connector: a.connector, actor: scopeActor });
     await tx.connectionAuthorization.update({
       where: { id: a.id, status: "AUTHORIZING" },
       data: { status: cancelled ? "CANCELLED" : "PROCESSING", stateHash: null },
@@ -462,9 +515,10 @@ export async function completeConnection({
     await runConnectorTransaction(async (tx) => {
       const fresh = await tx.connectionAuthorization.findUniqueOrThrow({
         where: { id: a.id },
-        include: { connector: true },
+        include: { connector: { include: connectorScopeInclude } },
       });
       assertConnectorEnabled(fresh.connector);
+      assertConnectorAccess({ connector: fresh.connector, actor: scopeActor });
       if (
         fresh.status !== "NEEDS_REVOCATION" ||
         fresh.connectorVersion !== fresh.connector.version ||
@@ -668,12 +722,13 @@ export async function accessCredentials({
   actor,
   selector,
 }: {
-  actor: ConnectorActor;
+  actor: AuthorizedConnectorActor;
   selector: string;
 }) {
   const claim = await runConnectorTransaction(async (tx) => {
     const row = await findOwnedConnection({ tx, selector, actor });
     assertConnectorEnabled(row.connector);
+    assertConnectorAccess({ connector: row.connector, actor });
     if (
       row.status === "REFRESHING" &&
       row.refreshStartedAt &&
@@ -741,7 +796,7 @@ export async function accessCredentials({
     const refreshed = await runConnectorTransaction(async (tx) => {
       const row = await tx.connection.findUniqueOrThrow({
         where: { id: claim.row.id },
-        include: { connector: true },
+        include: { connector: { include: connectorScopeInclude } },
       });
       // Disconnect can block the account while refresh is in flight. Retain a rotated token solely for manual revocation.
       const pending =
@@ -776,7 +831,7 @@ export async function accessCredentials({
       });
       return tx.connection.findUniqueOrThrow({
         where: { id: row.id },
-        include: { connector: true },
+        include: { connector: { include: connectorScopeInclude } },
       });
     });
     return { row: refreshed, credentials, refresh: false as const };

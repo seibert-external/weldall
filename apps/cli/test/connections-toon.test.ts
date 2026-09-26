@@ -38,6 +38,7 @@ const connector = (overrides: Partial<ConnectorSummary> = {}): ConnectorSummary 
   key: "google",
   name: "Google Workspace",
   type: "google",
+  requiredScopes: ["workspace:google"],
   scopes: [
     {
       id: "openid",

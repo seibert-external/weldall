@@ -24,8 +24,9 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import type { ConnectorConfig } from "@/server/connectors/contracts";
+import type { ConnectorConfigInput } from "@/server/connectors/contracts";
 import type { listManagedConnectorConfiguration } from "@/server/connectors/configuration";
+import type { listScopeOptions } from "@/server/admin/service";
 import { scopeCatalog } from "@/server/connectors/providers/google/setup";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
@@ -39,16 +40,17 @@ import {
 
 type Configuration = Awaited<ReturnType<typeof listManagedConnectorConfiguration>>;
 type ConnectorRow = Configuration["connectors"][number];
+type ScopeOption = Awaited<ReturnType<typeof listScopeOptions>>[number];
 type ConnectorAction = { connector: ConnectorRow };
 const emptyConnectors: ConnectorRow[] = [];
 
-/** Renders the connector-definition admin workspace backed by shared tRPC configuration data. */
 /** Coordinates connector administration, filtering, editing, and lifecycle mutations. */
 export function ManagedConfiguration() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const operationToast = useOperationToast();
   const configurationQuery = useQuery(trpc.admin.managed.configuration.queryOptions());
+  const scopeOptionsQuery = useQuery(trpc.admin.scopes.options.queryOptions());
   const [editingConnector, setEditingConnector] = useState<ConnectorRow | null | undefined>();
   const [action, setAction] = useState<ConnectorAction | null>(null);
   const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
@@ -104,6 +106,16 @@ export function ManagedConfiguration() {
         minSize: 120,
         maxSize: 190,
         cell: ({ getValue }) => `${getValue<number>().toLocaleString()} allowed`,
+      },
+      {
+        id: "access",
+        accessorFn: (row) => row.config.requiredScopes.length,
+        header: "Access",
+        size: 150,
+        minSize: 120,
+        maxSize: 190,
+        cell: ({ getValue }) =>
+          getValue<number>() ? `${getValue<number>().toLocaleString()} required` : "All users",
       },
       {
         id: "envelopeProvider",
@@ -165,6 +177,7 @@ export function ManagedConfiguration() {
       <HerocrumbsActions>
         <div className="admin-table-action-row">
           <Button
+            isDisabled={scopeOptionsQuery.isPending || scopeOptionsQuery.isError}
             label="Add connector"
             onClick={() => setEditingConnector(null)}
             variant="primary"
@@ -183,6 +196,14 @@ export function ManagedConfiguration() {
           description={configurationQuery.error.message}
         />
       ) : null}
+      {scopeOptionsQuery.error ? (
+        <Banner
+          container="card"
+          status="error"
+          title="Could not load scopes"
+          description={scopeOptionsQuery.error.message}
+        />
+      ) : null}
       <ManagedTable
         label="Connectors table"
         table={table}
@@ -195,6 +216,7 @@ export function ManagedConfiguration() {
         <ConnectorDialog
           key={editingConnector?.id ?? "new"}
           connector={editingConnector}
+          scopeOptions={scopeOptionsQuery.data ?? []}
           onClose={() => setEditingConnector(undefined)}
           onDelete={(connector) => {
             setEditingConnector(undefined);
@@ -228,7 +250,6 @@ export function ManagedConfiguration() {
   );
 }
 
-/** Renders the sortable connector table and forwards row activation into the edit workflow. */
 /** Renders managed connectors in the shared sortable admin-table layout. */
 function ManagedTable({
   label,
@@ -310,15 +331,16 @@ function ManagedTable({
   );
 }
 
-/** Owns connector configuration and write-only client-secret forms for one admin dialog. */
 /** Collects and validates connector configuration before the admin mutation is submitted. */
 function ConnectorDialog({
   connector,
+  scopeOptions,
   onClose,
   onDelete,
   onSaved,
 }: {
   connector: ConnectorRow | null;
+  scopeOptions: ScopeOption[];
   onClose: () => void;
   onDelete: (connector: ConnectorRow) => void;
   onSaved: () => Promise<void>;
@@ -344,6 +366,7 @@ function ConnectorDialog({
       clientId: config?.provider.clientId ?? "",
       clientSecret: "",
       envelopeProvider: config?.envelopeProvider ?? ("LOCAL_ENV" as const),
+      requiredScopes: [...(config?.requiredScopes ?? [])] as string[],
       allowedScopes: config?.provider.allowedScopes ?? [],
       defaultScopes: config?.provider.defaultScopes ?? [],
       enabled: config?.enabled ?? false,
@@ -357,7 +380,7 @@ function ConnectorDialog({
           ...configuration,
           type: "google",
           provider: { clientId, allowedScopes, defaultScopes },
-        } satisfies ConnectorConfig,
+        } satisfies ConnectorConfigInput,
         ...(clientSecret ? { providerSecrets: { clientSecret } } : {}),
       });
       await onSaved();
@@ -491,6 +514,32 @@ function ConnectorDialog({
                   }}
                 </form.Subscribe>
                 <EnvelopeProviderField existing={Boolean(connector)} />
+                <form.Field name="requiredScopes">
+                  {(field) => (
+                    <div className="space-y-2">
+                      <MultiSelector
+                        hasClear
+                        hasSearch
+                        hasSelectAll
+                        label="Required Weldall scopes"
+                        onChange={field.handleChange}
+                        options={scopeOptions.map((scope) => ({
+                          value: scope.key,
+                          label: scope.key,
+                        }))}
+                        placeholder="Available to all users"
+                        searchPlaceholder="Find scopes…"
+                        triggerDisplay="badges"
+                        value={field.state.value}
+                        width="100%"
+                      />
+                      <Text color="secondary">
+                        Users must hold every selected scope to create or use connections. Leave
+                        empty to allow every authenticated user.
+                      </Text>
+                    </div>
+                  )}
+                </form.Field>
                 <form.Subscribe selector={(state) => state.values.allowedScopes}>
                   {(allowedScopes) => {
                     const allowedScopeOptions = scopeCatalog

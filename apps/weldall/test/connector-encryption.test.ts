@@ -26,6 +26,7 @@ const config = {
   type: "google",
   enabled: false,
   envelopeProvider: "LOCAL_ENV",
+  requiredScopes: [],
   provider: {
     clientId: "client",
     allowedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
@@ -205,9 +206,13 @@ describe("provider contracts", () => {
   it("enforces immutability in the shared mutation, independently of the UI", async () => {
     const tx = {
       connector: {
-        findUniqueOrThrow: vi
-          .fn()
-          .mockResolvedValue({ ...config, id: "id", version: 1, envelopeProvider: "OPENBAO" }),
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          ...config,
+          id: "id",
+          version: 1,
+          envelopeProvider: "OPENBAO",
+          requiredScopes: [],
+        }),
         update: vi.fn(),
       },
     };

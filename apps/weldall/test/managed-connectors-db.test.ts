@@ -28,6 +28,7 @@ import {
   disconnectAndDeleteConnection,
   getAuthorizationAttempt,
   listConnections,
+  listConnectors,
   getConnectionDetails,
   findOwnedConnection,
   startConnection,
@@ -43,6 +44,8 @@ import { requiredScopes } from "../src/server/connectors/providers/google/setup"
 import { createPostgresReplayStore } from "../src/server/oauth/replay";
 import { parseDesiredState } from "../src/server/iac/contracts";
 import { createPlan, loadPlanningState } from "../src/server/iac/planner";
+import { scopeKeySchema } from "../src/server/policy/scope-key";
+import { mutateScope } from "../src/server/domain/primitive-mutations";
 
 vi.mock("../src/server/connectors/providers/google/oauth", async (original) => ({
   ...(await original<typeof import("../src/server/connectors/providers/google/oauth")>()),
@@ -60,7 +63,7 @@ const approvedTarget =
   (process.env.CI === "true" &&
     process.env.POSTGRES_URL === "postgresql://postgres:postgres@localhost:5432/postgres");
 const prefix = `managed-${randomUUID()}`;
-const actor = { id: prefix, requestId: prefix, email: `${prefix}@example.com` };
+const actor = { id: prefix, requestId: prefix, email: `${prefix}@example.com`, scopeKeys: [] };
 const read = "https://www.googleapis.com/auth/gmail.readonly",
   calendar = "https://www.googleapis.com/auth/calendar.readonly";
 const selected = [...requiredScopes, calendar];
@@ -70,6 +73,7 @@ const config = (key: string) => ({
   type: "google" as const,
   enabled: false,
   envelopeProvider: "LOCAL_ENV" as const,
+  requiredScopes: [],
   provider: {
     clientId: "test.apps.googleusercontent.com",
     allowedScopes: [read, calendar].sort(),
@@ -184,6 +188,7 @@ describe.skipIf(!approvedTarget)(
         },
       });
       await db.connector.deleteMany({ where: { id: { in: ids } } });
+      await db.scope.deleteMany({ where: { key: { startsWith: prefix } } });
       await db.encryptedValue.deleteMany({
         where: { id: { in: values.map(({ id }) => id) } },
       });
@@ -195,6 +200,85 @@ describe.skipIf(!approvedTarget)(
       await db.replayMarker.deleteMany({ where: { key: { startsWith: prefix } } });
       vi.unstubAllEnvs();
     });
+    it("requires all configured Weldall scopes for discovery and connection setup", async () => {
+      const scopeKey = scopeKeySchema.parse(`${prefix}:connector-use`);
+      await db.scope.create({
+        data: {
+          key: scopeKey,
+          description: "Use the managed connector",
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+      });
+      const f = await fixture();
+      const connector = await transaction((tx) =>
+        saveConnectorConfiguration({
+          tx,
+          value: { ...config(f.key), enabled: true, requiredScopes: [scopeKey] },
+          id: f.connector.id,
+          expectedVersion: f.connector.version,
+          actor,
+        }),
+      );
+      await expect(
+        startConnection({ actor, input: { connector: f.key, name: `${f.key}-denied` } }),
+      ).rejects.toMatchObject({ code: "connection_denied", status: 403 });
+      expect((await listConnectors(actor)).some(({ key }) => key === f.key)).toBe(false);
+
+      const authorizedActor = { ...actor, scopeKeys: [scopeKey] };
+      const attempt = await startConnection({
+        actor: authorizedActor,
+        input: { connector: f.key, name: `${f.key}-allowed` },
+      });
+      expect(
+        (await listConnectors(authorizedActor)).find(({ key }) => key === f.key),
+      ).toMatchObject({
+        requiredScopes: [scopeKey],
+      });
+      expect(connector.requiredScopes.map(({ scope }) => scope.key)).toEqual([scopeKey]);
+      const scope = await db.scope.findUniqueOrThrow({ where: { key: scopeKey } });
+      const { url } = await submitScopeSelection({
+        actor: authorizedActor,
+        id: attempt.id,
+        selection: { scopes: selected },
+      });
+      const state = new URL(url).searchParams.get("state")!;
+      await expect(completeConnection({ state, code: "code", cancelled: false })).rejects.toThrow(
+        "not available",
+      );
+      expect(completeGoogle).not.toHaveBeenCalled();
+      const assignment = await db.emailScopeAssignment.create({
+        data: {
+          normalizedEmail: actor.email,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+          grants: { create: { scopeId: scope.id, createdBy: actor.id } },
+        },
+      });
+      vi.mocked(completeGoogle).mockResolvedValueOnce({
+        accountId: "scope-authorized-account",
+        accountName: "scope-authorized@example.com",
+        credentials: credentials(),
+      });
+      expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("success");
+      await db.emailScopeAssignment.delete({ where: { id: assignment.id } });
+      await expect(
+        db.$transaction((tx) =>
+          mutateScope({
+            tx,
+            input: { action: "delete", id: scope.id, expectedVersion: scope.version },
+            actor: {
+              type: "user",
+              id: actor.id,
+              email: actor.email,
+              requestId: actor.requestId,
+              source: "admin_api",
+            },
+          }),
+        ),
+      ).rejects.toThrow(`required by connector ${f.key}`);
+    });
+
     it("stores LOCAL_ENV and keeps client secrets in fixed application encryption", async () => {
       const f = await fixture();
       expect(f.connector.envelopeProvider).toBe("LOCAL_ENV");
@@ -327,9 +411,12 @@ describe.skipIf(!approvedTarget)(
           }),
         ),
       ).rejects.toThrow();
-      expect(await db.connector.findUniqueOrThrow({ where: { id: f.connector.id } })).toEqual(
-        f.connector,
-      );
+      expect(
+        await db.connector.findUniqueOrThrow({
+          where: { id: f.connector.id },
+          include: { requiredScopes: { include: { scope: { select: { key: true } } } } },
+        }),
+      ).toEqual(f.connector);
       const key = `${prefix}-${++n}`;
       const original = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY!;
       try {
@@ -981,10 +1068,15 @@ describe.skipIf(!approvedTarget)(
         requestId: actor.requestId,
       };
       const name = `${prefix}-iac`;
+      const requiredScopeKey = `${prefix}:iac-connector`;
+      const iacConfig = { ...config(name), requiredScopes: [requiredScopeKey] };
       let manifest = parseDesiredState({
         apiVersion: "weldall.dev/v1",
         workspace: { id: randomUUID(), name: prefix, issuer: "https://weldall.example.com" },
-        connectors: { google: config(name) },
+        scopes: {
+          connector: { key: requiredScopeKey, description: "Use the IaC connector" },
+        },
+        connectors: { google: iacConfig },
       });
       const plan = await planIac(manifest);
       expect(plan.blockers).toEqual([]);
@@ -1008,7 +1100,7 @@ describe.skipIf(!approvedTarget)(
       await transaction((tx) =>
         saveConnectorConfiguration({
           tx,
-          value: { ...config(name), name: "UI changed" },
+          value: { ...iacConfig, name: "UI changed" },
           id: connector.id,
           expectedVersion: connector.version,
           actor,
@@ -1057,7 +1149,7 @@ describe.skipIf(!approvedTarget)(
       expect((await getIacState(manifest.workspace.id)).objects).toContainEqual(
         expect.objectContaining({ address: "connector.renamed", objectId: connector.id }),
       );
-      manifest = parseDesiredState({ ...manifest, connectors: { renamed: config(name) } });
+      manifest = parseDesiredState({ ...manifest, connectors: { renamed: iacConfig } });
       await unmanageIac(
         {
           workspaceId: manifest.workspace.id,

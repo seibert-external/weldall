@@ -18,6 +18,7 @@ export interface ConnectorSummary {
   key: string;
   name: string;
   type: string;
+  requiredScopes: string[];
   scopes: ConnectorScopeSummary[];
   defaultScopes: string[];
 }
@@ -102,6 +103,7 @@ const isConnectorSummary = (value: unknown): value is ConnectorSummary =>
   typeof value.key === "string" &&
   typeof value.name === "string" &&
   typeof value.type === "string" &&
+  isStringArray(value.requiredScopes) &&
   Array.isArray(value.scopes) &&
   value.scopes.every(isConnectorScopeSummary) &&
   isStringArray(value.defaultScopes);
