@@ -6,6 +6,9 @@ import { writeConnectorAuditLog } from "../audit";
  * Removes local connection state without provider I/O or decryption. The caller must use a
  * serializable transaction; foreign keys and callback/refresh claims fence concurrent writers.
  * Connector deletion also removes setup attempts that have not produced a connection yet.
+ * Administrators must separately revoke provider-side grants. When retiring a connector, they must
+ * also delete its OAuth client at the provider, accounting for other integrations sharing that client
+ * and the provider's rules for existing token validity; local deletion cannot confirm revocation.
  */
 export async function deleteConnectionState({
   tx,

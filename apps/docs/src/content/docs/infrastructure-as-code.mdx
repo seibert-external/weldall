@@ -1,6 +1,6 @@
 ---
 title: Infrastructure as code
-description: Manage Weldall settings, access primitives and connectors from YAML.
+description: Manage Weldall CLI settings, scopes, resources, machines, skills, and assignments from YAML.
 sidebar:
   label: Infrastructure as code
   order: 8
@@ -8,7 +8,7 @@ sidebar:
 
 import { Aside, FileTree, Steps } from "@astrojs/starlight/components";
 
-All administrative features of the Weldall server can be managed through its user interface. The most important building blocks – scopes, resources, machine clients, administrator-managed skills, assignments, and connectors – can also be described in YAML files. This turns the configuration into infrastructure as code (IaC).
+All administrative features of the Weldall server can be managed through its user interface. The most important building blocks – scopes, resources, machine clients, administrator-managed skills, and assignments – can also be described in YAML files. This turns the configuration into infrastructure as code (IaC).
 
 <Aside type="tip" title="Why IaC?">
   Every change remains traceable in a version-controlled Git repository. Pull requests provide a
@@ -77,7 +77,7 @@ include:
   - weldall/**/*.yml
 ```
 
-The included files are fragments. They do not repeat `apiVersion` or `workspace`; they contain only one or more object sections such as `scopes`, `resources`, `emailAssignments`, or `connectors`. The CLI merges all fragments into one complete configuration. Your team can organize the files by application, ownership, environment, or any other structure that works for you.
+The included files are fragments. They do not repeat `apiVersion` or `workspace`; they contain only one or more object sections such as `scopes`, `resources`, or `emailAssignments`. The CLI merges all fragments into one complete configuration. Your team can organize the files by application, ownership, environment, or any other structure that works for you.
 
 ## Declare access
 
@@ -181,50 +181,6 @@ skills:
 `meta.appearance.icon` accepts canonical kebab-case names from the [Lucide icon catalog](https://lucide.dev/icons/). Gradient overrides are applied only when both colors in a light or dark pair are six-digit hex colors; otherwise Weldall uses the deterministic slug-based fallback.
 
 The slug is the skill identity, so changing it replaces the skill. An IaC-managed skill remains editable in the admin UI; such edits are drift and the next apply restores the YAML state. Administrator-managed skills may override resource-published skills with the same canonical ID. Discovered skills and catalogs cannot be imported or managed.
-
-## Managed connector configuration
-
-`connectors` use the same plan/apply, explicit import, state move and unmanage rules as other primitives. These non-secret definitions are persisted in PostgreSQL, not a runtime YAML registry. IaC creation requires the explicit immutable `envelopeProvider: LOCAL_ENV`.
-
-```yaml
-scopes:
-  google_use:
-    key: workspace:google
-    description: Create and use Google connections
-
-connectors:
-  google:
-    key: google
-    name: Google
-    type: google
-    enabled: false
-    envelopeProvider: LOCAL_ENV
-    requiredScopes:
-      - workspace:google
-    provider:
-      clientId: YOUR_CLIENT_ID.apps.googleusercontent.com
-      allowedScopes:
-        - https://www.googleapis.com/auth/gmail.readonly
-        - https://www.googleapis.com/auth/calendar.readonly
-      defaultScopes:
-        - https://www.googleapis.com/auth/calendar.readonly
-```
-
-Provision `WELDALL_CONNECTOR_KEK` on every **server** before apply. Every `LOCAL_ENV` connector uses that single deployment KEK to wrap fresh per-write DEKs. `WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts the connector OAuth client secret and ordinary application secrets. Neither CLI nor CI resolves or uploads these keys. Arbitrary environment-variable names, unknown provider configuration fields, declarative secrets, unknown provider types and `OPENBAO` are rejected. OpenBao is not yet supported; provider changes are rejected server-side even for disabled connectors.
-
-Create a connector disabled, provision its write-only OAuth client secret in the admin UI, then apply `enabled: true`. Later applies preserve the secret unless `provider.clientId` changes; replacing the OAuth client requires removing connections and attempts, applying the new client ID while disabled, provisioning the new secret, then enabling. Users cannot remove required account-identity permissions, but may untick optional API permissions within `provider.allowedScopes`. The granted scope set must exactly equal the requested set; scopes are deduplicated and sorted without aliases or implications.
-
-`requiredScopes` controls who may create and use connections. An empty list allows every login-authorized user; otherwise users must hold every listed Weldall scope. Scope assignments remain separate resources.
-
-UI edits remain allowed except for immutable identity/provider fields; the next approved apply restores mutable manifest values. Deleting a connector atomically removes all its connections, authorization attempts and stored credentials from Weldall, without provider revocation. Disconnect connections first if best-effort revocation is desired, or remove access at the provider; existing tokens may remain valid according to the provider's policies. Refresh and credential writes do not create configuration drift. No key rotation is supported. Restore the corresponding deployment secrets with database backups; losing or replacing a key makes its protected secrets unavailable. Encryption protects database-only disclosure, not application-process/environment compromise. Obtain a fresh plan after upgrading the CLI/server because canonical manifest digests change.
-
-```sh
-weldall import connector google --as connector.google
-weldall state mv connector.google connector.renamed
-weldall unmanage connector.google --yes # remove its declaration first
-```
-
-State moves retain database IDs, ciphertext references and provider authorizations. Unmanage removes only the IaC binding. Connections themselves, provider consent and tokens are not declarative inputs. See [managed connections](./managed-connectors/) for setup, reviewed origins and recovery.
 
 ## Essential CLI commands
 

@@ -46,16 +46,12 @@ Das ES256-Schlüsselpaar wird einmalig erzeugt und im Secret Manager aufbewahrt.
 
 Für den Installer nötig:
 
-| Variable                            | Zweck                                                                                                                                      |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `WELDALL_SETUP_TOKEN`               | Base64url-Token aus mindestens 32 Zufallsbytes, das das Setup autorisiert.                                                                 |
-| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Kanonischer Base64-32-Byte-AES-Schlüssel für direkte Verschlüsselung von Login/OIDC-, Gruppenprovider- und Connector-OAuth-Client-Secrets. |
+| Variable                            | Zweck                                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| `WELDALL_SETUP_TOKEN`               | Base64url-Token aus mindestens 32 Zufallsbytes, das das Setup autorisiert.       |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Base64-kodierter 32-Byte-AES-Schlüssel, der Provider-Zugangsdaten verschlüsselt. |
 
-Der erste Start braucht beide: ohne sie bleibt der Installer geschlossen. Behalte den Anwendungsschlüssel nach der Installation unverändert.
-
-Für [Managed Connectors](../managed-connectors/) brauchst du zusätzlich `WELDALL_CONNECTOR_KEK`: einen unabhängigen kanonischen Base64-32-Byte-Schlüssel. Er verschlüsselt die pro Schreibvorgang neu erzeugten Datenschlüssel (DEKs), nicht direkt die Provider-Zugangsdaten. Alle `LOCAL_ENV`-Connectoren teilen denselben KEK, niemals DEKs. OpenBao und Schlüsselrotation werden noch nicht unterstützt. Die Provider-Auswahl ist nach Erstellung unveränderlich; beim Produktionsstart werden gespeicherte Secrets und Envelopes geprüft.
-
-Stelle Datenbank und zugehörige Deployment-Secrets gemeinsam wieder her. Verlust oder Austausch eines Schlüssels macht die entsprechenden Secrets unlesbar; Ersatzschlüssel werden nicht automatisch erzeugt. Der Schutz gilt für ein reines Datenbankleck, nicht für einen kompromittierten Anwendungsprozess oder dessen Umgebung.
+Der erste Start braucht beide: ohne sie bleibt der Installer geschlossen.
 
 Optionale Variablen:
 
@@ -72,7 +68,7 @@ pnpm install --frozen-lockfile
 pnpm secrets:generate
 ```
 
-Der Befehl gibt Umgebungszeilen für den gesamten Workspace aus. Für den Container übernimmst du `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN`, `WELDALL_CREDENTIAL_ENCRYPTION_KEY` und für Managed Connectors `WELDALL_CONNECTOR_KEK` in deinen Secret Manager. `POSTGRES_URL` und `WELDALL_ISSUER` setzt du selbst.
+Der Befehl gibt Umgebungszeilen für den gesamten Workspace aus. Für den Container übernimmst du `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN` und `WELDALL_CREDENTIAL_ENCRYPTION_KEY` in deinen Secret Manager. `POSTGRES_URL` und `WELDALL_ISSUER` setzt du selbst.
 
 :::note[Entwicklungseinträge]
 Lass den Rest der Ausgabe weg: `WELDALL_DEPLOYMENT_MODE=development`, `NODE_USE_SYSTEM_CA`, `DEV_IDP_*`, `EXPENSES_*` und `DEV_M2M_*` gehören zum lokalen Entwicklungsstack. Der Container verlangt `WELDALL_DEPLOYMENT_MODE=production` und startet mit keinem anderen Wert.
@@ -92,7 +88,6 @@ docker run -d --name weldall \
   -e BETTER_AUTH_SECRET=... \
   -e WELDALL_SETUP_TOKEN=... \
   -e WELDALL_CREDENTIAL_ENCRYPTION_KEY=... \
-  -e WELDALL_CONNECTOR_KEK=... \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \

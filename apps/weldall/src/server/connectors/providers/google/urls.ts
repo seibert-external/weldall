@@ -7,7 +7,11 @@ const allowedOrigins = new Set([
   "https://www.googleapis.com",
   "https://calendar.googleapis.com",
 ]);
-/** Authorizes only reviewed Google origins, without interpreting API paths or query parameters. */
+/**
+ * Authorizes only reviewed Google origins, without interpreting API paths or query parameters.
+ * Planned ConnectorPolicy primitives will couple endpoint/method combinations to required Weldall
+ * scopes. That operation-level policy is deferred; Google scopes currently bound upstream access.
+ */
 export function resolveGoogleUpstreamUrl({
   requestedUrl,
 }: {

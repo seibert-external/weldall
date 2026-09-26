@@ -41,7 +41,11 @@ export async function authenticateConnectorBrowserActor({
     throw new ConnectorError("csrf", "Untrusted browser request.", 403);
   return authorizeConnectorActor({ request, user: session.user });
 }
-/** Requires live login permission for either authenticated transport. */
+/**
+ * Requires live login permission for either authenticated transport.
+ * Offboarding must also revoke access at the provider (e.g. disable the user's Google account and
+ * revoke its grants); denying Weldall login alone does not invalidate provider credentials.
+ */
 async function authorizeConnectorActor({
   request,
   user,
