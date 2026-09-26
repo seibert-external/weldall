@@ -214,7 +214,7 @@ Provision `WELDALL_CONNECTOR_KEK` on every **server** before apply. Every `LOCAL
 
 Create a connector disabled, provision its write-only OAuth client secret in the admin UI, then apply `enabled: true`. Later applies preserve the secret unless `provider.clientId` changes; replacing the OAuth client requires removing connections and attempts, applying the new client ID while disabled, provisioning the new secret, then enabling. Users cannot remove required account-identity permissions, but may untick optional API permissions within `provider.allowedScopes`. The granted scope set must exactly equal the requested set; scopes are deduplicated and sorted without aliases or implications.
 
-`requiredScopes` controls who may create and use connections. An empty list allows every authenticated user; otherwise users must hold every listed Weldall scope. Scope assignments remain separate resources.
+`requiredScopes` controls who may create and use connections. An empty list allows every login-authorized user; otherwise users must hold every listed Weldall scope. Scope assignments remain separate resources.
 
 UI edits remain allowed except for immutable identity/provider fields; the next approved apply restores mutable manifest values. Disconnect and remove connections/attempts before deleting a connector. Refresh and credential writes do not create configuration drift. No key rotation is supported. Restore the corresponding deployment secrets with database backups; losing or replacing a key makes its protected secrets unavailable. Encryption protects database-only disclosure, not application-process/environment compromise. Obtain a fresh plan after upgrading the CLI/server because canonical manifest digests change.
 

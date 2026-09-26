@@ -14,7 +14,7 @@ Weldall proxies arbitrary Google API paths on reviewed origins on behalf of the 
 
 The envelope-provider boundary wraps and unwraps DEKs without exposing its KEK to callers. No external KMS integration is included.
 
-Configuration is editable through both the UI and [IaC](./infrastructure-as-code/). PostgreSQL is the runtime authority. UI changes to IaC-managed objects take effect immediately; the next approved apply restores manifest values. Optional required Weldall scopes control access independently of Google's provider permissions: an empty set allows every authenticated user, while a non-empty set requires every listed scope to create, reconnect, complete setup, inspect, or use a connection. Losing access does not prevent cancellation or disconnect cleanup. Scope assignments are managed separately.
+Configuration is editable through both the UI and [IaC](./infrastructure-as-code/). PostgreSQL is the runtime authority. UI changes to IaC-managed objects take effect immediately; the next approved apply restores manifest values. Optional required Weldall scopes control access independently of Google's provider permissions: an empty set allows every login-authorized user, while a non-empty set requires every listed scope to create, reconnect, complete setup, inspect, or use a connection. Losing access does not prevent cancellation or disconnect cleanup. Scope assignments are managed separately.
 
 The OAuth client secret is never a manifest field and is preserved by non-secret applies unless the OAuth client ID changes. To replace the OAuth client, first remove connections and attempts. In the UI, save the new client ID and secret together. With IaC, apply the new client ID while disabled, enter the new secret in the UI, then enable through IaC.
 

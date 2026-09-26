@@ -1037,8 +1037,9 @@ describe.skipIf(!approvedTarget)(
         emailAssignments: { admin: { email: adminEmail, scopes: ["weldall:administer"] } },
       });
       await apply(removed);
-      await expect(db.connector.findUnique({ where: { key: `${prefix}-iac-delete-google` } }))
-        .resolves.toBeNull();
+      await expect(
+        db.connector.findUnique({ where: { key: `${prefix}-iac-delete-google` } }),
+      ).resolves.toBeNull();
       await expect(db.scope.findUnique({ where: { key: scopeKey } })).resolves.toBeNull();
     });
     it("checks freshness on each generic dispatch and audits fingerprints without URLs", async () => {
