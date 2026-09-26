@@ -11,7 +11,9 @@
     "with-env": "dotenv -e ../../.env --",
     "typecheck": "tsc --noEmit",
     "test": "pnpm with-env vitest run --fileParallelism=false",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "image:build": "docker build --file ../../Dockerfile --tag weldall:local ../..",
+    "image:test": "pnpm image:build && sh ../../scripts/test-weldall-image.sh weldall:local"
   },
   "dependencies": {
     "@astryxdesign/core": "0.1.4",
