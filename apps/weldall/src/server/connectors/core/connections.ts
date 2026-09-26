@@ -22,6 +22,7 @@ import {
   connectorScopeInclude,
 } from "../access";
 import { effectiveScopesRequiringSystemScopeFor } from "../../policy/resources";
+import { deleteConnectionState } from "./deletion";
 
 type Tx = Prisma.TransactionClient;
 /** Callback routing is fixed by the reviewed provider discriminator, never caller input. */
@@ -477,6 +478,14 @@ export async function completeConnection({
       "Connector provider authorization failed",
     );
     await runConnectorTransaction(async (tx) => {
+      const active = await tx.connectionAuthorization.updateMany({
+        where: { id: a.id, status: "PROCESSING" },
+        data: {
+          status: error instanceof RejectedProviderCredentials ? "NEEDS_REVOCATION" : "FAILED",
+        },
+      });
+      // Administrative deletion wins over late provider results, including rejected credentials.
+      if (!active.count) return;
       if (error instanceof RejectedProviderCredentials) {
         await saveSecret({
           tx,
@@ -485,15 +494,7 @@ export async function completeConnection({
           value: JSON.stringify({ ...payload, credentials: error.credentials }),
           id: a.payloadId,
         });
-        await tx.connectionAuthorization.update({
-          where: { id: a.id },
-          data: { status: "NEEDS_REVOCATION" },
-        });
       } else {
-        await tx.connectionAuthorization.update({
-          where: { id: a.id },
-          data: { status: "FAILED" },
-        });
         await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
       }
       await writeConnectorAuditLog({
@@ -508,7 +509,12 @@ export async function completeConnection({
     return "failed" as const;
   }
   // Preserve newly received credentials before policy validation, so a rejected callback has an explicit revocation path.
-  await runConnectorTransaction(async (tx) => {
+  const retained = await runConnectorTransaction(async (tx) => {
+    const active = await tx.connectionAuthorization.updateMany({
+      where: { id: a.id, status: "PROCESSING" },
+      data: { status: "NEEDS_REVOCATION" },
+    });
+    if (!active.count) return false;
     await saveSecret({
       tx,
       provider: a.connector.envelopeProvider,
@@ -516,17 +522,16 @@ export async function completeConnection({
       value: JSON.stringify({ ...payload, credentials: result.credentials }),
       id: a.payloadId,
     });
-    await tx.connectionAuthorization.update({
-      where: { id: a.id, status: "PROCESSING" },
-      data: { status: "NEEDS_REVOCATION" },
-    });
+    return true;
   });
+  if (!retained) return "failed" as const;
   try {
-    await runConnectorTransaction(async (tx) => {
-      const fresh = await tx.connectionAuthorization.findUniqueOrThrow({
+    const completed = await runConnectorTransaction(async (tx) => {
+      const fresh = await tx.connectionAuthorization.findUnique({
         where: { id: a.id },
         include: { connector: { include: connectorScopeInclude } },
       });
+      if (!fresh) return false;
       assertConnectorEnabled(fresh.connector);
       assertConnectorAccess({ connector: fresh.connector, actor: scopeActor });
       if (
@@ -601,8 +606,9 @@ export async function completeConnection({
         operation: prior ? "connection.reconnected" : "connection.connected",
         details: { connectorId: row.connectorId, accountId: row.accountId },
       });
+      return true;
     });
-    return "success" as const;
+    return completed ? ("success" as const) : ("failed" as const);
   } catch (error) {
     logger.error(
       {
@@ -905,19 +911,12 @@ async function recordRefreshFailure({
 async function disconnectAndDelete({
   actor,
   selector,
-  administrator,
 }: {
   actor: ConnectorActor;
   selector: string;
-  administrator: boolean;
 }) {
   const claim = await runConnectorTransaction(async (tx) => {
-    const row = administrator
-      ? await tx.connection.findUniqueOrThrow({
-          where: { id: selector },
-          include: { connector: true },
-        })
-      : await findOwnedConnection({ tx, selector, actor });
+    const row = await findOwnedConnection({ tx, selector, actor });
     const attempts = await tx.connectionAuthorization.findMany({
       where: { connectionId: row.id },
     });
@@ -926,9 +925,7 @@ async function disconnectAndDelete({
       data: {
         status: "REVOCATION_PENDING",
         version: { increment: 1 },
-        revocationError: administrator
-          ? "Administrative disconnect in progress; provider revocation unconfirmed."
-          : "Provider revocation unconfirmed; explicit retry may be required.",
+        revocationError: "Provider revocation unconfirmed; explicit retry may be required.",
       },
     });
     await writeConnectorAuditLog({
@@ -967,8 +964,7 @@ async function disconnectAndDelete({
   if (claim.processing) {
     const message =
       "Token processing is still in progress. Retry disconnect after it finishes or expires.";
-    if (!administrator) return { deleted: false as const, message };
-    throw new ConnectorError("in_progress", `Connection blocked. ${message}`, 409);
+    return { deleted: false as const, message };
   }
 
   const credentialsToRevoke: object[] = [];
@@ -1086,7 +1082,6 @@ export async function disconnectConnection({
   const result = await disconnectAndDelete({
     actor,
     selector,
-    administrator: false,
   });
   return result.deleted
     ? {
@@ -1097,20 +1092,11 @@ export async function disconnectConnection({
     : { status: "REVOCATION_PENDING", message: result.message };
 }
 
-/** Admin Disconnect permanently removes a connection after best-effort provider revocation. */
-export async function disconnectAndDeleteConnection({
-  actor,
-  id,
-}: {
-  actor: ConnectorActor;
-  id: string;
-}) {
-  const result = await disconnectAndDelete({
-    actor,
-    selector: id,
-    administrator: true,
+/** Administrative deletion removes local state immediately, without provider I/O or decryption. */
+export async function deleteConnection({ actor, id }: { actor: ConnectorActor; id: string }) {
+  return runConnectorTransaction(async (tx) => {
+    const connection = await tx.connection.findUnique({ where: { id }, select: { id: true } });
+    if (!connection) throw new ConnectorError("not_found", "Connection not found.", 404);
+    await deleteConnectionState({ tx, target: { connectionId: id }, actor });
   });
-  if (!result.deleted)
-    throw new ConnectorError("in_progress", "Connection removal is still in progress.", 409);
-  return { revocationConfirmed: result.revocationConfirmed };
 }

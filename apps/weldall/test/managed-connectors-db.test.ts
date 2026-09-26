@@ -15,6 +15,7 @@ import { digest } from "../src/server/iac/contracts";
 import { executeConnectionRequest } from "../src/server/connectors/core/execution";
 import {
   saveConnectorConfiguration,
+  deleteConnectorConfiguration,
   runConnectorTransaction as transaction,
   saveConnectorSecrets,
   readConnectorSecrets,
@@ -25,7 +26,7 @@ import {
   accessCredentials,
   completeConnection,
   disconnectConnection,
-  disconnectAndDeleteConnection,
+  deleteConnection,
   getAuthorizationAttempt,
   listConnections,
   listConnectors,
@@ -46,7 +47,7 @@ import { parseDesiredState } from "../src/server/iac/contracts";
 import { createPlan, loadPlanningState } from "../src/server/iac/planner";
 import { scopeKeySchema } from "../src/server/policy/scope-key";
 import { mutateScope } from "../src/server/domain/primitive-mutations";
-import { listAuditEvents } from "../src/server/audit/service";
+import { listAuditEvents, prismaAuditWriter } from "../src/server/audit/service";
 
 vi.mock("../src/server/connectors/providers/google/oauth", async (original) => ({
   ...(await original<typeof import("../src/server/connectors/providers/google/oauth")>()),
@@ -177,9 +178,14 @@ describe.skipIf(!approvedTarget)(
         },
       });
     });
-    afterEach(() => {
+    afterEach(async () => {
       vi.clearAllMocks();
       vi.unstubAllGlobals();
+      // Cases share an owner, but unfinished fixtures must not consume the next case's attempt limit.
+      await db.connectionAuthorization.updateMany({
+        where: { ownerId: actor.id },
+        data: { expiresAt: new Date(0) },
+      });
     });
     afterAll(async () => {
       const connectors = await db.connector.findMany({
@@ -760,42 +766,39 @@ describe.skipIf(!approvedTarget)(
         }),
       ).resolves.toMatchObject({ id: expect.any(String) });
     });
-    it.each(["success", "google-error", "missing-key"] as const)(
-      "admin Disconnect deletes the connection after best-effort revocation: %s",
-      async (mode) => {
+    it.each(["READY", "REFRESHING", "RECONNECT_REQUIRED", "REVOCATION_PENDING"] as const)(
+      "admin deletion removes a %s connection without provider I/O or encryption keys",
+      async (status) => {
         const f = await ready();
-        const before = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
-        if (mode === "google-error")
-          vi.mocked(revokeGoogle).mockRejectedValueOnce(new Error("Google unavailable"));
-        else if (mode === "success") vi.mocked(revokeGoogle).mockResolvedValueOnce();
+        const before = await db.connection.update({
+          where: { id: f.id },
+          data: { status, refreshStartedAt: status === "REFRESHING" ? new Date() : null },
+        });
         const key = process.env.WELDALL_CONNECTOR_KEK!;
+        const applicationKey = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY!;
         try {
-          if (mode === "missing-key") delete process.env.WELDALL_CONNECTOR_KEK;
-          expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
-            revocationConfirmed: mode === "success",
-          });
+          delete process.env.WELDALL_CONNECTOR_KEK;
+          delete process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
+          await deleteConnection({ actor, id: f.id });
         } finally {
           process.env.WELDALL_CONNECTOR_KEK = key;
+          process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = applicationKey;
         }
         expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
         expect(await db.connectionAuthorization.count({ where: { connectionId: f.id } })).toBe(0);
         expect(
           await db.encryptedValue.findUnique({ where: { id: before.credentialId! } }),
         ).toBeNull();
-        if (mode === "missing-key") expect(revokeGoogle).not.toHaveBeenCalled();
-        else expect(revokeGoogle).toHaveBeenCalledWith("never-public-refresh");
+        expect(revokeGoogle).not.toHaveBeenCalled();
         const audit = await db.auditEvent.findMany({ where: { subjectId: f.id } });
-        expect(
-          audit.some(
-            (event) =>
-              (event.metadata as { operation: string }).operation ===
-              `disconnect.deleted_revocation_${mode === "success" ? "confirmed" : "unconfirmed"}`,
-          ),
-        ).toBe(true);
+        expect(audit.map((event) => (event.metadata as { operation: string }).operation)).toEqual(
+          expect.arrayContaining(["connection.connected", "connection.deleted"]),
+        );
         expect(JSON.stringify(audit)).not.toContain("never-public-refresh");
+        await expect(getConnectionDetails(f.id)).rejects.toMatchObject({ code: "not_found" });
       },
     );
-    it("admin Disconnect reports unconfirmed revocation when credentials are missing", async () => {
+    it("admin deletion also works when credentials are missing", async () => {
       const f = await ready();
       const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
       await db.connection.update({
@@ -803,13 +806,11 @@ describe.skipIf(!approvedTarget)(
         data: { credentialId: null, status: "RECONNECT_REQUIRED", revocationError: null },
       });
       await db.encryptedValue.delete({ where: { id: row.credentialId! } });
-      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
-        revocationConfirmed: false,
-      });
+      await deleteConnection({ actor, id: f.id });
       expect(revokeGoogle).not.toHaveBeenCalled();
       expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
     });
-    it("admin Disconnect removes dependent reconnect attempts and revokes their retained tokens too", async () => {
+    it("admin deletion removes dependent reconnect attempts and their retained tokens without revocation", async () => {
       const f = await ready();
       const next = await authorize({ key: f.key, name: f.key, reconnect: f.id });
       vi.mocked(completeGoogle).mockResolvedValueOnce({
@@ -822,13 +823,8 @@ describe.skipIf(!approvedTarget)(
       );
       const pending = await authorize({ key: f.key, name: f.key, reconnect: f.id });
       const attempts = await db.connectionAuthorization.findMany({ where: { connectionId: f.id } });
-      vi.mocked(revokeGoogle).mockResolvedValueOnce();
-      vi.mocked(revokeGoogle).mockResolvedValueOnce();
-      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
-        revocationConfirmed: true,
-      });
-      expect(revokeGoogle).toHaveBeenCalledWith("never-public-refresh");
-      expect(revokeGoogle).toHaveBeenCalledWith("rejected-reconnect-refresh");
+      await deleteConnection({ actor, id: f.id });
+      expect(revokeGoogle).not.toHaveBeenCalled();
       expect(await db.connectionAuthorization.count({ where: { connectionId: f.id } })).toBe(0);
       expect(
         await db.encryptedValue.count({
@@ -839,88 +835,259 @@ describe.skipIf(!approvedTarget)(
         completeConnection({ state: pending.state, code: "late", cancelled: false }),
       ).rejects.toThrow();
     });
-    it("admin Disconnect blocks processing and waits for an in-flight refresh before deleting its rotated token", async () => {
+    it.each([
+      ["connection", "success"],
+      ["connection", "rejected"],
+      ["connection", "failure"],
+      ["connector", "success"],
+      ["connector", "rejected"],
+      ["connector", "failure"],
+    ] as const)(
+      "deletes a %s during refresh and discards its late %s result before dispatch",
+      async (target, outcome) => {
+        const f = await ready();
+        const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
+        await saveSecret({
+          tx: db,
+          provider: f.connector.envelopeProvider,
+          context: `connection:${f.id}:credentials`,
+          value: JSON.stringify({ ...credentials(), expiresAt: 0 }),
+          id: row.credentialId,
+        });
+        const entered = Promise.withResolvers<void>();
+        const result = Promise.withResolvers<ReturnType<typeof credentials>>();
+        vi.mocked(refreshGoogle).mockImplementationOnce(() => {
+          entered.resolve();
+          return result.promise;
+        });
+        const fetcher = vi.fn();
+        vi.stubGlobal("fetch", fetcher);
+        const execute = () =>
+          executeConnectionRequest({
+            request: new Request(`https://weldall.example.com/connectors/${f.key}`, {
+              headers: {
+                "x-weldall-connection": f.id,
+                "x-weldall-upstream-url": "https://gmail.googleapis.com/messages",
+              },
+            }),
+            actor,
+            connectorKey: f.key,
+          });
+        const refreshing = expect(execute()).rejects.toMatchObject({ code: "refresh_failed" });
+        await entered.promise;
+        if (target === "connection") await deleteConnection({ actor, id: f.id });
+        else
+          await transaction((tx) =>
+            deleteConnectorConfiguration({
+              tx,
+              actor,
+              id: f.connector.id,
+              version: f.connector.version,
+            }),
+          );
+        expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
+        if (outcome === "failure") result.reject(new Error("Provider unavailable"));
+        else
+          result.resolve({
+            ...credentials(),
+            refreshToken: "late-rotation",
+            grantedScopes: outcome === "rejected" ? requiredScopes : selected,
+          });
+        await refreshing;
+        expect(await db.encryptedValue.findUnique({ where: { id: row.credentialId! } })).toBeNull();
+        await expect(execute()).rejects.toMatchObject({ code: "not_found" });
+        expect(fetcher).not.toHaveBeenCalled();
+        expect(revokeGoogle).not.toHaveBeenCalled();
+      },
+    );
+    it.each([
+      ["connection", "success"],
+      ["connection", "rejected"],
+      ["connection", "failure"],
+      ["connector", "success"],
+      ["connector", "rejected"],
+      ["connector", "failure"],
+    ] as const)(
+      "deletes a %s during callback and discards its late %s result",
+      async (target, outcome) => {
+        const existing = target === "connection" ? await ready() : null;
+        const f = existing ?? (await fixture());
+        const next = await authorize({
+          key: f.key,
+          name: f.key,
+          ...(existing ? { reconnect: existing.id } : {}),
+        });
+        const attempt = await db.connectionAuthorization.findUniqueOrThrow({
+          where: { id: next.attempt.id },
+        });
+        const encryptedBefore = await db.encryptedValue.count();
+        const entered = Promise.withResolvers<void>();
+        const result = Promise.withResolvers<Awaited<ReturnType<typeof completeGoogle>>>();
+        vi.mocked(completeGoogle).mockImplementationOnce(() => {
+          entered.resolve();
+          return result.promise;
+        });
+        const completing = completeConnection({
+          state: next.state,
+          code: "code",
+          cancelled: false,
+        });
+        await entered.promise;
+        if (existing) await deleteConnection({ actor, id: existing.id });
+        else {
+          await transaction((tx) =>
+            deleteConnectorConfiguration({
+              tx,
+              actor,
+              id: f.connector.id,
+              version: f.connector.version,
+            }),
+          );
+          // Reusing a key must not let the old callback attach to the replacement connector.
+          await transaction((tx) =>
+            saveConnectorConfiguration({
+              tx,
+              actor,
+              value: config(f.key),
+              id: undefined,
+              expectedVersion: null,
+            }),
+          );
+        }
+        expect(
+          await db.connectionAuthorization.findUnique({ where: { id: attempt.id } }),
+        ).toBeNull();
+        if (outcome === "failure") result.reject(new Error("Provider unavailable"));
+        else
+          result.resolve({
+            accountId: "google-account",
+            accountName: "google@example.com",
+            credentials: {
+              ...credentials(),
+              refreshToken: "late-callback-token",
+              grantedScopes: outcome === "rejected" ? requiredScopes : selected,
+            },
+          });
+        expect(await completing).toBe("failed");
+        expect(await db.connection.count({ where: { name: f.key } })).toBe(0);
+        expect(
+          await db.encryptedValue.findUnique({ where: { id: attempt.payloadId! } }),
+        ).toBeNull();
+        expect(await db.encryptedValue.count()).toBe(encryptedBefore - (existing ? 2 : 1));
+        expect(revokeGoogle).not.toHaveBeenCalled();
+      },
+    );
+    it("connector deletion cascades all local state, preserves audit and leaves unrelated connectors alone", async () => {
       const f = await ready();
-      const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
-      await saveSecret({
-        tx: db,
-        provider: f.connector.envelopeProvider,
-        context: `connection:${f.id}:credentials`,
-        value: JSON.stringify({ ...credentials(), expiresAt: 0 }),
-        id: row.credentialId,
+      const second = await authorize({ key: f.key, name: `${f.key}-second` });
+      vi.mocked(completeGoogle).mockResolvedValueOnce({
+        accountId: "second-account",
+        accountName: "second@example.com",
+        credentials: credentials(),
       });
-      const entered = Promise.withResolvers<void>();
-      const result = Promise.withResolvers<ReturnType<typeof credentials>>();
-      vi.mocked(refreshGoogle).mockImplementationOnce(() => {
-        entered.resolve();
-        return result.promise;
+      expect(
+        await completeConnection({ state: second.state, code: "code", cancelled: false }),
+      ).toBe("success");
+      expect(await db.connection.count({ where: { connectorId: f.connector.id } })).toBe(2);
+      const unrelated = await ready();
+      const reconnect = await authorize({ key: f.key, name: f.key, reconnect: f.id });
+      const standalone = await authorize({ key: f.key, name: `${f.key}-new` });
+      await startConnection({ actor, input: { connector: f.key, name: `${f.key}-setup` } });
+      await db.connectionAuthorization.update({
+        where: { id: reconnect.attempt.id },
+        data: { status: "NEEDS_REVOCATION" },
       });
-      const refreshing = accessCredentials({ actor, selector: f.id });
-      await entered.promise;
-      await expect(disconnectAndDeleteConnection({ actor, id: f.id })).rejects.toThrow(
-        "Token processing",
-      );
-      expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe(
-        "REVOCATION_PENDING",
-      );
+      const values = await db.encryptedValue.findMany({
+        where: {
+          OR: [
+            { connection: { connectorId: f.connector.id } },
+            { attempt: { connectorId: f.connector.id } },
+          ],
+        },
+        select: { id: true },
+      });
+      const auditBefore = await db.auditEvent.count({ where: { subjectId: f.id } });
+      const remove = (version: number) =>
+        transaction((tx) =>
+          deleteConnectorConfiguration({ tx, actor, id: f.connector.id, version }),
+        );
+      await expect(remove(f.connector.version + 1)).rejects.toMatchObject({ code: "conflict" });
+      expect(
+        await db.encryptedValue.count({ where: { id: { in: values.map(({ id }) => id) } } }),
+      ).toBe(values.length);
+      const key = process.env.WELDALL_CONNECTOR_KEK!;
+      const applicationKey = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY!;
+      try {
+        delete process.env.WELDALL_CONNECTOR_KEK;
+        delete process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
+        await remove(f.connector.version);
+      } finally {
+        process.env.WELDALL_CONNECTOR_KEK = key;
+        process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = applicationKey;
+      }
+      expect(await db.connector.findUnique({ where: { id: f.connector.id } })).toBeNull();
+      expect(await db.connection.count({ where: { connectorId: f.connector.id } })).toBe(0);
+      expect(
+        await db.connectionAuthorization.count({ where: { connectorId: f.connector.id } }),
+      ).toBe(0);
+      expect(
+        await db.encryptedValue.count({ where: { id: { in: values.map(({ id }) => id) } } }),
+      ).toBe(0);
+      expect(await db.auditEvent.count({ where: { subjectId: f.id } })).toBe(auditBefore + 1);
+      expect(
+        await db.auditEvent.findFirst({
+          where: {
+            subjectId: f.connector.id,
+            metadata: { path: ["operation"], equals: "connector.deleted" },
+          },
+        }),
+      ).not.toBeNull();
+      expect(await getConnectionDetails(unrelated.id)).toMatchObject({ status: "READY" });
+      await expect(
+        completeConnection({ state: standalone.state, code: "late", cancelled: false }),
+      ).rejects.toMatchObject({ code: "stale_attempt" });
       expect(revokeGoogle).not.toHaveBeenCalled();
-      result.resolve({ ...credentials(), refreshToken: "admin-disconnect-rotated" });
-      await refreshing;
-      vi.mocked(revokeGoogle).mockResolvedValueOnce();
-      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
-        revocationConfirmed: true,
-      });
-      expect(revokeGoogle).toHaveBeenCalledWith("admin-disconnect-rotated");
-      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
     });
-    it("admin Disconnect waits for a reconnect exchange and later removes the rejected callback tokens", async () => {
-      const f = await ready();
-      const next = await authorize({ key: f.key, name: f.key, reconnect: f.id });
-      const entered = Promise.withResolvers<void>();
-      const result = Promise.withResolvers<Awaited<ReturnType<typeof completeGoogle>>>();
-      vi.mocked(completeGoogle).mockImplementationOnce(() => {
-        entered.resolve();
-        return result.promise;
-      });
-      const completing = completeConnection({ state: next.state, code: "code", cancelled: false });
-      await entered.promise;
-      await expect(disconnectAndDeleteConnection({ actor, id: f.id })).rejects.toThrow(
-        "Token processing",
-      );
-      expect(revokeGoogle).not.toHaveBeenCalled();
-      result.resolve({
-        accountId: "google-account",
-        accountName: "google@example.com",
-        credentials: { ...credentials(), refreshToken: "in-flight-reconnect-token" },
-      });
-      expect(await completing).toBe("failed");
-      vi.mocked(revokeGoogle).mockResolvedValueOnce();
-      vi.mocked(revokeGoogle).mockResolvedValueOnce();
-      expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
-        revocationConfirmed: true,
-      });
-      expect(revokeGoogle).toHaveBeenCalledWith("in-flight-reconnect-token");
-      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
-      expect(await db.connectionAuthorization.count({ where: { connectionId: f.id } })).toBe(0);
-    });
-    it("admin Disconnect blocks usage before contacting Google and deletes locally even when Google fails", async () => {
-      const f = await ready();
-      const entered = Promise.withResolvers<void>();
-      const result = Promise.withResolvers<void>();
-      vi.mocked(revokeGoogle).mockImplementationOnce(() => {
-        entered.resolve();
-        return result.promise;
-      });
-      const disconnecting = disconnectAndDeleteConnection({ actor, id: f.id });
-      await entered.promise;
-      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not ready");
-      await expect(authorize({ key: f.key, name: f.key, reconnect: f.id })).rejects.toThrow(
-        "cannot be reconnected",
-      );
-      result.reject(new Error("Google unavailable"));
-      expect(await disconnecting).toEqual({ revocationConfirmed: false });
-      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
-    });
+    it.each(["connection", "connector"] as const)(
+      "rolls back %s deletion if audit persistence fails",
+      async (target) => {
+        const f = await ready();
+        const next = await authorize({ key: f.key, name: f.key, reconnect: f.id });
+        const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
+        const attempt = await db.connectionAuthorization.findUniqueOrThrow({
+          where: { id: next.attempt.id },
+        });
+        const writer = vi
+          .spyOn(prismaAuditWriter, "write")
+          .mockRejectedValueOnce(new Error("Audit unavailable"));
+        try {
+          const deletion =
+            target === "connection"
+              ? deleteConnection({ actor, id: f.id })
+              : transaction((tx) =>
+                  deleteConnectorConfiguration({
+                    tx,
+                    actor,
+                    id: f.connector.id,
+                    version: f.connector.version,
+                  }),
+                );
+          await expect(deletion).rejects.toThrow("Audit unavailable");
+        } finally {
+          writer.mockRestore();
+        }
+        expect(await db.connector.findUnique({ where: { id: f.connector.id } })).not.toBeNull();
+        expect(await db.connection.findUnique({ where: { id: f.id } })).toEqual(row);
+        expect(await db.connectionAuthorization.findUnique({ where: { id: attempt.id } })).toEqual(
+          attempt,
+        );
+        expect(
+          await db.encryptedValue.count({
+            where: { id: { in: [row.credentialId!, attempt.payloadId!] } },
+          }),
+        ).toBe(2);
+      },
+    );
     it("keeps an in-flight refresh unavailable after disconnect and retains rotation for explicit revocation", async () => {
       const f = await ready();
       const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
@@ -1081,6 +1248,42 @@ describe.skipIf(!approvedTarget)(
         );
       };
       await apply(current);
+      const connector = await db.connector.findUniqueOrThrow({
+        where: { key: `${prefix}-iac-delete-google` },
+      });
+      const connection = await db.connection.create({
+        data: {
+          ownerId: actor.id,
+          connectorId: connector.id,
+          name: `${prefix}-iac-delete-connection`,
+          accountId: "iac-account",
+          accountName: "account@example.com",
+          providerSelection: { scopes: selected },
+          providerGrant: { scopes: selected },
+          status: "REVOCATION_PENDING",
+        },
+      });
+      const secret = await saveSecret({
+        tx: db,
+        provider: "LOCAL_ENV",
+        context: `connection:${connection.id}:credentials`,
+        value: JSON.stringify(credentials()),
+      });
+      await db.connection.update({
+        where: { id: connection.id },
+        data: { credentialId: secret.id },
+      });
+      await db.connectionAuthorization.create({
+        data: {
+          ownerId: actor.id,
+          connectorId: connector.id,
+          connectorVersion: connector.version,
+          name: `${prefix}-iac-pending`,
+          providerSelection: { scopes: selected },
+          status: "PROCESSING",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
       const removed = parseDesiredState({
         apiVersion: "weldall.dev/v1",
         workspace,
@@ -1091,6 +1294,12 @@ describe.skipIf(!approvedTarget)(
         db.connector.findUnique({ where: { key: `${prefix}-iac-delete-google` } }),
       ).resolves.toBeNull();
       await expect(db.scope.findUnique({ where: { key: scopeKey } })).resolves.toBeNull();
+      expect(await db.connection.findUnique({ where: { id: connection.id } })).toBeNull();
+      expect(await db.connectionAuthorization.count({ where: { connectorId: connector.id } })).toBe(
+        0,
+      );
+      expect(await db.encryptedValue.findUnique({ where: { id: secret.id } })).toBeNull();
+      expect(revokeGoogle).not.toHaveBeenCalled();
     });
     it("checks freshness on each generic dispatch and audits fingerprints without URLs", async () => {
       const f = await ready();

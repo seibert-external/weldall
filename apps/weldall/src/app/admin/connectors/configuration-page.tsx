@@ -63,7 +63,11 @@ export function ManagedConfiguration() {
       onSuccess: async () => {
         setAction(null);
         operationToast.success("Connector deleted", "connector-delete");
-        await refresh();
+        await Promise.all([
+          refresh(),
+          queryClient.invalidateQueries({ queryKey: trpc.admin.managed.connections.queryKey() }),
+          queryClient.invalidateQueries({ queryKey: trpc.admin.managed.connection.queryKey() }),
+        ]);
       },
       onError: (error) =>
         operationToast.error("Could not delete connector", error, "connector-delete"),
@@ -232,7 +236,7 @@ export function ManagedConfiguration() {
         actionLabel="Delete connector"
         description={
           action
-            ? `Delete ${action.connector.config.name}? Connections and authorization attempts must be removed first.`
+            ? `Permanently delete ${action.connector.config.name} and all its connections? This removes configuration, authorization attempts and stored credentials from Weldall, but does not revoke provider access. Ask owners to disconnect first, or remove the OAuth application in your provider's administration console. This may affect other users and applications sharing the OAuth client; existing tokens may remain valid according to the provider's policies. In-flight requests may still finish.`
             : "Confirm deletion."
         }
         isActionLoading={deleteMutation.isPending}

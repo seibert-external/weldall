@@ -78,8 +78,7 @@ import {
 import {
   listConnections,
   getConnectionDetails,
-  disconnectAndDeleteConnection,
-  cleanupAttempts,
+  deleteConnection,
 } from "../connectors/core/connections";
 
 const trpc = initTRPC.context<TrpcContext>().create();
@@ -206,17 +205,16 @@ export const appRouter = trpc.router({
       deleteConnector: adminProcedure
         .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(async () => {
-            await cleanupAttempts();
-            return runConnectorTransaction((tx) =>
+          mapDomainErrors(() =>
+            runConnectorTransaction((tx) =>
               deleteConnectorConfiguration({
                 tx,
                 id: input.id,
                 version: input.version,
                 actor: ctx.adminActor,
               }),
-            );
-          }),
+            ),
+          ),
         ),
       secret: adminProcedure
         .input(
@@ -238,12 +236,10 @@ export const appRouter = trpc.router({
             }),
           ),
         ),
-      disconnect: adminProcedure
-        .input(z.object({ id: z.string() }).strict())
+      deleteConnection: adminProcedure
+        .input(z.object({ id: z.string().min(1) }).strict())
         .mutation(({ input, ctx }) =>
-          mapDomainErrors(() =>
-            disconnectAndDeleteConnection({ actor: ctx.adminActor, id: input.id }),
-          ),
+          mapDomainErrors(() => deleteConnection({ actor: ctx.adminActor, id: input.id })),
         ),
     }),
     status: adminProcedure.query(({ ctx }) => ({

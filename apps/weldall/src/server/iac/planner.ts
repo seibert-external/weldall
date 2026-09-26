@@ -507,19 +507,6 @@ export async function loadPlanningState({
         message: "Disconnect and remove connections/attempts before replacing the OAuth client.",
       });
   }
-  for (const item of connectors) {
-    const object = objects.find((o) => o.id === item.id)!;
-    if (
-      object.address &&
-      deletingAddresses.has(object.address) &&
-      (item._count.connections || item._count.attempts)
-    )
-      externalBlockers.push({
-        code: "CONNECTOR_IN_USE",
-        address: object.address,
-        message: "Disconnect and remove connections and attempts before deleting the connector.",
-      });
-  }
   const addReferenceBlocker = (
     target: CurrentObject,
     sourceId: string,

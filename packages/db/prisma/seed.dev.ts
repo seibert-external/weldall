@@ -500,20 +500,6 @@ async function seedDevelopmentManagedConnectors() {
       requestCount: 21,
       lastUsedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000),
     },
-    {
-      id: "dev-connection-liam-revocation",
-      ownerId: DEVELOPMENT_USERS[3]!.id,
-      connector: "google-mail",
-      name: "former-sales-inbox",
-      accountId: "google-liam-sales",
-      accountName: "sales@example.com",
-      selectedScopes: ["openid", "https://www.googleapis.com/auth/userinfo.email", gmailRead],
-      grantedScopes: ["openid", "https://www.googleapis.com/auth/userinfo.email", gmailRead],
-      status: "REVOCATION_PENDING" as const,
-      requestCount: 6,
-      lastUsedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
-      revocationError: "Google revocation endpoint timed out during the last attempt.",
-    },
   ];
   const seededConnectionIds = connectionDefinitions.map(({ id }) => id);
   const staleAttempts = await db.connectionAuthorization.findMany({
@@ -573,7 +559,7 @@ async function seedDevelopmentManagedConnectors() {
         credentialId,
         requestCount: definition.requestCount,
         lastUsedAt: definition.lastUsedAt,
-        revocationError: "revocationError" in definition ? definition.revocationError : null,
+        revocationError: null,
       },
       update: {
         ownerId: definition.ownerId,
@@ -587,7 +573,7 @@ async function seedDevelopmentManagedConnectors() {
         credentialId,
         requestCount: definition.requestCount,
         lastUsedAt: definition.lastUsedAt,
-        revocationError: "revocationError" in definition ? definition.revocationError : null,
+        revocationError: null,
       },
     });
     if (previous?.credentialId && previous.credentialId !== credentialId)

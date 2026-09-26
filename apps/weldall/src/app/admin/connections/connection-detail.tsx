@@ -24,19 +24,22 @@ export function ConnectionDetail({ connectionId }: { connectionId: string }) {
   const connectionQuery = useQuery(
     trpc.admin.managed.connection.queryOptions({ id: connectionId }),
   );
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [removed, setRemoved] = useState<{ revocationConfirmed: boolean } | null>(null);
-  const disconnect = useMutation(
-    trpc.admin.managed.disconnect.mutationOptions({
-      onSuccess: async (result) => {
-        setConfirmDisconnect(false);
-        setRemoved(result);
-        await queryClient.invalidateQueries({
-          queryKey: trpc.admin.managed.connections.queryKey(),
-        });
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const remove = useMutation(
+    trpc.admin.managed.deleteConnection.mutationOptions({
+      onSuccess: async () => {
+        setConfirmDelete(false);
+        setRemoved(true);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: trpc.admin.managed.connections.queryKey() }),
+          queryClient.invalidateQueries({
+            queryKey: trpc.admin.managed.connection.queryKey({ id: connectionId }),
+          }),
+        ]);
       },
       onError: async (error) => {
-        operationToast.error("Could not finish disconnecting", error, "connection-disconnect");
+        operationToast.error("Could not delete connection", error, "connection-delete");
         await Promise.all([
           queryClient.invalidateQueries({
             queryKey: trpc.admin.managed.connection.queryKey({ id: connectionId }),
@@ -53,23 +56,19 @@ export function ConnectionDetail({ connectionId }: { connectionId: string }) {
         <Button href="/admin/connections" label="Back to connections" variant="secondary" />
         {!removed && connectionQuery.data && !connectionQuery.error ? (
           <Button
-            label="Disconnect"
+            label="Delete connection"
             variant="destructive"
-            isLoading={disconnect.isPending}
-            onClick={() => setConfirmDisconnect(true)}
+            isLoading={remove.isPending}
+            onClick={() => setConfirmDelete(true)}
           />
         ) : null}
       </HerocrumbsActions>
       {removed ? (
         <Banner
           container="card"
-          status={removed.revocationConfirmed ? "success" : "warning"}
-          title="Connection removed from Weldall"
-          description={
-            removed.revocationConfirmed
-              ? "The connection and its stored tokens have been deleted."
-              : "Provider access could not be confirmed revoked. Remove the app's access in your provider account settings. The local connection and tokens have been deleted, so Weldall cannot retry revocation."
-          }
+          status="warning"
+          title="Connection deleted from Weldall"
+          description="The connection, linked authorization attempts and stored credentials have been deleted. Provider access was not revoked. Remove access in your provider's account settings if needed; Weldall can no longer revoke it."
         />
       ) : connectionQuery.isPending ? (
         <PlanetLoader />
@@ -88,14 +87,14 @@ export function ConnectionDetail({ connectionId }: { connectionId: string }) {
         <ConnectionSummary connection={connectionQuery.data} />
       )}
       <AlertDialog
-        isOpen={confirmDisconnect}
-        title="Disconnect and remove connection?"
-        actionLabel="Disconnect"
-        description={`Permanently remove ${connectionQuery.data?.name ?? "this connection"} and its stored tokens? Weldall will try to revoke provider access, but will delete the local connection even if revocation fails. In that case, remove access in your provider account settings. Depending on the provider, revocation may affect other connections using the same account and application.`}
-        isActionLoading={disconnect.isPending}
-        onAction={() => disconnect.mutate({ id: connectionId })}
+        isOpen={confirmDelete}
+        title="Delete connection?"
+        actionLabel="Delete connection"
+        description={`Permanently delete ${connectionQuery.data?.name ?? "this connection"}, its authorization attempts and stored credentials from Weldall? This does not revoke provider access. Ask the owner to disconnect first, or remove access in the provider's account settings. Removing the OAuth application may affect other users and applications; existing tokens may remain valid according to the provider's policies. In-flight requests may still finish.`}
+        isActionLoading={remove.isPending}
+        onAction={() => remove.mutate({ id: connectionId })}
         onOpenChange={(open) => {
-          if (!disconnect.isPending) setConfirmDisconnect(open);
+          if (!remove.isPending) setConfirmDelete(open);
         }}
       />
     </>

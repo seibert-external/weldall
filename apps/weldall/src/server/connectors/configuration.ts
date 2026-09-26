@@ -12,6 +12,7 @@ import { getConnectorProvider } from "./registry";
 import { encrypt } from "./encryption";
 import { writeConnectorAuditLog } from "./audit";
 import { getConnectorRequiredScopeKeys, connectorScopeInclude } from "./access";
+import { deleteConnectionState } from "./core/deletion";
 
 type Tx = Prisma.TransactionClient;
 type ConnectorWithRequiredScopes = Connector & {
@@ -265,7 +266,7 @@ export async function saveConnectorSecrets({
   });
 }
 
-/** Deletes an unused definition, including its fixed-encrypted client secret. */
+/** Atomically deletes a connector and all its local connection state; never revokes provider access. */
 export async function deleteConnectorConfiguration({
   tx,
   id,
@@ -277,15 +278,9 @@ export async function deleteConnectorConfiguration({
   version: number;
   actor: ConnectorActor;
 }) {
-  if (
-    (await tx.connection.count({ where: { connectorId: id } })) ||
-    (await tx.connectionAuthorization.count({ where: { connectorId: id } }))
-  )
-    throw new ConnectorError(
-      "in_use",
-      "Remove disconnected connections and completed attempts first. Unconfirmed revocations must be retried.",
-      409,
-    );
+  const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
+  assertConfigurationVersion({ current: connector, expected: version });
+  await deleteConnectionState({ tx, target: { connectorId: id }, actor });
   await tx.connector.delete({ where: { id, version } });
   await writeConnectorAuditLog({
     tx,

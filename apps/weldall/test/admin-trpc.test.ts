@@ -146,6 +146,15 @@ describe("admin tRPC middleware", () => {
     await expect(caller(normalUserId).admin.users.get({ id: normalUserId })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+    for (const userId of [undefined, normalUserId]) {
+      const code = userId ? "FORBIDDEN" : "UNAUTHORIZED";
+      await expect(
+        caller(userId).admin.managed.deleteConnection({ id: "connection" }),
+      ).rejects.toMatchObject({ code });
+      await expect(
+        caller(userId).admin.managed.deleteConnector({ id: "connector", version: 1 }),
+      ).rejects.toMatchObject({ code });
+    }
     await expect(
       caller(normalUserId).admin.auditEvents.list({
         page: 1,
@@ -154,6 +163,73 @@ describe("admin tRPC middleware", () => {
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
+
+  it.each(["connection", "connector"] as const)(
+    "lets admins delete another owner's %s without a working provider",
+    async (target) => {
+      const connector = await db.connector.create({
+        data: {
+          key: `trpc-${runId}-${target}`,
+          name: "Unavailable provider",
+          providerType: "unavailable",
+          providerConfig: {},
+          envelopeProvider: "LOCAL_ENV",
+          createdBy: adminUserId,
+          updatedBy: adminUserId,
+        },
+      });
+      try {
+        const connection = await db.connection.create({
+          data: {
+            connectorId: connector.id,
+            ownerId: normalUserId,
+            name: connector.key,
+            accountId: "external-account",
+            accountName: "External account",
+            providerSelection: {},
+            providerGrant: {},
+            status: "REFRESHING",
+            refreshStartedAt: new Date(),
+          },
+        });
+        await db.connectionAuthorization.create({
+          data: {
+            connectorId: connector.id,
+            connectionId: connection.id,
+            ownerId: normalUserId,
+            connectorVersion: connector.version,
+            name: connector.key,
+            providerSelection: {},
+            status: "PROCESSING",
+            expiresAt: new Date(Date.now() + 60_000),
+          },
+        });
+        if (target === "connection")
+          await caller(adminUserId).admin.managed.deleteConnection({ id: connection.id });
+        else
+          await caller(adminUserId).admin.managed.deleteConnector({
+            id: connector.id,
+            version: connector.version,
+          });
+        expect(await db.connection.findUnique({ where: { id: connection.id } })).toBeNull();
+        expect(
+          await db.connectionAuthorization.count({ where: { connectorId: connector.id } }),
+        ).toBe(0);
+        expect(
+          await db.auditEvent.findFirst({
+            where: {
+              subjectId: connection.id,
+              metadata: { path: ["operation"], equals: "connection.deleted" },
+            },
+          }),
+        ).toMatchObject({ actorId: adminUserId });
+      } finally {
+        await db.connectionAuthorization.deleteMany({ where: { connectorId: connector.id } });
+        await db.connection.deleteMany({ where: { connectorId: connector.id } });
+        await db.connector.deleteMany({ where: { id: connector.id } });
+      }
+    },
+  );
 
   it("lists users and resolves user details for administrators", async () => {
     await expect(
