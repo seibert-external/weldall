@@ -6,7 +6,11 @@ import { authenticateCliApiRequest } from "../oauth/cli-api";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { auditRequestIdentifiers } from "../audit/service";
 import { effectiveScopesRequiringSystemScopeFor } from "../policy/resources";
-import { ConnectorError, type AuthorizedConnectorActor } from "./contracts";
+import {
+  ConnectorError,
+  type AuthorizedConnectorActor,
+  type ConnectorBrowserActor,
+} from "./contracts";
 import { readBoundedBody } from "./core/transport";
 
 export const privateHeaders = {
@@ -14,34 +18,54 @@ export const privateHeaders = {
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
 };
-/** Authenticates a CLI or trusted-browser caller for owner-scoped connector HTTP routes. */
+/** Authenticates a DPoP-bound CLI caller for owner-scoped connector HTTP routes. */
 export async function authenticateConnectorActor({
   request,
-  browser = false,
 }: {
   request: Request;
-  browser?: boolean;
 }): Promise<AuthorizedConnectorActor> {
-  const user = browser
-    ? (await auth.api.getSession({ headers: request.headers }))?.user
-    : await authenticateCliApiRequest(request, {
-        expectedUrl: `${WELDALL_ISSUER}${new URL(request.url).pathname}`,
-        requiredScope: "weldall:scopes",
-      });
-  const scopeKeys = user
-    ? await effectiveScopesRequiringSystemScopeFor({
-        email: user.email,
-        requiredSystemScope: "weldall:login",
-      })
-    : null;
-  if (!user || !scopeKeys)
+  return authorizeConnectorActor({
+    request,
+    user: await authenticateCliApiRequest(request, {
+      expectedUrl: `${WELDALL_ISSUER}${new URL(request.url).pathname}`,
+      requiredScope: "weldall:scopes",
+    }),
+  });
+}
+/** Uses the signed Weldall session for both setup and the returning OAuth callback. */
+export async function authenticateConnectorBrowserActor({
+  request,
+}: {
+  request: Request;
+}): Promise<ConnectorBrowserActor> {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session?.user.emailVerified || !session.session.id)
+    throw new ConnectorError("unauthorized", "Sign in to Weldall to continue setup.", 401);
+  if (!isTrustedBrowserRequest(request))
+    throw new ConnectorError("csrf", "Untrusted browser request.", 403);
+  return {
+    ...(await authorizeConnectorActor({ request, user: session.user })),
+    sessionId: session.session.id,
+  };
+}
+/** Requires live login permission for either authenticated transport. */
+async function authorizeConnectorActor({
+  request,
+  user,
+}: {
+  request: Request;
+  user: { id: string; email: string };
+}): Promise<AuthorizedConnectorActor> {
+  const scopeKeys = await effectiveScopesRequiringSystemScopeFor({
+    email: user.email,
+    requiredSystemScope: "weldall:login",
+  });
+  if (!scopeKeys)
     throw new ConnectorError(
       "unauthorized",
       "Sign in to Weldall with an active login permission.",
       401,
     );
-  if (browser && !isTrustedBrowserRequest(request))
-    throw new ConnectorError("csrf", "Untrusted browser request.", 403);
   return { id: user.id, email: user.email, scopeKeys, ...auditRequestIdentifiers(request) };
 }
 /** Parses a bounded JSON body for connector routes and applies the route's Zod contract. */

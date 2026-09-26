@@ -8,6 +8,7 @@ import {
   connectionName,
   type AuthorizedConnectorActor,
   type ConnectorActor,
+  type ConnectorBrowserActor,
 } from "../contracts";
 import { readConnectorSecrets, runConnectorTransaction } from "../configuration";
 import { getConnectorProvider } from "../registry";
@@ -36,6 +37,7 @@ const hashValue = (value: string) => createHash("sha256").update(value).digest("
 const attemptPayload = z
   .object({
     attempt: z.unknown(),
+    browserSessionHash: z.string().regex(/^[a-f0-9]{64}$/),
     credentials: z.unknown().optional(),
   })
   .strict();
@@ -320,16 +322,18 @@ export async function getAuthorizationAttempt({
         : null,
   };
 }
-/** Validates owner setup through the provider and binds its authorization attempt to this owner. */
+/** Binds provider authorization to the owner and the authenticated browser session submitting setup. */
 export async function submitScopeSelection({
   actor,
   id,
   selection,
 }: {
-  actor: AuthorizedConnectorActor;
+  actor: ConnectorBrowserActor;
   id: string;
   selection: unknown;
 }) {
+  if (!actor.sessionId)
+    throw new ConnectorError("invalid_browser_session", "Sign in again and restart setup.", 403);
   return runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUniqueOrThrow({
       where: { id },
@@ -363,7 +367,10 @@ export async function submitScopeSelection({
       tx,
       provider: a.connector.envelopeProvider,
       context: `attempt:${id}:oauth`,
-      value: JSON.stringify({ attempt: authorization.attempt }),
+      value: JSON.stringify({
+        attempt: authorization.attempt,
+        browserSessionHash: hashValue(actor.sessionId),
+      }),
     });
     await tx.connectionAuthorization.update({
       where: { id, status: "SETUP" },
@@ -378,14 +385,16 @@ export async function submitScopeSelection({
   });
 }
 /**
- * Completes the OAuth callback outside a database transaction after claiming single-use state, then
+ * Verifies the returning browser before claiming single-use state or exchanging a code, then
  * revalidates connector policy and revisions when committing the resulting connection.
  */
 export async function completeConnection({
+  browser,
   state,
   code,
   cancelled,
 }: {
+  browser: Pick<ConnectorBrowserActor, "id" | "sessionId">;
   state: string;
   code: string | null;
   cancelled: boolean;
@@ -405,6 +414,9 @@ export async function completeConnection({
     pending.connectorVersion !== pending.connector.version
   )
     throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
+  if (!browser?.sessionId)
+    throw new ConnectorError("invalid_browser_session", "Sign in again and restart setup.", 403);
+  assertConnectionOwner({ ownerId: pending.ownerId, actorId: browser.id });
   const scopeKeys = await effectiveScopesRequiringSystemScopeFor({
     email: pending.owner.email,
     requiredSystemScope: "weldall:login",
@@ -435,15 +447,22 @@ export async function completeConnection({
       !a.payloadId
     )
       throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
+    assertConnectionOwner({ ownerId: a.ownerId, actorId: browser.id });
     assertConnectorEnabled(a.connector);
     assertConnectorAccess({ connector: a.connector, actor: scopeActor });
+    const payload = attemptPayload.parse(
+      JSON.parse(await readSecret({ tx, id: a.payloadId, context: `attempt:${a.id}:oauth` })),
+    );
+    if (payload.browserSessionHash !== hashValue(browser.sessionId))
+      throw new ConnectorError(
+        "invalid_browser_session",
+        "Complete setup in the same signed-in browser session that started it.",
+        403,
+      );
     await tx.connectionAuthorization.update({
       where: { id: a.id, status: "AUTHORIZING" },
       data: { status: cancelled ? "CANCELLED" : "PROCESSING", stateHash: null },
     });
-    const payload = attemptPayload.parse(
-      JSON.parse(await readSecret({ tx, id: a.payloadId, context: `attempt:${a.id}:oauth` })),
-    );
     if (cancelled) {
       await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
       return null;
@@ -967,7 +986,7 @@ async function disconnectAndDelete({
     return { deleted: false as const, message };
   }
 
-  const credentialsToRevoke: object[] = [];
+  const credentialsToRevoke: unknown[] = [];
   const provider = getConnectorProvider(claim.row.connector.providerType);
   let revocationConfirmed = claim.row.credentialId !== null;
   if (claim.row.refreshStartedAt) revocationConfirmed = false;
@@ -1000,8 +1019,8 @@ async function disconnectAndDelete({
           }),
         ),
       );
-      if (payload.credentials)
-        credentialsToRevoke.push(provider.parseCredentials(payload.credentials));
+      // Rejected authorizations may contain revocation-only material, never executable credentials.
+      if (payload.credentials) credentialsToRevoke.push(payload.credentials);
       else if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
         revocationConfirmed = false;
     } catch {

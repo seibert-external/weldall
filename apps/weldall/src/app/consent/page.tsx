@@ -14,9 +14,10 @@ export default function Consent() {
             height={51}
             className="login-auth-logo"
           />
-          <p className="mt-4">
-            Login to Weldall CLI: Only approve if you started this login on this device.
-          </p>
+          <Heading level={1} id="consent-heading">
+            Login to Weldall CLI
+          </Heading>
+          <p>Only approve if you started this login from the Weldall CLI on this device.</p>
           <ConsentOptions />
         </VStack>
       </section>

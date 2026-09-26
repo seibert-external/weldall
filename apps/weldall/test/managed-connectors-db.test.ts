@@ -24,7 +24,8 @@ import {
 import { decrypt, saveSecret } from "../src/server/connectors/encryption";
 import {
   accessCredentials,
-  completeConnection,
+  completeConnection as completeBrowserConnection,
+  cancelAuthorizationAttempt,
   disconnectConnection,
   deleteConnection,
   getAuthorizationAttempt,
@@ -42,6 +43,7 @@ import {
 } from "../src/server/connectors/providers/google/oauth";
 import { googleProvider } from "../src/server/connectors/providers/google";
 import { requiredScopes } from "../src/server/connectors/providers/google/setup";
+import { RejectedProviderCredentials } from "../src/server/connectors/errors";
 import { createPostgresReplayStore } from "../src/server/oauth/replay";
 import { parseDesiredState } from "../src/server/iac/contracts";
 import { createPlan, loadPlanningState } from "../src/server/iac/planner";
@@ -65,7 +67,17 @@ const approvedTarget =
   (process.env.CI === "true" &&
     process.env.POSTGRES_URL === "postgresql://postgres:postgres@localhost:5432/postgres");
 const prefix = `managed-${randomUUID()}`;
-const actor = { id: prefix, requestId: prefix, email: `${prefix}@example.com`, scopeKeys: [] };
+const actor = {
+  id: prefix,
+  requestId: prefix,
+  email: `${prefix}@example.com`,
+  scopeKeys: [],
+  sessionId: `browser-${prefix}`,
+};
+/** Existing lifecycle cases return through the same authenticated browser that submitted setup. */
+const completeConnection = (
+  input: Omit<Parameters<typeof completeBrowserConnection>[0], "browser">,
+) => completeBrowserConnection({ ...input, browser: actor });
 const read = "https://www.googleapis.com/auth/gmail.readonly",
   calendar = "https://www.googleapis.com/auth/calendar.readonly";
 const selected = [...requiredScopes, calendar];
@@ -375,6 +387,122 @@ describe.skipIf(!approvedTarget)(
           update: {},
         });
       }
+    });
+
+    it.each([
+      ["different owner", { id: "other-owner", sessionId: actor.sessionId }],
+      ["different browser session", { id: actor.id, sessionId: "other-session" }],
+      ["missing browser session", { id: actor.id, sessionId: "" }],
+    ])(
+      "rejects a %s before consuming callback state or exchanging a code",
+      async (_label, browser) => {
+        const f = await fixture();
+        const { state, attempt } = await authorize({ key: f.key, name: f.key });
+        const before = await db.connectionAuthorization.findUniqueOrThrow({
+          where: { id: attempt.id },
+        });
+        for (const cancelled of [false, true])
+          await expect(
+            completeBrowserConnection({ browser, state, code: "code", cancelled }),
+          ).rejects.toBeInstanceOf(Error);
+        expect(completeGoogle).not.toHaveBeenCalled();
+        expect(
+          await db.connectionAuthorization.findUniqueOrThrow({ where: { id: attempt.id } }),
+        ).toEqual(before);
+        expect(await db.connection.count({ where: { connectorId: f.connector.id } })).toBe(0);
+        const envelope = await db.encryptedValue.findUniqueOrThrow({
+          where: { id: before.payloadId! },
+        });
+        const payload = JSON.parse(
+          await decrypt({ envelope, context: `attempt:${attempt.id}:oauth` }),
+        );
+        expect(payload.browserSessionHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(JSON.stringify(payload)).not.toContain(actor.sessionId);
+        expect(
+          JSON.stringify(await getAuthorizationAttempt({ actor, id: attempt.id })),
+        ).not.toMatch(/browserSessionHash|sessionId/);
+
+        vi.mocked(completeGoogle).mockResolvedValueOnce({
+          accountId: "owner-account",
+          accountName: "owner@example.com",
+          credentials: credentials(),
+        });
+        expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("success");
+        expect(completeGoogle).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("retains unverified identity tokens only for explicit revocation and retries failed cleanup", async () => {
+      const f = await fixture();
+      const { state, attempt } = await authorize({ key: f.key, name: f.key });
+      const cleanup = { revocationToken: "unverified-private-refresh" };
+      vi.mocked(completeGoogle).mockRejectedValueOnce(
+        new RejectedProviderCredentials({ credentials: cleanup, reason: "identity_unverified" }),
+      );
+      expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("failed");
+      const pending = await db.connectionAuthorization.findUniqueOrThrow({
+        where: { id: attempt.id },
+      });
+      expect(pending.status).toBe("NEEDS_REVOCATION");
+      expect(await db.connection.count({ where: { connectorId: f.connector.id } })).toBe(0);
+      const envelope = await db.encryptedValue.findUniqueOrThrow({
+        where: { id: pending.payloadId! },
+      });
+      expect(
+        JSON.parse(await decrypt({ envelope, context: `attempt:${attempt.id}:oauth` })).credentials,
+      ).toEqual(cleanup);
+      expect(JSON.stringify(envelope)).not.toContain(cleanup.revocationToken);
+      expect(
+        JSON.stringify(await getAuthorizationAttempt({ actor, id: attempt.id })),
+      ).not.toContain(cleanup.revocationToken);
+
+      vi.mocked(revokeGoogle).mockRejectedValueOnce(new Error("Provider unavailable"));
+      await expect(cancelAuthorizationAttempt({ actor, id: attempt.id })).rejects.toMatchObject({
+        code: "revocation_unconfirmed",
+      });
+      expect(
+        await db.connectionAuthorization.findUniqueOrThrow({ where: { id: attempt.id } }),
+      ).toMatchObject({ status: "REVOCATION_PENDING", payloadId: pending.payloadId });
+      expect(
+        await db.encryptedValue.findUnique({ where: { id: pending.payloadId! } }),
+      ).not.toBeNull();
+      vi.mocked(revokeGoogle).mockResolvedValueOnce();
+      await cancelAuthorizationAttempt({ actor, id: attempt.id });
+      expect(revokeGoogle).toHaveBeenCalledWith(cleanup.revocationToken);
+      expect(
+        await db.connectionAuthorization.findUniqueOrThrow({ where: { id: attempt.id } }),
+      ).toMatchObject({ status: "CANCELLED", payloadId: null });
+      expect(await db.encryptedValue.findUnique({ where: { id: pending.payloadId! } })).toBeNull();
+      expect(
+        JSON.stringify(await db.auditEvent.findMany({ where: { subjectId: attempt.id } })),
+      ).not.toContain(cleanup.revocationToken);
+    });
+
+    it("revokes a rejected reconnect's cleanup-only token when disconnecting its existing connection", async () => {
+      const f = await ready();
+      const { state, attempt } = await authorize({ key: f.key, name: f.key, reconnect: f.id });
+      vi.mocked(completeGoogle).mockRejectedValueOnce(
+        new RejectedProviderCredentials({
+          reason: "identity_unverified",
+          credentials: { revocationToken: "rejected-reconnect-token" },
+        }),
+      );
+      expect(await completeConnection({ state, code: "code", cancelled: false })).toBe("failed");
+      expect(await db.connection.findUniqueOrThrow({ where: { id: f.id } })).toMatchObject({
+        status: "READY",
+      });
+      const pending = await db.connectionAuthorization.findUniqueOrThrow({
+        where: { id: attempt.id },
+      });
+      vi.mocked(revokeGoogle).mockResolvedValue();
+      expect(await disconnectConnection({ actor, selector: f.id })).toMatchObject({
+        status: "DISCONNECTED",
+        revocationConfirmed: true,
+      });
+      expect(revokeGoogle).toHaveBeenCalledWith("never-public-refresh");
+      expect(revokeGoogle).toHaveBeenCalledWith("rejected-reconnect-token");
+      expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
+      expect(await db.encryptedValue.findUnique({ where: { id: pending.payloadId! } })).toBeNull();
     });
 
     it("stores LOCAL_ENV and keeps client secrets in fixed application encryption", async () => {

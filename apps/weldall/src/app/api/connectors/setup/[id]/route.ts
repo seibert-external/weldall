@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  authenticateConnectorActor,
+  authenticateConnectorBrowserActor,
   createConnectorErrorResponse,
   createJsonResponse,
   parseJsonRequestBody,
@@ -17,7 +17,7 @@ export async function GET(request: Request, context: Context) {
   try {
     return createJsonResponse(
       await getAuthorizationAttempt({
-        actor: await authenticateConnectorActor({ request, browser: true }),
+        actor: await authenticateConnectorBrowserActor({ request }),
         id: (await context.params).id,
       }),
     );
@@ -29,7 +29,7 @@ export async function GET(request: Request, context: Context) {
 /** Persists browser scope selection and returns the external Google consent URL. */
 export async function POST(request: Request, context: Context) {
   try {
-    const actor = await authenticateConnectorActor({ request, browser: true });
+    const actor = await authenticateConnectorBrowserActor({ request });
     const body = await parseJsonRequestBody({
       request,
       schema: z.object({ selection: z.unknown() }).strict(),

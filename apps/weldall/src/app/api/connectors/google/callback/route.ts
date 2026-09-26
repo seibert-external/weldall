@@ -1,5 +1,5 @@
 import { completeConnection } from "@/server/connectors/core/connections";
-import { privateHeaders } from "@/server/connectors/http";
+import { authenticateConnectorBrowserActor, privateHeaders } from "@/server/connectors/http";
 import { ConnectorError } from "@/server/connectors/contracts";
 import { logger } from "@/server/observability/logger";
 import { WELDALL_ISSUER } from "@/server/oauth/constants";
@@ -23,6 +23,7 @@ export async function GET(request: Request) {
       return createCompletionRedirect("failed");
     return createCompletionRedirect(
       await completeConnection({
+        browser: await authenticateConnectorBrowserActor({ request }),
         state,
         code: query.has("error") ? null : query.get("code"),
         cancelled: query.get("error") === "access_denied",

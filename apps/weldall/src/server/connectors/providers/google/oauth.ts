@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
-import { ConnectorError, ProviderTokenError } from "../../errors";
+import { ConnectorError, ProviderTokenError, RejectedProviderCredentials } from "../../errors";
 import { canonicalizeScopes } from "./setup";
 import { readBoundedBody } from "../../core/transport";
 
@@ -14,6 +14,14 @@ export const credentialsSchema = z
   })
   .strict();
 export type Credentials = z.infer<typeof credentialsSchema>;
+/** Failed identity verification retains only enough material to revoke, never to execute or refresh. */
+const revocationCredentialsSchema = z.object({ revocationToken: z.string().min(1) }).strict();
+export function googleRevocationToken(credentials: unknown): string {
+  const cleanup = revocationCredentialsSchema.safeParse(credentials);
+  return cleanup.success
+    ? cleanup.data.revocationToken
+    : credentialsSchema.parse(credentials).refreshToken;
+}
 export interface GoogleClient {
   clientId: string;
   clientSecret: string;
@@ -131,30 +139,39 @@ export async function completeGoogleAuthorization({
       code_verifier: input.verifier,
     }),
   );
-  if (!value.refresh_token || !value.id_token)
-    throw new ProviderTokenError({ authorizationLost: true });
-  const { payload } = await jwtVerify(value.id_token, jwks, {
-    algorithms: ["RS256"],
-    audience: client.clientId,
-    issuer: ["https://accounts.google.com", "accounts.google.com"],
-    requiredClaims: ["iss", "aud", "sub", "exp", "iat", "nonce"],
-    maxTokenAge: "10m",
-    clockTolerance: 5,
-  });
-  if (
-    payload.nonce !== input.nonce ||
-    !payload.sub ||
-    typeof payload.email !== "string" ||
-    payload.email.length > 320 ||
-    payload.email_verified !== true ||
-    (payload.azp !== undefined && payload.azp !== client.clientId)
-  )
-    throw new ProviderTokenError({ authorizationLost: true });
-  return {
-    accountId: payload.sub,
-    accountName: payload.email,
-    credentials: buildGoogleCredentials({ value, refreshToken: value.refresh_token }),
-  };
+  try {
+    if (!value.refresh_token || !value.id_token)
+      throw new ProviderTokenError({ authorizationLost: true });
+    const { payload } = await jwtVerify(value.id_token, jwks, {
+      algorithms: ["RS256"],
+      audience: client.clientId,
+      issuer: ["https://accounts.google.com", "accounts.google.com"],
+      requiredClaims: ["iss", "aud", "sub", "exp", "iat", "nonce"],
+      maxTokenAge: "10m",
+      clockTolerance: 5,
+    });
+    if (
+      payload.nonce !== input.nonce ||
+      !payload.sub ||
+      typeof payload.email !== "string" ||
+      payload.email.length > 320 ||
+      payload.email_verified !== true ||
+      (payload.azp !== undefined && payload.azp !== client.clientId)
+    )
+      throw new ProviderTokenError({ authorizationLost: true });
+    return {
+      accountId: payload.sub,
+      accountName: payload.email,
+      credentials: buildGoogleCredentials({ value, refreshToken: value.refresh_token }),
+    };
+  } catch {
+    // Token issuance already succeeded. JWKS outages and all identity failures need explicit cleanup.
+    // Google's revoke endpoint also accepts an access token when no refresh token was returned.
+    throw new RejectedProviderCredentials({
+      reason: "identity_unverified",
+      credentials: { revocationToken: value.refresh_token ?? value.access_token },
+    });
+  }
 }
 /** Refreshes one connection's Google credentials without expanding its persisted consent boundary. */
 export async function refreshGoogleCredentials({

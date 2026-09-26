@@ -15,6 +15,7 @@ import {
   buildGoogleAuthorizationUrl,
   completeGoogleAuthorization,
   credentialsSchema,
+  googleRevocationToken,
   refreshGoogleCredentials,
   revokeGoogleAuthorization,
 } from "./oauth";
@@ -165,7 +166,7 @@ export const googleProvider = {
     parseGoogleConfiguration(config);
     googleSecretsSchema.parse(secrets);
     try {
-      await revokeGoogleAuthorization(credentialsSchema.parse(credentials).refreshToken);
+      await revokeGoogleAuthorization(googleRevocationToken(credentials));
       return { status: "revoked" };
     } catch {
       return { status: "unconfirmed", remediationUrl: "https://myaccount.google.com/permissions" };

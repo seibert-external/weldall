@@ -12,8 +12,19 @@ export class ConnectorError extends Error {
 /** Retains rejected credentials only for encrypted cleanup, never for logging or execution. */
 export class RejectedProviderCredentials extends ConnectorError {
   readonly credentials!: object;
-  constructor({ credentials }: { credentials: object }) {
-    super("grant_mismatch", "Provider grant differs from the request.");
+  constructor({
+    credentials,
+    reason = "grant_mismatch",
+  }: {
+    credentials: object;
+    reason?: "grant_mismatch" | "identity_unverified";
+  }) {
+    super(
+      reason,
+      reason === "identity_unverified"
+        ? "Provider identity could not be verified. The issued grant requires cleanup."
+        : "Provider grant differs from the request.",
+    );
     Object.defineProperty(this, "credentials", { value: credentials, enumerable: false });
   }
 }
