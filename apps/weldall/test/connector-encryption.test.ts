@@ -2,6 +2,7 @@ import { createCipheriv } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encrypt, decrypt, saveSecret } from "../src/server/connectors/encryption";
 import { getEnvelopeProvider } from "../src/server/connectors/envelope-providers";
+import { logger } from "../src/server/observability/logger";
 import { connectorConfig } from "../src/server/connectors/contracts";
 import { saveConnectorConfiguration } from "../src/server/connectors/configuration";
 import { parseDesiredState } from "../src/server/iac/contracts";
@@ -44,6 +45,7 @@ const manifest = (value: unknown) => ({
 });
 
 beforeEach(() => {
+  vi.spyOn(logger, "error").mockImplementation(() => undefined);
   vi.stubEnv("WELDALL_CONNECTOR_KEK", Buffer.alloc(32, 7).toString("base64"));
   vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
 });
@@ -91,7 +93,11 @@ describe("connector envelope encryption", () => {
     bytes[0] = bytes[0]! ^ 1;
     await expect(
       decrypt({ envelope: { ...envelope, [field]: bytes.toString("base64") }, context }),
-    ).rejects.toThrow("unavailable");
+    ).rejects.toMatchObject({ code: "envelope_authentication_failed", status: 503 });
+    expect(logger.error).toHaveBeenCalledExactlyOnceWith("connector.encryption.failed", {
+      operation: "decrypt",
+      reason: "envelope_authentication_failed",
+    });
   });
   it.each(["ciphertext", "nonce", "tag"] as const)(
     "authenticates wrapped DEK %s",
@@ -107,7 +113,11 @@ describe("connector envelope encryption", () => {
           },
           context,
         }),
-      ).rejects.toThrow("unavailable");
+      ).rejects.toMatchObject({ code: "envelope_authentication_failed", status: 503 });
+      expect(logger.error).toHaveBeenCalledExactlyOnceWith("connector.encryption.failed", {
+        operation: "unwrap",
+        reason: "envelope_authentication_failed",
+      });
     },
   );
   it("rejects purpose, entity, provider, format and wrapped-DEK substitution", async () => {
@@ -116,22 +126,24 @@ describe("connector envelope encryption", () => {
       "connection:another-record:credentials",
       "connection:stable-record-id:oauth",
     ]) {
-      await expect(decrypt({ envelope, context: target })).rejects.toThrow("unavailable");
+      await expect(decrypt({ envelope, context: target })).rejects.toMatchObject({
+        code: "envelope_context_mismatch",
+      });
       await expect(
         decrypt({ envelope: { ...envelope, context: target }, context: target }),
-      ).rejects.toThrow("unavailable");
+      ).rejects.toMatchObject({ code: "envelope_authentication_failed" });
     }
     for (const provider of ["OPENBAO", "unknown"])
       await expect(
         decrypt({ envelope: { ...envelope, provider } as never, context }),
-      ).rejects.toThrow("unavailable");
-    await expect(decrypt({ envelope: { ...envelope, formatVersion: 2 }, context })).rejects.toThrow(
-      "unavailable",
-    );
+      ).rejects.toMatchObject({ code: "envelope_provider_unsupported" });
+    await expect(
+      decrypt({ envelope: { ...envelope, formatVersion: 2 }, context }),
+    ).rejects.toMatchObject({ code: "envelope_format_unsupported" });
     const other = await write();
     await expect(
       decrypt({ envelope: { ...envelope, wrappedDek: other.wrappedDek }, context }),
-    ).rejects.toThrow("unavailable");
+    ).rejects.toMatchObject({ code: "envelope_authentication_failed" });
   });
   it.each([
     undefined,
@@ -142,17 +154,152 @@ describe("connector envelope encryption", () => {
   ])("fails closed with missing or invalid KEK (%#)", async (key) => {
     const envelope = await write();
     vi.stubEnv("WELDALL_CONNECTOR_KEK", key);
-    await expect(write()).rejects.toThrow("unavailable");
-    await expect(decrypt({ envelope, context })).rejects.toThrow("unavailable");
+    const code = key ? "encryption_key_invalid" : "encryption_key_missing";
+    await expect(write()).rejects.toMatchObject({ code, status: 503 });
+    await expect(decrypt({ envelope, context })).rejects.toMatchObject({ code, status: 503 });
+    expect(logger.error).toHaveBeenCalledTimes(2);
+    expect(logger.error).toHaveBeenNthCalledWith(1, "connector.encryption.failed", {
+      operation: "wrap",
+      reason: code,
+    });
+    expect(logger.error).toHaveBeenNthCalledWith(2, "connector.encryption.failed", {
+      operation: "unwrap",
+      reason: code,
+    });
   });
   it("rejects a replaced KEK without exposing the key or tokens in errors", async () => {
     const envelope = await write();
     vi.stubEnv("WELDALL_CONNECTOR_KEK", Buffer.alloc(32, 8).toString("base64"));
     await expect(decrypt({ envelope, context })).rejects.toMatchObject({
-      code: "key_unavailable",
+      code: "envelope_authentication_failed",
       message:
-        "Encryption material is unavailable or changed. Restore the original deployment secrets.",
+        "Encryption is unavailable: authentication failed. The key may have changed or the encrypted data or metadata may have been altered.",
     });
+  });
+  it.each(["decrypt", "unwrap"] as const)(
+    "diagnoses malformed fields during %s without duplicate logs",
+    async (operation) => {
+      const envelope = await write();
+      const mutations = [
+        { field: "nonce", value: Buffer.alloc(11).toString("base64") },
+        { field: "tag", value: Buffer.alloc(15).toString("base64") },
+        { field: "ciphertext", value: "not-base64!" },
+        { field: "nonce", value: envelope.nonce + "\n" },
+        { field: "tag", value: null },
+      ];
+      for (const { field, value } of mutations) {
+        vi.mocked(logger.error).mockClear();
+        const invalid =
+          operation === "unwrap"
+            ? { ...envelope, wrappedDek: { ...envelope.wrappedDek, [field]: value } }
+            : { ...envelope, [field]: value };
+        await expect(decrypt({ envelope: invalid, context })).rejects.toMatchObject({
+          code: "envelope_invalid",
+          status: 503,
+        });
+        expect(logger.error).toHaveBeenCalledExactlyOnceWith("connector.encryption.failed", {
+          operation,
+          reason: "envelope_invalid",
+          field: operation === "unwrap" && value === null ? "wrappedDek" : field,
+        });
+      }
+    },
+  );
+  it.each([null, { unexpected: "private-payload" }])(
+    "rejects malformed wrapped-DEK objects (%#)",
+    async (wrappedDek) => {
+      const envelope = await write();
+      await expect(
+        decrypt({ envelope: { ...envelope, wrappedDek }, context }),
+      ).rejects.toMatchObject({ code: "envelope_invalid" });
+      expect(logger.error).toHaveBeenCalledExactlyOnceWith("connector.encryption.failed", {
+        operation: "unwrap",
+        reason: "envelope_invalid",
+        field: "wrappedDek",
+      });
+    },
+  );
+  it("rejects a wrong-sized DEK before wrapping", async () => {
+    await expect(
+      getEnvelopeProvider("LOCAL_ENV").wrapDek({
+        dek: Buffer.alloc(31),
+        context: { formatVersion: 1, provider: "LOCAL_ENV", context },
+      }),
+    ).rejects.toMatchObject({ code: "encryption_dek_invalid" });
+    expect(logger.error).toHaveBeenCalledExactlyOnceWith("connector.encryption.failed", {
+      operation: "wrap",
+      reason: "encryption_dek_invalid",
+    });
+  });
+  it("does not log metadata or ciphertext when an unsupported provider is supplied", async () => {
+    const envelope = await write();
+    await expect(
+      decrypt({ envelope: { ...envelope, provider: "private-provider-value" } as never, context }),
+    ).rejects.toMatchObject({ code: "envelope_provider_unsupported" });
+    expect(logger.error).toHaveBeenCalledExactlyOnceWith("connector.encryption.failed", {
+      operation: "select_provider",
+      reason: "envelope_provider_unsupported",
+    });
+  });
+  it.each(["wrap", "unwrap"] as const)(
+    "sanitizes unexpected %s failures without misreporting authentication failure",
+    async (operation) => {
+      const envelope = await write();
+      const secret = "private-provider-exception-with-credentials";
+      const provider = getEnvelopeProvider("LOCAL_ENV");
+      vi.spyOn(provider, operation === "wrap" ? "wrapDek" : "unwrapDek").mockRejectedValueOnce(
+        new Error(secret),
+      );
+      const code =
+        operation === "wrap" ? "envelope_encryption_failed" : "envelope_decryption_failed";
+      const error = await (operation === "wrap" ? write() : decrypt({ envelope, context })).catch(
+        (error: unknown) => error,
+      );
+      expect(error).toMatchObject({ code, status: 503 });
+      expect(error).not.toHaveProperty("cause");
+      expect(String(error)).not.toContain(secret);
+      expect(logger.error).toHaveBeenCalledExactlyOnceWith("connector.encryption.failed", {
+        operation: operation === "wrap" ? "encrypt" : "decrypt",
+        reason: code,
+      });
+    },
+  );
+  it("never puts key material, payloads, or raw metadata into errors or logs", async () => {
+    const kek = process.env.WELDALL_CONNECTOR_KEK!;
+    const envelope = await write();
+    const provider = getEnvelopeProvider("LOCAL_ENV");
+    const dek = await provider.unwrapDek({ wrappedDek: envelope.wrappedDek, context: envelope });
+    const failures = [
+      decrypt({
+        envelope: { ...envelope, context: "private-context" },
+        context: "private-context",
+      }),
+      decrypt({ envelope: { ...envelope, ciphertext: "private-ciphertext!" }, context }),
+      decrypt({
+        envelope: { ...envelope, wrappedDek: { extra: "private-wrapped-value" } },
+        context,
+      }),
+    ];
+    const results = await Promise.allSettled(failures);
+    expect(results.every(({ status }) => status === "rejected")).toBe(true);
+    const diagnostics = JSON.stringify({ results, logs: vi.mocked(logger.error).mock.calls });
+    for (const secret of [
+      kek,
+      dek.toString("base64"),
+      credentials.accessToken,
+      credentials.refreshToken,
+      "private-context",
+      "private-ciphertext!",
+      "private-wrapped-value",
+      envelope.ciphertext,
+      envelope.nonce,
+      envelope.tag,
+      ...Object.values(envelope.wrappedDek),
+    ]) {
+      expect(diagnostics).not.toContain(secret);
+    }
+    dek.fill(0);
+    expect(logger.error).toHaveBeenCalledTimes(3);
   });
   it("persists only envelopes and replaces the entire object with fresh material", async () => {
     const tx = {

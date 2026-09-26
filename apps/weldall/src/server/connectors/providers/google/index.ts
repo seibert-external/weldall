@@ -4,7 +4,7 @@ import { ConnectorError, RejectedProviderCredentials } from "../../errors";
 import type { ConnectorProvider } from "../../provider";
 import { googleSecretsSchema, parseGoogleConfiguration } from "./config";
 import {
-  canonicalScopes,
+  canonicalizeScopes,
   listAvailableScopes,
   requiredScopes,
   selectionSchema,
@@ -23,14 +23,16 @@ import { resolveGoogleUpstreamUrl } from "./urls";
 const attemptSchema = z
   .object({ verifier: z.string().min(32), nonce: z.string().min(32) })
   .strict();
-const randomToken = () => randomBytes(32).toString("base64url");
+/** Generates unpredictable OAuth state, nonce, or PKCE verifier material. */
+const generateRandomToken = () => randomBytes(32).toString("base64url");
 
 /** Google owns policy and token shapes; core receives only opaque validated values. */
 export const googleProvider = {
   type: "google",
   parseConfiguration: parseGoogleConfiguration,
   parseSecrets: (value) => googleSecretsSchema.parse(value),
-  configurationIdentity: (value) => parseGoogleConfiguration(value).clientId,
+  /** Identifies the OAuth client to prevent rebinding existing connections to a different application. */
+  getConfigurationIdentity: (value) => parseGoogleConfiguration(value).clientId,
   /** Offers provider-owned scope descriptions, never executable authorization claims. */
   describeSetup({ config, previousSelection }) {
     const parsed = parseGoogleConfiguration(config);
@@ -50,10 +52,10 @@ export const googleProvider = {
     };
   },
   /** Reconnect retains only previously selected scopes still offered by the administrator. */
-  initialSelection({ config, previousSelection }) {
+  buildInitialSelection({ config, previousSelection }) {
     const parsed = parseGoogleConfiguration(config);
     return {
-      scopes: canonicalScopes([
+      scopes: canonicalizeScopes([
         ...requiredScopes,
         ...(previousSelection === undefined
           ? parsed.defaultScopes
@@ -80,9 +82,9 @@ export const googleProvider = {
       config: parsed,
       selected: selectionSchema.parse(selection).scopes,
     });
-    const state = randomToken(),
-      verifier = randomToken(),
-      nonce = randomToken();
+    const state = generateRandomToken(),
+      verifier = generateRandomToken(),
+      nonce = generateRandomToken();
     return {
       state,
       attempt: { verifier, nonce },

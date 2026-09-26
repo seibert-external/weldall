@@ -18,17 +18,17 @@ import { writeConnectorAuditLog } from "../audit";
 import {
   assertConnectorAccess,
   canAccessConnector,
-  connectorRequiredScopeKeys,
+  getConnectorRequiredScopeKeys,
   connectorScopeInclude,
 } from "../access";
 import { effectiveScopesFor } from "../../policy/resources";
 
 type Tx = Prisma.TransactionClient;
 /** Callback routing is fixed by the reviewed provider discriminator, never caller input. */
-const callbackUrl = (connector: Connector) =>
+const buildCallbackUrl = (connector: Connector) =>
   `${WELDALL_ISSUER}/api/connectors/${getConnectorProvider(connector.providerType).type}/callback`;
 /** Serializes opaque provider objects without teaching persistence their internal shape. */
-const providerJson = (value: object): Prisma.InputJsonObject =>
+const serializeProviderJson = (value: object): Prisma.InputJsonObject =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
 /** Derives non-reversible comparison values for OAuth state and account metadata. */
 const hashValue = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -157,7 +157,7 @@ export async function listConnectors(actor: AuthorizedConnectorActor) {
       key: connector.key,
       name: connector.name,
       type: getConnectorProvider(connector.providerType).type,
-      requiredScopes: connectorRequiredScopeKeys(connector),
+      requiredScopes: getConnectorRequiredScopeKeys(connector),
       ...getConnectorProvider(connector.providerType).describeSetup({
         config: connector.providerConfig,
       }),
@@ -222,7 +222,7 @@ export async function startConnection({
     if (
       prior &&
       (prior.connectorId !== connector.id ||
-        !["READY", "RECONNECT_REQUIRED", "DISCONNECTED"].includes(prior.status))
+        !["READY", "RECONNECT_REQUIRED"].includes(prior.status))
     )
       throw new ConnectorError(
         "conflict",
@@ -259,8 +259,8 @@ export async function startConnection({
         connectionId: prior?.id ?? null,
         connectionVersion: prior?.version ?? null,
         name,
-        providerSelection: providerJson(
-          getConnectorProvider(connector.providerType).initialSelection({
+        providerSelection: serializeProviderJson(
+          getConnectorProvider(connector.providerType).buildInitialSelection({
             config: connector.providerConfig,
             ...(prior ? { previousSelection: prior.providerSelection } : {}),
           }),
@@ -356,7 +356,7 @@ export async function submitScopeSelection({
       config: a.connector.providerConfig,
       secrets: readConnectorSecrets(a.connector),
       selection: validated,
-      callbackUrl: callbackUrl(a.connector),
+      callbackUrl: buildCallbackUrl(a.connector),
     });
     const payload = await saveSecret({
       tx,
@@ -367,7 +367,7 @@ export async function submitScopeSelection({
     await tx.connectionAuthorization.update({
       where: { id, status: "SETUP" },
       data: {
-        providerSelection: providerJson(validated),
+        providerSelection: serializeProviderJson(validated),
         stateHash: hashValue(authorization.state),
         payloadId: payload.id,
         status: "AUTHORIZING",
@@ -452,7 +452,7 @@ export async function completeConnection({
       selection: a.providerSelection,
       callback: new URLSearchParams({ code }),
       attempt: payload.attempt,
-      callbackUrl: callbackUrl(a.connector),
+      callbackUrl: buildCallbackUrl(a.connector),
     });
   } catch (error) {
     logger.error(
@@ -537,7 +537,7 @@ export async function completeConnection({
       if (
         prior &&
         (prior.version !== fresh.connectionVersion ||
-          !["READY", "RECONNECT_REQUIRED", "DISCONNECTED"].includes(prior.status) ||
+          !["READY", "RECONNECT_REQUIRED"].includes(prior.status) ||
           prior.accountId !== result.accountId)
       )
         throw new ConnectorError(
@@ -555,7 +555,7 @@ export async function completeConnection({
             accountId: result.accountId,
             accountName: result.accountName,
             providerSelection: fresh.providerSelection as Prisma.InputJsonValue,
-            providerGrant: providerJson(grant),
+            providerGrant: serializeProviderJson(grant),
           },
         }));
       const secret = await saveSecret({
@@ -571,7 +571,7 @@ export async function completeConnection({
           credentialId: secret.id,
           status: "READY",
           providerSelection: fresh.providerSelection as Prisma.InputJsonValue,
-          providerGrant: providerJson(grant),
+          providerGrant: serializeProviderJson(grant),
           accountName: result.accountName,
           refreshStartedAt: null,
           revocationError: null,
@@ -817,7 +817,7 @@ export async function accessCredentials({
         where: { id: row.id, version: row.version },
         data: {
           status: pending ? "REVOCATION_PENDING" : usable ? "READY" : "RECONNECT_REQUIRED",
-          ...(usable && grant ? { providerGrant: providerJson(grant) } : {}),
+          ...(usable && grant ? { providerGrant: serializeProviderJson(grant) } : {}),
           refreshStartedAt: null,
           version: { increment: 1 },
         },
@@ -963,9 +963,7 @@ async function disconnectAndDelete({
 
   const credentialsToRevoke: object[] = [];
   const provider = getConnectorProvider(claim.row.connector.providerType);
-  let revocationConfirmed =
-    claim.row.credentialId !== null ||
-    (claim.row.status === "DISCONNECTED" && !claim.row.revocationError);
+  let revocationConfirmed = claim.row.credentialId !== null;
   if (claim.row.refreshStartedAt) revocationConfirmed = false;
   if (claim.row.credentialId) {
     try {

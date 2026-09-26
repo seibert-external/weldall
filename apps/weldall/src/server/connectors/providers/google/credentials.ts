@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ConnectorError } from "../../errors";
 import type { ProviderGrant } from "../../provider";
 import {
-  canonicalScopes,
+  canonicalizeScopes,
   requiredScopes,
   scopeSetSchema,
   selectionSchema,
@@ -38,7 +38,7 @@ export function validateGoogleGrant({
     selected: selectionSchema.parse(selection).scopes,
   });
   const parsed = parseGoogleGrant(grant);
-  const tokenScopes = canonicalScopes(credentialsSchema.parse(credentials).grantedScopes);
+  const tokenScopes = canonicalizeScopes(credentialsSchema.parse(credentials).grantedScopes);
   if (!isDeepStrictEqual(requested, parsed.scopes) || !isDeepStrictEqual(requested, tokenScopes))
     throw new ConnectorError("grant_mismatch", "Provider grant differs from the request.");
   return parsed;

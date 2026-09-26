@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "ConnectionStatus" AS ENUM ('READY', 'REFRESHING', 'RECONNECT_REQUIRED', 'REVOCATION_PENDING', 'DISCONNECTED');
+CREATE TYPE "ConnectionStatus" AS ENUM ('READY', 'REFRESHING', 'RECONNECT_REQUIRED', 'REVOCATION_PENDING');
 
 CREATE TYPE "EnvelopeProvider" AS ENUM ('LOCAL_ENV', 'OPENBAO');
 
@@ -40,6 +40,14 @@ CREATE TABLE "Connector" (
     "updatedBy" TEXT NOT NULL,
 
     CONSTRAINT "Connector_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ConnectorRequiredScope" (
+    "connectorId" TEXT NOT NULL,
+    "scopeId" TEXT NOT NULL,
+
+    CONSTRAINT "ConnectorRequiredScope_pkey" PRIMARY KEY ("connectorId", "scopeId")
 );
 
 -- CreateTable
@@ -90,6 +98,9 @@ CREATE TABLE "ConnectionAuthorization" (
 CREATE UNIQUE INDEX "Connector_key_key" ON "Connector"("key");
 
 -- CreateIndex
+CREATE INDEX "ConnectorRequiredScope_scopeId_idx" ON "ConnectorRequiredScope"("scopeId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Connection_credentialId_key" ON "Connection"("credentialId");
 
 -- CreateIndex
@@ -112,6 +123,12 @@ CREATE UNIQUE INDEX "IacObjectBinding_connectorId_key" ON "IacObjectBinding"("co
 
 -- AddForeignKey
 ALTER TABLE "IacObjectBinding" ADD CONSTRAINT "IacObjectBinding_connectorId_fkey" FOREIGN KEY ("connectorId") REFERENCES "Connector"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ConnectorRequiredScope" ADD CONSTRAINT "ConnectorRequiredScope_connectorId_fkey" FOREIGN KEY ("connectorId") REFERENCES "Connector"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ConnectorRequiredScope" ADD CONSTRAINT "ConnectorRequiredScope_scopeId_fkey" FOREIGN KEY ("scopeId") REFERENCES "Scope"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Connection" ADD CONSTRAINT "Connection_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

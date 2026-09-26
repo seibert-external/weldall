@@ -11,7 +11,7 @@ import {
 import { getConnectorProvider } from "./registry";
 import { encrypt } from "./encryption";
 import { writeConnectorAuditLog } from "./audit";
-import { connectorRequiredScopeKeys, connectorScopeInclude } from "./access";
+import { getConnectorRequiredScopeKeys, connectorScopeInclude } from "./access";
 
 type Tx = Prisma.TransactionClient;
 type ConnectorWithRequiredScopes = Connector & {
@@ -45,7 +45,7 @@ export function buildConnectorState(row: ConnectorWithRequiredScopes): Connector
     type: row.providerType,
     enabled: row.enabled,
     envelopeProvider: row.envelopeProvider,
-    requiredScopes: connectorRequiredScopeKeys(row),
+    requiredScopes: getConnectorRequiredScopeKeys(row),
     provider: getConnectorProvider(row.providerType).parseConfiguration(row.providerConfig),
   });
 }
@@ -126,8 +126,8 @@ export async function saveConnectorConfiguration({
     throw new ConnectorError("immutable_provider", "Connector provider type cannot change.", 409);
   const clientIdChanged = Boolean(
     current &&
-    provider.configurationIdentity(current.providerConfig) !==
-      provider.configurationIdentity(providerConfig),
+    provider.getConfigurationIdentity(current.providerConfig) !==
+      provider.getConfigurationIdentity(providerConfig),
   );
   if (
     current &&

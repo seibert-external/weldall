@@ -20,7 +20,7 @@ export interface ConnectorProvider {
   /** Parses write-only application secrets. */
   parseSecrets(value: unknown): object;
   /** Identifies credential binding changes that require removing dependent connections. */
-  configurationIdentity(value: unknown): string;
+  getConfigurationIdentity(value: unknown): string;
   /** Describes provider-specific setup without exposing stored grants or credentials. */
   describeSetup(input: { config: unknown; previousSelection?: unknown }): object;
   /** Projects provider-owned state into credential-free display metadata. */
@@ -28,7 +28,7 @@ export interface ConnectorProvider {
   /** Validates untrusted owner selection against current policy. */
   validateSetupInput(input: { config: unknown; value: unknown }): object;
   /** Creates the initial selection, retaining only still-offered previous choices. */
-  initialSelection(input: { config: unknown; previousSelection?: unknown }): object;
+  buildInitialSelection(input: { config: unknown; previousSelection?: unknown }): object;
   /** Creates provider redirect and opaque attempt data; core binds the returned state to its owner. */
   beginAuthorization(
     input: ProviderContext & { secrets: unknown; callbackUrl: string },

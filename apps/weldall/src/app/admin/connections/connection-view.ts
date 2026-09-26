@@ -13,7 +13,6 @@ export const connectionStatuses = {
   REFRESHING: { label: "Refreshing", variant: "info" },
   RECONNECT_REQUIRED: { label: "Reconnect required", variant: "warning" },
   REVOCATION_PENDING: { label: "Disconnect pending", variant: "error" },
-  DISCONNECTED: { label: "Disconnected", variant: "neutral" },
 } as const satisfies Record<ConnectionRow["status"], { label: string; variant: BadgeVariant }>;
 
 export type ConnectionFilters = { search: string; status: string; connector: string };

@@ -503,7 +503,7 @@ describe.skipIf(!approvedTarget)(
           accountName: `account-${i}@example.com`,
           providerSelection: { scopes: selected },
           providerGrant: { scopes: selected },
-          status: "DISCONNECTED" as const,
+          status: "RECONNECT_REQUIRED" as const,
         })),
       });
       const overview = await listConnections();
@@ -703,16 +703,16 @@ describe.skipIf(!approvedTarget)(
         expect(JSON.stringify(audit)).not.toContain("never-public-refresh");
       },
     );
-    it("admin Disconnect also removes legacy disconnected connections without unnecessary revocation", async () => {
+    it("admin Disconnect reports unconfirmed revocation when credentials are missing", async () => {
       const f = await ready();
       const row = await db.connection.findUniqueOrThrow({ where: { id: f.id } });
       await db.connection.update({
         where: { id: f.id },
-        data: { credentialId: null, status: "DISCONNECTED", revocationError: null },
+        data: { credentialId: null, status: "RECONNECT_REQUIRED", revocationError: null },
       });
       await db.encryptedValue.delete({ where: { id: row.credentialId! } });
       expect(await disconnectAndDeleteConnection({ actor, id: f.id })).toEqual({
-        revocationConfirmed: true,
+        revocationConfirmed: false,
       });
       expect(revokeGoogle).not.toHaveBeenCalled();
       expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();

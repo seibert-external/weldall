@@ -497,8 +497,8 @@ export async function loadPlanningState({
     if (
       current &&
       (current.providerType !== config.type ||
-        getConnectorProvider(config.type).configurationIdentity(current.providerConfig) !==
-          getConnectorProvider(config.type).configurationIdentity(config.provider)) &&
+        getConnectorProvider(config.type).getConfigurationIdentity(current.providerConfig) !==
+          getConnectorProvider(config.type).getConfigurationIdentity(config.provider)) &&
       (current._count.connections || current._count.attempts)
     )
       externalBlockers.push({

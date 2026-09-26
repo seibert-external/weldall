@@ -439,7 +439,6 @@ enum ConnectionStatus {
   REFRESHING
   RECONNECT_REQUIRED
   REVOCATION_PENDING
-  DISCONNECTED
 }
 
 model Connection {

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { googleProvider } from "../src/server/connectors/providers/google";
-import { requiredScopes, canonicalScopes } from "../src/server/connectors/providers/google/setup";
+import {
+  requiredScopes,
+  canonicalizeScopes,
+} from "../src/server/connectors/providers/google/setup";
 import { parseGoogleGrant } from "../src/server/connectors/providers/google/credentials";
 import { getConnectorProvider } from "../src/server/connectors/registry";
 import {
@@ -38,7 +41,7 @@ const config = {
   requiredScopes: [],
   provider: providerConfig,
 };
-const scopes = canonicalScopes([...requiredScopes, read]);
+const scopes = canonicalizeScopes([...requiredScopes, read]);
 const selection = { scopes };
 const credentials = {
   accessToken: "private-access",

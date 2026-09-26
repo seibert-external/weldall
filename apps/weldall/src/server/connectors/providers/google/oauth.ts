@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 import { ConnectorError, ProviderTokenError } from "../../errors";
-import { canonicalScopes } from "./setup";
+import { canonicalizeScopes } from "./setup";
 import { readBoundedBody } from "../../core/transport";
 
 const jwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
@@ -110,7 +110,7 @@ function buildGoogleCredentials({
     grantedScopes:
       value.scope === undefined
         ? priorScopes
-        : canonicalScopes(value.scope.split(" ").filter(Boolean)),
+        : canonicalizeScopes(value.scope.split(" ").filter(Boolean)),
   };
 }
 /** Completes Google OAuth and verifies the selected account before Weldall stores credentials. */

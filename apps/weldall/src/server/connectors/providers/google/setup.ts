@@ -73,11 +73,11 @@ export const scopeCatalog: ScopeDescriptor[] = [
 ];
 export const requiredScopes = scopeCatalog.filter((s) => s.required).map((s) => s.id);
 /** Canonicalizes scope sets without aliases or inferred permissions. */
-export const canonicalScopes = (scopes: readonly string[]) => [...new Set(scopes)].sort();
+export const canonicalizeScopes = (scopes: readonly string[]) => [...new Set(scopes)].sort();
 export const scopeSetSchema = z
   .array(z.string().min(1).max(160))
   .max(20)
-  .transform(canonicalScopes);
+  .transform(canonicalizeScopes);
 export const selectionSchema = z.object({ scopes: scopeSetSchema }).strict();
 export type GoogleSelection = z.infer<typeof selectionSchema>;
 
@@ -101,7 +101,7 @@ export function validateSelectedScopes({
     );
   if (!selected.some((scope) => !requiredScopes.includes(scope)))
     throw new ConnectorError("invalid_scopes", "Select at least one API permission.");
-  return canonicalScopes(selected);
+  return canonicalizeScopes(selected);
 }
 /** Rejects unknown scopes and defaults outside the administrator's offered set. */
 export function validateConnectorScopeConfig(config: GoogleConfig) {

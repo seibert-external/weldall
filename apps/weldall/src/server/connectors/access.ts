@@ -9,7 +9,7 @@ type ConnectorAccessPolicy = {
 };
 
 /** Returns required application scope keys in stable order for public configuration state. */
-export function connectorRequiredScopeKeys(connector: ConnectorAccessPolicy): string[] {
+export function getConnectorRequiredScopeKeys(connector: ConnectorAccessPolicy): string[] {
   return connector.requiredScopes.map(({ scope }) => scope.key).sort();
 }
 

@@ -514,19 +514,6 @@ async function seedDevelopmentManagedConnectors() {
       lastUsedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
       revocationError: "Google revocation endpoint timed out during the last attempt.",
     },
-    {
-      id: "dev-connection-priya-disconnected",
-      ownerId: DEVELOPMENT_USERS[4]!.id,
-      connector: "google-workspace",
-      name: "old-personal-calendar",
-      accountId: "google-priya-old",
-      accountName: "priya.raman@example.com",
-      selectedScopes: ["openid", "https://www.googleapis.com/auth/userinfo.email", calendarRead],
-      grantedScopes: ["openid", "https://www.googleapis.com/auth/userinfo.email", calendarRead],
-      status: "DISCONNECTED" as const,
-      requestCount: 92,
-      lastUsedAt: new Date(Date.now() - 65 * 24 * 60 * 60 * 1000),
-    },
   ];
   const seededConnectionIds = connectionDefinitions.map(({ id }) => id);
   const staleAttempts = await db.connectionAuthorization.findMany({
@@ -560,20 +547,17 @@ async function seedDevelopmentManagedConnectors() {
       where: { id: definition.id },
       select: { credentialId: true },
     });
-    const credentialId =
-      definition.status === "DISCONNECTED" ? null : `dev-encrypted-connection-${definition.id}`;
-    if (credentialId) {
-      await upsertDevelopmentEncryptedValue({
-        id: credentialId,
-        context: `connection:${definition.id}:credentials`,
-        plaintext: JSON.stringify({
-          accessToken: `development-access-${definition.id}`,
-          refreshToken: `development-refresh-${definition.id}`,
-          expiresAt: Date.now() + 60 * 60 * 1000,
-          grantedScopes: definition.grantedScopes,
-        }),
-      });
-    }
+    const credentialId = `dev-encrypted-connection-${definition.id}`;
+    await upsertDevelopmentEncryptedValue({
+      id: credentialId,
+      context: `connection:${definition.id}:credentials`,
+      plaintext: JSON.stringify({
+        accessToken: `development-access-${definition.id}`,
+        refreshToken: `development-refresh-${definition.id}`,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+        grantedScopes: definition.grantedScopes,
+      }),
+    });
     await db.connection.upsert({
       where: { id: definition.id },
       create: {
