@@ -78,6 +78,7 @@ export default defineConfig({
                 { slug: "service-configuration" },
               ],
             },
+            { slug: "connectors" },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {

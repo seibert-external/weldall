@@ -53,6 +53,8 @@ Required for the installer:
 
 The first start needs both: without them the installer stays closed.
 
+If you use [connectors](../connectors/), also set `WELDALL_CONNECTOR_KEK` to an independent, base64-encoded 32-byte random key. Keep it stable and separate from database backups: an attacker with both the database and this key can decrypt stored connection credentials. OpenBao and KMS support are coming soon.
+
 Optional variables:
 
 | Variable    | Purpose                            |
