@@ -7,7 +7,6 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { scopeCatalog } from "@/server/connectors/providers/google/setup";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { PlanetLoader } from "../../_components/planet-loader";
@@ -69,7 +68,7 @@ export function ConnectionDetail({ connectionId }: { connectionId: string }) {
           description={
             removed.revocationConfirmed
               ? "The connection and its stored tokens have been deleted."
-              : "Google access could not be confirmed revoked. Remove the app's access in Google account settings. The local connection and tokens have been deleted, so Weldall cannot retry revocation."
+              : "Provider access could not be confirmed revoked. Remove the app's access in your provider account settings. The local connection and tokens have been deleted, so Weldall cannot retry revocation."
           }
         />
       ) : connectionQuery.isPending ? (
@@ -92,7 +91,7 @@ export function ConnectionDetail({ connectionId }: { connectionId: string }) {
         isOpen={confirmDisconnect}
         title="Disconnect and remove connection?"
         actionLabel="Disconnect"
-        description={`Permanently remove ${connectionQuery.data?.name ?? "this connection"} and its stored tokens? Weldall will try to revoke Google access, but will delete the local connection even if revocation fails. In that case, remove access in Google account settings. Revocation may affect other connections using the same Google account and OAuth client.`}
+        description={`Permanently remove ${connectionQuery.data?.name ?? "this connection"} and its stored tokens? Weldall will try to revoke provider access, but will delete the local connection even if revocation fails. In that case, remove access in your provider account settings. Depending on the provider, revocation may affect other connections using the same account and application.`}
         isActionLoading={disconnect.isPending}
         onAction={() => disconnect.mutate({ id: connectionId })}
         onOpenChange={(open) => {
@@ -146,7 +145,7 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           <DetailValue label="Connection ID">
             <code>{connection.id}</code>
           </DetailValue>
-          <DetailValue label="Google account ID">
+          <DetailValue label="Provider account ID">
             <code>{connection.accountId}</code>
           </DetailValue>
         </dl>
@@ -172,12 +171,20 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
         </h2>
         <Text color="secondary">
           {connection.connectorEnabled && connection.status === "READY"
-            ? "Ready connections may call any operation Google authorizes with these exact scopes on reviewed Google API origins."
+            ? "Ready connections may call operations authorized by the provider's granted permissions, within the connector's request restrictions."
             : "No access is currently available."}
         </Text>
         <div className="grid gap-6 lg:grid-cols-2">
-          <ScopeList title="Selected permissions" scopes={connection.selectedScopes} />
-          <ScopeList title="Granted by Google" scopes={connection.grantedScopes} />
+          <ScopeList
+            title="Selected permissions"
+            scopes={connection.selectedScopes}
+            labels={connection.scopeLabels}
+          />
+          <ScopeList
+            title="Granted permissions"
+            scopes={connection.grantedScopes}
+            labels={connection.scopeLabels}
+          />
         </div>
       </section>
     </>
@@ -193,7 +200,15 @@ function DetailValue({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-function ScopeList({ title, scopes }: { title: string; scopes: string[] }) {
+function ScopeList({
+  title,
+  scopes,
+  labels,
+}: {
+  title: string;
+  scopes: string[];
+  labels: Record<string, string>;
+}) {
   return (
     <section className="grid content-start gap-3" aria-label={title}>
       <h3 className="m-0 font-semibold">
@@ -201,15 +216,12 @@ function ScopeList({ title, scopes }: { title: string; scopes: string[] }) {
       </h3>
       {scopes.length ? (
         <ul className="m-0 grid list-none gap-3 p-0">
-          {scopes.map((scope) => {
-            const descriptor = scopeCatalog.find((item) => item.id === scope);
-            return (
-              <li key={scope} className="grid gap-1">
-                <span>{descriptor?.label ?? scope}</span>
-                <code className="text-secondary break-all text-xs">{scope}</code>
-              </li>
-            );
-          })}
+          {scopes.map((scope) => (
+            <li key={scope} className="grid gap-1">
+              <span>{labels[scope] ?? scope}</span>
+              <code className="text-secondary break-all text-xs">{scope}</code>
+            </li>
+          ))}
         </ul>
       ) : (
         <Text color="secondary">None</Text>

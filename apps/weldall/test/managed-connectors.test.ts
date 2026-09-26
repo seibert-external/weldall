@@ -358,6 +358,11 @@ describe("managed provider boundaries", () => {
     });
     expect(JSON.stringify(value)).not.toMatch(/credential|secret|accessToken/);
     expect(value.grantedScopes).toEqual(scopes);
+    expect(value.scopeLabels).toEqual({
+      openid: "Identify your Google account",
+      "https://www.googleapis.com/auth/userinfo.email": "View your email address",
+      [read]: "Read your mail",
+    });
   });
   it("confirms revocation only after Google accepts the token", async () => {
     const fetcher = vi

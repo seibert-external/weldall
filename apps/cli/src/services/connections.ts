@@ -286,7 +286,7 @@ export async function connectAccount({
       throw new CliError(`Authorization status: ${status.status}`, {
         hint:
           status.status === "NEEDS_REVOCATION"
-            ? `Run weldall connections cancel ${attempt.id} to revoke the unused grant. Google revocation may affect other authorizations for this account/client.`
+            ? `Run weldall connections cancel ${attempt.id} to revoke the unused grant. Depending on the provider, revocation may affect other connections for the same account and application.`
             : "Start a new connection attempt.",
       });
     await new Promise((resolve) => setTimeout(resolve, 2000));

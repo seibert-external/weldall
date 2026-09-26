@@ -9,7 +9,7 @@ import { Link } from "@astryxdesign/core/Link";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import type { getAuthorizationAttempt } from "@/server/connectors/core/connections";
-import type { ScopeDescriptor } from "@/server/connectors/providers/google/setup";
+import type { ScopeDescriptor } from "@/server/connectors/display";
 
 /** Shared rendering knows no provider scope IDs; descriptions and grouping come from the connector. */
 /** Lets an owner choose optional OAuth scopes within the administrator-approved connector policy. */
@@ -123,7 +123,7 @@ export function SetupForm({ id }: { id: string }) {
         )}
         <Button
           type="submit"
-          label="Continue to Google"
+          label="Continue to provider"
           isLoading={submit.isPending}
           isDisabled={submit.isPending}
         />

@@ -1,15 +1,7 @@
 import { z } from "zod";
 import { ConnectorError } from "../../errors";
 import type { GoogleConfig } from "./config";
-
-/** Provider scope descriptions are presentation data, never endpoint authorization rules. */
-export interface ScopeDescriptor {
-  id: string;
-  label: string;
-  description: string;
-  group: string;
-  required: boolean;
-}
+import type { ScopeDescriptor } from "../../display";
 const google = "https://www.googleapis.com/auth/";
 export const scopeCatalog: ScopeDescriptor[] = [
   {

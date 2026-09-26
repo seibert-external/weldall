@@ -524,7 +524,7 @@ export const requestCommand = define({
       throw new CliError("Managed connection permissions come from setup; do not pass --scope");
     if (context.values.connection && context.values.paginate)
       throw new CliError(
-        "Google uses pageToken pagination; pass nextPageToken in the next provider URL, not --paginate offset",
+        "Managed connections do not support --paginate; follow the provider's pagination instructions and request each page explicitly.",
       );
     if (context.values.paginate !== undefined) {
       if (context.values.method !== "GET")
@@ -1022,7 +1022,7 @@ const showConnectionCommand = define({
 
 const disconnectCommand = define({
   name: "disconnect",
-  description: "Delete a Google connection after best-effort provider revocation",
+  description: "Delete a managed connection after best-effort provider revocation",
   args: { connection: connectionSelector, json: jsonArgument, agentic: agenticArgument },
   examples:
     "weldall connections disconnect my-google\nweldall connections disconnect my-google --json\nweldall connections disconnect my-google --agentic",
@@ -1065,7 +1065,7 @@ const connectionStatusCommand = define({
 
 const cancelConnectionCommand = define({
   name: "cancel",
-  description: "Cancel an attempt and revoke any retained unused Google grant",
+  description: "Cancel an attempt and revoke any retained unused provider grant",
   args: { attempt: attemptSelector, json: jsonArgument },
   examples:
     "weldall connections cancel <attempt-id>\nweldall connections cancel <attempt-id> --json",
@@ -1082,7 +1082,7 @@ const cancelConnectionCommand = define({
 
 export const connectionsCommand = define({
   name: "connections",
-  description: "Manage owner-only Google connections stored by Weldall",
+  description: "Manage owner-only connections stored by Weldall",
   args: { json: jsonArgument, agentic: agenticArgument },
   examples: "weldall connections\nweldall connections --json\nweldall connections --agentic",
   subCommands: {

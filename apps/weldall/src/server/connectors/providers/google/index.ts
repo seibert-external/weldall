@@ -7,6 +7,7 @@ import {
   canonicalizeScopes,
   listAvailableScopes,
   requiredScopes,
+  scopeCatalog,
   selectionSchema,
   validateSelectedScopes,
 } from "./setup";
@@ -46,9 +47,17 @@ export const googleProvider = {
   },
   /** Projects validated provider state for display without exposing private token material. */
   describeConnection({ selection, grant }) {
+    const selectedScopes = selectionSchema.parse(selection).scopes;
+    const grantedScopes = [...parseGoogleGrant(grant).scopes];
+    const displayedScopes = new Set([...selectedScopes, ...grantedScopes]);
     return {
-      selectedScopes: selectionSchema.parse(selection).scopes,
-      grantedScopes: [...parseGoogleGrant(grant).scopes],
+      selectedScopes,
+      grantedScopes,
+      scopeLabels: Object.fromEntries(
+        scopeCatalog
+          .filter(({ id }) => displayedScopes.has(id))
+          .map(({ id, label }) => [id, label]),
+      ),
     };
   },
   /** Reconnect retains only previously selected scopes still offered by the administrator. */

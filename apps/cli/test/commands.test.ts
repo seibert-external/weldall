@@ -10,6 +10,7 @@ import {
   mainCommand,
   printPermissions,
   printSkills,
+  requestCommand,
   scopesCommand,
   skillsCommand,
 } from "../src/commands.js";
@@ -415,6 +416,27 @@ describe("managed connection tables", () => {
     expect(output).toContain("mnopqrstuvwx");
     expect(output).toContain("yz");
     expect(output).not.toContain("…");
+  });
+});
+
+describe("provider-neutral connection guidance", () => {
+  it("describes managed commands without assuming a provider", async () => {
+    expect(await renderConnectionHelp(["connections", "--help"])).toContain(
+      "Manage owner-only connections stored by Weldall",
+    );
+    expect(await renderConnectionHelp(["connections", "disconnect", "--help"])).toContain(
+      "Delete a managed connection after best-effort provider revocation",
+    );
+    expect(await renderConnectionHelp(["connections", "cancel", "--help"])).toContain(
+      "Cancel an attempt and revoke any retained unused provider grant",
+    );
+  });
+  it("rejects managed pagination without prescribing a provider's cursor scheme", async () => {
+    const run = (command: { run?: (context: never) => unknown }) =>
+      command.run?.({ values: { connection: "example", paginate: "offset" } } as never);
+    await expect(run(requestCommand)).rejects.toThrow(
+      "Managed connections do not support --paginate; follow the provider's pagination instructions and request each page explicitly.",
+    );
   });
 });
 

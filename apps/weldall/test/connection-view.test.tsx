@@ -12,18 +12,19 @@ const connection: ConnectionRow = {
   connectorId: "connector-1",
   connectorKey: "workspace",
   name: "Work calendar",
-  accountId: "google-account",
-  accountName: "google@example.com",
+  accountId: "provider-account",
+  accountName: "account@example.com",
   owner: { name: "Alice", email: "alice@example.com" },
   connectorEnabled: true,
   status: "READY",
   version: 1,
-  selectedScopes: ["openid", "https://www.googleapis.com/auth/calendar.readonly"],
-  grantedScopes: [
-    "openid",
-    "https://www.googleapis.com/auth/calendar.readonly",
-    "https://www.googleapis.com/auth/gmail.readonly",
-  ],
+  selectedScopes: ["identity", "calendar:read"],
+  grantedScopes: ["identity", "calendar:read", "mail:read"],
+  scopeLabels: {
+    identity: "Identify your account",
+    "calendar:read": "Read team calendars",
+    "mail:read": "Read team mail",
+  },
   requestCount: 42,
   revocationError: null,
   lastUsedAt: null,
@@ -47,8 +48,8 @@ describe("connection overview filters", () => {
       expect(filterConnections([connection, second], { ...clear, search })).toEqual([connection]);
     },
   );
-  it("searches the Google account as well as the Weldall owner", () => {
-    expect(filterConnections([connection], { ...clear, search: "google@example.com" })).toEqual([
+  it("searches the provider account as well as the Weldall owner", () => {
+    expect(filterConnections([connection], { ...clear, search: "account@example.com" })).toEqual([
       connection,
     ]);
   });
@@ -77,14 +78,31 @@ describe("connection detail rendering", () => {
     const html = renderToStaticMarkup(<ConnectionSummary connection={connection} />);
     expect(html).toContain("Work calendar");
     expect(html).toContain('href="/admin/users/owner-1"');
-    expect(html).toContain("google@example.com");
+    expect(html).toContain("account@example.com");
+    expect(html).toContain("Provider account ID");
     expect(html).toContain("Request dispatches");
     expect(html).toContain("42");
     expect(html).toContain("Never");
     expect(html).toContain("Selected permissions (2)");
-    expect(html).toContain("Granted by Google (3)");
-    expect(html).toContain("View calendars");
-    expect(html).toContain("Read your mail");
+    expect(html).toContain("Granted permissions (3)");
+    expect(html).toContain("Read team calendars");
+    expect(html).toContain("Read team mail");
+    expect(html).not.toContain("Google");
+  });
+  it("uses provider-supplied labels even for familiar scope IDs and preserves unlabeled IDs", () => {
+    const html = renderToStaticMarkup(
+      <ConnectionSummary
+        connection={{
+          ...connection,
+          selectedScopes: ["openid", "custom:permission"],
+          grantedScopes: ["openid", "custom:permission"],
+          scopeLabels: { openid: "Provider-supplied identity label" },
+        }}
+      />,
+    );
+    expect(html).toContain("Provider-supplied identity label");
+    expect(html).toContain("custom:permission");
+    expect(html).not.toContain("Identify your Google account");
   });
   it("shows unavailable access and disconnect warnings without granting actions", () => {
     const html = renderToStaticMarkup(
@@ -93,14 +111,14 @@ describe("connection detail rendering", () => {
           ...connection,
           status: "REVOCATION_PENDING",
           connectorEnabled: false,
-          revocationError: "Google revocation unconfirmed",
+          revocationError: "Provider revocation unconfirmed",
         }}
       />,
     );
     expect(html).toContain("Disconnect pending");
     expect(html).toContain("Connector disabled");
     expect(html).toContain("No access is currently available");
-    expect(html).toContain("Google revocation unconfirmed");
+    expect(html).toContain("Provider revocation unconfirmed");
     expect(html).not.toContain("<button");
   });
 });

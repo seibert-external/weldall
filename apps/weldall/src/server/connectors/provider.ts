@@ -1,3 +1,5 @@
+import type { ConnectionDisplay, ConnectorSetupDisplay } from "./display";
+
 declare const grantBrand: unique symbol;
 declare const upstreamUrlBrand: unique symbol;
 export type ProviderGrant<Data extends object = object> = Readonly<Data> & {
@@ -22,9 +24,9 @@ export interface ConnectorProvider {
   /** Identifies credential binding changes that require removing dependent connections. */
   getConfigurationIdentity(value: unknown): string;
   /** Describes provider-specific setup without exposing stored grants or credentials. */
-  describeSetup(input: { config: unknown; previousSelection?: unknown }): object;
+  describeSetup(input: { config: unknown; previousSelection?: unknown }): ConnectorSetupDisplay;
   /** Projects provider-owned state into credential-free display metadata. */
-  describeConnection(input: { selection: unknown; grant: unknown }): object;
+  describeConnection(input: { selection: unknown; grant: unknown }): ConnectionDisplay;
   /** Validates untrusted owner selection against current policy. */
   validateSetupInput(input: { config: unknown; value: unknown }): object;
   /** Creates the initial selection, retaining only still-offered previous choices. */

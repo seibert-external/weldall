@@ -88,7 +88,7 @@ export function createConnectorErrorResponse(error: unknown) {
     { status: 503, headers: privateHeaders },
   );
 }
-/** Creates the locked-down browser completion page shown after the Google OAuth callback. */
+/** Creates the locked-down browser completion page shown after a provider OAuth callback. */
 export function createConnectorCompletionResponse(outcome: "success" | "cancelled" | "failed") {
   const message = {
     success: "Connection ready. Return to the CLI to see the granted scopes.",

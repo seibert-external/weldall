@@ -2,15 +2,45 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Page from "../src/app/connections/setup/[id]/page";
 import { ScopeChoices, SetupForm } from "../src/app/connections/setup/[id]/setup-form";
-import { scopeCatalog } from "../src/server/connectors/providers/google/setup";
+import type { ScopeDescriptor } from "../src/server/connectors/display";
 
 const mocks = vi.hoisted(() => ({ useQuery: vi.fn(), useMutation: vi.fn() }));
 vi.mock("@tanstack/react-query", () => mocks);
 
-const selectedScope = "https://www.googleapis.com/auth/gmail.readonly";
+const selectedScope = "mail:read";
+const scopeCatalog: ScopeDescriptor[] = [
+  {
+    id: "identity",
+    label: "Identify account",
+    description: "Verify the account.",
+    group: "Identity",
+    required: true,
+  },
+  {
+    id: "email",
+    label: "Account email",
+    description: "Display the account email.",
+    group: "Identity",
+    required: true,
+  },
+  {
+    id: selectedScope,
+    label: "Read mail",
+    description: "Read provider messages.",
+    group: "Mail",
+    required: false,
+  },
+  {
+    id: "calendar:read",
+    label: "Read calendars",
+    description: "Read provider events.",
+    group: "Calendar",
+    required: false,
+  },
+];
 const attempt = {
   status: "SETUP",
-  connector: { name: "Google" },
+  connector: { name: "Example service" },
   scopes: scopeCatalog,
   selection: { scopes: [selectedScope] },
 };
@@ -27,8 +57,11 @@ describe("connection setup presentation", () => {
     expect(html).toContain('class="login-panel setup-panel"');
     expect(html).toContain('alt="Weldall"');
     expect(html.indexOf('alt="Weldall"')).toBeLessThan(html.indexOf("<form"));
-    expect(html).toContain("You are about to connect an account to Google in Weldall CLI.");
-    expect(html).toContain("Continue to Google");
+    expect(html).toContain(
+      "You are about to connect an account to Example service in Weldall CLI.",
+    );
+    expect(html).toContain("Continue to provider");
+    expect(html).not.toContain("Google");
     expect(html).toContain(
       "You can disconnect the account or change the permissions via Weldall CLI. Just ask your agent.",
     );
@@ -39,7 +72,7 @@ describe("connection setup presentation", () => {
       <ScopeChoices scopes={scopeCatalog} selected={[selectedScope]} onChange={vi.fn()} />,
     );
     expect(html.match(/<fieldset/g)).toHaveLength(3);
-    for (const group of ["Identity", "Gmail", "Calendar"]) expect(html).toContain(group);
+    for (const group of ["Identity", "Mail", "Calendar"]) expect(html).toContain(group);
     for (const scope of scopeCatalog) {
       expect(html).toContain(scope.label);
       expect(html).toContain(scope.description);

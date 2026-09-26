@@ -5,6 +5,7 @@ import {
   listConnectors,
   showConnectionAttempt,
   validateConnectionTarget,
+  connectAccount,
 } from "../src/services/connections.js";
 import type { WeldallConfig } from "../src/config.js";
 import { canonicalServerManifest, newLock, serverManifest } from "../src/iac/manifest.js";
@@ -16,6 +17,9 @@ vi.mock("@weldall/sdk", async (original) => ({
 vi.mock("../src/services/auth.js", () => ({
   withAccess: (_config: unknown, operation: (session: unknown) => unknown) =>
     operation({ accessToken: "weldall-token", credentials: { refreshToken: "weldall-refresh" } }),
+}));
+vi.mock("../src/services/browser.js", () => ({
+  browserOpener: vi.fn().mockResolvedValue(undefined),
 }));
 const config = { issuer: "https://weldall.example.com" } as WeldallConfig;
 const connection = {
@@ -44,7 +48,10 @@ const scope = {
   group: "Identity",
   required: true,
 };
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("managed connection CLI", () => {
   it("sends credentials only to Weldall and the provider URL only as untrusted metadata", async () => {
@@ -133,6 +140,23 @@ describe("managed connection CLI", () => {
     await expect(showConnectionAttempt({ config, id: "attempt" })).rejects.toThrow(
       "invalid connection setup status",
     );
+  });
+  it("gives provider-neutral recovery guidance for an unused grant", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json({ id: "attempt", setupUrl: `${config.issuer}/connections/setup/attempt` }),
+        )
+        .mockResolvedValueOnce(Response.json({ status: "NEEDS_REVOCATION" })),
+    );
+    await expect(
+      connectAccount({ config, connector: "example", name: "work" }),
+    ).rejects.toMatchObject({
+      hint: "Run weldall connections cancel attempt to revoke the unused grant. Depending on the provider, revocation may affect other connections for the same account and application.",
+    });
   });
   it("canonicalizes provider configuration and rejects removed fields, secrets and unsupported types", () => {
     const read = "https://www.googleapis.com/auth/gmail.readonly";
