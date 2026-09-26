@@ -49,11 +49,11 @@ Required for the installer:
 | Variable                            | Purpose                                                              |
 | ----------------------------------- | -------------------------------------------------------------------- |
 | `WELDALL_SETUP_TOKEN`               | Base64url token from at least 32 random bytes that authorizes setup. |
-| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Base64-encoded 32-byte AES key for application secrets.              |
+| `WELDALL_CREDENTIAL_ENCRYPTION_KEY` | Base64-encoded 32-byte AES key that encrypts provider credentials.   |
 
 The first start needs both: without them the installer stays closed.
 
-If you use [connectors](../connectors/), also set `WELDALL_CONNECTOR_KEK` to an independent, base64-encoded 32-byte random key. Keep it stable and separate from database backups: an attacker with both the database and this key can decrypt stored connection credentials. OpenBao, KMS, and key rotation are not supported.
+If you use [connectors](../connectors/), also set `WELDALL_CONNECTOR_KEK` to an independent, base64-encoded 32-byte random key. Keep it stable and separate from database backups: an attacker with both the database and this key can decrypt stored connection credentials. OpenBao and KMS support are coming soon.
 
 Optional variables:
 
@@ -70,7 +70,7 @@ pnpm install --frozen-lockfile
 pnpm secrets:generate
 ```
 
-The command prints environment lines for the whole workspace. For the container, take `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN` and `WELDALL_CREDENTIAL_ENCRYPTION_KEY` into your secret manager. If you use connectors, also take `WELDALL_CONNECTOR_KEK`. Set `POSTGRES_URL` and `WELDALL_ISSUER` yourself.
+The command prints environment lines for the whole workspace. For the container, take `WELDALL_SIGNING_PRIVATE_JWK`, `WELDALL_SIGNING_PUBLIC_JWK`, `WELDALL_SIGNING_KID`, `BETTER_AUTH_SECRET`, `WELDALL_SETUP_TOKEN` and `WELDALL_CREDENTIAL_ENCRYPTION_KEY` into your secret manager. Set `POSTGRES_URL` and `WELDALL_ISSUER` yourself.
 
 :::note[Development entries]
 Leave the rest of the output out: `WELDALL_DEPLOYMENT_MODE=development`, `NODE_USE_SYSTEM_CA`, `DEV_IDP_*`, `EXPENSES_*` and `DEV_M2M_*` belong to the local development stack. The container requires `WELDALL_DEPLOYMENT_MODE=production` and refuses to start with any other value.
@@ -90,7 +90,6 @@ docker run -d --name weldall \
   -e BETTER_AUTH_SECRET=... \
   -e WELDALL_SETUP_TOKEN=... \
   -e WELDALL_CREDENTIAL_ENCRYPTION_KEY=... \
-  -e WELDALL_CONNECTOR_KEK=... \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \

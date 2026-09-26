@@ -30,4 +30,4 @@ Wenn du Connectors nutzt, setze **`WELDALL_CONNECTOR_KEK`** auf dem Weldall-Serv
 
 Aktuell nutzen Connectors `LOCAL_ENV`: Der KEK verschlüsselt die Schlüssel für die gespeicherten Verbindungszugangsdaten. **Wer sowohl die Datenbank als auch den KEK erbeutet, kann diese Zugangsdaten entschlüsseln.** Gegen diese Kombination schützt die Datenbankverschlüsselung allein nicht.
 
-OpenBao, KMS und Schlüsselrotation werden derzeit nicht unterstützt.
+OpenBao-Integration und KMS-Unterstützung kommen bald; beides ist noch nicht verfügbar. Schlüsselrotation wird derzeit nicht unterstützt.
