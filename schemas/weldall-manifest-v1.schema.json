@@ -46,6 +46,99 @@
         "type": "string"
       }
     },
+    "connectors": {
+      "type": "object",
+      "maxProperties": 1000,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "name",
+          "type",
+          "enabled",
+          "envelopeProvider",
+          "requiredScopes",
+          "provider"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "const": "google"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "envelopeProvider": {
+            "const": "LOCAL_ENV",
+            "description": "Immutable after creation. All local connectors use the deployment-wide KEK; OpenBao is not supported yet."
+          },
+          "requiredScopes": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "description": "Users must hold every listed Weldall scope to create or use connections. An empty set allows every login-authorized user.",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$"
+            }
+          },
+          "provider": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clientId", "allowedScopes", "defaultScopes"],
+            "properties": {
+              "clientId": { "type": "string", "minLength": 1, "maxLength": 500 },
+              "allowedScopes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 20,
+                "items": {
+                  "enum": [
+                    "https://www.googleapis.com/auth/gmail.readonly",
+                    "https://www.googleapis.com/auth/gmail.send",
+                    "https://www.googleapis.com/auth/gmail.modify",
+                    "https://www.googleapis.com/auth/calendar.readonly",
+                    "https://www.googleapis.com/auth/calendar.events",
+                    "https://www.googleapis.com/auth/calendar"
+                  ]
+                }
+              },
+              "defaultScopes": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "enum": [
+                    "https://www.googleapis.com/auth/gmail.readonly",
+                    "https://www.googleapis.com/auth/gmail.send",
+                    "https://www.googleapis.com/auth/gmail.modify",
+                    "https://www.googleapis.com/auth/calendar.readonly",
+                    "https://www.googleapis.com/auth/calendar.events",
+                    "https://www.googleapis.com/auth/calendar"
+                  ]
+                },
+                "description": "Must be a subset of allowedScopes. Scope sets are deduplicated and sorted."
+              }
+            }
+          }
+        }
+      }
+    },
     "scopes": {
       "type": "object",
       "maxProperties": 1000,

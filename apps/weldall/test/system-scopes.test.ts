@@ -92,6 +92,8 @@ describe("built-in system scope provisioning", () => {
           $transaction: async (operation: (nested: Prisma.TransactionClient) => Promise<unknown>) =>
             operation(tx),
           groupProvider: { findMany: async () => [] },
+          connector: tx.connector,
+          encryptedValue: tx.encryptedValue,
         } as unknown as PrismaClient;
 
         await seedProduction(prisma);

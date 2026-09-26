@@ -8,33 +8,36 @@ datasource db {
 }
 
 model User {
-  id                          String              @id
+  id                          String                    @id
   name                        String
-  email                       String              @unique
+  email                       String                    @unique
   emailVerified               Boolean
   image                       String?
-  createdAt                   DateTime            @default(now())
-  updatedAt                   DateTime            @updatedAt
+  createdAt                   DateTime                  @default(now())
+  updatedAt                   DateTime                  @updatedAt
   sessions                    Session[]
   accounts                    Account[]
   completedLoginInstallations LoginInstallation[]
+  connections                 Connection[]
+  connectionAttempts          ConnectionAuthorization[]
 }
 
 model Scope {
-  id                 String                @id @default(cuid())
-  key                String                @unique
-  description        String
-  isSystem           Boolean               @default(false)
-  version            Int                   @default(1)
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  createdBy          String
-  updatedBy          String
-  grants             EmailScopeGrant[]
-  groupGrants        GroupScopeGrant[]
-  resources          ResourceScope[]
-  allowedForMachines MachineAllowedScope[]
-  iacBinding         IacObjectBinding?
+  id                   String                   @id @default(cuid())
+  key                  String                   @unique
+  description          String
+  isSystem             Boolean                  @default(false)
+  version              Int                      @default(1)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  createdBy            String
+  updatedBy            String
+  grants               EmailScopeGrant[]
+  groupGrants          GroupScopeGrant[]
+  resources            ResourceScope[]
+  allowedForMachines   MachineAllowedScope[]
+  requiredByConnectors ConnectorRequiredScope[]
+  iacBinding           IacObjectBinding?
 
   @@index([updatedAt])
 }
@@ -315,6 +318,7 @@ enum IacPrimitiveKind {
   EMAIL_ASSIGNMENT
   GROUP_ASSIGNMENT
   SKILL
+  CONNECTOR
 }
 
 enum IacOperationType {
@@ -365,6 +369,7 @@ model IacObjectBinding {
   emailAssignmentId String?               @unique
   groupAssignmentId String?               @unique
   skillId           String?               @unique
+  connectorId       String?               @unique
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -374,9 +379,117 @@ model IacObjectBinding {
   emailAssignment   EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
   groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
   skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  connector         Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])
+}
+
+enum EnvelopeProvider {
+  LOCAL_ENV
+  OPENBAO
+}
+
+/// Private storage. Public metadata queries must never include this relation.
+model EncryptedValue {
+  id            String                   @id @default(cuid())
+  provider      EnvelopeProvider
+  wrappedDek    Json
+  formatVersion Int                      @default(1)
+  context       String
+  nonce         String
+  ciphertext    String
+  tag           String
+  connection    Connection?
+  attempt       ConnectionAuthorization?
+}
+
+model Connector {
+  id                       String                    @id @default(cuid())
+  key                      String                    @unique
+  name                     String
+  providerType             String
+  enabled                  Boolean                   @default(false)
+  providerConfig           Json
+  envelopeProvider         EnvelopeProvider
+  encryptedProviderSecrets String?
+  version                  Int                       @default(1)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  createdBy                String
+  updatedBy                String
+  connections              Connection[]
+  attempts                 ConnectionAuthorization[]
+  requiredScopes           ConnectorRequiredScope[]
+  iacBinding               IacObjectBinding?
+}
+
+model ConnectorRequiredScope {
+  connectorId String
+  scopeId     String
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  scope       Scope     @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([connectorId, scopeId])
+  @@index([scopeId])
+}
+
+enum ConnectionStatus {
+  READY
+  REFRESHING
+  RECONNECT_REQUIRED
+  REVOCATION_PENDING
+}
+
+model Connection {
+  id                String                    @id @default(cuid())
+  ownerId           String
+  connectorId       String
+  name              String
+  accountId         String
+  accountName       String
+  providerSelection Json
+  providerGrant     Json
+  status            ConnectionStatus          @default(READY)
+  version           Int                       @default(1)
+  credentialId      String?                   @unique
+  refreshStartedAt  DateTime?
+  revocationError   String?
+  lastUsedAt        DateTime?
+  requestCount      Int                       @default(0)
+  rateWindow        DateTime                  @default(now())
+  rateCount         Int                       @default(0)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  owner             User                      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  connector         Connector                 @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  credential        EncryptedValue?           @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  attempts          ConnectionAuthorization[]
+
+  @@unique([ownerId, name])
+  @@index([connectorId, status])
+}
+
+model ConnectionAuthorization {
+  id                String          @id @default(cuid())
+  ownerId           String
+  connectorId       String
+  connectionId      String?
+  connectionVersion Int?
+  connectorVersion  Int
+  name              String
+  status            String          @default("SETUP")
+  providerSelection Json
+  stateHash         String?         @unique
+  payloadId         String?         @unique
+  expiresAt         DateTime
+  createdAt         DateTime        @default(now())
+  owner             User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  connector         Connector       @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  connection        Connection?     @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  payload           EncryptedValue? @relation(fields: [payloadId], references: [id], onDelete: Restrict)
+
+  @@index([expiresAt])
 }
 
 model ReplayMarker {

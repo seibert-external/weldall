@@ -7,7 +7,6 @@ import { stringify } from "yaml";
 import { CliError } from "../errors.js";
 import { IacClient } from "./client.js";
 import {
-  canonicalManifestDigest,
   expandIncludes,
   loadWorkspace,
   MANIFEST_FILE,
@@ -96,6 +95,7 @@ export async function writeImportedFragment(path: string, content: string) {
 
 export function declaredImportValue(manifest: any, address: string): unknown {
   const sections: Record<string, string> = {
+    connector: "connectors",
     scope: "scopes",
     resource: "resources",
     machine: "machines",
@@ -168,6 +168,7 @@ export const iacValidateCommand = define({
     const value = {
       valid: true,
       objectCount: [
+        "connectors",
         "scopes",
         "resources",
         "machines",
@@ -243,7 +244,15 @@ export const iacUpCommand = define({
     console.log(`Applied revision ${result.resultingRevision}.`);
   },
 });
-const importKinds = ["scope", "resource", "machine", "emailAssignment", "groupAssignment", "skill"];
+const importKinds = [
+  "scope",
+  "resource",
+  "machine",
+  "emailAssignment",
+  "groupAssignment",
+  "skill",
+  "connector",
+];
 export const iacImportCommand = define({
   name: "import",
   description: "Explicitly claim a manual primitive for this workspace",
@@ -261,6 +270,7 @@ export const iacImportCommand = define({
     if (!kind || !name)
       throw new CliError("--as must be a logical address such as scope.expenses_read");
     const sections: Record<string, string> = {
+      connector: "connectors",
       scope: "scopes",
       resource: "resources",
       machine: "machines",
@@ -326,6 +336,7 @@ export const iacUnmanageCommand = define({
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
     const sections: any = {
+      connector: "connectors",
       scope: "scopes",
       resource: "resources",
       machine: "machines",
@@ -338,11 +349,13 @@ export const iacUnmanageCommand = define({
       throw new CliError("Remove the declaration before unmanaging it");
     const client = await IacClient.connect(workspace.manifest, workspace.lock);
     const manifest = serverManifest(workspace.manifest, workspace.lock);
+    // Use the server's canonical digest, as up does: manifest defaults vary across server versions.
+    const plan = await client.request("/plan", "POST", { manifest });
     const result = await client.request("/unmanage", "POST", {
       workspaceId: workspace.lock.workspace.id,
       address: context.values.address,
       manifest,
-      configDigest: canonicalManifestDigest(manifest),
+      configDigest: plan.configDigest,
       operationId: stableOperationId(
         workspace.lock.workspace.id,
         String(workspace.lock.workspace.observedRevision),

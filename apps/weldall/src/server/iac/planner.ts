@@ -1,4 +1,7 @@
 import type { Prisma } from "@weldall/db";
+import { buildConnectorState } from "../connectors/configuration";
+import { connectorScopeInclude } from "../connectors/access";
+import { getConnectorProvider } from "../connectors/registry";
 import {
   canonicalJson,
   digest,
@@ -28,6 +31,7 @@ export interface PlanningState {
   externalBlockers?: IacBlocker[];
 }
 
+/** Expands the declarative manifest into canonical addressable objects for planning. */
 export function desiredObjects(manifest: DesiredState): Array<{
   address: string;
   kind: IacKind;
@@ -35,6 +39,12 @@ export function desiredObjects(manifest: DesiredState): Array<{
   state: unknown;
 }> {
   return [
+    ...Object.entries(manifest.connectors).map(([name, state]) => ({
+      address: `connector.${name}`,
+      kind: "connector" as const,
+      identity: state.key,
+      state,
+    })),
     ...Object.entries(manifest.scopes).map(([name, state]) => ({
       address: `scope.${name}`,
       kind: "scope" as const,
@@ -249,6 +259,7 @@ const actionRank: Record<IacAction["action"], number> = {
   noop: 7,
 };
 const kindRank: Record<IacKind, number> = {
+  connector: 2,
   scope: 1,
   resource: 2,
   machine: 3,
@@ -270,10 +281,16 @@ function compareActions(left: IacAction, right: IacAction): number {
   );
 }
 
-export async function loadPlanningState(
-  tx: Prisma.TransactionClient,
-  manifest: DesiredState,
-): Promise<PlanningState> {
+/**
+ * Loads current IaC state and blocks connector changes while connections or cleanup depend on them.
+ */
+export async function loadPlanningState({
+  tx,
+  manifest,
+}: {
+  tx: Prisma.TransactionClient;
+  manifest: DesiredState;
+}): Promise<PlanningState> {
   const workspace = await tx.iacWorkspace.findUnique({ where: { id: manifest.workspace.id } });
   const [bindings, scopes, resources, machines, emails, groups, skills, cliSettings] =
     await Promise.all([
@@ -296,6 +313,12 @@ export async function loadPlanningState(
       tx.skill.findMany(),
       tx.cliSettings.findUnique({ where: { id: "default" } }),
     ]);
+  const connectors = await tx.connector.findMany({
+    include: {
+      _count: { select: { connections: true, attempts: true } },
+      ...connectorScopeInclude,
+    },
+  });
   const bindingTargets = new Map<string, (typeof bindings)[number]>();
   for (const binding of bindings) {
     for (const id of [
@@ -305,11 +328,20 @@ export async function loadPlanningState(
       binding.emailAssignmentId,
       binding.groupAssignmentId,
       binding.skillId,
+      binding.connectorId,
     ])
       if (id) bindingTargets.set(id, binding);
   }
   const ownership = (id: string) => bindingTargets.get(id);
   const objects: CurrentObject[] = [
+    ...connectors.map((item) => ({
+      kind: "connector" as const,
+      id: item.id,
+      identity: item.key,
+      version: item.version,
+      state: buildConnectorState(item),
+      ...bindingInfo(ownership(item.id)),
+    })),
     ...scopes.map((item) => ({
       kind: "scope" as const,
       id: item.id,
@@ -400,7 +432,8 @@ export async function loadPlanningState(
       !item.machineClientId &&
       !item.emailAssignmentId &&
       !item.groupAssignmentId &&
-      !item.skillId,
+      !item.skillId &&
+      !item.connectorId,
   )) {
     objects.push({
       address: binding.address,
@@ -434,6 +467,46 @@ export async function loadPlanningState(
   );
   const bindingByTarget = new Map(objects.map((object) => [object.id, object]));
   const externalBlockers: IacBlocker[] = [];
+  for (const [address, config] of Object.entries(manifest.connectors)) {
+    try {
+      getConnectorProvider(config.type).parseConfiguration(config.provider);
+    } catch {
+      externalBlockers.push({
+        code: "INVALID_SCOPES",
+        address: `connector.${address}`,
+        message: "Scopes must be known to the provider and defaults must be allowed.",
+      });
+      continue;
+    }
+    const current = connectors.find((c) => c.key === config.key);
+    if (
+      current &&
+      (current.envelopeProvider !== config.envelopeProvider || current.providerType !== config.type)
+    )
+      externalBlockers.push({
+        code: "IMMUTABLE_PROVIDER",
+        address: `connector.${address}`,
+        message: "Connector envelope provider cannot change.",
+      });
+    if (config.enabled && !current?.encryptedProviderSecrets)
+      externalBlockers.push({
+        code: "MISSING_SECRET",
+        address: `connector.${address}`,
+        message: "Create disabled and provision the write-only client secret before enabling.",
+      });
+    if (
+      current &&
+      (current.providerType !== config.type ||
+        getConnectorProvider(config.type).getConfigurationIdentity(current.providerConfig) !==
+          getConnectorProvider(config.type).getConfigurationIdentity(config.provider)) &&
+      (current._count.connections || current._count.attempts)
+    )
+      externalBlockers.push({
+        code: "CLIENT_IN_USE",
+        address: `connector.${address}`,
+        message: "Disconnect and remove connections/attempts before replacing the OAuth client.",
+      });
+  }
   const addReferenceBlocker = (
     target: CurrentObject,
     sourceId: string,
@@ -451,6 +524,19 @@ export async function loadPlanningState(
     )
       externalBlockers.push({ code: "EXTERNAL_REFERENCE", address: target.address, message });
   };
+  for (const connector of connectors)
+    for (const requiredScope of connector.requiredScopes) {
+      const target = objects.find(
+        (object) => object.kind === "scope" && object.id === requiredScope.scopeId,
+      );
+      if (target)
+        addReferenceBlocker(
+          target,
+          connector.id,
+          (state) => state.requiredScopes.includes(target.identity),
+          `Scope ${target.identity} is required by connector ${connector.key}`,
+        );
+    }
   for (const resource of resources)
     for (const scope of resource.scopes) {
       const target = objects.find(
@@ -555,6 +641,7 @@ function fromPrismaKind(kind: string): IacKind {
       EMAIL_ASSIGNMENT: "emailAssignment",
       GROUP_ASSIGNMENT: "groupAssignment",
       SKILL: "skill",
+      CONNECTOR: "connector",
     } as Record<string, IacKind>
   )[kind]!;
 }

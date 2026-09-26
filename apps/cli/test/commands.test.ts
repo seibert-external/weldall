@@ -1,11 +1,17 @@
 import { createElement } from "react";
+import { cli } from "gunshi";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import {
+  ConnectorCard,
+  connectionsCommand,
+  connectorsCommand,
   findCachedSkills,
   formatSkillWarning,
+  mainCommand,
   printPermissions,
   printSkills,
+  requestCommand,
   scopesCommand,
   skillsCommand,
 } from "../src/commands.js";
@@ -16,6 +22,8 @@ import {
   helpHeader,
   FieldList,
   Notice,
+  TableCard,
+  layoutTable,
   printError,
   renderUi,
   SkillsCard,
@@ -23,6 +31,26 @@ import {
   terminalText,
 } from "../src/output.js";
 import { printFriendlyValidation } from "../src/validation.js";
+
+const runConnectionCli = async (args: string[]) =>
+  cli(args, mainCommand, {
+    name: "weldall",
+    version: "0.0.0",
+    description: "test",
+    strict: true,
+    subCommands: { connections: connectionsCommand, connectors: connectorsCommand },
+    renderValidationErrors: null,
+  });
+
+const renderConnectionHelp = async (args: string[]) => {
+  const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  try {
+    await runConnectionCli(args);
+    return output.mock.calls.flat().join("\n");
+  } finally {
+    output.mockRestore();
+  }
+};
 
 describe("friendly resource output", () => {
   it("shows assigned scopes even when no enabled resource exposes them", () => {
@@ -73,7 +101,7 @@ describe("skill registry output", () => {
   };
 
   it("renders the skill name, ID, and availability in an Ink panel", () => {
-    const output = renderUi(createElement(SkillsCard, { skills: [skill] }));
+    const output = renderUi({ node: createElement(SkillsCard, { skills: [skill] }) });
 
     expect(output).toContain("╭");
     expect(output).toContain("Skills");
@@ -82,8 +110,8 @@ describe("skill registry output", () => {
   });
 
   it("explains unavailable skills and their missing scopes", () => {
-    const output = renderUi(
-      createElement(SkillsCard, {
+    const output = renderUi({
+      node: createElement(SkillsCard, {
         skills: [
           {
             ...skill,
@@ -92,7 +120,7 @@ describe("skill registry output", () => {
           },
         ],
       }),
-    );
+    });
 
     expect(output).toContain("! Review expenses");
     expect(output).toContain("Not available · missing expenses:read, expenses:write");
@@ -108,9 +136,9 @@ describe("skill registry output", () => {
 describe("CLI brand", () => {
   it("renders the host and signed-in account in a rounded frame", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const heading = brandHeading("https://weldall.example.com", {
-      name: "Ada Lovelace",
-      email: "ada@example.com",
+    const heading = brandHeading({
+      issuer: "https://weldall.example.com",
+      identity: { name: "Ada Lovelace", email: "ada@example.com" },
     });
     const lines = heading.split("\n");
 
@@ -127,7 +155,7 @@ describe("CLI brand", () => {
 
   it("shows when no host or account is configured", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const heading = brandHeading(null);
+    const heading = brandHeading({ issuer: null });
     expect(heading).toContain("Host");
     expect(heading).toContain("Not configured");
     expect(heading).toContain("Account");
@@ -137,12 +165,24 @@ describe("CLI brand", () => {
 
   it("stacks the header and capped scope and skill previews vertically", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const heading = helpHeader(
-      "https://weldall.example.com",
-      { name: "Ada Lovelace", email: "ada@example.com" },
-      "Use approved skills.",
-      ["one:read", "two:read", "three:read", "four:read", "five:read", "six:read"],
-      [
+    const heading = helpHeader({
+      issuer: "https://weldall.example.com",
+      identity: { name: "Ada Lovelace", email: "ada@example.com" },
+      appendix: "Use approved skills.",
+      scopes: ["one:read", "two:read", "three:read", "four:read", "five:read", "six:read"],
+      connectors: [
+        { key: "google", name: "Google", groups: ["Gmail", "Calendar"] },
+        { key: "slack", name: "Slack", groups: ["Messages"] },
+        { key: "github", name: "GitHub", groups: ["Repositories"] },
+        { key: "notion", name: "Notion", groups: ["Pages"] },
+        { key: "figma", name: "Figma", groups: ["Files"] },
+        { key: "sixth", name: "Sixth Connector", groups: ["Hidden"] },
+      ],
+      connections: [
+        { name: "my-google", connectorKey: "google", status: "READY" },
+        { name: "old-slack", connectorKey: "slack", status: "RECONNECT_REQUIRED" },
+      ],
+      skills: [
         { slug: "one", title: "One", available: true },
         { slug: "two", title: "Two", available: true },
         { slug: "three", title: "Three", available: true },
@@ -150,23 +190,37 @@ describe("CLI brand", () => {
         { slug: "five", title: "Five", available: true },
         { slug: "six", title: "Six", available: false },
       ],
-      100,
-    );
+      columns: 100,
+    });
     const lines = heading.split("\n");
     const weldallIndex = lines.findIndex((line) => line.includes("Weldall"));
     const organizationIndex = lines.findIndex((line) => line.includes("Organization instructions"));
     const instructionsIndex = lines.findIndex((line) => line.includes("Use approved skills."));
     const scopesIndex = lines.findIndex((line) => line.includes("Scopes"));
+    const connectorsIndex = lines.findIndex((line) => line.includes("Connectors"));
     const skillsIndex = lines.findIndex((line) => line.includes("Skills"));
 
     expect(organizationIndex).toBeGreaterThan(weldallIndex);
     expect(instructionsIndex).toBeGreaterThan(organizationIndex);
     expect(scopesIndex).toBeGreaterThan(instructionsIndex);
-    expect(skillsIndex).toBeGreaterThan(scopesIndex);
+    expect(connectorsIndex).toBeGreaterThan(scopesIndex);
+    expect(skillsIndex).toBeGreaterThan(connectorsIndex);
     expect(heading).toContain("• five:read");
     expect(heading).not.toContain("• six:read");
     expect(heading).toContain("… 1 more");
     expect(heading).toContain("Run `weldall scopes` to view the complete list.");
+    expect(heading).toContain("Connectors & connections");
+    expect(heading).toContain("• Google (google) — Gmail, Calendar");
+    expect(heading).toContain("✓ my-google is ready for Google requests.");
+    expect(heading).toContain("! old-slack · RECONNECT_REQUIRED");
+    expect(heading).not.toContain("Sixth Connector");
+    expect(heading).toContain(
+      "Run `weldall connectors --agentic` for the complete permission catalog.",
+    );
+    expect(heading).toContain(
+      "Request now: `weldall request --connection my-google <provider-https-url>`.",
+    );
+    expect(heading).not.toContain("weldall connections connect <key> --name <name>");
     expect(heading).toContain("weldall skills find <keyword>");
     expect(heading).toContain("6 cached skills");
     expect(heading).toContain("Run `weldall skills list` for the complete list.");
@@ -213,17 +267,17 @@ describe("cached skill search", () => {
 
 describe("responsive Ink layout", () => {
   it.each([1, 4, 7])("never exceeds a %i-column terminal", (columns) => {
-    const output = renderUi(
-      createElement(Card, { title: "Weldall" }, createElement(Text, null, "Host")),
+    const output = renderUi({
+      node: createElement(Card, { title: "Weldall" }, createElement(Text, null, "Host")),
       columns,
-    );
+    });
 
     expect(output.split("\n").every((line) => line.length <= columns)).toBe(true);
   });
 
   it.each([10, 20])("keeps field panels inside a %i-column terminal", (columns) => {
-    const output = renderUi(
-      createElement(
+    const output = renderUi({
+      node: createElement(
         Card,
         { title: "Configuration" },
         createElement(FieldList, {
@@ -234,7 +288,7 @@ describe("responsive Ink layout", () => {
         }),
       ),
       columns,
-    );
+    });
 
     expect(output.split("\n").every((line) => line.length <= columns)).toBe(true);
     expect(output).toContain("Issuer");
@@ -245,7 +299,7 @@ describe("responsive Ink layout", () => {
 describe("CLI appendix", () => {
   it("renders organization instructions in a separate prominent frame", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const frame = appendixFrame("Use approved skills.\nAsk before deleting data.");
+    const frame = appendixFrame({ value: "Use approved skills.\nAsk before deleting data." });
     const lines = frame.split("\n");
 
     expect(lines[0]).toMatch(/^╭─+╮$/);
@@ -259,10 +313,11 @@ describe("CLI appendix", () => {
 
   it("wraps lengthy instructions to the terminal width", () => {
     vi.stubEnv("NO_COLOR", "1");
-    const frame = appendixFrame(
-      "Use this CLI for all company tasks. Access to external services requires centrally managed tokens and approved skills.",
-      48,
-    );
+    const frame = appendixFrame({
+      value:
+        "Use this CLI for all company tasks. Access to external services requires centrally managed tokens and approved skills.",
+      columns: 48,
+    });
     const lines = frame.split("\n");
     const content = lines.slice(3, -1).map((line) => line.slice(2, -2));
 
@@ -274,7 +329,7 @@ describe("CLI appendix", () => {
   });
 
   it("omits the frame for an empty appendix", () => {
-    expect(appendixFrame(" \n\t ")).toBe("");
+    expect(appendixFrame({ value: " \n\t " })).toBe("");
   });
 });
 
@@ -287,11 +342,11 @@ describe("validation output", () => {
     vi.stubEnv("TERM", "xterm-256color");
 
     try {
-      const output = renderUi(
-        createElement(Notice, { kind: "error", message: "Invalid command input" }),
-        40,
-        "stderr",
-      );
+      const output = renderUi({
+        node: createElement(Notice, { kind: "error", message: "Invalid command input" }),
+        columns: 40,
+        stream: "stderr",
+      });
       expect(output).toContain("\u001B[");
     } finally {
       if (descriptor) Object.defineProperty(process.stderr, "isTTY", descriptor);
@@ -330,7 +385,7 @@ describe("terminal output safety", () => {
 
   it("sanitizes untrusted API errors at the terminal sink", () => {
     const output = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    printError("failed\u001B]52;c;stolen\u0007", "retry\u001B[2J");
+    printError({ message: "failed\u001B]52;c;stolen\u0007", hint: "retry\u001B[2J" });
     expect(output.mock.calls.flat().join("\n")).not.toContain("\u001B");
     expect(output.mock.calls.flat().join("\n")).toContain("╭");
     expect(output.mock.calls.flat().join("\n")).toContain("failed�]52;c;stolen�");
@@ -339,9 +394,189 @@ describe("terminal output safety", () => {
   });
 });
 
+describe("managed connection tables", () => {
+  it("aligns columns and keeps the table inside the available width", () => {
+    const widths = layoutTable({
+      columns: [{ header: "Name" }, { header: "Status" }, { header: "Requests", align: "right" }],
+      rows: [["a-very-long-connection-name", "RECONNECT_REQUIRED", "123"]],
+      available: 32,
+    });
+
+    expect(widths.reduce((sum, width) => sum + width, 0) + 4).toBeLessThanOrEqual(32);
+    expect(widths[2]).toBeGreaterThanOrEqual("Requests".length);
+  });
+
+  it("renders aligned connection rows in the standard rounded card", () => {
+    const output = renderUi({
+      node: createElement(TableCard, {
+        title: "Connections",
+        columns: [
+          { header: "Name" },
+          { header: "Status" },
+          { header: "Requests", align: "right" as const },
+        ],
+        rows: [
+          ["my-google", "READY", "12"],
+          ["team-google", "RECONNECT_REQUIRED", "2"],
+        ],
+      }),
+      columns: 60,
+    });
+
+    expect(output).toContain("╭");
+    expect(output).toContain("Connections");
+    expect(output).toMatch(/Name\s+Status\s+Requests/);
+    expect(output).toMatch(/my-google\s+READY\s+12/);
+  });
+
+  it("renders each connector as a named card with grouped permission details", () => {
+    const output = renderUi({
+      node: createElement(ConnectorCard, {
+        connector: {
+          key: "google",
+          name: "Google",
+          type: "google",
+          requiredScopes: [],
+          scopes: [
+            {
+              id: "openid",
+              label: "Identify your Google account",
+              description: "Verify the connected account.",
+              group: "Identity",
+              required: true,
+            },
+            {
+              id: "calendar.events",
+              label: "Read and edit events",
+              description: "Manage calendar events.",
+              group: "Calendar",
+              required: false,
+            },
+          ],
+          defaultScopes: ["calendar.events"],
+        },
+        connections: [
+          {
+            id: "connection-1",
+            ownerId: "owner-1",
+            connectorId: "connector-1",
+            name: "my-google",
+            accountId: "account-1",
+            accountName: "ada@example.com",
+            selectedScopes: ["openid", "calendar.events"],
+            grantedScopes: ["openid", "calendar.events"],
+            status: "READY",
+            version: 1,
+            lastUsedAt: null,
+            requestCount: 0,
+            revocationError: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            connectorKey: "google",
+            connectorEnabled: true,
+          },
+        ],
+      }),
+      columns: 80,
+    });
+
+    expect(output).toContain("Google");
+    expect(output).toContain("Key google · Type google");
+    expect(output).toContain("Your connections");
+    expect(output).toContain("• my-google · ada@example.com · READY");
+    expect(output).toContain("Identity");
+    expect(output).toContain("• Identify your Google account (required)");
+    expect(output).toContain("Verify the connected account.");
+    expect(output).toContain("Calendar");
+    expect(output).toContain("• Read and edit events (selected by default)");
+    expect(output).toContain("Manage calendar events.");
+  });
+
+  it("wraps long cells instead of replacing their text with an ellipsis", () => {
+    const output = renderUi({
+      node: createElement(TableCard, {
+        title: "Connectors",
+        columns: [{ header: "Request prefix" }],
+        rows: [["abcdefghijklmnopqrstuvwxyz"]],
+      }),
+      columns: 16,
+    });
+
+    expect(output).toContain("abcdefghijkl");
+    expect(output).toContain("mnopqrstuvwx");
+    expect(output).toContain("yz");
+    expect(output).not.toContain("…");
+  });
+});
+
+describe("provider-neutral connection guidance", () => {
+  it("describes managed commands without assuming a provider", async () => {
+    expect(await renderConnectionHelp(["connections", "--help"])).toContain(
+      "Manage owner-only connections and use them for provider API requests",
+    );
+    expect(await renderConnectionHelp(["connections", "disconnect", "--help"])).toContain(
+      "Delete a managed connection after best-effort provider revocation",
+    );
+    expect(await renderConnectionHelp(["connections", "cancel", "--help"])).toContain(
+      "Cancel an attempt and revoke any retained unused provider grant",
+    );
+  });
+  it("rejects managed pagination without prescribing a provider's cursor scheme", async () => {
+    const run = (command: { run?: (context: never) => unknown }) =>
+      command.run?.({ values: { connection: "example", paginate: "offset" } } as never);
+    await expect(run(requestCommand)).rejects.toThrow(
+      "Managed connections do not support --paginate; follow the provider's pagination instructions and request each page explicitly.",
+    );
+  });
+});
+
+describe("connection output flags", () => {
+  it("advertises both output modes on the public connection help surfaces", async () => {
+    const connectionsHelp = await renderConnectionHelp(["connections", "--help"]);
+    const connectionsListHelp = await renderConnectionHelp(["connections", "list", "--help"]);
+    const connectorsHelp = await renderConnectionHelp(["connectors", "--help"]);
+
+    expect(connectionsHelp).toContain("--json");
+    expect(connectionsHelp).toContain("--agentic");
+    expect(connectionsHelp).toContain("weldall connections --agentic");
+    expect(connectionsListHelp).toContain("--json");
+    expect(connectionsListHelp).toContain("--agentic");
+    expect(connectionsListHelp).toContain("weldall connections list --agentic");
+    expect(connectorsHelp).toContain("--json");
+    expect(connectorsHelp).toContain("--agentic");
+    expect(connectorsHelp).toContain("weldall connectors --agentic");
+    expect(connectorsHelp).toContain(
+      "weldall connections connect <connector-key> --name <connection-name>",
+    );
+    expect(connectorsHelp).toContain(
+      "weldall request --connection <connection-name> <provider-https-url>",
+    );
+    expect(connectionsHelp).toContain(
+      "weldall request --connection <connection-name-or-id> <provider-https-url>",
+    );
+    await expect(runConnectionCli(["connections", "connectors", "--help"])).rejects.toThrow();
+  });
+
+  it("rejects --json with --agentic before reaching the network", async () => {
+    const run = (command: { run?: (context: never) => unknown }) =>
+      command.run?.({ values: { json: true, agentic: true } } as never);
+
+    await expect(run(connectionsCommand)).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
+    await expect(run(connectorsCommand)).rejects.toThrow(
+      "--json cannot be combined with --agentic",
+    );
+    for (const command of ["list", "connect", "reconnect", "show", "disconnect", "status"] as const)
+      await expect(run(connectionsCommand.subCommands?.[command])).rejects.toThrow(
+        "--json cannot be combined with --agentic",
+      );
+  });
+});
+
 describe("skills output flags", () => {
   it("rejects --json combined with --agentic instead of silently dropping one", async () => {
-    await expect(printSkills(true, true)).rejects.toThrow(
+    await expect(printSkills({ asJson: true, asAgentic: true })).rejects.toThrow(
       "--json cannot be combined with --agentic",
     );
   });

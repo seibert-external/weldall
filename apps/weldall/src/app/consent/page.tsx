@@ -7,11 +7,16 @@ export default function Consent() {
     <main className="login-shell">
       <section className="login-panel" aria-labelledby="consent-heading">
         <VStack gap={4} hAlign="stretch">
-          <VStack gap={1} hAlign="stretch">
-            <Heading level={1} id="consent-heading">
-              Login to Weldall CLI
-            </Heading>
-          </VStack>
+          <img
+            src="/assets/images/weldall.png"
+            alt="Weldall"
+            width={182}
+            height={51}
+            className="login-auth-logo"
+          />
+          <Heading level={1} id="consent-heading">
+            Login to Weldall CLI
+          </Heading>
           <p>Only approve if you started this login from the Weldall CLI on this device.</p>
           <ConsentOptions />
         </VStack>

@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
+// Development fixtures use the application's actual formats rather than a second crypto implementation.
+import { encrypt } from "../../../apps/weldall/src/server/connectors/encryption.js";
+import { seal } from "../../../apps/weldall/src/server/auth/oidc-credentials.js";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
-import { seedDevelopmentSkillRetrievals, seedDevelopmentUsers } from "./seed.dev-users.js";
+import {
+  DEVELOPMENT_USERS,
+  seedDevelopmentSkillRetrievals,
+  seedDevelopmentUsers,
+} from "./seed.dev-users.js";
 
 const db = new PrismaClient();
 const actor = "development-seed";
@@ -190,6 +197,7 @@ try {
     tags: ["expenses", "review"],
   });
   await seedDevelopmentUsers(db);
+  await seedDevelopmentManagedConnectors();
   await seedDevelopmentSkillRetrievals(db);
 
   const publicJwk = parseDevelopmentMachinePublicJwk(process.env.DEV_M2M_SIGNING_PUBLIC_JWK);
@@ -341,6 +349,295 @@ async function seedDevelopmentResourceSkill(
       meta: { tags: skill.tags },
       lastUpdatedAt: "development-seed",
     },
+  });
+}
+
+async function seedDevelopmentManagedConnectors() {
+  const gmailRead = "https://www.googleapis.com/auth/gmail.readonly";
+  const gmailSend = "https://www.googleapis.com/auth/gmail.send";
+  const calendarRead = "https://www.googleapis.com/auth/calendar.readonly";
+  const calendarEvents = "https://www.googleapis.com/auth/calendar.events";
+  const connectorDefinitions = [
+    {
+      id: "dev-connector-workspace",
+      key: "google-workspace",
+      name: "Company Google Workspace",
+      enabled: true,
+      allowedScopes: [gmailRead, gmailSend, calendarRead, calendarEvents],
+      defaultScopes: [gmailRead, calendarRead],
+      clientId: "weldall-workspace-dev.apps.googleusercontent.com",
+      secret: "development-workspace-client-secret",
+    },
+    {
+      id: "dev-connector-mail",
+      key: "google-mail",
+      name: "Support mailbox connector",
+      enabled: true,
+      allowedScopes: [gmailRead, gmailSend],
+      defaultScopes: [gmailRead],
+      clientId: "weldall-mail-dev.apps.googleusercontent.com",
+      secret: "development-mail-client-secret",
+    },
+    {
+      id: "dev-connector-sandbox",
+      key: "google-sandbox",
+      name: "Calendar sandbox",
+      enabled: false,
+      allowedScopes: [calendarRead, calendarEvents],
+      defaultScopes: [calendarRead],
+      clientId: "weldall-sandbox-dev.apps.googleusercontent.com",
+      secret: null,
+    },
+  ] as const;
+  const connectors = new Map<string, { id: string; version: number }>();
+  for (const definition of connectorDefinitions) {
+    const connector = await db.connector.upsert({
+      where: { key: definition.key },
+      create: {
+        id: definition.id,
+        key: definition.key,
+        name: definition.name,
+        enabled: definition.enabled,
+        providerType: "google",
+        providerConfig: {
+          allowedScopes: [...definition.allowedScopes],
+          defaultScopes: [...definition.defaultScopes],
+          clientId: definition.clientId,
+        },
+        envelopeProvider: "LOCAL_ENV",
+        createdBy: actor,
+        updatedBy: actor,
+      },
+      update: {
+        name: definition.name,
+        enabled: definition.enabled,
+        providerType: "google",
+        providerConfig: {
+          allowedScopes: [...definition.allowedScopes],
+          defaultScopes: [...definition.defaultScopes],
+          clientId: definition.clientId,
+        },
+        updatedBy: actor,
+      },
+    });
+    await db.connector.update({
+      where: { id: connector.id },
+      data: {
+        encryptedProviderSecrets: definition.secret
+          ? seal(
+              "connector-provider-secrets",
+              connector.id,
+              JSON.stringify({ clientSecret: definition.secret }),
+            )
+          : null,
+      },
+    });
+    connectors.set(definition.key, connector);
+  }
+
+  const connectionDefinitions = [
+    {
+      id: "dev-connection-jane-workspace",
+      ownerId: DEVELOPMENT_USERS[0]!.id,
+      connector: "google-workspace",
+      name: "jane-workspace",
+      accountId: "google-jane-adams",
+      accountName: "jane.adams@example.com",
+      selectedScopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        gmailRead,
+        calendarRead,
+      ],
+      grantedScopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        gmailRead,
+        calendarRead,
+      ],
+      status: "READY" as const,
+      requestCount: 184,
+      lastUsedAt: new Date(Date.now() - 12 * 60 * 1000),
+    },
+    {
+      id: "dev-connection-omar-support",
+      ownerId: DEVELOPMENT_USERS[1]!.id,
+      connector: "google-mail",
+      name: "support-inbox",
+      accountId: "google-omar-support",
+      accountName: "support@example.com",
+      selectedScopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        gmailRead,
+        gmailSend,
+      ],
+      grantedScopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        gmailRead,
+        gmailSend,
+      ],
+      status: "READY" as const,
+      requestCount: 47,
+      lastUsedAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
+    },
+    {
+      id: "dev-connection-sofia-calendar",
+      ownerId: DEVELOPMENT_USERS[2]!.id,
+      connector: "google-workspace",
+      name: "team-calendar",
+      accountId: "google-sofia-calendar",
+      accountName: "sofia.marchetti@example.com",
+      selectedScopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        calendarRead,
+        calendarEvents,
+      ],
+      grantedScopes: ["openid", "https://www.googleapis.com/auth/userinfo.email", calendarRead],
+      status: "RECONNECT_REQUIRED" as const,
+      requestCount: 21,
+      lastUsedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000),
+    },
+  ];
+  const seededConnectionIds = connectionDefinitions.map(({ id }) => id);
+  const staleAttempts = await db.connectionAuthorization.findMany({
+    where: { id: { startsWith: "dev-authorization-" } },
+    select: { payloadId: true },
+  });
+  await db.connectionAuthorization.deleteMany({
+    where: { id: { startsWith: "dev-authorization-" } },
+  });
+  await db.encryptedValue.deleteMany({
+    where: { id: { in: staleAttempts.flatMap(({ payloadId }) => (payloadId ? [payloadId] : [])) } },
+  });
+  const staleConnections = await db.connection.findMany({
+    where: { id: { startsWith: "dev-connection-", notIn: seededConnectionIds } },
+    select: { id: true, credentialId: true },
+  });
+  await db.connection.deleteMany({ where: { id: { in: staleConnections.map(({ id }) => id) } } });
+  await db.encryptedValue.deleteMany({
+    where: {
+      id: {
+        in: staleConnections.flatMap(({ credentialId }) => (credentialId ? [credentialId] : [])),
+      },
+    },
+  });
+
+  for (const definition of connectionDefinitions) {
+    const connector = connectors.get(definition.connector);
+    if (!connector)
+      throw new Error(`Development connector ${definition.connector} was not seeded.`);
+    const previous = await db.connection.findUnique({
+      where: { id: definition.id },
+      select: { credentialId: true },
+    });
+    const credentialId = `dev-encrypted-connection-${definition.id}`;
+    await upsertDevelopmentEncryptedValue({
+      id: credentialId,
+      context: `connection:${definition.id}:credentials`,
+      plaintext: JSON.stringify({
+        accessToken: `development-access-${definition.id}`,
+        refreshToken: `development-refresh-${definition.id}`,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+        grantedScopes: definition.grantedScopes,
+      }),
+    });
+    await db.connection.upsert({
+      where: { id: definition.id },
+      create: {
+        id: definition.id,
+        ownerId: definition.ownerId,
+        connectorId: connector.id,
+        name: definition.name,
+        accountId: definition.accountId,
+        accountName: definition.accountName,
+        providerSelection: { scopes: definition.selectedScopes },
+        providerGrant: { scopes: definition.grantedScopes },
+        status: definition.status,
+        credentialId,
+        requestCount: definition.requestCount,
+        lastUsedAt: definition.lastUsedAt,
+        revocationError: null,
+      },
+      update: {
+        ownerId: definition.ownerId,
+        connectorId: connector.id,
+        name: definition.name,
+        accountId: definition.accountId,
+        accountName: definition.accountName,
+        providerSelection: { scopes: definition.selectedScopes },
+        providerGrant: { scopes: definition.grantedScopes },
+        status: definition.status,
+        credentialId,
+        requestCount: definition.requestCount,
+        lastUsedAt: definition.lastUsedAt,
+        revocationError: null,
+      },
+    });
+    if (previous?.credentialId && previous.credentialId !== credentialId)
+      await db.encryptedValue.delete({ where: { id: previous.credentialId } });
+  }
+
+  const now = Date.now();
+  const authorizationDefinitions = [
+    {
+      id: "dev-authorization-active",
+      ownerId: DEVELOPMENT_USERS[5]!.id,
+      connector: "google-workspace",
+      name: "noah-workspace",
+      status: "SETUP",
+      expiresAt: new Date(now + 7 * 60 * 1000),
+    },
+    {
+      id: "dev-authorization-failed",
+      ownerId: DEVELOPMENT_USERS[6]!.id,
+      connector: "google-mail",
+      name: "support-backup",
+      status: "FAILED",
+      expiresAt: new Date(now - 45 * 60 * 1000),
+    },
+    {
+      id: "dev-authorization-expired",
+      ownerId: DEVELOPMENT_USERS[7]!.id,
+      connector: "google-workspace",
+      name: "kenji-calendar",
+      status: "EXPIRED",
+      expiresAt: new Date(now - 2 * 24 * 60 * 60 * 1000),
+    },
+  ];
+  for (const definition of authorizationDefinitions) {
+    const connector = connectors.get(definition.connector)!;
+    await db.connectionAuthorization.create({
+      data: {
+        id: definition.id,
+        ownerId: definition.ownerId,
+        connectorId: connector.id,
+        connectorVersion: connector.version,
+        name: definition.name,
+        status: definition.status,
+        providerSelection: { scopes: ["openid", "https://www.googleapis.com/auth/userinfo.email"] },
+        expiresAt: definition.expiresAt,
+      },
+    });
+  }
+}
+
+async function upsertDevelopmentEncryptedValue(input: {
+  id: string;
+  context: string;
+  plaintext: string;
+}) {
+  const data = await encrypt({
+    provider: "LOCAL_ENV",
+    context: input.context,
+    plaintext: input.plaintext,
+  });
+  await db.encryptedValue.upsert({
+    where: { id: input.id },
+    create: { id: input.id, ...data },
+    update: data,
   });
 }
 

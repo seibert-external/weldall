@@ -76,7 +76,7 @@ defaults write dev.seibert.weldall-cli Issuer -string "https://weldall.example.c
 
 ## Native YAML infrastructure as code
 
-Native Weldall YAML manages one atomic configuration snapshot through the existing CLI. See [the IaC guide](../docs/src/content/docs/en/infrastructure-as-code.mdx).
+Native Weldall YAML manages one atomic configuration snapshot through the existing CLI, including non-secret `connectors` definitions with explicit immutable `envelopeProvider: LOCAL_ENV`. UI edits remain possible; approved applies restore manifest values. See [the IaC guide](../docs/src/content/docs/infrastructure-as-code.mdx).
 
 ```sh
 weldall init --name platform-access --issuer https://weldall.example.com
@@ -91,6 +91,26 @@ weldall state mv scope.old scope.new
 ```
 
 These commands appear in `weldall --help` only while `WELDALL_M2M_CLIENT_ID`, `WELDALL_M2M_KID`, and the `WELDALL_M2M_PRIVATE_JWK`/`WELDALL_M2M_PUBLIC_JWK` pair are set, because a browser login never makes them usable.
+
+## Managed Google connections
+
+Connector commands and connector IaC declarations require a server with managed-connector support. Upgrading the CLI does not require upgrading the server for existing login, scopes, skills, `request --scope`, or connector-free IaC workflows.
+
+Provider credentials stay encrypted on Weldall, never in the CLI. Connect once and use the same owner-only connection from any signed-in device. Browser setup must use the initiating Weldall account; optional permissions can be unticked before Google consent.
+
+```sh
+weldall connectors
+weldall connections connect google --name my-google
+weldall connections list
+weldall request --connection my-google \
+  https://www.googleapis.com/calendar/v3/calendars/primary/events
+weldall connections reconnect my-google
+weldall connections disconnect my-google
+```
+
+These commands use the existing Weldall API session, not downstream token exchange. Use `--connection` without `--scope`; normal resource requests still require `--scope`. Google pagination uses `pageToken` in subsequent provider URLs, not `--paginate offset`. Connector transfers use bounded buffering up to 10 MiB. Arbitrary paths and query parameters are accepted only on server-reviewed Google origins; Google authorizes operations using the exact granted scopes. The CLI sends the provider URL as untrusted metadata to Weldall, never as a direct authenticated fetch target. Disconnect blocks requests, attempts provider revocation, then always deletes the connection and encrypted retry material so its name can be reused immediately. It exits nonzero and directs the user to Google account settings if revocation is unconfirmed. Google revocation may affect other authorizations for the same account/client.
+
+`connections status <attempt-id>` recovers setup status after interruption; `connections cancel <attempt-id>` cancels or retries cleanup of an unused grant. `connections show <name-or-id>` reports selected/granted permissions and health. Administrative deletion is local-only and does not revoke provider access; ask owners to disconnect first when best-effort revocation is desired. Connection lists render as terminal tables by default. Connector discovery renders one card per connector with grouped permission descriptions and the signed-in owner's current connections. Use `--json` for stable machine-readable data or `--agentic` for compact TOON. `show` and `status` support the same output flags. Existing Weldall login/session storage is unchanged.
 
 ## Commands
 
@@ -113,7 +133,7 @@ weldall logout
 `weldall status` gives people the friendly overview: the signed-in display name and verified email,
 which Weldall host is active, and what that account is allowed to do. `weldall scopes` shows every
 scope assigned to the account, including host permissions and scopes without an enabled resource,
-then groups scopes that are currently usable by enabled APIs. It explains common permission names
+then groups scopes that are currently usable through enabled resources. It explains common permission names
 such as `expenses:read` while still showing the exact scope needed by scripts and API requests.
 
 `weldall request` accepts an absolute HTTPS URL, explicit repeatable `--scope` values, an optional
@@ -159,9 +179,9 @@ output is rendered with Ink in bordered account, access, skill, notice, and conf
 colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON, documents, response
 bodies, and piped scope lists remain plain output. Help shows a rounded purple Weldall panel with the
 effective host and cached name and email of the signed-in account. Root help stacks it above the
-yellow organization-instructions panel, a capped assigned-scope preview, and a cached skill-discovery instruction. Root help is strictly local and works offline: it never performs discovery, token refresh, or background networking. Successful login, status, scopes, and skill commands refresh the local snapshot for later invocations.
+yellow organization-instructions panel, capped assigned-scope and connector/connection previews, and a cached skill-discovery instruction. The connector/connection preview names available capability groups, marks ready connections using provider-neutral connector metadata, and links the relevant request command. Root help is strictly local and works offline: it never performs discovery, token refresh, or background networking. Successful login, status, scopes, skills, connector discovery, and connection listing refresh the local snapshot for later invocations.
 
-`--agentic` prints the same data shaped for a model instead of a parser: TOON, tab-delimited, with every array's length declared in its header so a truncated read is visible. The bytes come from the format's reference encoder, `@toon-format/toon`, so the output is what a strict TOON decoder expects. It is available on `skills list`, `skills show`, `skills find`, and `scopes`. `skills list` writes a table of slug, title, preview, tags, `available`, `missingScopes`, and source, roughly 40 percent smaller than `--json` on a catalog of 47 skills. `skills show` writes one object carrying slug, title, tags, `available`, `missingScopes`, source, and the rendered document. Everything else `--json` reports is left out: `content` and `preview`, which the document already repeats, plus `requiredScopes`, `visibility`, `updatedAt`, and `involvedResources`. That is 54 percent smaller than `--json`. `skills find` reads the local cache, so its table is the cached fields and nothing more: slug, title, preview, tags, `available`, owner, and one source column holding the resource name, or its key when the name was never cached. There is no `missingScopes` column, because the cache does not hold one, and `--json` has none here either. It saves least, 26 percent on 27 matches, because the cached previews are most of what it prints. `scopes` writes the assigned scopes inline and one row per resource with its granted scopes, supported scopes, and request prefixes; the OAuth identifiers stay in `--json`, which is most of why it saves 63 percent on an account holding 16 resources. Unlike `--json` none of this is a contract and it may change in any release, so do not write scripts against it. Passing `--json` and `--agentic` together is an error rather than a silent win for one of them.
+`--agentic` prints the same data shaped for a model instead of a parser: TOON, tab-delimited, with every array's length declared in its header so a truncated read is visible. The bytes come from the format's reference encoder, `@toon-format/toon`, so the output is what a strict TOON decoder expects. It is available on `skills list`, `skills show`, `skills find`, `scopes`, and managed-connection list, discovery, detail, setup-status, connect, reconnect, and disconnect output. `skills list` writes a table of slug, title, preview, tags, `available`, `missingScopes`, and source, roughly 40 percent smaller than `--json` on a catalog of 47 skills. `skills show` writes one object carrying slug, title, tags, `available`, `missingScopes`, source, and the rendered document. Everything else `--json` reports is left out: `content` and `preview`, which the document already repeats, plus `requiredScopes`, `visibility`, `updatedAt`, and `involvedResources`. That is 54 percent smaller than `--json`. `skills find` reads the local cache, so its table is the cached fields and nothing more: slug, title, preview, tags, `available`, owner, and one source column holding the resource name, or its key when the name was never cached. There is no `missingScopes` column, because the cache does not hold one, and `--json` has none here either. It saves least, 26 percent on 27 matches, because the cached previews are most of what it prints. `scopes` writes the assigned scopes inline and one row per resource with its granted scopes, supported scopes, and request prefixes; the OAuth identifiers stay in `--json`, which is most of why it saves 63 percent on an account holding 16 resources. Connection lists carry selectors, connector keys, account names, status, granted scopes, usage metadata, and issuer; connection detail adds selected and granted scopes plus lifecycle timestamps. Connector discovery carries connector key, name, type, available scopes, and default scopes, while database ownership and version fields stay in `--json`. Unlike `--json` none of this is a contract and it may change in any release, so do not write scripts against it. Passing `--json` and `--agentic` together is an error rather than a silent win for one of them.
 
 Set `WELDALL_DEBUG_TIMINGS=1` to print optional phase timings to standard error. Timing output contains phase names and elapsed milliseconds, not tokens or response data.
 

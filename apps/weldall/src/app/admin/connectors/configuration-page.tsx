@@ -1,0 +1,718 @@
+"use client";
+
+import { useId, useMemo, useState } from "react";
+import type { AnyFieldApi } from "@tanstack/react-form";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { MultiSelector } from "@astryxdesign/core/MultiSelector";
+import { EnvelopeProviderField } from "./envelope-provider-field";
+import { Switch } from "@astryxdesign/core/Switch";
+import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { useForm } from "@tanstack/react-form";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import type { ConnectorConfigInput } from "@/server/connectors/contracts";
+import type { listManagedConnectorConfiguration } from "@/server/connectors/configuration";
+import type { listScopeOptions } from "@/server/admin/service";
+import { scopeCatalog } from "@/server/connectors/providers/google/setup";
+import { useTRPC } from "@/trpc/react";
+import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { useOperationToast } from "../../_components/use-operation-toast";
+import {
+  isInteractiveTableTarget,
+  OverflowFade,
+  ResizableTableHeader,
+  TableRowAction,
+} from "../resizable-table";
+
+type Configuration = Awaited<ReturnType<typeof listManagedConnectorConfiguration>>;
+type ConnectorRow = Configuration["connectors"][number];
+type ScopeOption = Awaited<ReturnType<typeof listScopeOptions>>[number];
+type ConnectorAction = { connector: ConnectorRow };
+const emptyConnectors: ConnectorRow[] = [];
+
+/** Coordinates connector administration, filtering, editing, and lifecycle mutations. */
+export function ManagedConfiguration() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const operationToast = useOperationToast();
+  const configurationQuery = useQuery(trpc.admin.managed.configuration.queryOptions());
+  const scopeOptionsQuery = useQuery(trpc.admin.scopes.options.queryOptions());
+  const [editingConnector, setEditingConnector] = useState<ConnectorRow | null | undefined>();
+  const [action, setAction] = useState<ConnectorAction | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
+  const connectors = configurationQuery.data?.connectors ?? emptyConnectors;
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: trpc.admin.managed.configuration.queryKey() });
+  };
+  const deleteMutation = useMutation(
+    trpc.admin.managed.deleteConnector.mutationOptions({
+      onSuccess: async () => {
+        setAction(null);
+        operationToast.success("Connector deleted", "connector-delete");
+        await Promise.all([
+          refresh(),
+          queryClient.invalidateQueries({ queryKey: trpc.admin.managed.connections.queryKey() }),
+          queryClient.invalidateQueries({ queryKey: trpc.admin.managed.connection.queryKey() }),
+        ]);
+      },
+      onError: (error) =>
+        operationToast.error("Could not delete connector", error, "connector-delete"),
+    }),
+  );
+  const columns = useMemo<ColumnDef<ConnectorRow>[]>(
+    () => [
+      {
+        id: "name",
+        accessorFn: (row) => row.config.name,
+        header: "Connector",
+        size: 300,
+        minSize: 180,
+        maxSize: 440,
+        cell: ({ getValue }) => (
+          <OverflowFade title={getValue<string>()}>
+            <span className="whitespace-nowrap">{getValue<string>()}</span>
+          </OverflowFade>
+        ),
+      },
+      {
+        id: "key",
+        accessorFn: (row) => row.config.key,
+        header: "ID",
+        size: 240,
+        minSize: 110,
+        maxSize: 300,
+        enableSorting: false,
+        cell: ({ getValue }) => (
+          <OverflowFade title={getValue<string>()}>
+            <code className="whitespace-nowrap text-sm">{getValue<string>()}</code>
+          </OverflowFade>
+        ),
+      },
+      {
+        id: "permissions",
+        accessorFn: (row) => row.config.provider.allowedScopes.length,
+        header: "Permissions",
+        size: 150,
+        minSize: 120,
+        maxSize: 190,
+        cell: ({ getValue }) => `${getValue<number>().toLocaleString()} allowed`,
+      },
+      {
+        id: "access",
+        accessorFn: (row) => row.config.requiredScopes.length,
+        header: "Access",
+        size: 150,
+        minSize: 120,
+        maxSize: 190,
+        cell: ({ getValue }) =>
+          getValue<number>() ? `${getValue<number>().toLocaleString()} required` : "All users",
+      },
+      {
+        id: "envelopeProvider",
+        accessorFn: () => "Local environment key",
+        header: "Envelope provider",
+        size: 220,
+        minSize: 150,
+        maxSize: 320,
+        cell: ({ getValue }) => (
+          <code className="whitespace-nowrap text-sm">{getValue<string>()}</code>
+        ),
+      },
+      {
+        id: "secret",
+        accessorFn: (row) => row.secretConfigured,
+        header: "Client secret",
+        size: 150,
+        minSize: 120,
+        maxSize: 200,
+        cell: ({ getValue }) => (
+          <Badge
+            label={getValue<boolean>() ? "Configured" : "Missing"}
+            variant={getValue<boolean>() ? "neutral" : "warning"}
+          />
+        ),
+      },
+      {
+        id: "enabled",
+        accessorFn: (row) => row.config.enabled,
+        header: "Status",
+        size: 130,
+        minSize: 110,
+        maxSize: 180,
+        cell: ({ row, getValue }) => (
+          <div className="flex flex-wrap gap-1">
+            <Badge
+              label={getValue<boolean>() ? "Enabled" : "Disabled"}
+              variant={getValue<boolean>() ? "success" : "neutral"}
+            />
+            {row.original.managed ? <Badge label="IaC" variant="purple" /> : null}
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    data: connectors,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    columnResizeMode: "onChange",
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  return (
+    <>
+      <HerocrumbsActions>
+        <div className="admin-table-action-row">
+          <Button
+            isDisabled={scopeOptionsQuery.isPending || scopeOptionsQuery.isError}
+            label="Add connector"
+            onClick={() => setEditingConnector(null)}
+            variant="primary"
+          />
+        </div>
+      </HerocrumbsActions>
+      <Text color="secondary">
+        Configure provider clients and the permissions users may grant. Client secrets are
+        write-only.
+      </Text>
+      {configurationQuery.error ? (
+        <Banner
+          container="card"
+          status="error"
+          title="Could not load connectors"
+          description={configurationQuery.error.message}
+        />
+      ) : null}
+      {scopeOptionsQuery.error ? (
+        <Banner
+          container="card"
+          status="error"
+          title="Could not load scopes"
+          description={scopeOptionsQuery.error.message}
+        />
+      ) : null}
+      <ManagedTable
+        label="Connectors table"
+        table={table}
+        columns={columns}
+        isPending={configurationQuery.isPending}
+        empty="No connectors have been configured."
+        onEdit={setEditingConnector}
+      />
+      {editingConnector !== undefined ? (
+        <ConnectorDialog
+          key={editingConnector?.id ?? "new"}
+          connector={editingConnector}
+          scopeOptions={scopeOptionsQuery.data ?? []}
+          onClose={() => setEditingConnector(undefined)}
+          onDelete={(connector) => {
+            setEditingConnector(undefined);
+            setAction({ connector });
+          }}
+          onSaved={async () => {
+            setEditingConnector(undefined);
+            await refresh();
+          }}
+        />
+      ) : null}
+      <AlertDialog
+        actionLabel="Delete connector"
+        description={
+          action
+            ? `Permanently delete ${action.connector.config.name} and all its connections? This removes configuration, authorization attempts and stored credentials from Weldall, but does not revoke provider access. Ask owners to disconnect first, or remove the OAuth application in your provider's administration console. This may affect other users and applications sharing the OAuth client; existing tokens may remain valid according to the provider's policies. In-flight requests may still finish.`
+            : "Confirm deletion."
+        }
+        isActionLoading={deleteMutation.isPending}
+        isOpen={Boolean(action)}
+        onAction={() => {
+          if (!action) return;
+          deleteMutation.mutate({ id: action.connector.id, version: action.connector.version });
+        }}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setAction(null);
+        }}
+        title="Delete connector?"
+      />
+    </>
+  );
+}
+
+/** Renders managed connectors in the shared sortable admin-table layout. */
+function ManagedTable({
+  label,
+  table,
+  columns,
+  isPending,
+  empty,
+  onEdit,
+}: {
+  label: string;
+  table: ReturnType<typeof useReactTable<ConnectorRow>>;
+  columns: ColumnDef<ConnectorRow>[];
+  isPending: boolean;
+  empty: string;
+  onEdit: (row: ConnectorRow) => void;
+}) {
+  return (
+    <TableContext.Provider
+      value={{
+        density: "balanced",
+        dividers: "grid",
+        hasHover: false,
+        isStriped: false,
+        textOverflow: "wrap",
+        verticalAlign: "middle",
+      }}
+    >
+      <div className="w-full overflow-x-auto" role="group" aria-label={label}>
+        <table
+          className="admin-resizable-table table-fixed border-collapse text-left"
+          style={{ minWidth: "100%", width: table.getTotalSize() }}
+        >
+          <ResizableTableHeader table={table} />
+          <TableBody>
+            {table.getRowModel().rows.map((row) => (
+              <TableRow
+                key={row.id}
+                aria-label={`Edit ${row.original.config.name}`}
+                data-clickable="true"
+                onClick={(event) => {
+                  if (!isInteractiveTableTarget(event.target, event.currentTarget))
+                    onEdit(row.original);
+                }}
+              >
+                {row.getVisibleCells().map((cell, index) => (
+                  <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                    {index === 0 ? (
+                      <TableRowAction
+                        label={`Edit ${row.original.config.name}`}
+                        onActivate={() => onEdit(row.original)}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableRowAction>
+                    ) : (
+                      flexRender(cell.column.columnDef.cell, cell.getContext())
+                    )}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+            {!isPending && table.getRowModel().rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={columns.length}>
+                  <Text color="secondary">{empty}</Text>
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {isPending ? (
+              <TableRow>
+                <TableCell colSpan={columns.length}>
+                  <Text color="secondary">Loading connectors…</Text>
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </table>
+      </div>
+    </TableContext.Provider>
+  );
+}
+
+/** Collects and validates connector configuration before the admin mutation is submitted. */
+function ConnectorDialog({
+  connector,
+  scopeOptions,
+  onClose,
+  onDelete,
+  onSaved,
+}: {
+  connector: ConnectorRow | null;
+  scopeOptions: ScopeOption[];
+  onClose: () => void;
+  onDelete: (connector: ConnectorRow) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const trpc = useTRPC();
+  const formId = useId();
+  const operationToast = useOperationToast();
+  const saveMutation = useMutation(
+    trpc.admin.managed.saveConnector.mutationOptions({
+      onSuccess: () =>
+        operationToast.success(
+          connector ? "Connector saved" : "Connector created",
+          "connector-save",
+        ),
+      onError: (error) => operationToast.error("Could not save connector", error, "connector-save"),
+    }),
+  );
+  const config = connector?.config;
+  const form = useForm({
+    defaultValues: {
+      key: config?.key ?? "",
+      name: config?.name ?? "",
+      clientId: config?.provider.clientId ?? "",
+      clientSecret: "",
+      envelopeProvider: config?.envelopeProvider ?? ("LOCAL_ENV" as const),
+      requiredScopes: [...(config?.requiredScopes ?? [])] as string[],
+      allowedScopes: config?.provider.allowedScopes ?? [],
+      defaultScopes: config?.provider.defaultScopes ?? [],
+      enabled: config?.enabled ?? false,
+    },
+    onSubmit: async ({ value }) => {
+      const { clientSecret, clientId, allowedScopes, defaultScopes, ...configuration } = value;
+      await saveMutation.mutateAsync({
+        ...(connector ? { id: connector.id } : {}),
+        version: connector?.version ?? null,
+        config: {
+          ...configuration,
+          type: "google",
+          provider: { clientId, allowedScopes, defaultScopes },
+        } satisfies ConnectorConfigInput,
+        ...(clientSecret ? { providerSecrets: { clientSecret } } : {}),
+      });
+      await onSaved();
+    },
+  });
+  const busy = saveMutation.isPending;
+  const changeOpen = (open: boolean) => {
+    if (!open && !busy) onClose();
+  };
+
+  return (
+    <Dialog isOpen onOpenChange={changeOpen} purpose="form" width="min(760px, calc(100vw - 32px))">
+      <Layout
+        header={
+          <DialogHeader
+            hasDivider
+            onOpenChange={changeOpen}
+            subtitle="Google OAuth configuration, permission policy, and encryption binding."
+            title={connector ? "Edit connector" : "Add connector"}
+          />
+        }
+        content={
+          <LayoutContent>
+            <form
+              className="admin-dialog-form"
+              id={formId}
+              onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void form.handleSubmit();
+              }}
+            >
+              <FormLayout>
+                <form.Field
+                  name="key"
+                  validators={{
+                    onBlur: ({ value }) => validateIdentity({ value, label: "Connector key" }),
+                    onChange: ({ value }) => validateIdentity({ value, label: "Connector key" }),
+                    onSubmit: ({ value }) => validateIdentity({ value, label: "Connector key" }),
+                  }}
+                >
+                  {(field) => (
+                    <TextInput
+                      isDisabled={Boolean(connector)}
+                      isRequired
+                      label="Connector key"
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      placeholder="google-workspace"
+                      {...getFieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Field
+                  name="name"
+                  validators={{
+                    onBlur: ({ value }) => validateName(value),
+                    onSubmit: ({ value }) => validateName(value),
+                  }}
+                >
+                  {(field) => (
+                    <TextInput
+                      isRequired
+                      label="Name"
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      placeholder="Company Google Workspace"
+                      {...getFieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Field
+                  name="clientId"
+                  validators={{
+                    onBlur: ({ value }) =>
+                      validateRequired({ value, label: "OAuth client ID", max: 500 }),
+                    onSubmit: ({ value }) =>
+                      validateRequired({ value, label: "OAuth client ID", max: 500 }),
+                  }}
+                >
+                  {(field) => (
+                    <TextInput
+                      isRequired
+                      label="OAuth client ID"
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      placeholder="123456.apps.googleusercontent.com"
+                      {...getFieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </form.Field>
+                <form.Subscribe selector={(state) => state.values.clientId}>
+                  {(clientId) => {
+                    const keepsExistingSecret = Boolean(
+                      connector?.secretConfigured && clientId === config?.provider.clientId,
+                    );
+                    const validateSecret = ({ value }: { value: string }) =>
+                      value || !keepsExistingSecret
+                        ? validateRequired({ value, label: "Client secret", max: 10_000 })
+                        : undefined;
+                    return (
+                      <form.Field
+                        name="clientSecret"
+                        validators={{ onChange: validateSecret, onSubmit: validateSecret }}
+                      >
+                        {(field) => (
+                          <TextInput
+                            isRequired={!keepsExistingSecret}
+                            label="Client secret"
+                            type="password"
+                            placeholder={
+                              keepsExistingSecret
+                                ? "Leave empty to keep the existing secret"
+                                : "Enter the OAuth client secret"
+                            }
+                            onBlur={field.handleBlur}
+                            onChange={field.handleChange}
+                            {...getFieldStatusProps(field)}
+                            value={field.state.value}
+                            width="100%"
+                          />
+                        )}
+                      </form.Field>
+                    );
+                  }}
+                </form.Subscribe>
+                <EnvelopeProviderField existing={Boolean(connector)} />
+                <form.Field name="requiredScopes">
+                  {(field) => (
+                    <div className="space-y-2">
+                      <MultiSelector
+                        hasClear
+                        hasSearch
+                        hasSelectAll
+                        label="Required Weldall scopes"
+                        onChange={field.handleChange}
+                        options={scopeOptions.map((scope) => ({
+                          value: scope.key,
+                          label: scope.key,
+                        }))}
+                        placeholder="Available to all users"
+                        searchPlaceholder="Find scopes…"
+                        triggerDisplay="badges"
+                        value={field.state.value}
+                        width="100%"
+                      />
+                      <Text color="secondary">
+                        Users must hold every selected scope to create or use connections. Leave
+                        empty to allow every authenticated user.
+                      </Text>
+                    </div>
+                  )}
+                </form.Field>
+                <form.Subscribe selector={(state) => state.values.allowedScopes}>
+                  {(allowedScopes) => {
+                    const allowedScopeOptions = scopeCatalog
+                      .filter((scope) => !scope.required)
+                      .map((scope) => ({
+                        value: scope.id,
+                        label: `${scope.group}: ${scope.label}`,
+                      }));
+                    const defaultScopeOptions = allowedScopeOptions.filter((option) =>
+                      allowedScopes.includes(option.value),
+                    );
+                    return (
+                      <>
+                        <form.Field
+                          name="allowedScopes"
+                          validators={{
+                            onChange: ({ value }) =>
+                              value.length ? undefined : "Allow at least one permission.",
+                            onSubmit: ({ value }) =>
+                              value.length ? undefined : "Allow at least one permission.",
+                          }}
+                        >
+                          {(field) => (
+                            <MultiSelector
+                              hasSearch
+                              label="Allowed permissions"
+                              onChange={(values) => {
+                                field.handleChange(values);
+                                form.setFieldValue(
+                                  "defaultScopes",
+                                  form.state.values.defaultScopes.filter((id) =>
+                                    values.includes(id),
+                                  ),
+                                );
+                              }}
+                              options={allowedScopeOptions}
+                              placeholder="Choose permissions…"
+                              {...getFieldStatusProps(field)}
+                              triggerDisplay="badges"
+                              value={field.state.value}
+                              width="100%"
+                            />
+                          )}
+                        </form.Field>
+                        <form.Field name="defaultScopes">
+                          {(field) => (
+                            <MultiSelector
+                              hasClear
+                              hasSearch
+                              label="Selected by default"
+                              onChange={field.handleChange}
+                              options={defaultScopeOptions}
+                              placeholder="No optional defaults"
+                              triggerDisplay="badges"
+                              value={field.state.value}
+                              width="100%"
+                            />
+                          )}
+                        </form.Field>
+                      </>
+                    );
+                  }}
+                </form.Subscribe>
+                <form.Subscribe
+                  selector={(state) => [state.values.clientSecret, state.values.clientId] as const}
+                >
+                  {([clientSecret, clientId]) => {
+                    const hasSecret =
+                      Boolean(clientSecret.trim()) ||
+                      Boolean(
+                        connector?.secretConfigured && clientId === config?.provider.clientId,
+                      );
+                    return (
+                      <form.Field name="enabled">
+                        {(field) => (
+                          <Switch
+                            description={
+                              hasSecret
+                                ? "Users may create and use connections through this connector."
+                                : "Enter a client secret before enabling this connector."
+                            }
+                            isDisabled={!hasSecret}
+                            label="Enabled"
+                            labelPosition="start"
+                            labelSpacing="spread"
+                            onChange={field.handleChange}
+                            value={field.state.value}
+                            width="100%"
+                          />
+                        )}
+                      </form.Field>
+                    );
+                  }}
+                </form.Subscribe>
+              </FormLayout>
+            </form>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter hasDivider>
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
+              {connector ? (
+                <>
+                  <Button
+                    className="mr-auto"
+                    isDisabled={busy}
+                    label="Delete connector"
+                    onClick={() => onDelete(connector)}
+                    type="button"
+                    variant="destructive"
+                  />
+                </>
+              ) : null}
+              <Button label="Cancel" onClick={onClose} type="button" variant="secondary" />
+              <form.Subscribe selector={(state) => state.canSubmit}>
+                {(canSubmit) => (
+                  <Button
+                    form={formId}
+                    isDisabled={!canSubmit || busy}
+                    isLoading={saveMutation.isPending}
+                    label={connector ? "Save connector" : "Add connector"}
+                    type="submit"
+                    variant="primary"
+                  />
+                )}
+              </form.Subscribe>
+            </div>
+          </LayoutFooter>
+        }
+      />
+    </Dialog>
+  );
+}
+
+/** Validates stable connector identifiers used by URLs, IaC, and CLI selectors. */
+function validateIdentity({ value, label }: { value: unknown; label: string }) {
+  const key = String(value).trim();
+  if (!key) return `${label} is required.`;
+  if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(key))
+    return "Use lowercase letters, numbers, dots, dashes, or underscores (120 characters maximum).";
+}
+/** Validates the human-readable connector name shown across admin and CLI surfaces. */
+function validateName(value: unknown) {
+  return validateRequired({ value, label: "Name", max: 200 });
+}
+
+/** Validates required trimmed connector form fields with a caller-provided size limit. */
+function validateRequired({ value, label, max }: { value: unknown; label: string; max: number }) {
+  const text = String(value).trim();
+  if (!text) return `${label} is required.`;
+  if (text.length > max) return `${label} must be ${max.toLocaleString()} characters or less.`;
+}
+/** Adapts TanStack field state to Astryx input status properties. */
+function getFieldStatusProps(field: AnyFieldApi) {
+  const status = getFieldStatus(field);
+  return status ? { status } : {};
+}
+/** Returns the first visible validation error for a touched connector field. */
+function getFieldStatus(field: AnyFieldApi): { type: "error"; message: string } | undefined {
+  const messages = field.state.meta.errors
+    .map(getErrorMessage)
+    .filter((message): message is string => Boolean(message));
+  return field.state.meta.isValid || messages.length === 0
+    ? undefined
+    : { type: "error", message: messages.join(", ") };
+}
+/** Normalizes unknown mutation failures for the connector admin dialog. */
+function getErrorMessage(error: unknown) {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string")
+    return error.message;
+}
