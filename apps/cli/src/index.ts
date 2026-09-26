@@ -32,7 +32,13 @@ interface LocalHeader extends CliHeaderSnapshot {
   identity: StoredIdentity | null;
 }
 
-const emptySnapshot = (): CliHeaderSnapshot => ({ appendix: "", scopes: [], skills: [] });
+const emptySnapshot = (): CliHeaderSnapshot => ({
+  appendix: "",
+  scopes: [],
+  skills: [],
+  connectors: [],
+  connections: [],
+});
 
 async function loadLocalHeader(includeAppendix: boolean): Promise<LocalHeader> {
   try {
@@ -112,6 +118,8 @@ export async function runCli(argv = process.argv.slice(2)) {
             appendix: header.appendix,
             scopes: header.scopes,
             skills: header.skills,
+            connectors: header.connectors,
+            connections: header.connections,
           });
         return brandHeading({ issuer: header.issuer, identity: header.identity });
       },

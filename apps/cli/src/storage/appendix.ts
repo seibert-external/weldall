@@ -10,6 +10,18 @@ const MAX_APPENDIX_LENGTH = 100_000;
 const MAX_PREVIEW_ITEMS = 10_000;
 const MAX_SKILL_PREVIEW_LENGTH = 1_000;
 
+export interface CachedConnectorPreview {
+  key: string;
+  name: string;
+  groups: string[];
+}
+
+export interface CachedConnectionPreview {
+  name: string;
+  connectorKey: string;
+  status: string;
+}
+
 export interface CachedSkillPreview {
   slug: string;
   title: string;
@@ -25,6 +37,8 @@ export interface CliHeaderSnapshot {
   appendix: string;
   scopes: string[];
   skills: CachedSkillPreview[];
+  connectors: CachedConnectorPreview[];
+  connections: CachedConnectionPreview[];
   skillsInitialized?: boolean;
   subject?: string;
 }
@@ -41,6 +55,30 @@ const validStrings = (value: unknown): value is string[] =>
   Array.isArray(value) &&
   value.length <= MAX_PREVIEW_ITEMS &&
   value.every((item) => typeof item === "string");
+
+const validConnectors = (value: unknown): value is CachedConnectorPreview[] =>
+  Array.isArray(value) &&
+  value.length <= MAX_PREVIEW_ITEMS &&
+  value.every(
+    (item) =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as Partial<CachedConnectorPreview>).key === "string" &&
+      typeof (item as Partial<CachedConnectorPreview>).name === "string" &&
+      validStrings((item as Partial<CachedConnectorPreview>).groups),
+  );
+
+const validConnections = (value: unknown): value is CachedConnectionPreview[] =>
+  Array.isArray(value) &&
+  value.length <= MAX_PREVIEW_ITEMS &&
+  value.every(
+    (item) =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as Partial<CachedConnectionPreview>).name === "string" &&
+      typeof (item as Partial<CachedConnectionPreview>).connectorKey === "string" &&
+      typeof (item as Partial<CachedConnectionPreview>).status === "string",
+  );
 
 const validSkills = (value: unknown): value is CachedSkillPreview[] =>
   Array.isArray(value) &&
@@ -82,6 +120,8 @@ export class AppendixCache {
           (typeof value.subject !== "string" || !value.subject.trim())) ||
         (value.scopes !== undefined && !validStrings(value.scopes)) ||
         (value.skills !== undefined && !validSkills(value.skills)) ||
+        (value.connectors !== undefined && !validConnectors(value.connectors)) ||
+        (value.connections !== undefined && !validConnections(value.connections)) ||
         (value.skillsInitialized !== undefined && typeof value.skillsInitialized !== "boolean")
       )
         return null;
@@ -90,6 +130,8 @@ export class AppendixCache {
         appendix: value.appendix,
         scopes: value.scopes ?? [],
         skills,
+        connectors: value.connectors ?? [],
+        connections: value.connections ?? [],
         skillsInitialized: value.skillsInitialized ?? skills.length > 0,
         ...(value.subject === undefined ? {} : { subject: value.subject }),
       };
@@ -105,7 +147,16 @@ export class AppendixCache {
   ): Promise<CliHeaderSnapshot | null> {
     const snapshot = await this.readSnapshot(issuer);
     if (!snapshot || !subject || snapshot.subject !== subject)
-      return snapshot ? { ...snapshot, scopes: [], skills: [], skillsInitialized: false } : null;
+      return snapshot
+        ? {
+            ...snapshot,
+            scopes: [],
+            skills: [],
+            connectors: [],
+            connections: [],
+            skillsInitialized: false,
+          }
+        : null;
     return snapshot;
   }
 
@@ -118,6 +169,8 @@ export class AppendixCache {
       snapshot.appendix.length > MAX_APPENDIX_LENGTH ||
       !validStrings(snapshot.scopes) ||
       !validSkills(snapshot.skills) ||
+      !validConnectors(snapshot.connectors) ||
+      !validConnections(snapshot.connections) ||
       (snapshot.skillsInitialized !== undefined &&
         typeof snapshot.skillsInitialized !== "boolean") ||
       (snapshot.subject !== undefined && !snapshot.subject.trim())
@@ -144,6 +197,8 @@ export class AppendixCache {
           appendix: "",
           scopes: [],
           skills: [],
+          connectors: [],
+          connections: [],
           skillsInitialized: false,
         };
         const subjectChanged = patch.subject !== undefined && patch.subject !== current.subject;
@@ -151,6 +206,8 @@ export class AppendixCache {
           appendix: patch.appendix ?? current.appendix,
           scopes: patch.scopes ?? (subjectChanged ? [] : current.scopes),
           skills: patch.skills ?? (subjectChanged ? [] : current.skills),
+          connectors: patch.connectors ?? (subjectChanged ? [] : current.connectors),
+          connections: patch.connections ?? (subjectChanged ? [] : current.connections),
           skillsInitialized:
             patch.skillsInitialized ??
             (subjectChanged ? false : (current.skillsInitialized ?? false)),
@@ -176,6 +233,8 @@ export class AppendixCache {
       appendix,
       scopes: current?.scopes ?? [],
       skills: current?.skills ?? [],
+      connectors: current?.connectors ?? [],
+      connections: current?.connections ?? [],
       skillsInitialized: current?.skillsInitialized ?? false,
       ...(current?.subject === undefined ? {} : { subject: current.subject }),
     });

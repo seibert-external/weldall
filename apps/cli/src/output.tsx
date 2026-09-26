@@ -465,6 +465,18 @@ export interface HeaderSkill {
   available: boolean;
 }
 
+export interface HeaderConnector {
+  key: string;
+  name: string;
+  groups: string[];
+}
+
+export interface HeaderConnection {
+  name: string;
+  connectorKey: string;
+  status: string;
+}
+
 const PREVIEW_LIMIT = 5;
 
 export function WeldallCard({
@@ -515,6 +527,71 @@ function ScopePreview({ scopes }: { scopes: string[] }) {
   );
 }
 
+function ConnectorPreview({
+  connectors,
+  connections,
+}: {
+  connectors: HeaderConnector[];
+  connections: HeaderConnection[];
+}) {
+  const visible = connectors.slice(0, PREVIEW_LIMIT);
+  const visibleKeys = new Set(visible.map((connector) => connector.key));
+  const visibleConnections = connections.filter(
+    (connection) =>
+      visibleKeys.has(connection.connectorKey) && connection.status !== "DISCONNECTED",
+  );
+  const firstReady = visibleConnections.find((connection) => connection.status === "READY");
+  const readyRequest = firstReady
+    ? `weldall request --connection ${terminalText(firstReady.name)} <provider-https-url>`
+    : null;
+  return (
+    <Card title="Connectors & connections" accent={palette.success}>
+      {visible.length > 0 ? (
+        visible.map((connector) => {
+          const connectorConnections = visibleConnections.filter(
+            (connection) => connection.connectorKey === connector.key,
+          );
+          return (
+            <Box key={connector.key} flexDirection="column">
+              <Text>
+                • {terminalText(connector.name)} ({terminalText(connector.key)})
+                {connector.groups.length > 0
+                  ? ` — ${connector.groups.map(terminalText).join(", ")}`
+                  : ""}
+              </Text>
+              {connectorConnections.map((connection) =>
+                connection.status === "READY" ? (
+                  <Text key={connection.name} color={palette.success}>
+                    {"  "}✓ {terminalText(connection.name)} is ready for{" "}
+                    {terminalText(connector.name)} requests.
+                  </Text>
+                ) : (
+                  <Text key={connection.name} color={palette.warning}>
+                    {"  "}! {terminalText(connection.name)} · {terminalText(connection.status)}
+                  </Text>
+                ),
+              )}
+            </Box>
+          );
+        })
+      ) : (
+        <Text dimColor>No cached connectors or connections.</Text>
+      )}
+      {connectors.length > visible.length && (
+        <Text dimColor>… {connectors.length - visible.length} more</Text>
+      )}
+      <Box flexDirection="column" marginTop={1}>
+        <Text>Run `weldall connectors --agentic` for the complete permission catalog.</Text>
+        {readyRequest ? (
+          <Text>Request now: `{readyRequest}`.</Text>
+        ) : (
+          <Text>Connect with `weldall connections connect &lt;key&gt; --name &lt;name&gt;`.</Text>
+        )}
+      </Box>
+    </Card>
+  );
+}
+
 function SkillPreview({ skills }: { skills: HeaderSkill[] }) {
   return (
     <Card title="Skills" accent={palette.accent}>
@@ -540,12 +617,16 @@ export function HelpHeader({
   appendix,
   scopes,
   skills,
+  connectors,
+  connections,
 }: {
   issuer: string | null;
   identity: HeaderIdentity | null;
   appendix: string;
   scopes: string[];
   skills: HeaderSkill[];
+  connectors: HeaderConnector[];
+  connections: HeaderConnection[];
 }) {
   const instructions = terminalDocument(appendix).trim();
   return (
@@ -555,6 +636,7 @@ export function HelpHeader({
         <Text>{instructions || "No organization instructions configured."}</Text>
       </Card>
       <ScopePreview scopes={scopes} />
+      <ConnectorPreview connectors={connectors} connections={connections} />
       <SkillPreview skills={skills} />
     </Box>
   );
@@ -584,6 +666,8 @@ export const helpHeader = ({
   appendix,
   scopes = [],
   skills = [],
+  connectors = [],
+  connections = [],
   columns = terminalColumns(),
 }: {
   issuer: string | null;
@@ -591,6 +675,8 @@ export const helpHeader = ({
   appendix: string;
   scopes?: string[];
   skills?: HeaderSkill[];
+  connectors?: HeaderConnector[];
+  connections?: HeaderConnection[];
   columns?: number;
 }) =>
   renderUi({
@@ -601,6 +687,8 @@ export const helpHeader = ({
         appendix={appendix}
         scopes={scopes}
         skills={skills}
+        connectors={connectors}
+        connections={connections}
       />
     ),
     columns,

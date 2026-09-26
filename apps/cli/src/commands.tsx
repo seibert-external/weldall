@@ -1,5 +1,5 @@
 import { define } from "gunshi";
-import { Box } from "ink";
+import { Box, Text } from "ink";
 import {
   encodeConnectionAttemptToon,
   encodeConnectionDetailToon,
@@ -17,6 +17,7 @@ import {
   paginateOffset,
 } from "./pagination.js";
 import {
+  Card,
   IdentityCard,
   PermissionsCard,
   SkillsCard,
@@ -62,7 +63,12 @@ import {
 } from "./services/skills.js";
 import { scopesToon } from "./scopes-toon.js";
 import { skillDetailToon, skillMatchesToon, skillsToon } from "./skills-toon.js";
-import { appendixCache, type CachedSkillPreview } from "./storage/appendix.js";
+import {
+  appendixCache,
+  type CachedConnectionPreview,
+  type CachedConnectorPreview,
+  type CachedSkillPreview,
+} from "./storage/appendix.js";
 import { weldallConfigCache } from "./storage/config-cache.js";
 import { keychain } from "./storage/keychain.js";
 import { issuerPreferences } from "./storage/preferences.js";
@@ -133,6 +139,36 @@ const cachedSubject = async (issuer: string) => {
     : (credentials?.identity?.subject ?? null);
 };
 
+const connectorPreview = (connector: ConnectorSummary): CachedConnectorPreview => ({
+  key: connector.key,
+  name: connector.name,
+  groups: [...new Set(connector.scopes.map((scope) => scope.group))],
+});
+
+const connectionPreview = (connection: ConnectionSummary): CachedConnectionPreview => ({
+  name: connection.name,
+  connectorKey: connection.connectorKey,
+  status: connection.status,
+});
+
+const cacheConnectorState = (
+  issuer: string,
+  {
+    connectors,
+    connections,
+    subject,
+  }: {
+    connectors?: readonly ConnectorSummary[];
+    connections?: readonly ConnectionSummary[];
+    subject?: string;
+  },
+) =>
+  updateSnapshotBestEffort(issuer, {
+    ...(connectors === undefined ? {} : { connectors: connectors.map(connectorPreview) }),
+    ...(connections === undefined ? {} : { connections: connections.map(connectionPreview) }),
+    ...(subject === undefined ? {} : { subject }),
+  });
+
 const cacheSkills = async (issuer: string, skills: Skill[], subject: string) => {
   const previews = skills.map(skillPreview);
   const patch = {
@@ -143,6 +179,8 @@ const cacheSkills = async (issuer: string, skills: Skill[], subject: string) => 
   return appendixCache.updateSnapshot(issuer, patch).catch(() => ({
     appendix: "",
     scopes: [],
+    connectors: [],
+    connections: [],
     ...patch,
   }));
 };
@@ -197,16 +235,26 @@ export const loginCommand = define({
     info(`Opening ${config.issuer} in your browser…`);
     const subject = await login(config);
     await updateSnapshotBestEffort(config.issuer, { subject });
+    const connectorsPromise = listConnectors(config).catch(() => undefined);
+    const connectionsPromise = listConnections(config).catch(() => undefined);
     if (!process.stdout.isTTY) {
+      const [connectors, connections] = await Promise.all([connectorsPromise, connectionsPromise]);
+      await cacheConnectorState(config.issuer, {
+        ...(connectors === undefined ? {} : { connectors }),
+        ...(connections === undefined ? {} : { connections }),
+        subject,
+      });
       success(`Logged in as ${terminalText(subject)}.`);
       return;
     }
     success("You're signed in.");
     try {
-      const [identity, scopedPermissions, appendix] = await Promise.all([
+      const [identity, scopedPermissions, appendix, connectors, connections] = await Promise.all([
         whoAmI(config),
         listScopesWithSubject(config),
         getCliAppendix(config).catch(() => undefined),
+        connectorsPromise,
+        connectionsPromise,
       ]);
       if (identity.subject !== scopedPermissions.subject)
         throw new CliError("The active Weldall account changed while loading login details", {
@@ -217,6 +265,8 @@ export const loginCommand = define({
         subject: scopedPermissions.subject,
         scopes: permissions.assignedScopes,
         ...(appendix === undefined ? {} : { appendix }),
+        ...(connectors === undefined ? {} : { connectors: connectors.map(connectorPreview) }),
+        ...(connections === undefined ? {} : { connections: connections.map(connectionPreview) }),
       });
       console.log();
       printStatus(identity, permissions);
@@ -271,10 +321,12 @@ export const statusCommand = define({
   examples: "weldall status\nweldall status --json",
   run: async (context) => {
     const config = await resolveWeldallConfig();
-    const [identity, scopedPermissions, appendix] = await Promise.all([
+    const [identity, scopedPermissions, appendix, connectors, connections] = await Promise.all([
       whoAmI(config),
       listScopesWithSubject(config),
       getCliAppendix(config).catch(() => undefined),
+      listConnectors(config).catch(() => undefined),
+      listConnections(config).catch(() => undefined),
     ]);
     if (identity.subject !== scopedPermissions.subject)
       throw new CliError("The active Weldall account changed while loading status", {
@@ -285,6 +337,8 @@ export const statusCommand = define({
       subject: scopedPermissions.subject,
       scopes: permissions.assignedScopes,
       ...(appendix === undefined ? {} : { appendix }),
+      ...(connectors === undefined ? {} : { connectors: connectors.map(connectorPreview) }),
+      ...(connections === undefined ? {} : { connections: connections.map(connectionPreview) }),
     });
     if (context.values.json)
       jsonOutput({
@@ -792,13 +846,6 @@ const connectionColumns = [
   { header: "Requests", align: "right" },
 ] satisfies readonly TableColumn[];
 
-const connectorColumns = [
-  { header: "Key" },
-  { header: "Name" },
-  { header: "Type" },
-  { header: "Default/All", align: "right" },
-] satisfies readonly TableColumn[];
-
 /** Formats server timestamps for compact human-readable connection tables. */
 const formatShortTimestamp = (value: string | null) => {
   if (value === null) return "Never";
@@ -826,14 +873,94 @@ const buildConnectionRows = (connections: readonly ConnectionSummary[]) =>
     String(connection.requestCount),
   ]);
 
-/** Builds the terminal-table rows for connector discovery. */
-const buildConnectorRows = (connectors: readonly ConnectorSummary[]) =>
-  connectors.map((connector) => [
-    connector.key,
-    connector.name,
-    connector.type,
-    `${connector.defaultScopes.length}/${connector.scopes.length}`,
-  ]);
+const connectorScopeGroups = (connector: ConnectorSummary) =>
+  [...new Set(connector.scopes.map((scope) => scope.group))].map((group) => ({
+    group,
+    scopes: connector.scopes.filter((scope) => scope.group === group),
+  }));
+
+/** Renders one connector as its own permission catalog with the caller's current connections. */
+export function ConnectorCard({
+  connector,
+  connections = [],
+}: {
+  connector: ConnectorSummary;
+  connections?: readonly ConnectionSummary[];
+}) {
+  const groups = connectorScopeGroups(connector);
+  return (
+    <Card title={terminalText(connector.name)} accent={palette.success}>
+      <Text>
+        <Text dimColor>Key </Text>
+        {terminalText(connector.key)}
+        <Text dimColor> · Type </Text>
+        {terminalText(connector.type)}
+      </Text>
+      {connections.length > 0 && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold>Your connections</Text>
+          {connections.map((connection) => {
+            const color = getConnectionStatusColor(connection.status);
+            return (
+              <Text key={connection.id}>
+                • {terminalText(connection.name)} · {terminalText(connection.accountName)} ·{" "}
+                <Text {...(color === undefined ? {} : { color })}>
+                  {terminalText(connection.status)}
+                </Text>
+              </Text>
+            );
+          })}
+        </Box>
+      )}
+      {groups.length === 0 ? (
+        <Box marginTop={1}>
+          <Text dimColor>No permissions are exposed by this connector.</Text>
+        </Box>
+      ) : (
+        groups.map(({ group, scopes }) => (
+          <Box key={group} flexDirection="column" marginTop={1}>
+            <Text bold>{terminalText(group)}</Text>
+            {scopes.map((scope) => {
+              const selection = scope.required
+                ? "required"
+                : connector.defaultScopes.includes(scope.id)
+                  ? "selected by default"
+                  : "optional";
+              return (
+                <Box key={scope.id} flexDirection="column" marginLeft={1}>
+                  <Text>
+                    • {terminalText(scope.label)} <Text dimColor>({selection})</Text>
+                  </Text>
+                  <Box marginLeft={2}>
+                    <Text dimColor>{terminalText(scope.description)}</Text>
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+        ))
+      )}
+    </Card>
+  );
+}
+
+function ConnectionRequestGuide({ includeSetup = false }: { includeSetup?: boolean }) {
+  return (
+    <Card title="Make provider requests" accent={palette.accent}>
+      {includeSetup && (
+        <Text>
+          <Text dimColor>Connect: </Text>
+          weldall connections connect &lt;connector-key&gt; --name &lt;connection-name&gt;
+        </Text>
+      )}
+      <Text>
+        <Text dimColor>Request: </Text>
+        weldall request --connection &lt;connection-name-or-id&gt; &lt;provider-https-url&gt;
+      </Text>
+      <Text dimColor>Run `weldall request --help` for methods, headers, and request bodies.</Text>
+    </Card>
+  );
+}
 
 /** Prints one connection's credential-free details for a human CLI user. */
 const printConnectionDetails = (connection: ConnectionSummary) => {
@@ -880,6 +1007,7 @@ export const printConnections = async ({
   assertExclusiveOutputFlags({ json: asJson, agentic: asAgentic });
   const config = await resolveWeldallConfig();
   const connections = await listConnections(config);
+  await cacheConnectorState(config.issuer, { connections });
   if (asAgentic) {
     process.stdout.write(encodeConnectionsToon({ connections, issuer: config.issuer }));
     return;
@@ -889,18 +1017,28 @@ export const printConnections = async ({
     return;
   }
   if (connections.length === 0) {
-    info("No connections yet. Run `weldall connections connect <connector> --name <name>`.");
+    printUi(
+      <Box flexDirection="column" gap={1}>
+        <Card title="Connections" accent={palette.primary}>
+          <Text>No connections yet. Run `weldall connectors` to see what you can connect.</Text>
+        </Card>
+        <ConnectionRequestGuide includeSetup />
+      </Box>,
+    );
     return;
   }
   printWideUi(
-    <TableCard
-      title="Connections"
-      columns={connectionColumns}
-      rows={buildConnectionRows(connections)}
-      cellColor={(_rowIndex, columnIndex, value) =>
-        columnIndex === 3 ? getConnectionStatusColor(value) : undefined
-      }
-    />,
+    <Box flexDirection="column" gap={1}>
+      <TableCard
+        title="Connections"
+        columns={connectionColumns}
+        rows={buildConnectionRows(connections)}
+        cellColor={(_rowIndex, columnIndex, value) =>
+          columnIndex === 3 ? getConnectionStatusColor(value) : undefined
+        }
+      />
+      <ConnectionRequestGuide />
+    </Box>,
   );
 };
 
@@ -916,12 +1054,26 @@ const connectionsListCommand = define({
 
 export const connectorsCommand = define({
   name: "connectors",
-  description: "List connectors available for new connections",
+  description: "Discover connectors, their permissions, and how to make provider requests",
   args: { json: jsonArgument, agentic: agenticArgument },
-  examples: "weldall connectors\nweldall connectors --json\nweldall connectors --agentic",
+  examples:
+    "weldall connectors\n" +
+    "weldall connections connect <connector-key> --name <connection-name>\n" +
+    "weldall request --connection <connection-name> <provider-https-url>\n" +
+    "weldall connectors --json\n" +
+    "weldall connectors --agentic",
   run: async (context) => {
     assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
-    const connectors = await listConnectors(await resolveWeldallConfig());
+    const config = await resolveWeldallConfig();
+    const showConnections = !context.values.agentic && !context.values.json;
+    const [connectors, connections] = await Promise.all([
+      listConnectors(config),
+      showConnections ? listConnections(config) : Promise.resolve([]),
+    ]);
+    await cacheConnectorState(config.issuer, {
+      connectors,
+      ...(showConnections ? { connections } : {}),
+    });
     if (context.values.agentic) {
       process.stdout.write(encodeConnectorsToon(connectors));
       return;
@@ -935,11 +1087,19 @@ export const connectorsCommand = define({
       return;
     }
     printWideUi(
-      <TableCard
-        title="Connectors"
-        columns={connectorColumns}
-        rows={buildConnectorRows(connectors)}
-      />,
+      <Box flexDirection="column" gap={1}>
+        {connectors.map((connector) => (
+          <ConnectorCard
+            key={connector.key}
+            connector={connector}
+            connections={connections.filter(
+              (connection) =>
+                connection.connectorKey === connector.key && connection.status !== "DISCONNECTED",
+            )}
+          />
+        ))}
+        <ConnectionRequestGuide includeSetup />
+      </Box>,
     );
   },
 });
@@ -1082,9 +1242,13 @@ const cancelConnectionCommand = define({
 
 export const connectionsCommand = define({
   name: "connections",
-  description: "Manage owner-only connections stored by Weldall",
+  description: "Manage owner-only connections and use them for provider API requests",
   args: { json: jsonArgument, agentic: agenticArgument },
-  examples: "weldall connections\nweldall connections --json\nweldall connections --agentic",
+  examples:
+    "weldall connections\n" +
+    "weldall request --connection <connection-name-or-id> <provider-https-url>\n" +
+    "weldall connections --json\n" +
+    "weldall connections --agentic",
   subCommands: {
     list: connectionsListCommand,
     connect: connectCommand,

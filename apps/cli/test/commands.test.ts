@@ -3,6 +3,7 @@ import { cli } from "gunshi";
 import { Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import {
+  ConnectorCard,
   connectionsCommand,
   connectorsCommand,
   findCachedSkills,
@@ -169,6 +170,18 @@ describe("CLI brand", () => {
       identity: { name: "Ada Lovelace", email: "ada@example.com" },
       appendix: "Use approved skills.",
       scopes: ["one:read", "two:read", "three:read", "four:read", "five:read", "six:read"],
+      connectors: [
+        { key: "google", name: "Google", groups: ["Gmail", "Calendar"] },
+        { key: "slack", name: "Slack", groups: ["Messages"] },
+        { key: "github", name: "GitHub", groups: ["Repositories"] },
+        { key: "notion", name: "Notion", groups: ["Pages"] },
+        { key: "figma", name: "Figma", groups: ["Files"] },
+        { key: "sixth", name: "Sixth Connector", groups: ["Hidden"] },
+      ],
+      connections: [
+        { name: "my-google", connectorKey: "google", status: "READY" },
+        { name: "old-slack", connectorKey: "slack", status: "RECONNECT_REQUIRED" },
+      ],
       skills: [
         { slug: "one", title: "One", available: true },
         { slug: "two", title: "Two", available: true },
@@ -184,16 +197,30 @@ describe("CLI brand", () => {
     const organizationIndex = lines.findIndex((line) => line.includes("Organization instructions"));
     const instructionsIndex = lines.findIndex((line) => line.includes("Use approved skills."));
     const scopesIndex = lines.findIndex((line) => line.includes("Scopes"));
+    const connectorsIndex = lines.findIndex((line) => line.includes("Connectors"));
     const skillsIndex = lines.findIndex((line) => line.includes("Skills"));
 
     expect(organizationIndex).toBeGreaterThan(weldallIndex);
     expect(instructionsIndex).toBeGreaterThan(organizationIndex);
     expect(scopesIndex).toBeGreaterThan(instructionsIndex);
-    expect(skillsIndex).toBeGreaterThan(scopesIndex);
+    expect(connectorsIndex).toBeGreaterThan(scopesIndex);
+    expect(skillsIndex).toBeGreaterThan(connectorsIndex);
     expect(heading).toContain("• five:read");
     expect(heading).not.toContain("• six:read");
     expect(heading).toContain("… 1 more");
     expect(heading).toContain("Run `weldall scopes` to view the complete list.");
+    expect(heading).toContain("Connectors & connections");
+    expect(heading).toContain("• Google (google) — Gmail, Calendar");
+    expect(heading).toContain("✓ my-google is ready for Google requests.");
+    expect(heading).toContain("! old-slack · RECONNECT_REQUIRED");
+    expect(heading).not.toContain("Sixth Connector");
+    expect(heading).toContain(
+      "Run `weldall connectors --agentic` for the complete permission catalog.",
+    );
+    expect(heading).toContain(
+      "Request now: `weldall request --connection my-google <provider-https-url>`.",
+    );
+    expect(heading).not.toContain("weldall connections connect <key> --name <name>");
     expect(heading).toContain("weldall skills find <keyword>");
     expect(heading).toContain("6 cached skills");
     expect(heading).toContain("Run `weldall skills list` for the complete list.");
@@ -402,6 +429,69 @@ describe("managed connection tables", () => {
     expect(output).toMatch(/my-google\s+READY\s+12/);
   });
 
+  it("renders each connector as a named card with grouped permission details", () => {
+    const output = renderUi({
+      node: createElement(ConnectorCard, {
+        connector: {
+          key: "google",
+          name: "Google",
+          type: "google",
+          requiredScopes: [],
+          scopes: [
+            {
+              id: "openid",
+              label: "Identify your Google account",
+              description: "Verify the connected account.",
+              group: "Identity",
+              required: true,
+            },
+            {
+              id: "calendar.events",
+              label: "Read and edit events",
+              description: "Manage calendar events.",
+              group: "Calendar",
+              required: false,
+            },
+          ],
+          defaultScopes: ["calendar.events"],
+        },
+        connections: [
+          {
+            id: "connection-1",
+            ownerId: "owner-1",
+            connectorId: "connector-1",
+            name: "my-google",
+            accountId: "account-1",
+            accountName: "ada@example.com",
+            selectedScopes: ["openid", "calendar.events"],
+            grantedScopes: ["openid", "calendar.events"],
+            status: "READY",
+            version: 1,
+            lastUsedAt: null,
+            requestCount: 0,
+            revocationError: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            connectorKey: "google",
+            connectorEnabled: true,
+          },
+        ],
+      }),
+      columns: 80,
+    });
+
+    expect(output).toContain("Google");
+    expect(output).toContain("Key google · Type google");
+    expect(output).toContain("Your connections");
+    expect(output).toContain("• my-google · ada@example.com · READY");
+    expect(output).toContain("Identity");
+    expect(output).toContain("• Identify your Google account (required)");
+    expect(output).toContain("Verify the connected account.");
+    expect(output).toContain("Calendar");
+    expect(output).toContain("• Read and edit events (selected by default)");
+    expect(output).toContain("Manage calendar events.");
+  });
+
   it("wraps long cells instead of replacing their text with an ellipsis", () => {
     const output = renderUi({
       node: createElement(TableCard, {
@@ -422,7 +512,7 @@ describe("managed connection tables", () => {
 describe("provider-neutral connection guidance", () => {
   it("describes managed commands without assuming a provider", async () => {
     expect(await renderConnectionHelp(["connections", "--help"])).toContain(
-      "Manage owner-only connections stored by Weldall",
+      "Manage owner-only connections and use them for provider API requests",
     );
     expect(await renderConnectionHelp(["connections", "disconnect", "--help"])).toContain(
       "Delete a managed connection after best-effort provider revocation",
@@ -455,6 +545,15 @@ describe("connection output flags", () => {
     expect(connectorsHelp).toContain("--json");
     expect(connectorsHelp).toContain("--agentic");
     expect(connectorsHelp).toContain("weldall connectors --agentic");
+    expect(connectorsHelp).toContain(
+      "weldall connections connect <connector-key> --name <connection-name>",
+    );
+    expect(connectorsHelp).toContain(
+      "weldall request --connection <connection-name> <provider-https-url>",
+    );
+    expect(connectionsHelp).toContain(
+      "weldall request --connection <connection-name-or-id> <provider-https-url>",
+    );
     await expect(runConnectionCli(["connections", "connectors", "--help"])).rejects.toThrow();
   });
 
