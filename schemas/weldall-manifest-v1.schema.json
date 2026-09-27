@@ -83,8 +83,8 @@
             "type": "boolean"
           },
           "envelopeProvider": {
-            "const": "LOCAL_ENV",
-            "description": "Immutable after creation. All local connectors use the deployment-wide KEK; OpenBao is not supported yet."
+            "enum": ["LOCAL_ENV", "OPENBAO"],
+            "description": "Immutable after creation."
           },
           "requiredScopes": {
             "type": "array",

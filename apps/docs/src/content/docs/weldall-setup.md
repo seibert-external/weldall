@@ -53,13 +53,17 @@ Required for the installer:
 
 The first start needs both: without them the installer stays closed.
 
-If you use [connectors](../connectors/), also set `WELDALL_CONNECTOR_KEK` to an independent, base64-encoded 32-byte random key. Keep it stable and separate from database backups: an attacker with both the database and this key can decrypt stored connection credentials. OpenBao and KMS support are coming soon.
+For [connectors](../connectors/) using the default `LOCAL_ENV` setting, you also need `WELDALL_CONNECTOR_KEK`. Generate a separate key from 32 random bytes and encode it as base64. Keep it unchanged in your secret manager, separate from database backups. Anyone with both the database and the key can decrypt the stored connection credentials.
 
-Optional variables:
+If you choose `OPENBAO` for a connector, it uses the two OpenBao variables below instead. See [Connectors](../connectors/#set-up-openbao) for setup instructions.
 
-| Variable    | Purpose                            |
-| ----------- | ---------------------------------- |
-| `LOG_LEVEL` | Log verbosity, defaults to `INFO`. |
+Optional variables – leave both OpenBao variables unset if you do not use OpenBao:
+
+| Variable                | Purpose                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `WELDALL_OPENBAO_HOST`  | OpenBao server address without a path, e.g. `https://openbao.example.com`.                |
+| `WELDALL_OPENBAO_TOKEN` | Access token for OpenBao. Used only on the server; never written to the database or logs. |
+| `LOG_LEVEL`             | Controls how much detail Weldall logs. Defaults to `INFO`.                                |
 
 ## Generate the secrets
 

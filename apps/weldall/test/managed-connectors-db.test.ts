@@ -21,7 +21,11 @@ import {
   readConnectorSecrets,
   listManagedConnectorConfiguration as listConfiguration,
 } from "../src/server/connectors/configuration";
-import { decrypt, saveSecret } from "../src/server/connectors/encryption";
+import {
+  decrypt,
+  prepareSecretEnvelope,
+  persistSecretEnvelope,
+} from "../src/server/connectors/encryption";
 import {
   accessCredentials,
   completeConnection as completeBrowserConnection,
@@ -42,6 +46,7 @@ import {
   revokeGoogleAuthorization as revokeGoogle,
 } from "../src/server/connectors/providers/google/oauth";
 import { googleProvider } from "../src/server/connectors/providers/google";
+import { getEnvelopeProvider } from "../src/server/connectors/envelope-providers";
 import { requiredScopes } from "../src/server/connectors/providers/google/setup";
 import { RejectedProviderCredentials } from "../src/server/connectors/errors";
 import { createPostgresReplayStore } from "../src/server/oauth/replay";
@@ -51,6 +56,26 @@ import { scopeKeySchema } from "../src/server/policy/scope-key";
 import { mutateScope } from "../src/server/domain/primitive-mutations";
 import { listAuditEvents, prismaAuditWriter } from "../src/server/audit/service";
 
+// Fixture writes prepare encryption outside database transactions, just like the lifecycle code.
+async function saveSecret({
+  tx,
+  provider,
+  context,
+  value,
+  id,
+}: {
+  tx: Parameters<typeof persistSecretEnvelope>[0]["tx"];
+  provider: Parameters<typeof prepareSecretEnvelope>[0]["provider"];
+  context: string;
+  value: string;
+  id?: string | null;
+}) {
+  return persistSecretEnvelope({
+    tx,
+    envelope: await prepareSecretEnvelope({ provider, context, plaintext: value }),
+    ...(id ? { id } : {}),
+  });
+}
 vi.mock("../src/server/connectors/providers/google/oauth", async (original) => ({
   ...(await original<typeof import("../src/server/connectors/providers/google/oauth")>()),
   completeGoogleAuthorization: vi.fn(),
@@ -1088,7 +1113,8 @@ describe.skipIf(!approvedTarget)(
           await db.encryptedValue.findUnique({ where: { id: attempt.payloadId! } }),
         ).toBeNull();
         expect(await db.encryptedValue.count()).toBe(encryptedBefore - (existing ? 2 : 1));
-        expect(revokeGoogle).not.toHaveBeenCalled();
+        if (outcome === "failure") expect(revokeGoogle).not.toHaveBeenCalled();
+        else expect(revokeGoogle).toHaveBeenCalledWith("late-callback-token");
       },
     );
     it("connector deletion cascades all local state, preserves audit and leaves unrelated connectors alone", async () => {
@@ -1523,6 +1549,45 @@ describe.skipIf(!approvedTarget)(
       );
       await expect(execute()).rejects.toThrow("not available");
       expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+    it("reserves the last quota slot before decryption under concurrent requests", async () => {
+      const f = await ready();
+      await db.connection.update({
+        where: { id: f.id },
+        data: { rateWindow: new Date(), rateCount: 59 },
+      });
+      const fetcher = vi.fn(async () => Response.json({ messages: [] }));
+      vi.stubGlobal("fetch", fetcher);
+      const unwrap = vi.spyOn(getEnvelopeProvider("LOCAL_ENV"), "unwrapDek");
+      try {
+        const outcomes = await Promise.allSettled(
+          Array.from({ length: 5 }, () =>
+            executeConnectionRequest({
+              request: new Request(`https://weldall.example.com/connectors/${f.key}`, {
+                headers: {
+                  "x-weldall-connection": f.id,
+                  "x-weldall-upstream-url": "https://gmail.googleapis.com/arbitrary",
+                },
+              }),
+              actor,
+              connectorKey: f.key,
+            }),
+          ),
+        );
+        expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+        for (const outcome of outcomes)
+          if (outcome.status === "rejected")
+            // Serializable write conflicts also reject before any credentials are decrypted.
+            expect(["rate_limit", "P2034"]).toContain(outcome.reason.code);
+        expect(unwrap).toHaveBeenCalledTimes(1);
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(await db.connection.findUniqueOrThrow({ where: { id: f.id } })).toMatchObject({
+          rateCount: 60,
+          requestCount: 1,
+        });
+      } finally {
+        unwrap.mockRestore();
+      }
     });
     it("applies, detects UI drift, preserves secrets, imports, moves and unmanages introduced primitives", async () => {
       await ensureSystemScopes(db, actor.id);

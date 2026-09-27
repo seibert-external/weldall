@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   requestConnectionApi,
   requestConnection,
@@ -158,53 +159,65 @@ describe("managed connection CLI", () => {
       hint: "Run weldall connections cancel attempt to revoke the unused grant. Depending on the provider, revocation may affect other connections for the same account and application.",
     });
   });
-  it("canonicalizes provider configuration and rejects removed fields, secrets and unsupported types", () => {
-    const read = "https://www.googleapis.com/auth/gmail.readonly";
-    const google = {
-      key: "google",
-      name: "Google",
-      type: "google",
-      enabled: false,
-      envelopeProvider: "LOCAL_ENV",
-      requiredScopes: ["expenses:read"],
-      provider: { clientId: "client", allowedScopes: [read], defaultScopes: [] },
-    };
-    const manifest = {
-      apiVersion: "weldall.dev/v1" as const,
-      workspace: { name: "test", issuer: config.issuer },
-      connectors: { google },
-    };
-    expect(serverManifest(manifest, newLock(manifest)).connectors).toEqual(manifest.connectors);
-    expect(canonicalServerManifest(manifest).connectors).toEqual(manifest.connectors);
-    for (const extra of [
-      { enabledApis: ["gmail"] },
-      { clientId: "flat" },
-      { clientSecret: "secret" },
-      { envelopeProvider: "OPENBAO" },
-      { type: "unknown" },
-      { requiredScopes: ["INVALID"] },
-      { provider: { ...google.provider, clientSecret: "secret" } },
-      { provider: { ...google.provider, enabledApis: ["gmail"] } },
-      { provider: { ...google.provider, allowedScopes: ["unknown"] } },
-    ]) {
-      expect(() =>
-        serverManifest(
-          { ...manifest, connectors: { google: { ...google, ...extra } } },
-          newLock(manifest),
+  it.each(["LOCAL_ENV", "OPENBAO"])(
+    "round-trips %s and rejects removed fields, secrets and unsupported types",
+    (envelopeProvider) => {
+      const read = "https://www.googleapis.com/auth/gmail.readonly";
+      const google = {
+        key: "google",
+        name: "Google",
+        type: "google",
+        enabled: false,
+        envelopeProvider,
+        requiredScopes: ["expenses:read"],
+        provider: { clientId: "client", allowedScopes: [read], defaultScopes: [] },
+      };
+      const manifest = {
+        apiVersion: "weldall.dev/v1" as const,
+        workspace: { name: "test", issuer: config.issuer },
+        connectors: { google },
+      };
+      expect(serverManifest(manifest, newLock(manifest)).connectors).toEqual(manifest.connectors);
+      expect(canonicalServerManifest(manifest).connectors).toEqual(manifest.connectors);
+      const schema = JSON.parse(
+        readFileSync(
+          new URL("../../../schemas/weldall-manifest-v1.schema.json", import.meta.url),
+          "utf8",
         ),
-      ).toThrow();
-    }
-    expect(
-      canonicalServerManifest({
-        ...manifest,
-        connectors: {
-          google: {
-            ...google,
-            requiredScopes: ["expenses:read", "expenses:read"],
-            provider: { ...google.provider, allowedScopes: [read, read] },
+      );
+      expect(
+        schema.properties.connectors.additionalProperties.properties.envelopeProvider.enum,
+      ).toContain(envelopeProvider);
+      for (const extra of [
+        { enabledApis: ["gmail"] },
+        { clientId: "flat" },
+        { clientSecret: "secret" },
+        { envelopeProvider: "UNKNOWN" },
+        { type: "unknown" },
+        { requiredScopes: ["INVALID"] },
+        { provider: { ...google.provider, clientSecret: "secret" } },
+        { provider: { ...google.provider, enabledApis: ["gmail"] } },
+        { provider: { ...google.provider, allowedScopes: ["unknown"] } },
+      ]) {
+        expect(() =>
+          serverManifest(
+            { ...manifest, connectors: { google: { ...google, ...extra } } },
+            newLock(manifest),
+          ),
+        ).toThrow();
+      }
+      expect(
+        canonicalServerManifest({
+          ...manifest,
+          connectors: {
+            google: {
+              ...google,
+              requiredScopes: ["expenses:read", "expenses:read"],
+              provider: { ...google.provider, allowedScopes: [read, read] },
+            },
           },
-        },
-      }).connectors,
-    ).toEqual(manifest.connectors);
-  });
+        }).connectors,
+      ).toEqual(manifest.connectors);
+    },
+  );
 });

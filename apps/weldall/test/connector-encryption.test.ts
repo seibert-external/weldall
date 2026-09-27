@@ -1,6 +1,11 @@
 import { createCipheriv } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encrypt, decrypt, saveSecret } from "../src/server/connectors/encryption";
+import {
+  encrypt,
+  decrypt,
+  prepareSecretEnvelope,
+  persistSecretEnvelope,
+} from "../src/server/connectors/encryption";
 import { getEnvelopeProvider } from "../src/server/connectors/envelope-providers";
 import { logger } from "../src/server/observability/logger";
 import { connectorConfig } from "../src/server/connectors/contracts";
@@ -55,6 +60,31 @@ afterEach(() => {
 });
 
 describe("connector envelope encryption", () => {
+  it("reads the pre-OpenBao LOCAL_ENV wire format without changing its authenticated metadata", async () => {
+    const metadata = { formatVersion: 1, provider: "LOCAL_ENV" as const, context };
+    const sealLayer = (layer: "wrap" | "data", key: Buffer, plaintext: Buffer) => {
+      const nonce = Buffer.alloc(12, layer === "wrap" ? 1 : 2);
+      const cipher = createCipheriv("aes-256-gcm", key, nonce);
+      cipher.setAAD(
+        Buffer.from(JSON.stringify(["weldall-envelope", layer, 1, "LOCAL_ENV", context])),
+      );
+      return {
+        nonce: nonce.toString("base64"),
+        ciphertext: Buffer.concat([cipher.update(plaintext), cipher.final()]).toString("base64"),
+        tag: cipher.getAuthTag().toString("base64"),
+      };
+    };
+    const dek = Buffer.alloc(32, 5);
+    const envelope = {
+      ...metadata,
+      ...sealLayer("data", dek, Buffer.from(JSON.stringify(credentials))),
+      wrappedDek: sealLayer("wrap", Buffer.alloc(32, 7), dek),
+    };
+    await expect(decrypt({ envelope, context, connectorId: "local-connector" })).resolves.toBe(
+      JSON.stringify(credentials),
+    );
+    dek.fill(0);
+  });
   it("round-trips one combined object and uses fresh DEKs for every write, owner, and connector", async () => {
     const records = [
       context,
@@ -133,7 +163,7 @@ describe("connector envelope encryption", () => {
         decrypt({ envelope: { ...envelope, context: target }, context: target }),
       ).rejects.toMatchObject({ code: "envelope_authentication_failed" });
     }
-    for (const provider of ["OPENBAO", "unknown"])
+    for (const provider of ["unknown"])
       await expect(
         decrypt({ envelope: { ...envelope, provider } as never, context }),
       ).rejects.toMatchObject({ code: "envelope_provider_unsupported" });
@@ -308,17 +338,21 @@ describe("connector envelope encryption", () => {
         update: vi.fn(({ data }) => ({ id: "record", ...data })),
       },
     };
-    const first = await saveSecret({
+    const first = await persistSecretEnvelope({
       tx: tx as never,
-      provider: "LOCAL_ENV",
-      context,
-      value: JSON.stringify(credentials),
+      envelope: await prepareSecretEnvelope({
+        provider: "LOCAL_ENV",
+        context,
+        plaintext: JSON.stringify(credentials),
+      }),
     });
-    const second = await saveSecret({
+    const second = await persistSecretEnvelope({
       tx: tx as never,
-      provider: "LOCAL_ENV",
-      context,
-      value: JSON.stringify({ ...credentials, refreshToken: "replacement" }),
+      envelope: await prepareSecretEnvelope({
+        provider: "LOCAL_ENV",
+        context,
+        plaintext: JSON.stringify({ ...credentials, refreshToken: "replacement" }),
+      }),
       id: first.id,
     });
     expect(second.wrappedDek).not.toEqual(first.wrappedDek);
@@ -333,12 +367,13 @@ describe("connector envelope encryption", () => {
 });
 
 describe("provider contracts", () => {
-  it("accepts only explicit LOCAL_ENV on server and IaC", () => {
-    expect(connectorConfig.parse(config).envelopeProvider).toBe("LOCAL_ENV");
-    expect(parseDesiredState(manifest(config)).connectors.google?.envelopeProvider).toBe(
-      "LOCAL_ENV",
+  it.each(["LOCAL_ENV", "OPENBAO"])("accepts explicit %s on server and IaC", (envelopeProvider) => {
+    const value = { ...config, envelopeProvider };
+    expect(connectorConfig.parse(value).envelopeProvider).toBe(envelopeProvider);
+    expect(parseDesiredState(manifest(value)).connectors.google?.envelopeProvider).toBe(
+      envelopeProvider,
     );
-    for (const envelopeProvider of [undefined, "OPENBAO", "unknown"])
+    for (const envelopeProvider of [undefined, "unknown"])
       expect(() => parseDesiredState(manifest({ ...config, envelopeProvider }))).toThrow();
     for (const extra of [
       { variable: "ARBITRARY_ENV" },

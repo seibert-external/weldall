@@ -76,6 +76,25 @@ export async function executeConnectionRequest({
       selection: initial.providerSelection,
       grant: provider.parseGrant(initial.providerGrant),
     });
+    // Reserve quota before crypto or provider I/O; subsequent failures still consume this slot.
+    signal.throwIfAborted();
+    await runConnectorTransaction(async (tx) => {
+      const row = await findOwnedConnection({ tx, selector: initial.id, actor });
+      const reset = row.rateWindow.getTime() <= Date.now() - 60_000;
+      if (!reset && row.rateCount >= 60)
+        throw new ConnectorError(
+          "rate_limit",
+          "Weldall connection request limit exceeded. Retry next minute.",
+          429,
+        );
+      await tx.connection.update({
+        where: { id: row.id, version: row.version },
+        data: {
+          rateWindow: reset ? new Date() : row.rateWindow,
+          rateCount: reset ? 1 : { increment: 1 },
+        },
+      });
+    });
     const { credentials, row: credentialState } = await accessCredentials({
       actor,
       selector: initial.id,
@@ -121,21 +140,12 @@ export async function executeConnectionRequest({
           "Connection changed before dispatch. Retry with current state.",
           409,
         );
-      const reset = row.rateWindow.getTime() <= Date.now() - 60_000;
-      if (!reset && row.rateCount >= 60)
-        throw new ConnectorError(
-          "rate_limit",
-          "Connection request limit exceeded. Retry next minute.",
-          429,
-        );
       await tx.connection.update({
         where: { id: row.id, version: row.version },
         data: {
           providerGrant: JSON.parse(JSON.stringify(grant)) as Prisma.InputJsonObject,
           lastUsedAt: new Date(),
           requestCount: { increment: 1 },
-          rateWindow: reset ? new Date() : row.rateWindow,
-          rateCount: reset ? 1 : { increment: 1 },
         },
       });
     });

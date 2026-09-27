@@ -25,16 +25,17 @@ vi.mock("@astryxdesign/core/Selector", () => ({
   ),
 }));
 describe("envelope provider selector", () => {
-  it("offers Local environment key and renders OpenBao disabled as Upcoming", () => {
-    const html = renderToStaticMarkup(<EnvelopeProviderField existing={false} />);
+  it("offers both providers without deployment configuration", () => {
+    const html = renderToStaticMarkup(<EnvelopeProviderField existing={false} value="LOCAL_ENV" />);
     expect(html).toContain('value="LOCAL_ENV" selected=""');
-    expect(html).toContain('value="OPENBAO" disabled=""');
-    expect(html).toContain("OpenBao — Upcoming");
+    expect(html).toContain('value="OPENBAO"');
+    expect(html).not.toContain('value="OPENBAO" disabled');
+    expect(html).not.toContain("Upcoming");
     expect(html).not.toContain('<select aria-label="Envelope provider" disabled');
   });
   it("shows the selected provider read-only on edit", () => {
-    expect(renderToStaticMarkup(<EnvelopeProviderField existing />)).toContain(
-      '<select aria-label="Envelope provider" disabled=""',
-    );
+    const html = renderToStaticMarkup(<EnvelopeProviderField existing value="OPENBAO" />);
+    expect(html).toContain('<select aria-label="Envelope provider" disabled=""');
+    expect(html).toContain('value="OPENBAO" selected=""');
   });
 });

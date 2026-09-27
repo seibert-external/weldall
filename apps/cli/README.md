@@ -76,7 +76,7 @@ defaults write dev.seibert.weldall-cli Issuer -string "https://weldall.example.c
 
 ## Native YAML infrastructure as code
 
-Native Weldall YAML manages one atomic configuration snapshot through the existing CLI, including non-secret `connectors` definitions with explicit immutable `envelopeProvider: LOCAL_ENV`. UI edits remain possible; approved applies restore manifest values. See [the IaC guide](../docs/src/content/docs/infrastructure-as-code.mdx).
+Use Weldall YAML to manage configuration through the CLI, including connector definitions without secrets. The CLI applies each manifest as one atomic configuration update. For each connector, set `envelopeProvider` to `LOCAL_ENV` or `OPENBAO`; you cannot change it after creation. You can still edit settings in the UI, but applying an approved manifest restores its values. See [the IaC guide](../docs/src/content/docs/infrastructure-as-code.mdx).
 
 ```sh
 weldall init --name platform-access --issuer https://weldall.example.com

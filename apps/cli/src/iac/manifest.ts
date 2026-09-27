@@ -308,8 +308,8 @@ function validatePrimitive({
     const identity = /^[a-z0-9][a-z0-9._-]{0,119}$/;
     validateText({ field: "key", max: 120, pattern: identity });
     validateText({ field: "name", max: 200 });
-    if (object.envelopeProvider !== "LOCAL_ENV")
-      throw new CliError("Only the LOCAL_ENV envelope provider is supported");
+    if (object.envelopeProvider !== "LOCAL_ENV" && object.envelopeProvider !== "OPENBAO")
+      throw new CliError("Envelope provider must be LOCAL_ENV or OPENBAO");
     if (object.type !== "google" || typeof object.enabled !== "boolean")
       throw new CliError("Invalid connector type or enabled flag");
     const requiredScopes = validateStringList({ field: "requiredScopes" });
