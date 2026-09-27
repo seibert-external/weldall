@@ -442,7 +442,11 @@ describe("OpenBao lifecycle transaction boundaries", () => {
       connection!.rateCount = 60;
       const before = structuredClone(connection);
       for (let i = 0; i < 3; i++)
-        await expect(execute()).rejects.toMatchObject({ code: "rate_limit", status: 429 });
+        await expect(execute()).rejects.toMatchObject({
+          code: "rate_limit",
+          status: 429,
+          message: "Weldall connection request limit exceeded. Retry next minute.",
+        });
       expect(fetcher).not.toHaveBeenCalled();
       expect(googleProvider.refreshCredentials).not.toHaveBeenCalled();
       expect(connection).toEqual(before);

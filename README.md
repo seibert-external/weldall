@@ -144,7 +144,14 @@ Vendor names and logos are trademarks of their respective owners and indicate in
 
 ## Deployment encryption
 
-`WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts application secrets, including connector OAuth client secrets. The independent `WELDALL_CONNECTOR_KEK` wraps fresh per-write connector DEKs. All `LOCAL_ENV` connectors share the KEK, never DEKs. Both keys are canonical base64 32-byte secrets: preserve them with database backups; loss or replacement makes the corresponding secrets unavailable. This protects database-only disclosure, not compromise of the application process/environment. `OPENBAO` connectors instead delegate wrapping to OpenBao Transit through the server-only `WELDALL_OPENBAO_HOST` and `WELDALL_OPENBAO_TOKEN`: one `weldall-connector-<uuid>` key per connector, created on first use, never rotated or deleted by Weldall, and touched only during credential operations. See [setup](apps/docs/src/content/docs/weldall-setup.md) and [managed connections](apps/cli/README.md#managed-google-connections).
+Weldall encrypts application secrets, including connector OAuth client secrets, with `WELDALL_CREDENTIAL_ENCRYPTION_KEY`. For user connection credentials, you choose how encryption keys are managed when you create the connector:
+
+- `LOCAL_ENV` uses `WELDALL_CONNECTOR_KEK`, a separate key shared by all local connectors. It encrypts the individual data keys that Weldall generates for each credential write.
+- `OPENBAO` uses OpenBao Transit instead. Set `WELDALL_OPENBAO_HOST` and `WELDALL_OPENBAO_TOKEN` on the server. OpenBao creates a `weldall-connector-<uuid>` key for each connector on first use. Weldall only contacts it to encrypt or decrypt connection data and never rotates or deletes these keys itself.
+
+Both local deployment keys must be canonical base64 encodings of 32 bytes. Keep them unchanged and back them up securely, separate from the database backups. Losing or replacing a key makes the secrets encrypted with it unreadable. This encryption protects against a stolen database, not an attacker who also controls the Weldall server or its environment.
+
+See [setup](apps/docs/src/content/docs/weldall-setup.md) and [connectors](apps/docs/src/content/docs/connectors.md) for configuration and backup guidance.
 
 ## Documentation
 

@@ -24,41 +24,43 @@ Gib beim Verbinden den Kalenderzugriff frei, um dieses Beispiel zu nutzen. Conne
 
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 
-## Zwei Schlüssel, ein kleiner Umschlag
+## Anfragelimits
 
-Weldall nutzt **Envelope Encryption**. Stell dir gespeicherte Zugangsdaten als verschlossenes Paket vor:
+Weldall erlaubt **60 Anfragen pro Verbindung innerhalb eines 60-Sekunden-Zeitfensters**. Ist das Limit erreicht, antwortet Weldall mit HTTP `429`, bevor OpenBao oder Google kontaktiert werden. Anfragen, die diese Prüfung passieren, zählen auch dann, wenn sie später fehlschlagen. Das ist ein Limit von Weldall; die API-Limits von Google gelten zusätzlich.
 
-1. Bei jedem Schreiben erzeugt Weldall einen frischen 32-Byte-**DEK** (Data Encryption Key) und verschlüsselt damit die Zugangsdaten lokal.
-2. Ein **KEK** (Key Encryption Key) wrappt diesen DEK. In PostgreSQL landen nur die verschlüsselten Zugangsdaten und der gewrappte DEK.
-3. Beim Lesen entpackt der gewählte Provider den DEK; Weldall entschlüsselt damit die Zugangsdaten lokal.
+Pro Person sind außerdem höchstens **10 offene, noch nicht abgelaufene Verbindungsversuche** erlaubt, über alle Connectoren hinweg. Jeder Versuch ist zehn Minuten gültig. Brich unbenötigte Versuche ab oder warte, bis sie abgelaufen sind, bevor du einen weiteren startest.
 
-Warum zwei Schlüssel? Ein frischer DEK begrenzt, was ein einzelner Datenschlüssel öffnen kann, während der KEK außerhalb von PostgreSQL bleibt. Ein Datenbank-Backup allein reicht deshalb nicht, um Zugangsdaten zu lesen. OpenBao kann seine KEKs außerdem rotieren, ohne gespeicherte Zugangsdaten neu zu verschlüsseln.
+## Zugangsdaten verschlüsseln
 
-### Den KEK-Halter einmal wählen
+Weldall erzeugt bei jeder Speicherung einen neuen 32-Byte-Schlüssel und verschlüsselt damit die Zugangsdaten. Dieser Datenschlüssel (DEK) wird wiederum mit einem zweiten Schlüssel (KEK) verschlüsselt. Das Verfahren heißt **Envelope Encryption**.
 
-Der Envelope-Provider ist nach dem Anlegen dauerhaft: Weder UI noch API oder IaC können `LOCAL_ENV` zu `OPENBAO` ändern oder zurück. Für einen Wechsel legst du einen neuen Connector an und verbindest die Benutzer neu.
+In PostgreSQL liegen nur die verschlüsselten Zugangsdaten und der verschlüsselte DEK. Beim Lesen wird zuerst der DEK entschlüsselt, danach entschlüsselt Weldall damit die Zugangsdaten. Der KEK bleibt außerhalb der Datenbank. Ein gestohlenes Datenbank-Backup allein reicht deshalb nicht aus, um die Zugangsdaten zu lesen.
 
-- **`LOCAL_ENV` (Standard)** hält einen gemeinsamen KEK in `WELDALL_CONNECTOR_KEK`, einem unabhängigen, Base64-kodierten 32-Byte-Schlüssel. Bewahre ihn unverändert in deinem Secret Manager und getrennt von Datenbank-Backups auf. Wer Datenbank und KEK besitzt, kann alle Zugangsdaten der `LOCAL_ENV`-Connectoren entschlüsseln.
-- **`OPENBAO`** hält pro Connector einen eigenen `aes256-gcm96`-Transit-KEK. OpenBao legt ihn beim ersten Einsatz an; jeder geschützte Schreibvorgang braucht eine Encrypt-Anfrage, jeder Lesevorgang eine Decrypt-Anfrage. Du kannst ihn jederzeit in OpenBao rotieren—alte Ciphertexte funktionieren weiter. Weldall rotiert oder löscht Transit-Schlüssel nie.
+### Schlüssel verwalten
 
-`WELDALL_CREDENTIAL_ENCRYPTION_KEY` bleibt separat und schützt weiterhin OAuth-Client-Secrets. OpenBao schützt nur die Zugangsdaten der Benutzerverbindungen.
+Beim Anlegen eines Connectors wählst du, wo der KEK verwaltet wird. Diese Auswahl lässt sich später nicht ändern, auch nicht per API oder IaC. Für einen Wechsel legst du einen neuen Connector an; die betroffenen Personen müssen ihre Konten dann erneut verbinden.
+
+- **`LOCAL_ENV` (Standard):** Hinterlege den KEK in `WELDALL_CONNECTOR_KEK` auf dem Weldall-Server. Er muss aus 32 zufälligen Bytes bestehen, Base64-kodiert sein und unabhängig von den anderen Schlüsseln erzeugt werden. Alle `LOCAL_ENV`-Connectoren verwenden denselben KEK. Bewahre ihn unverändert im Secret Manager auf, getrennt von den Datenbank-Backups. Wer Datenbank und KEK besitzt, kann die Zugangsdaten dieser Connectoren entschlüsseln.
+- **`OPENBAO`:** OpenBao verwaltet für jeden Connector einen eigenen Transit-Schlüssel vom Typ `aes256-gcm96` und legt ihn beim ersten Verschlüsseln an. Weldall ruft OpenBao einmal pro Schreibvorgang auf, um den DEK zu verschlüsseln, und einmal pro Lesevorgang, um ihn zu entschlüsseln. Du kannst den Transit-Schlüssel in OpenBao rotieren, ohne bereits gespeicherte Zugangsdaten neu zu verschlüsseln; sie bleiben lesbar.
+
+OAuth-Client-Secrets verschlüsselt Weldall weiterhin mit `WELDALL_CREDENTIAL_ENCRYPTION_KEY`, unabhängig vom gewählten Envelope-Provider.
 
 ### OpenBao einrichten
 
-Richte Weldall auf deinen Server und gib ihm ein Data-Plane-Token:
+Setze auf dem Weldall-Server die Adresse deines OpenBao-Servers und ein Zugriffstoken:
 
 ```dotenv
 WELDALL_OPENBAO_HOST=https://openbao.example.com
 WELDALL_OPENBAO_TOKEN=...
 ```
 
-Aktiviere zuerst die Transit-Engine und erlaube nur die benötigten Pfade:
+Aktiviere in OpenBao die Transit-Engine unter `transit/`. Das Token braucht nur diese Berechtigungen:
 
 ```hcl
 path "transit/encrypt/weldall-connector-*" { capabilities = ["create", "update"] }
 path "transit/decrypt/weldall-connector-*" { capabilities = ["update"] }
 ```
 
-OpenBao wird nur kontaktiert, wenn Zugangsdaten verschlüsselt oder entschlüsselt werden müssen. Fehlende Variablen, Ausfälle oder ein abgelehntes Token lassen nur diese Operation mit einem bereinigten `503` scheitern; Start, Connector-Verwaltung und `LOCAL_ENV`-Connectoren funktionieren weiter. Sichere OpenBao unabhängig von PostgreSQL und entferne übrig gebliebene `weldall-connector-*`-Schlüssel nach dem Löschen eines Connectors selbst.
+Weldall benötigt OpenBao nur beim Verschlüsseln und Entschlüsseln der Verbindungsdaten. Fehlt eine Variable, ist OpenBao nicht erreichbar oder wird das Token abgelehnt, schlägt der betroffene Vorgang mit HTTP `503` fehl. Die Fehlermeldung enthält keine geheimen Daten. Weldall startet trotzdem, Connectoren lassen sich weiterhin verwalten und `LOCAL_ENV`-Connectoren bleiben nutzbar.
 
-KMS-Unterstützung kommt weiterhin bald.
+Sichere OpenBao zusätzlich zur PostgreSQL-Datenbank. Weldall rotiert oder löscht keine Transit-Schlüssel automatisch. Wenn du einen Connector gelöscht hast und seinen Schlüssel nicht mehr brauchst, entferne den zugehörigen `weldall-connector-*`-Schlüssel selbst in OpenBao.

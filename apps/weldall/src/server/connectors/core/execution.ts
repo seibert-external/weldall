@@ -84,7 +84,7 @@ export async function executeConnectionRequest({
       if (!reset && row.rateCount >= 60)
         throw new ConnectorError(
           "rate_limit",
-          "Connection request limit exceeded. Retry next minute.",
+          "Weldall connection request limit exceeded. Retry next minute.",
           429,
         );
       await tx.connection.update({
