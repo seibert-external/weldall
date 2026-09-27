@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.18.0
+
+### Minor Changes
+
+- eecb200: Support OpenBao Transit envelope encryption for managed connectors and accept OPENBAO in declarative manifests. Keep OpenBao availability scoped to credential operations rather than administration or startup.
+
 ## 0.17.0
 
 ### Minor Changes
