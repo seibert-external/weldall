@@ -542,10 +542,11 @@ export async function completeConnection({
       /* Only fixed audit metadata is emitted below. */
     }
     await runConnectorTransaction(async (tx) => {
+      // Retained ciphertext remains available for explicit retry until revocation is confirmed.
       const active = await tx.connectionAuthorization.updateMany({
         where: {
           id: a.id,
-          status: { in: ["PROCESSING", "NEEDS_REVOCATION"] },
+          status: { in: revoked ? ["PROCESSING", "NEEDS_REVOCATION"] : ["PROCESSING"] },
           payloadId: a.payloadId,
         },
         data: { status: "FAILED", stateHash: null },

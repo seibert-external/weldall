@@ -7,6 +7,7 @@ import { seal } from "../src/server/auth/oidc-credentials";
 import { encrypt } from "../src/server/connectors/encryption";
 import { logger } from "../src/server/observability/logger";
 import { writeConnectorAuditLog } from "../src/server/connectors/audit";
+import { executeConnectionRequest } from "../src/server/connectors/core/execution";
 import { RejectedProviderCredentials } from "../src/server/connectors/errors";
 import {
   submitScopeSelection,
@@ -24,7 +25,8 @@ import {
 vi.mock("../src/server/policy/resources", () => ({
   effectiveScopesRequiringSystemScopeFor: vi.fn(async () => ["weldall:login"]),
 }));
-vi.mock("../src/server/connectors/audit", () => ({
+vi.mock("../src/server/connectors/audit", async (original) => ({
+  ...(await original<typeof import("../src/server/connectors/audit")>()),
   writeConnectorAuditLog: vi.fn(async () => undefined),
 }));
 
@@ -134,7 +136,9 @@ beforeEach(() => {
   race = undefined;
   const transit = new Map<string, { plaintext: string; associated_data: string }>();
   fetcher.mockReset().mockImplementation(async (url, init) => {
-    expect(inTransaction, "OpenBao must never run in a database transaction").toBe(false);
+    expect(inTransaction, "Remote I/O must never run in a database transaction").toBe(false);
+    if (String(url).startsWith("https://gmail.googleapis.com/"))
+      return Response.json({ messages: [] });
     const body = JSON.parse(init!.body as string);
     if (outage) throw new Error("private-service-failure");
     if (String(url).includes("/encrypt/")) {
@@ -209,7 +213,16 @@ beforeEach(() => {
     return connectionRow();
   }) as never);
   vi.spyOn(db.connection, "create").mockImplementation((async ({ data }: Row) => {
-    connection = { ...data, version: 1, status: "READY", credentialId: null };
+    connection = {
+      ...data,
+      version: 1,
+      status: "READY",
+      credentialId: null,
+      rateWindow: new Date(),
+      rateCount: 0,
+      requestCount: 0,
+      lastUsedAt: null,
+    };
     return structuredClone(connection);
   }) as never);
   vi.spyOn(db.connection, "update").mockImplementation((async ({ where, data }: Row) => {
@@ -277,6 +290,17 @@ afterEach(() => {
 const setup = () => submitScopeSelection({ actor, id: attempt.id, selection });
 const complete = () =>
   completeConnection({ browser: actor, state, code: "code", cancelled: false });
+const execute = () =>
+  executeConnectionRequest({
+    actor,
+    connectorKey: connector.key,
+    request: new Request(`https://weldall.example.com/connectors/${connector.key}`, {
+      headers: {
+        "x-weldall-connection": connection!.id,
+        "x-weldall-upstream-url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+      },
+    }),
+  });
 async function ready(expired = false) {
   await setup();
   await complete();
@@ -373,6 +397,100 @@ describe("OpenBao lifecycle transaction boundaries", () => {
       expect(diagnostics).not.toContain("private-");
     },
   );
+  it.each(["unconfirmed", "throws"])(
+    "preserves retained credentials after final wrapping failure when revocation %s",
+    async (outcome) => {
+      await setup();
+      const payloadId = attempt.payloadId;
+      failWrap = wraps + 2;
+      if (outcome === "throws")
+        vi.mocked(googleProvider.disconnectGrant).mockRejectedValueOnce(
+          new Error("private-revocation-error"),
+        );
+      else
+        vi.mocked(googleProvider.disconnectGrant).mockResolvedValueOnce({
+          status: "unconfirmed",
+          remediationUrl: "https://myaccount.google.com/permissions",
+        });
+
+      await expect(complete()).rejects.toMatchObject({ status: 503 });
+      expect(attempt).toMatchObject({ status: "NEEDS_REVOCATION", payloadId, stateHash: null });
+      expect(connection).toBeNull();
+      expect(envelopes.size).toBe(1);
+      expect(JSON.stringify([...envelopes.values()])).not.toContain("private-");
+      expect(writeConnectorAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "authorization.revocation_unconfirmed",
+          outcome: "failed",
+        }),
+      );
+
+      await cancelAuthorizationAttempt({ actor, id: attempt.id });
+      expect(googleProvider.disconnectGrant).toHaveBeenCalledTimes(2);
+      expect(googleProvider.disconnectGrant).toHaveBeenLastCalledWith(
+        expect.objectContaining({ credentials }),
+      );
+      expect(attempt.status).toBe("CANCELLED");
+      expect(attempt.payloadId).toBeNull();
+      expect(envelopes.size).toBe(0);
+    },
+  );
+  it.each([false, true])(
+    "rejects repeated over-quota requests before decrypting or refreshing (expired: %s)",
+    async (expired) => {
+      await ready(expired);
+      connection!.rateCount = 60;
+      const before = structuredClone(connection);
+      for (let i = 0; i < 3; i++)
+        await expect(execute()).rejects.toMatchObject({ code: "rate_limit", status: 429 });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(googleProvider.refreshCredentials).not.toHaveBeenCalled();
+      expect(connection).toEqual(before);
+    },
+  );
+  it("consumes quota even when OpenBao fails, without recording a dispatched request", async () => {
+    await ready(true);
+    connection!.rateCount = 59;
+    outage = true;
+    await expect(execute()).rejects.toMatchObject({ status: 503 });
+    expect(connection).toMatchObject({ rateCount: 60, requestCount: 0, lastUsedAt: null });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    fetcher.mockClear();
+    await expect(execute()).rejects.toMatchObject({ code: "rate_limit", status: 429 });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(googleProvider.refreshCredentials).not.toHaveBeenCalled();
+  });
+  it("charges successful dispatches once and resets the quota after a minute", async () => {
+    await ready();
+    connection!.rateCount = 59;
+    expect((await execute()).status).toBe(200);
+    expect(connection).toMatchObject({ rateCount: 60, requestCount: 1 });
+    expect(fetcher).toHaveBeenCalledTimes(2); // unwrap and upstream dispatch
+    fetcher.mockClear();
+    await expect(execute()).rejects.toMatchObject({ code: "rate_limit", status: 429 });
+    expect(fetcher).not.toHaveBeenCalled();
+
+    connection!.rateWindow = new Date(Date.now() - 60_001);
+    const expiredWindow = connection!.rateWindow;
+    expect((await execute()).status).toBe(200);
+    expect(connection).toMatchObject({ rateCount: 1, requestCount: 2 });
+    expect(connection!.rateWindow.getTime()).toBeGreaterThan(expiredWindow.getTime());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("still rechecks policy before dispatch after reserving quota", async () => {
+    await ready();
+    vi.spyOn(googleProvider, "ensureGrantCurrent").mockImplementationOnce(async () => {
+      connector.enabled = false;
+      connector.version++;
+      return grant;
+    });
+    await expect(execute()).rejects.toMatchObject({ code: "connection_denied", status: 403 });
+    expect(connection).toMatchObject({ rateCount: 1, requestCount: 0, lastUsedAt: null });
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("/v1/transit/decrypt/"),
+      expect.anything(),
+    );
+  });
   it("finishes callback, execution reads, refresh and revocation with no Transit I/O in a transaction", async () => {
     await ready(true);
     await expect(accessCredentials({ actor, selector: connection!.id })).resolves.toMatchObject({

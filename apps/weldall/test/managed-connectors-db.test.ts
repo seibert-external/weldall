@@ -46,6 +46,7 @@ import {
   revokeGoogleAuthorization as revokeGoogle,
 } from "../src/server/connectors/providers/google/oauth";
 import { googleProvider } from "../src/server/connectors/providers/google";
+import { getEnvelopeProvider } from "../src/server/connectors/envelope-providers";
 import { requiredScopes } from "../src/server/connectors/providers/google/setup";
 import { RejectedProviderCredentials } from "../src/server/connectors/errors";
 import { createPostgresReplayStore } from "../src/server/oauth/replay";
@@ -1548,6 +1549,45 @@ describe.skipIf(!approvedTarget)(
       );
       await expect(execute()).rejects.toThrow("not available");
       expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+    it("reserves the last quota slot before decryption under concurrent requests", async () => {
+      const f = await ready();
+      await db.connection.update({
+        where: { id: f.id },
+        data: { rateWindow: new Date(), rateCount: 59 },
+      });
+      const fetcher = vi.fn(async () => Response.json({ messages: [] }));
+      vi.stubGlobal("fetch", fetcher);
+      const unwrap = vi.spyOn(getEnvelopeProvider("LOCAL_ENV"), "unwrapDek");
+      try {
+        const outcomes = await Promise.allSettled(
+          Array.from({ length: 5 }, () =>
+            executeConnectionRequest({
+              request: new Request(`https://weldall.example.com/connectors/${f.key}`, {
+                headers: {
+                  "x-weldall-connection": f.id,
+                  "x-weldall-upstream-url": "https://gmail.googleapis.com/arbitrary",
+                },
+              }),
+              actor,
+              connectorKey: f.key,
+            }),
+          ),
+        );
+        expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+        for (const outcome of outcomes)
+          if (outcome.status === "rejected")
+            // Serializable write conflicts also reject before any credentials are decrypted.
+            expect(["rate_limit", "P2034"]).toContain(outcome.reason.code);
+        expect(unwrap).toHaveBeenCalledTimes(1);
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(await db.connection.findUniqueOrThrow({ where: { id: f.id } })).toMatchObject({
+          rateCount: 60,
+          requestCount: 1,
+        });
+      } finally {
+        unwrap.mockRestore();
+      }
     });
     it("applies, detects UI drift, preserves secrets, imports, moves and unmanages introduced primitives", async () => {
       await ensureSystemScopes(db, actor.id);

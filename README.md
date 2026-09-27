@@ -144,7 +144,7 @@ Vendor names and logos are trademarks of their respective owners and indicate in
 
 ## Deployment encryption
 
-`WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts application secrets, including connector OAuth client secrets. The independent `WELDALL_CONNECTOR_KEK` wraps fresh per-write connector DEKs. All `LOCAL_ENV` connectors share the KEK, never DEKs. Both keys are canonical base64 32-byte secrets: preserve them with database backups; loss or replacement makes the corresponding secrets unavailable. This protects database-only disclosure, not compromise of the application process/environment. OpenBao and key rotation are not supported. See [setup](apps/docs/src/content/docs/weldall-setup.md) and [managed connections](apps/cli/README.md#managed-google-connections).
+`WELDALL_CREDENTIAL_ENCRYPTION_KEY` directly encrypts application secrets, including connector OAuth client secrets. The independent `WELDALL_CONNECTOR_KEK` wraps fresh per-write connector DEKs. All `LOCAL_ENV` connectors share the KEK, never DEKs. Both keys are canonical base64 32-byte secrets: preserve them with database backups; loss or replacement makes the corresponding secrets unavailable. This protects database-only disclosure, not compromise of the application process/environment. `OPENBAO` connectors instead delegate wrapping to OpenBao Transit through the server-only `WELDALL_OPENBAO_HOST` and `WELDALL_OPENBAO_TOKEN`: one `weldall-connector-<uuid>` key per connector, created on first use, never rotated or deleted by Weldall, and touched only during credential operations. See [setup](apps/docs/src/content/docs/weldall-setup.md) and [managed connections](apps/cli/README.md#managed-google-connections).
 
 ## Documentation
 

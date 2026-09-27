@@ -53,13 +53,15 @@ Required for the installer:
 
 The first start needs both: without them the installer stays closed.
 
-If you use [connectors](../connectors/), also set `WELDALL_CONNECTOR_KEK` to an independent, base64-encoded 32-byte random key. Keep it stable and separate from database backups: an attacker with both the database and this key can decrypt stored connection credentials. OpenBao and KMS support are coming soon.
+If you use [connectors](../connectors/) with the default `LOCAL_ENV` envelope provider, also set `WELDALL_CONNECTOR_KEK` to an independent, base64-encoded 32-byte random key. Keep it stable and separate from database backups: an attacker with both the database and this key can decrypt stored connection credentials. Connectors using the `OPENBAO` provider take the two variables below instead. KMS support is still coming soon.
 
 Optional variables:
 
-| Variable    | Purpose                            |
-| ----------- | ---------------------------------- |
-| `LOG_LEVEL` | Log verbosity, defaults to `INFO`. |
+| Variable                | Purpose                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `WELDALL_OPENBAO_HOST`  | OpenBao origin for `OPENBAO` connectors, e.g. `https://openbao.example.com`.                                     |
+| `WELDALL_OPENBAO_TOKEN` | Server-only OpenBao data-plane token. Never stored, returned, or logged; omit both variables to disable OpenBao. |
+| `LOG_LEVEL`             | Log verbosity, defaults to `INFO`.                                                                               |
 
 ## Generate the secrets
 

@@ -53,13 +53,15 @@ Für den Installer nötig:
 
 Der erste Start braucht beide: ohne sie bleibt der Installer geschlossen.
 
-Wenn du [Connectors](../connectors/) nutzt, setze zusätzlich `WELDALL_CONNECTOR_KEK` auf einen unabhängigen, Base64-kodierten Zufallsschlüssel mit 32 Bytes. Bewahre ihn unverändert und getrennt von Datenbank-Backups auf: Wer Datenbank und Schlüssel erbeutet, kann gespeicherte Verbindungszugangsdaten entschlüsseln. OpenBao- und KMS-Unterstützung kommen bald.
+Wenn du [Connectors](../connectors/) mit dem Standard-Envelope-Provider `LOCAL_ENV` nutzt, setze zusätzlich `WELDALL_CONNECTOR_KEK` auf einen unabhängigen, Base64-kodierten Zufallsschlüssel mit 32 Bytes. Bewahre ihn unverändert und getrennt von Datenbank-Backups auf: Wer Datenbank und Schlüssel erbeutet, kann gespeicherte Verbindungszugangsdaten entschlüsseln. Connectoren mit dem Provider `OPENBAO` nutzen stattdessen die beiden Variablen unten. KMS-Unterstützung kommt weiterhin bald.
 
 Optionale Variablen:
 
-| Variable    | Zweck                                |
-| ----------- | ------------------------------------ |
-| `LOG_LEVEL` | Log-Verbosität, Standard ist `INFO`. |
+| Variable                | Zweck                                                                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WELDALL_OPENBAO_HOST`  | OpenBao-Origin für `OPENBAO`-Connectoren, z. B. `https://openbao.example.com`.                                                                            |
+| `WELDALL_OPENBAO_TOKEN` | Nur serverseitiges Data-Plane-Token für OpenBao. Wird nie gespeichert, zurückgegeben oder geloggt; beide Variablen weglassen, um OpenBao zu deaktivieren. |
+| `LOG_LEVEL`             | Log-Verbosität, Standard ist `INFO`.                                                                                                                      |
 
 ## Secrets erzeugen
 
