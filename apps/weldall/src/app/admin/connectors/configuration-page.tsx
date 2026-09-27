@@ -123,7 +123,8 @@ export function ManagedConfiguration() {
       },
       {
         id: "envelopeProvider",
-        accessorFn: () => "Local environment key",
+        accessorFn: (row) =>
+          row.config.envelopeProvider === "OPENBAO" ? "OpenBao" : "Local environment key",
         header: "Envelope provider",
         size: 220,
         minSize: 150,
@@ -517,7 +518,15 @@ function ConnectorDialog({
                     );
                   }}
                 </form.Subscribe>
-                <EnvelopeProviderField existing={Boolean(connector)} />
+                <form.Field name="envelopeProvider">
+                  {(field) => (
+                    <EnvelopeProviderField
+                      existing={Boolean(connector)}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                    />
+                  )}
+                </form.Field>
                 <form.Field name="requiredScopes">
                   {(field) => (
                     <div className="space-y-2">

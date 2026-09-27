@@ -19,6 +19,7 @@ vi.mock("../src/server/connectors/core/connections", () => ({
 import { GET as callback } from "../src/app/api/connectors/google/callback/route";
 import { POST as submit } from "../src/app/api/connectors/setup/[id]/route";
 import { WELDALL_ISSUER } from "../src/server/oauth/constants";
+import { EnvelopeEncryptionError } from "../src/server/connectors/envelope-errors";
 
 const session = {
   user: { id: "owner", email: "owner@example.com", emailVerified: true },
@@ -88,6 +89,28 @@ describe("connector browser authentication", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await response.text()).not.toContain(session.session.id);
+  });
+
+  it("returns a sanitized private 503 for an envelope outage at callback or setup", async () => {
+    const error = new EnvelopeEncryptionError(
+      "openbao_unavailable",
+      "Encryption is unavailable. Try again later.",
+      503,
+    );
+    mocks.completeConnection.mockRejectedValue(error);
+    mocks.submitScopeSelection.mockRejectedValue(error);
+    for (const response of [
+      await callback(callbackRequest()),
+      await submit(setupRequest(), context),
+    ]) {
+      expect(response.status).toBe(503);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(await response.json()).toEqual({
+        error: "openbao_unavailable",
+        error_description: "Encryption is unavailable. Try again later.",
+      });
+    }
   });
 
   it("also authenticates the Weldall user for provider cancellation", async () => {

@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { db, type Connector, type Connection, type Prisma } from "@weldall/db";
 import { z } from "zod";
 import { WELDALL_ISSUER } from "../../oauth/constants";
@@ -13,7 +14,14 @@ import { readConnectorSecrets, runConnectorTransaction } from "../configuration"
 import { getConnectorProvider } from "../registry";
 import { ProviderTokenError, RejectedProviderCredentials } from "../errors";
 import type { ProviderGrant } from "../provider";
-import { readSecret, saveSecret } from "../encryption";
+import {
+  prepareSecretEnvelope,
+  prepareSecretEncryption,
+  persistSecretEnvelope,
+  loadSecretEnvelope,
+  decryptSecretEnvelope,
+} from "../encryption";
+import { EnvelopeEncryptionError } from "../envelope-errors";
 import { writeConnectorAuditLog } from "../audit";
 import {
   assertConnectorAccess,
@@ -25,6 +33,48 @@ import { effectiveScopesRequiringSystemScopeFor } from "../../policy/resources";
 import { deleteConnectionState } from "./deletion";
 
 type Tx = Prisma.TransactionClient;
+
+/** Discard prepared ciphertext/plaintext if any observed lifecycle or policy state changed. */
+function assertUnchanged(before: unknown, after: unknown) {
+  if (!isDeepStrictEqual(before, after))
+    throw new ConnectorError("conflict", "Connection state changed; retry the operation.", 409);
+}
+
+/** Usage counters do not invalidate credentials; lifecycle, grants and connector policy do. */
+function assertConnectionUnchanged(
+  before: Connection & { connector: Connector },
+  after: Connection & { connector: Connector },
+) {
+  for (const key of [
+    "id",
+    "ownerId",
+    "connectorId",
+    "credentialId",
+    "version",
+    "status",
+    "refreshStartedAt",
+    "providerSelection",
+    "providerGrant",
+    "connector",
+  ] as const)
+    assertUnchanged(before[key], after[key]);
+}
+
+/** Only called outside transaction callbacks, after authorizing the owning row. */
+async function readSecret({
+  id,
+  context,
+  connectorId,
+}: {
+  id: string;
+  context: string;
+  connectorId: string;
+}) {
+  return decryptSecretEnvelope({
+    ...(await loadSecretEnvelope({ tx: db, id, connectorId })),
+    context,
+  });
+}
 /** Callback routing is fixed by the reviewed provider discriminator, never caller input. */
 const buildCallbackUrl = (connector: Connector) =>
   `${WELDALL_ISSUER}/api/connectors/${getConnectorProvider(connector.providerType).type}/callback`;
@@ -330,7 +380,7 @@ export async function submitScopeSelection({
   id: string;
   selection: unknown;
 }) {
-  return runConnectorTransaction(async (tx) => {
+  const readAttempt = async (tx: Tx) => {
     const a = await tx.connectionAuthorization.findUniqueOrThrow({
       where: { id },
       include: { connector: { include: connectorScopeInclude } },
@@ -348,23 +398,29 @@ export async function submitScopeSelection({
         "Setup expired or configuration changed. Start again.",
         409,
       );
-    const provider = getConnectorProvider(a.connector.providerType);
-    const validated = provider.validateSetupInput({
-      config: a.connector.providerConfig,
-      value: selection,
-    });
-    const authorization = await provider.beginAuthorization({
-      config: a.connector.providerConfig,
-      secrets: readConnectorSecrets(a.connector),
-      selection: validated,
-      callbackUrl: buildCallbackUrl(a.connector),
-    });
-    const payload = await saveSecret({
-      tx,
-      provider: a.connector.envelopeProvider,
-      context: `attempt:${id}:oauth`,
-      value: JSON.stringify({ attempt: authorization.attempt }),
-    });
+    return a;
+  };
+  const a = await readAttempt(db);
+  const provider = getConnectorProvider(a.connector.providerType);
+  const validated = provider.validateSetupInput({
+    config: a.connector.providerConfig,
+    value: selection,
+  });
+  const authorization = await provider.beginAuthorization({
+    config: a.connector.providerConfig,
+    secrets: readConnectorSecrets(a.connector),
+    selection: validated,
+    callbackUrl: buildCallbackUrl(a.connector),
+  });
+  const envelope = await prepareSecretEnvelope({
+    provider: a.connector.envelopeProvider,
+    connectorId: a.connectorId,
+    context: `attempt:${id}:oauth`,
+    plaintext: JSON.stringify({ attempt: authorization.attempt }),
+  });
+  return runConnectorTransaction(async (tx) => {
+    assertUnchanged(a, await readAttempt(tx));
+    const payload = await persistSecretEnvelope({ tx, envelope });
     await tx.connectionAuthorization.update({
       where: { id, status: "SETUP" },
       data: {
@@ -424,7 +480,19 @@ export async function completeConnection({
     requestId: pending.id,
     scopeKeys,
   };
+  assertConnectorEnabled(pending.connector);
   assertConnectorAccess({ connector: pending.connector, actor: scopeActor });
+  if (!pending.payloadId)
+    throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
+  const payload = attemptPayload.parse(
+    JSON.parse(
+      await readSecret({
+        id: pending.payloadId,
+        connectorId: pending.connectorId,
+        context: `attempt:${pending.id}:oauth`,
+      }),
+    ),
+  );
   const claimed = await runConnectorTransaction(async (tx) => {
     const a = await tx.connectionAuthorization.findUnique({
       where: { stateHash: hashValue(state) },
@@ -435,15 +503,15 @@ export async function completeConnection({
       a.status !== "AUTHORIZING" ||
       a.expiresAt <= new Date() ||
       a.connectorVersion !== a.connector.version ||
-      !a.payloadId
+      !a.payloadId ||
+      a.payloadId !== pending.payloadId ||
+      a.connectorId !== pending.connectorId ||
+      a.connectorVersion !== pending.connectorVersion
     )
       throw new ConnectorError("stale_attempt", "Authorization expired or already used.", 409);
     assertConnectionOwner({ ownerId: a.ownerId, actorId: browser.id });
     assertConnectorEnabled(a.connector);
     assertConnectorAccess({ connector: a.connector, actor: scopeActor });
-    const payload = attemptPayload.parse(
-      JSON.parse(await readSecret({ tx, id: a.payloadId, context: `attempt:${a.id}:oauth` })),
-    );
     await tx.connectionAuthorization.update({
       where: { id: a.id, status: "AUTHORIZING" },
       data: { status: cancelled ? "CANCELLED" : "PROCESSING", stateHash: null },
@@ -455,9 +523,59 @@ export async function completeConnection({
     return { a, payload, secrets: readConnectorSecrets(a.connector) };
   });
   if (!claimed) return "cancelled" as const;
-  const { a, payload } = claimed;
+  const { a } = claimed;
   const actor = scopeActor;
   const provider = getConnectorProvider(a.connector.providerType);
+  // Tokens returned by OAuth must never fall back to plaintext or another envelope provider.
+  const revokeUnstoredCredentials = async (credentials: unknown) => {
+    let revoked = false;
+    try {
+      revoked =
+        (
+          await provider.disconnectGrant({
+            config: a.connector.providerConfig,
+            secrets: claimed.secrets,
+            credentials,
+          })
+        ).status === "revoked";
+    } catch {
+      /* Only fixed audit metadata is emitted below. */
+    }
+    await runConnectorTransaction(async (tx) => {
+      const active = await tx.connectionAuthorization.updateMany({
+        where: {
+          id: a.id,
+          status: { in: ["PROCESSING", "NEEDS_REVOCATION"] },
+          payloadId: a.payloadId,
+        },
+        data: { status: "FAILED", stateHash: null },
+      });
+      if (active.count) await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
+      await writeConnectorAuditLog({
+        tx,
+        actor,
+        event: "lifecycle",
+        subjectId: a.id,
+        operation: revoked
+          ? "authorization.credentials_revoked"
+          : "authorization.revocation_unconfirmed",
+        outcome: revoked ? "success" : "failed",
+      });
+    });
+  };
+  const prepareCredentials = async (credentials: unknown, context: string, plaintext: string) => {
+    try {
+      return await prepareSecretEnvelope({
+        provider: a.connector.envelopeProvider,
+        connectorId: a.connectorId,
+        context,
+        plaintext,
+      });
+    } catch (error) {
+      await revokeUnstoredCredentials(credentials);
+      throw error;
+    }
+  };
   let result: Awaited<ReturnType<typeof provider.completeAuthorization>>;
   try {
     if (!code) throw new ConnectorError("invalid_callback", "Authorization code missing.");
@@ -481,23 +599,31 @@ export async function completeConnection({
       },
       "Connector provider authorization failed",
     );
-    await runConnectorTransaction(async (tx) => {
+    const envelope =
+      error instanceof RejectedProviderCredentials
+        ? await prepareCredentials(
+            error.credentials,
+            `attempt:${a.id}:oauth`,
+            JSON.stringify({ ...payload, credentials: error.credentials }),
+          )
+        : null;
+    const retained = await runConnectorTransaction(async (tx) => {
       const active = await tx.connectionAuthorization.updateMany({
-        where: { id: a.id, status: "PROCESSING" },
+        where: {
+          id: a.id,
+          status: "PROCESSING",
+          payloadId: a.payloadId,
+          ownerId: a.ownerId,
+          connectorId: a.connectorId,
+        },
         data: {
           status: error instanceof RejectedProviderCredentials ? "NEEDS_REVOCATION" : "FAILED",
         },
       });
       // Administrative deletion wins over late provider results, including rejected credentials.
-      if (!active.count) return;
-      if (error instanceof RejectedProviderCredentials) {
-        await saveSecret({
-          tx,
-          provider: a.connector.envelopeProvider,
-          context: `attempt:${a.id}:oauth`,
-          value: JSON.stringify({ ...payload, credentials: error.credentials }),
-          id: a.payloadId,
-        });
+      if (!active.count) return false;
+      if (envelope) {
+        await persistSecretEnvelope({ tx, envelope, id: a.payloadId });
       } else {
         await clearAuthorizationPayload({ tx, id: a.id, payloadId: a.payloadId });
       }
@@ -509,33 +635,51 @@ export async function completeConnection({
         operation: "authorization.failed",
         outcome: "failed",
       });
+      return true;
     });
+    if (!retained && error instanceof RejectedProviderCredentials)
+      await revokeUnstoredCredentials(error.credentials);
     return "failed" as const;
   }
   // Preserve newly received credentials before policy validation, so a rejected callback has an explicit revocation path.
+  const retainedEnvelope = await prepareCredentials(
+    result.credentials,
+    `attempt:${a.id}:oauth`,
+    JSON.stringify({ ...payload, credentials: result.credentials }),
+  );
   const retained = await runConnectorTransaction(async (tx) => {
     const active = await tx.connectionAuthorization.updateMany({
-      where: { id: a.id, status: "PROCESSING" },
+      where: {
+        id: a.id,
+        status: "PROCESSING",
+        payloadId: a.payloadId,
+        ownerId: a.ownerId,
+        connectorId: a.connectorId,
+      },
       data: { status: "NEEDS_REVOCATION" },
     });
     if (!active.count) return false;
-    await saveSecret({
-      tx,
-      provider: a.connector.envelopeProvider,
-      context: `attempt:${a.id}:oauth`,
-      value: JSON.stringify({ ...payload, credentials: result.credentials }),
-      id: a.payloadId,
-    });
+    await persistSecretEnvelope({ tx, envelope: retainedEnvelope, id: a.payloadId });
     return true;
   });
-  if (!retained) return "failed" as const;
+  if (!retained) {
+    await revokeUnstoredCredentials(result.credentials);
+    return "failed" as const;
+  }
   try {
-    const completed = await runConnectorTransaction(async (tx) => {
+    const readCompletion = async (tx: Tx) => {
       const fresh = await tx.connectionAuthorization.findUnique({
         where: { id: a.id },
         include: { connector: { include: connectorScopeInclude } },
       });
-      if (!fresh) return false;
+      if (!fresh) return null;
+      assertConnectionOwner({ ownerId: fresh.ownerId, actorId: actor.id });
+      if (
+        fresh.connectorId !== a.connectorId ||
+        fresh.connectionId !== a.connectionId ||
+        fresh.payloadId !== a.payloadId
+      )
+        throw new ConnectorError("conflict", "Authorization changed; retry.", 409);
       assertConnectorEnabled(fresh.connector);
       assertConnectorAccess({ connector: fresh.connector, actor: scopeActor });
       if (
@@ -555,7 +699,9 @@ export async function completeConnection({
         : null;
       if (
         prior &&
-        (prior.version !== fresh.connectionVersion ||
+        (prior.ownerId !== fresh.ownerId ||
+          prior.connectorId !== fresh.connectorId ||
+          prior.version !== fresh.connectionVersion ||
           !["READY", "RECONNECT_REQUIRED"].includes(prior.status) ||
           prior.accountId !== result.accountId)
       )
@@ -564,10 +710,26 @@ export async function completeConnection({
           "Connection changed or a different provider account was selected.",
           409,
         );
+      return { fresh, prior, grant };
+    };
+    const observed = await readCompletion(db);
+    if (!observed) return "failed" as const;
+    const connectionId = observed.prior?.id ?? randomUUID();
+    const envelope = await prepareCredentials(
+      result.credentials,
+      `connection:${connectionId}:credentials`,
+      JSON.stringify(result.credentials),
+    );
+    const completed = await runConnectorTransaction(async (tx) => {
+      const current = await readCompletion(tx);
+      if (!current) return false;
+      assertUnchanged(observed.fresh, current.fresh);
+      const { fresh, prior, grant } = current;
       const row =
         prior ??
         (await tx.connection.create({
           data: {
+            id: connectionId,
             ownerId: fresh.ownerId,
             connectorId: fresh.connectorId,
             name: fresh.name,
@@ -577,13 +739,7 @@ export async function completeConnection({
             providerGrant: serializeProviderJson(grant),
           },
         }));
-      const secret = await saveSecret({
-        tx,
-        provider: fresh.connector.envelopeProvider,
-        context: `connection:${row.id}:credentials`,
-        value: JSON.stringify(result.credentials),
-        id: row.credentialId,
-      });
+      const secret = await persistSecretEnvelope({ tx, envelope, id: row.credentialId });
       await tx.connection.update({
         where: { id: row.id, version: row.version },
         data: {
@@ -614,6 +770,7 @@ export async function completeConnection({
     });
     return completed ? ("success" as const) : ("failed" as const);
   } catch (error) {
+    if (error instanceof EnvelopeEncryptionError) throw error;
     logger.error(
       {
         event: "connector.connection.completion.failed",
@@ -661,15 +818,29 @@ export async function cancelAuthorizationAttempt({
     );
   let expectedStatus = a.status;
   if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(a.status) && a.payloadId) {
-    const claimed = await db.connectionAuthorization.updateMany({
-      where: { id, status: a.status },
-      data: { status: "REVOCATION_PENDING", stateHash: null },
-    });
-    if (!claimed.count) throw new ConnectorError("conflict", "Authorization changed; reload.", 409);
-    expectedStatus = "REVOCATION_PENDING";
+    const payloadId = a.payloadId;
     const value = attemptPayload.parse(
-      JSON.parse(await readSecret({ tx: db, id: a.payloadId, context: `attempt:${id}:oauth` })),
+      JSON.parse(
+        await readSecret({
+          id: a.payloadId,
+          connectorId: a.connectorId,
+          context: `attempt:${id}:oauth`,
+        }),
+      ),
     );
+    await runConnectorTransaction(async (tx) => {
+      const fresh = await tx.connectionAuthorization.findUniqueOrThrow({
+        where: { id },
+        include: { connector: true },
+      });
+      if (!administrator) assertConnectionOwner({ ownerId: fresh.ownerId, actorId: actor.id });
+      assertUnchanged(a, fresh);
+      await tx.connectionAuthorization.update({
+        where: { id, status: a.status, payloadId },
+        data: { status: "REVOCATION_PENDING", stateHash: null },
+      });
+    });
+    expectedStatus = "REVOCATION_PENDING";
     try {
       if (value.credentials) {
         const remote = await getConnectorProvider(a.connector.providerType).disconnectGrant({
@@ -698,7 +869,13 @@ export async function cancelAuthorizationAttempt({
   }
   await runConnectorTransaction(async (tx) => {
     const removed = await tx.connectionAuthorization.updateMany({
-      where: { id, status: expectedStatus },
+      where: {
+        id,
+        status: expectedStatus,
+        payloadId: a.payloadId,
+        ownerId: a.ownerId,
+        connectorId: a.connectorId,
+      },
       data: { status: "CANCELLED", stateHash: null },
     });
     if (!removed.count) throw new ConnectorError("conflict", "Authorization changed; reload.", 409);
@@ -714,11 +891,9 @@ export async function cancelAuthorizationAttempt({
 }
 /** Decrypts only owner-authorized state and delegates credential validation to its provider. */
 async function readStoredCredentials({
-  tx,
   connection,
   connector,
 }: {
-  tx: Tx;
   connection: Connection;
   connector: Connector;
 }) {
@@ -727,7 +902,7 @@ async function readStoredCredentials({
   return getConnectorProvider(connector.providerType).parseCredentials(
     JSON.parse(
       await readSecret({
-        tx,
+        connectorId: connector.id,
         id: connection.credentialId,
         context: `connection:${connection.id}:credentials`,
       }),
@@ -745,129 +920,159 @@ export async function accessCredentials({
   actor: AuthorizedConnectorActor;
   selector: string;
 }) {
-  const claim = await runConnectorTransaction(async (tx) => {
-    const row = await findOwnedConnection({ tx, selector, actor });
-    assertConnectorEnabled(row.connector);
-    assertConnectorAccess({ connector: row.connector, actor });
-    if (
-      row.status === "REFRESHING" &&
-      row.refreshStartedAt &&
-      row.refreshStartedAt.getTime() < Date.now() - 30_000
-    ) {
-      await tx.connection.update({
-        where: { id: row.id, version: row.version },
-        data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
+  const observed = await findOwnedConnection({ tx: db, selector, actor });
+  assertConnectorEnabled(observed.connector);
+  assertConnectorAccess({ connector: observed.connector, actor });
+  const provider = getConnectorProvider(observed.connector.providerType);
+  provider.validateSetupInput({
+    config: observed.connector.providerConfig,
+    value: observed.providerSelection,
+  });
+  const credentials =
+    observed.status === "READY"
+      ? await readStoredCredentials({ connection: observed, connector: observed.connector })
+      : null;
+  // Prove wrapping availability before claiming refresh or allowing the provider to rotate a token.
+  const prepared =
+    credentials && provider.needsRefresh(credentials)
+      ? await prepareSecretEncryption({
+          provider: observed.connector.envelopeProvider,
+          connectorId: observed.connectorId,
+          context: `connection:${observed.id}:credentials`,
+        })
+      : null;
+  try {
+    const claim = await runConnectorTransaction(async (tx) => {
+      const row = await findOwnedConnection({ tx, selector, actor });
+      assertConnectionUnchanged(observed, row);
+      assertConnectorEnabled(row.connector);
+      assertConnectorAccess({ connector: row.connector, actor });
+      if (
+        row.status === "REFRESHING" &&
+        row.refreshStartedAt &&
+        row.refreshStartedAt.getTime() < Date.now() - 30_000
+      ) {
+        await tx.connection.update({
+          where: { id: row.id, version: row.version },
+          data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
+        });
+        return null;
+      }
+      if (row.status !== "READY")
+        throw new ConnectorError(
+          "connection_unavailable",
+          "Connection is not ready. Retry after an in-progress refresh or reconnect.",
+          409,
+        );
+      const provider = getConnectorProvider(row.connector.providerType);
+      provider.validateSetupInput({
+        config: row.connector.providerConfig,
+        value: row.providerSelection,
       });
-      return null;
-    }
-    if (row.status !== "READY")
+      if (!credentials)
+        throw new ConnectorError("connection_unavailable", "Connection is not ready.", 409);
+      // Use the preflight decision: expiry advancing here must not claim a refresh without a wrapped DEK.
+      if (!prepared) return { row, credentials, refresh: false as const };
+      const updated = await tx.connection.update({
+        where: { id: row.id, version: row.version, status: "READY" },
+        data: { status: "REFRESHING", refreshStartedAt: new Date(), version: { increment: 1 } },
+      });
+      return {
+        row: { ...updated, connector: row.connector },
+        credentials,
+        refresh: true as const,
+        secrets: readConnectorSecrets(row.connector),
+      };
+    });
+    if (!claim)
       throw new ConnectorError(
-        "connection_unavailable",
-        "Connection is not ready. Retry after an in-progress refresh or reconnect.",
+        "reconnect_required",
+        "Interrupted refresh; reconnect to recover safely.",
         409,
       );
-    const provider = getConnectorProvider(row.connector.providerType);
-    provider.validateSetupInput({
-      config: row.connector.providerConfig,
-      value: row.providerSelection,
-    });
-    const credentials = await readStoredCredentials({
-      tx,
-      connection: row,
-      connector: row.connector,
-    });
-    if (!provider.needsRefresh(credentials)) return { row, credentials, refresh: false as const };
-    const updated = await tx.connection.update({
-      where: { id: row.id, version: row.version, status: "READY" },
-      data: { status: "REFRESHING", refreshStartedAt: new Date(), version: { increment: 1 } },
-    });
-    return {
-      row: { ...updated, connector: row.connector },
-      credentials,
-      refresh: true as const,
-      secrets: readConnectorSecrets(row.connector),
-    };
-  });
-  if (!claim)
-    throw new ConnectorError(
-      "reconnect_required",
-      "Interrupted refresh; reconnect to recover safely.",
-      409,
-    );
-  if (!claim.refresh) return claim;
-  try {
-    const provider = getConnectorProvider(claim.row.connector.providerType);
-    let credentials: object;
-    let grant: ProviderGrant | undefined;
+    if (!claim.refresh) return claim;
     try {
-      const result = await provider.refreshCredentials({
-        config: claim.row.connector.providerConfig,
-        secrets: claim.secrets,
-        selection: claim.row.providerSelection,
-        credentials: claim.credentials,
-        previousGrant: provider.parseGrant(claim.row.providerGrant),
+      const provider = getConnectorProvider(claim.row.connector.providerType);
+      let credentials: object;
+      let grant: ProviderGrant | undefined;
+      try {
+        const result = await provider.refreshCredentials({
+          config: claim.row.connector.providerConfig,
+          secrets: claim.secrets,
+          selection: claim.row.providerSelection,
+          credentials: claim.credentials,
+          previousGrant: provider.parseGrant(claim.row.providerGrant),
+        });
+        credentials = result.credentials;
+        grant = result.grant;
+      } catch (error) {
+        if (!(error instanceof RejectedProviderCredentials)) throw error;
+        credentials = error.credentials;
+      }
+      const envelope = prepared!.encrypt(JSON.stringify(credentials));
+      const refreshed = await runConnectorTransaction(async (tx) => {
+        const row = await tx.connection.findUniqueOrThrow({
+          where: { id: claim.row.id },
+          include: { connector: { include: connectorScopeInclude } },
+        });
+        // Disconnect can block the account while refresh is in flight. Retain a rotated token solely for manual revocation.
+        const pending =
+          row.status === "REVOCATION_PENDING" &&
+          row.refreshStartedAt?.getTime() === claim.row.refreshStartedAt?.getTime();
+        if (!pending && (row.status !== "REFRESHING" || row.version !== claim.row.version))
+          throw new ConnectorError("conflict", "Connection changed during refresh.", 409);
+        assertConnectionOwner({ ownerId: row.ownerId, actorId: actor.id });
+        if (
+          row.connectorId !== claim.row.connectorId ||
+          row.credentialId !== claim.row.credentialId
+        )
+          throw new ConnectorError("conflict", "Connection changed during refresh.", 409);
+        await persistSecretEnvelope({ tx, envelope, id: row.credentialId });
+        // Never perform provider I/O in this transaction; execution checks freshness before dispatch.
+        const usable =
+          Boolean(grant) &&
+          row.connector.version === claim.row.connector.version &&
+          row.connector.enabled &&
+          canAccessConnector({ connector: row.connector, actor });
+        await tx.connection.update({
+          where: { id: row.id, version: row.version },
+          data: {
+            status: pending ? "REVOCATION_PENDING" : usable ? "READY" : "RECONNECT_REQUIRED",
+            ...(usable && grant ? { providerGrant: serializeProviderJson(grant) } : {}),
+            refreshStartedAt: null,
+            version: { increment: 1 },
+          },
+        });
+        await writeConnectorAuditLog({
+          tx,
+          actor,
+          event: "lifecycle",
+          subjectId: row.id,
+          operation: "connection.refreshed",
+        });
+        return tx.connection.findUniqueOrThrow({
+          where: { id: row.id },
+          include: { connector: { include: connectorScopeInclude } },
+        });
       });
-      credentials = result.credentials;
-      grant = result.grant;
+      return { row: refreshed, credentials, refresh: false as const };
     } catch (error) {
-      if (!(error instanceof RejectedProviderCredentials)) throw error;
-      credentials = error.credentials;
-    }
-    const refreshed = await runConnectorTransaction(async (tx) => {
-      const row = await tx.connection.findUniqueOrThrow({
-        where: { id: claim.row.id },
-        include: { connector: { include: connectorScopeInclude } },
-      });
-      // Disconnect can block the account while refresh is in flight. Retain a rotated token solely for manual revocation.
-      const pending =
-        row.status === "REVOCATION_PENDING" &&
-        row.refreshStartedAt?.getTime() === claim.row.refreshStartedAt?.getTime();
-      if (!pending && (row.status !== "REFRESHING" || row.version !== claim.row.version))
-        throw new ConnectorError("conflict", "Connection changed during refresh.", 409);
-      await saveSecret({
-        tx,
-        provider: row.connector.envelopeProvider,
-        context: `connection:${row.id}:credentials`,
-        value: JSON.stringify(credentials),
-        id: row.credentialId,
-      });
-      // Never perform provider I/O in this transaction; execution checks freshness before dispatch.
-      const usable = Boolean(grant) && row.connector.version === claim.row.connector.version;
-      await tx.connection.update({
-        where: { id: row.id, version: row.version },
-        data: {
-          status: pending ? "REVOCATION_PENDING" : usable ? "READY" : "RECONNECT_REQUIRED",
-          ...(usable && grant ? { providerGrant: serializeProviderJson(grant) } : {}),
-          refreshStartedAt: null,
-          version: { increment: 1 },
-        },
-      });
-      await writeConnectorAuditLog({
-        tx,
+      await recordRefreshFailure({
+        id: claim.row.id,
+        version: claim.row.version,
         actor,
-        event: "lifecycle",
-        subjectId: row.id,
-        operation: "connection.refreshed",
+        authorizationLost: error instanceof ProviderTokenError && error.authorizationLost,
+        retryable: error instanceof ProviderTokenError && error.retryable,
       });
-      return tx.connection.findUniqueOrThrow({
-        where: { id: row.id },
-        include: { connector: { include: connectorScopeInclude } },
-      });
-    });
-    return { row: refreshed, credentials, refresh: false as const };
-  } catch (error) {
-    await recordRefreshFailure({
-      id: claim.row.id,
-      version: claim.row.version,
-      actor,
-      authorizationLost: error instanceof ProviderTokenError && error.authorizationLost,
-      retryable: error instanceof ProviderTokenError && error.retryable,
-    });
-    throw new ConnectorError(
-      "refresh_failed",
-      "Refresh failed. Check connection status; reconnect if required.",
-      502,
-    );
+      if (error instanceof EnvelopeEncryptionError) throw error;
+      throw new ConnectorError(
+        "refresh_failed",
+        "Refresh failed. Check connection status; reconnect if required.",
+        502,
+      );
+    }
+  } finally {
+    prepared?.dispose();
   }
 }
 /** Records a failed refresh claim so subsequent proxy requests observe a safe connection state. */
@@ -919,11 +1124,74 @@ async function disconnectAndDelete({
   actor: ConnectorActor;
   selector: string;
 }) {
+  const observed = await findOwnedConnection({ tx: db, selector, actor });
+  const observedAttempts = await db.connectionAuthorization.findMany({
+    where: { connectionId: observed.id },
+    orderBy: { id: "asc" },
+  });
+  const processing =
+    Boolean(
+      observed.refreshStartedAt && observed.refreshStartedAt.getTime() > Date.now() - 30_000,
+    ) ||
+    observedAttempts.some(
+      (attempt) =>
+        attempt.status === "PROCESSING" && attempt.expiresAt.getTime() + 30_000 > Date.now(),
+    );
+  const credentialsToRevoke: unknown[] = [];
+  const provider = getConnectorProvider(observed.connector.providerType);
+  let revocationConfirmed = observed.credentialId !== null && !observed.refreshStartedAt;
+  if (!processing) {
+    if (observed.credentialId) {
+      try {
+        credentialsToRevoke.push(
+          await readStoredCredentials({ connection: observed, connector: observed.connector }),
+        );
+      } catch (error) {
+        if (
+          error instanceof EnvelopeEncryptionError &&
+          observed.connector.envelopeProvider === "OPENBAO"
+        )
+          throw error;
+        revocationConfirmed = false;
+      }
+    }
+    for (const attempt of observedAttempts) {
+      if (!attempt.payloadId) {
+        if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
+          revocationConfirmed = false;
+        continue;
+      }
+      try {
+        const payload = attemptPayload.parse(
+          JSON.parse(
+            await readSecret({
+              id: attempt.payloadId,
+              connectorId: observed.connectorId,
+              context: `attempt:${attempt.id}:oauth`,
+            }),
+          ),
+        );
+        if (payload.credentials) credentialsToRevoke.push(payload.credentials);
+        else if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
+          revocationConfirmed = false;
+      } catch (error) {
+        if (
+          error instanceof EnvelopeEncryptionError &&
+          observed.connector.envelopeProvider === "OPENBAO"
+        )
+          throw error;
+        revocationConfirmed = false;
+      }
+    }
+  }
   const claim = await runConnectorTransaction(async (tx) => {
     const row = await findOwnedConnection({ tx, selector, actor });
     const attempts = await tx.connectionAuthorization.findMany({
       where: { connectionId: row.id },
+      orderBy: { id: "asc" },
     });
+    assertConnectionUnchanged(observed, row);
+    assertUnchanged(observedAttempts, attempts);
     const blocked = await tx.connection.update({
       where: { id: row.id, version: row.version },
       data: {
@@ -939,12 +1207,6 @@ async function disconnectAndDelete({
       subjectId: row.id,
       operation: "disconnect.blocked",
     });
-    const processing =
-      Boolean(row.refreshStartedAt && row.refreshStartedAt.getTime() > Date.now() - 30_000) ||
-      attempts.some(
-        (attempt) =>
-          attempt.status === "PROCESSING" && attempt.expiresAt.getTime() + 30_000 > Date.now(),
-      );
     if (processing) return { row, attempts, version: blocked.version, processing };
 
     // Stop callbacks before provider I/O. Retained grants stay marked for explicit retry.
@@ -971,47 +1233,6 @@ async function disconnectAndDelete({
     return { deleted: false as const, message };
   }
 
-  const credentialsToRevoke: unknown[] = [];
-  const provider = getConnectorProvider(claim.row.connector.providerType);
-  let revocationConfirmed = claim.row.credentialId !== null;
-  if (claim.row.refreshStartedAt) revocationConfirmed = false;
-  if (claim.row.credentialId) {
-    try {
-      credentialsToRevoke.push(
-        await readStoredCredentials({
-          tx: db,
-          connection: claim.row,
-          connector: claim.row.connector,
-        }),
-      );
-    } catch {
-      revocationConfirmed = false;
-    }
-  }
-  for (const attempt of claim.attempts) {
-    if (!attempt.payloadId) {
-      if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
-        revocationConfirmed = false;
-      continue;
-    }
-    try {
-      const payload = attemptPayload.parse(
-        JSON.parse(
-          await readSecret({
-            tx: db,
-            id: attempt.payloadId,
-            context: `attempt:${attempt.id}:oauth`,
-          }),
-        ),
-      );
-      // Rejected authorizations may contain revocation-only material, never executable credentials.
-      if (payload.credentials) credentialsToRevoke.push(payload.credentials);
-      else if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(attempt.status))
-        revocationConfirmed = false;
-    } catch {
-      revocationConfirmed = false;
-    }
-  }
   for (const credentials of credentialsToRevoke) {
     try {
       const remote = await provider.disconnectGrant({

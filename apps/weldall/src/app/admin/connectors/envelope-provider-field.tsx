@@ -2,22 +2,35 @@
 
 import { Selector } from "@astryxdesign/core/Selector";
 
-/** The only enabled provider is deployment-wide and becomes immutable on creation. */
-export function EnvelopeProviderField({ existing }: { existing: boolean }) {
+type Provider = "LOCAL_ENV" | "OPENBAO";
+
+/** Provider choice is unconditional and becomes immutable on creation. */
+export function EnvelopeProviderField({
+  existing,
+  value,
+  onChange,
+}: {
+  existing: boolean;
+  value: Provider;
+  onChange?: (value: Provider) => void;
+}) {
   return (
     <Selector
       label="Envelope provider"
       description={
         existing
           ? "Selected at creation; cannot be changed."
-          : "OpenBao is upcoming and not yet supported."
+          : "Choose how connection credentials are protected."
       }
       isRequired
       isDisabled={existing}
-      value="LOCAL_ENV"
+      value={value}
+      onChange={(next) => {
+        if (next === "LOCAL_ENV" || next === "OPENBAO") onChange?.(next);
+      }}
       options={[
         { value: "LOCAL_ENV", label: "Local environment key" },
-        { value: "OPENBAO", label: "OpenBao — Upcoming", disabled: true },
+        { value: "OPENBAO", label: "OpenBao" },
       ]}
       width="100%"
     />

@@ -7,7 +7,10 @@ beforeEach(() => {
   vi.stubEnv("WELDALL_CONNECTOR_KEK", Buffer.alloc(32, 1).toString("base64"));
   vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 2).toString("base64"));
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 async function fixture() {
   const envelope = await encrypt({
@@ -68,6 +71,39 @@ describe("connector deployment readiness", () => {
       await expect(verifyConnectorEncryption(prisma as never)).rejects.toThrow(/unavailable/);
     },
   );
+  it("ignores OpenBao availability and never selects its ciphertext for startup decryption", async () => {
+    vi.stubEnv("WELDALL_OPENBAO_HOST", undefined);
+    vi.stubEnv("WELDALL_OPENBAO_TOKEN", undefined);
+    vi.stubEnv("WELDALL_CONNECTOR_KEK", undefined);
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const prisma = {
+      connector: {
+        findMany: vi
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              id: "openbao-connector",
+              envelopeProvider: "OPENBAO",
+              encryptedProviderSecrets: null,
+              providerType: "google",
+              providerConfig: {
+                clientId: "client",
+                allowedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+                defaultScopes: [],
+              },
+            },
+          ])
+          .mockResolvedValue([]),
+      },
+      encryptedValue: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    await verifyConnectorEncryption(prisma as never);
+    expect(prisma.encryptedValue.findMany).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ where: { provider: "LOCAL_ENV" } }),
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("requires a provisioned KEK even for an empty disabled connector", async () => {
     const prisma = {
       connector: {

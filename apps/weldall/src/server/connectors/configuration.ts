@@ -147,12 +147,13 @@ export async function saveConnectorConfiguration({
       "Provision the new OAuth client secret before enabling the connector.",
       409,
     );
-  // Disabled definitions also require provisioned deployment material, without persisting a probe.
-  await encrypt({
-    provider: config.envelopeProvider,
-    plaintext: "readiness",
-    context: "readiness",
-  });
+  // Local deployment keys remain fail-fast; OpenBao is only an operation-time dependency.
+  if (config.envelopeProvider === "LOCAL_ENV")
+    await encrypt({
+      provider: config.envelopeProvider,
+      plaintext: "readiness",
+      context: "readiness",
+    });
   const connectorId = current?.id ?? randomUUID();
   const encryptedProviderSecrets =
     providerSecrets !== undefined

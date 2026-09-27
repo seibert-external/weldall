@@ -1,7 +1,14 @@
 import { logger } from "../observability/logger";
 import { ConnectorError } from "./errors";
 
+const openBaoUnavailable = "Encryption is unavailable. Try again later.";
 const errorMessages = {
+  openbao_configuration_missing: openBaoUnavailable,
+  openbao_configuration_invalid: openBaoUnavailable,
+  openbao_timeout: openBaoUnavailable,
+  openbao_unavailable: openBaoUnavailable,
+  openbao_rejected: openBaoUnavailable,
+  openbao_response_invalid: openBaoUnavailable,
   encryption_key_missing: "Encryption is unavailable: WELDALL_CONNECTOR_KEK is not configured.",
   encryption_key_invalid:
     "Encryption is unavailable: WELDALL_CONNECTOR_KEK must be canonical base64 encoding of 32 bytes.",

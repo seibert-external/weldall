@@ -106,11 +106,12 @@ export async function verifyConnectorEncryption(prisma: PrismaClient = db): Prom
     });
     if (!connectors.length) break;
     for (const connector of connectors) {
-      await encrypt({
-        provider: connector.envelopeProvider,
-        plaintext: "readiness",
-        context: "readiness",
-      });
+      if (connector.envelopeProvider === "LOCAL_ENV")
+        await encrypt({
+          provider: connector.envelopeProvider,
+          plaintext: "readiness",
+          context: "readiness",
+        });
       getConnectorProvider(connector.providerType).parseConfiguration(connector.providerConfig);
       if (connector.encryptedProviderSecrets) readConnectorSecrets(connector);
     }
@@ -121,6 +122,7 @@ export async function verifyConnectorEncryption(prisma: PrismaClient = db): Prom
     const values: Prisma.EncryptedValueGetPayload<{
       include: { connection: { select: { id: true } }; attempt: { select: { id: true } } };
     }>[] = await prisma.encryptedValue.findMany({
+      where: { provider: "LOCAL_ENV" },
       orderBy: { id: "asc" },
       take: 100,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

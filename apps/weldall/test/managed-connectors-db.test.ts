@@ -21,7 +21,11 @@ import {
   readConnectorSecrets,
   listManagedConnectorConfiguration as listConfiguration,
 } from "../src/server/connectors/configuration";
-import { decrypt, saveSecret } from "../src/server/connectors/encryption";
+import {
+  decrypt,
+  prepareSecretEnvelope,
+  persistSecretEnvelope,
+} from "../src/server/connectors/encryption";
 import {
   accessCredentials,
   completeConnection as completeBrowserConnection,
@@ -51,6 +55,26 @@ import { scopeKeySchema } from "../src/server/policy/scope-key";
 import { mutateScope } from "../src/server/domain/primitive-mutations";
 import { listAuditEvents, prismaAuditWriter } from "../src/server/audit/service";
 
+// Fixture writes prepare encryption outside database transactions, just like the lifecycle code.
+async function saveSecret({
+  tx,
+  provider,
+  context,
+  value,
+  id,
+}: {
+  tx: Parameters<typeof persistSecretEnvelope>[0]["tx"];
+  provider: Parameters<typeof prepareSecretEnvelope>[0]["provider"];
+  context: string;
+  value: string;
+  id?: string | null;
+}) {
+  return persistSecretEnvelope({
+    tx,
+    envelope: await prepareSecretEnvelope({ provider, context, plaintext: value }),
+    ...(id ? { id } : {}),
+  });
+}
 vi.mock("../src/server/connectors/providers/google/oauth", async (original) => ({
   ...(await original<typeof import("../src/server/connectors/providers/google/oauth")>()),
   completeGoogleAuthorization: vi.fn(),
@@ -1088,7 +1112,8 @@ describe.skipIf(!approvedTarget)(
           await db.encryptedValue.findUnique({ where: { id: attempt.payloadId! } }),
         ).toBeNull();
         expect(await db.encryptedValue.count()).toBe(encryptedBefore - (existing ? 2 : 1));
-        expect(revokeGoogle).not.toHaveBeenCalled();
+        if (outcome === "failure") expect(revokeGoogle).not.toHaveBeenCalled();
+        else expect(revokeGoogle).toHaveBeenCalledWith("late-callback-token");
       },
     );
     it("connector deletion cascades all local state, preserves audit and leaves unrelated connectors alone", async () => {

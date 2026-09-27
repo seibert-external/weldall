@@ -1,5 +1,10 @@
 import { completeConnection } from "@/server/connectors/core/connections";
-import { authenticateConnectorBrowserActor, privateHeaders } from "@/server/connectors/http";
+import {
+  authenticateConnectorBrowserActor,
+  createConnectorErrorResponse,
+  privateHeaders,
+} from "@/server/connectors/http";
+import { EnvelopeEncryptionError } from "@/server/connectors/envelope-errors";
 import { ConnectorError } from "@/server/connectors/contracts";
 import { logger } from "@/server/observability/logger";
 import { WELDALL_ISSUER } from "@/server/oauth/constants";
@@ -30,6 +35,7 @@ export async function GET(request: Request) {
       }),
     );
   } catch (error) {
+    if (error instanceof EnvelopeEncryptionError) return createConnectorErrorResponse(error);
     logger.error(
       {
         event: "connector.connection.completion.failed",

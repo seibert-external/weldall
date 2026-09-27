@@ -5,36 +5,71 @@ import { createEnvelopeError, EnvelopeEncryptionError } from "./envelope-errors"
 
 type Client = Prisma.TransactionClient;
 
-/** Each complete logical-object write gets its own random DEK; only its wrapped form is persisted. */
-export async function encrypt({
+type EncryptionContext = { provider: EnvelopeProvider; context: string; connectorId?: string };
+
+/**
+ * Wraps a fresh encryption key before requesting new tokens, so an OpenBao outage cannot
+ * leave us with rotated tokens we cannot encrypt for storage. Encryption then happens locally,
+ * without another OpenBao call. Always call dispose() in finally, even if the write is abandoned.
+ */
+export async function prepareSecretEncryption({
   provider,
-  plaintext,
   context,
-}: {
-  provider: EnvelopeProvider;
-  plaintext: string;
-  context: string;
-}) {
+  connectorId,
+}: EncryptionContext) {
   const metadata = { formatVersion: 1, provider, context };
+  const authenticatedContext = { ...metadata, ...(connectorId ? { connectorId } : {}) };
   const dek = randomBytes(32);
+  let disposed = false;
+  const dispose = () => {
+    dek.fill(0);
+    disposed = true;
+  };
   try {
-    const nonce = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", dek, nonce);
-    cipher.setAAD(buildEnvelopeAad({ layer: "data", context: metadata }));
-    const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-    const wrappedDek = await getEnvelopeProvider(provider).wrapDek({ dek, context: metadata });
+    const wrappedDek = await getEnvelopeProvider(provider).wrapDek({
+      dek,
+      context: authenticatedContext,
+    });
     return {
-      ...metadata,
-      nonce: nonce.toString("base64"),
-      ciphertext: ciphertext.toString("base64"),
-      tag: cipher.getAuthTag().toString("base64"),
-      wrappedDek,
+      dispose,
+      encrypt(plaintext: string) {
+        try {
+          if (disposed) throw new Error();
+          const nonce = randomBytes(12);
+          const cipher = createCipheriv("aes-256-gcm", dek, nonce);
+          cipher.setAAD(buildEnvelopeAad({ layer: "data", context: authenticatedContext }));
+          const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+          return {
+            ...metadata,
+            nonce: nonce.toString("base64"),
+            ciphertext: ciphertext.toString("base64"),
+            tag: cipher.getAuthTag().toString("base64"),
+            wrappedDek,
+          };
+        } catch {
+          throw createEnvelopeError({ code: "envelope_encryption_failed", operation: "encrypt" });
+        } finally {
+          dispose();
+        }
+      },
     };
   } catch (error) {
+    dispose();
     if (error instanceof EnvelopeEncryptionError) throw error;
     throw createEnvelopeError({ code: "envelope_encryption_failed", operation: "encrypt" });
+  }
+}
+
+/** Each complete logical-object write gets its own random DEK; only its wrapped form is persisted. */
+export async function encrypt({
+  plaintext,
+  ...context
+}: EncryptionContext & { plaintext: string }) {
+  const prepared = await prepareSecretEncryption(context);
+  try {
+    return prepared.encrypt(plaintext);
   } finally {
-    dek.fill(0);
+    prepared.dispose();
   }
 }
 
@@ -42,13 +77,21 @@ export async function encrypt({
 export async function decrypt({
   envelope,
   context,
+  connectorId,
 }: {
   envelope: Pick<
     EncryptedValue,
     "formatVersion" | "provider" | "context" | "nonce" | "ciphertext" | "tag" | "wrappedDek"
   >;
   context: string;
+  connectorId?: string;
 }): Promise<string> {
+  const authenticatedContext = {
+    formatVersion: envelope.formatVersion,
+    provider: envelope.provider,
+    context,
+    ...(connectorId ? { connectorId } : {}),
+  };
   let dek: Buffer | undefined;
   try {
     if (envelope.formatVersion !== 1)
@@ -57,7 +100,7 @@ export async function decrypt({
       throw createEnvelopeError({ code: "envelope_context_mismatch", operation: "decrypt" });
     dek = await getEnvelopeProvider(envelope.provider).unwrapDek({
       wrappedDek: envelope.wrappedDek,
-      context: envelope,
+      context: authenticatedContext,
     });
     if (dek.length !== 32)
       throw createEnvelopeError({ code: "encryption_dek_invalid", operation: "decrypt" });
@@ -79,7 +122,7 @@ export async function decrypt({
       field: "ciphertext",
     });
     const cipher = createDecipheriv("aes-256-gcm", dek, nonce);
-    cipher.setAAD(buildEnvelopeAad({ layer: "data", context: envelope }));
+    cipher.setAAD(buildEnvelopeAad({ layer: "data", context: authenticatedContext }));
     cipher.setAuthTag(tag);
     const plaintext = cipher.update(ciphertext);
     try {
@@ -101,30 +144,37 @@ export async function decrypt({
   }
 }
 
-/** Reads one encrypted object for an authenticated server-side workflow. */
-export async function readSecret({ tx, id, context }: { tx: Client; id: string; context: string }) {
-  return decrypt({
-    envelope: await tx.encryptedValue.findUniqueOrThrow({ where: { id } }),
-    context,
+/** Crypto stages deliberately have no database client. */
+export const prepareSecretEnvelope = encrypt;
+export const decryptSecretEnvelope = decrypt;
+
+/** Load only through the already authorized connector relation; no remote I/O. */
+export async function loadSecretEnvelope({
+  tx,
+  id,
+  connectorId,
+}: {
+  tx: Client;
+  id: string;
+  connectorId: string;
+}) {
+  const envelope = await tx.encryptedValue.findFirstOrThrow({
+    where: { id, OR: [{ connection: { connectorId } }, { attempt: { connectorId } }] },
   });
+  return { envelope, connectorId };
 }
 
-/** Replaces the complete credential object with fresh data and wrapping nonces and a fresh DEK. */
-export async function saveSecret({
+/** Persists only already-prepared ciphertext; safe inside a serializable transaction. */
+export async function persistSecretEnvelope({
   tx,
-  provider,
-  context,
-  value,
+  envelope,
   id,
 }: {
   tx: Client;
-  provider: EnvelopeProvider;
-  context: string;
-  value: string;
+  envelope: Awaited<ReturnType<typeof prepareSecretEnvelope>>;
   id?: string | null;
 }) {
-  const data = await encrypt({ provider, plaintext: value, context });
   return id
-    ? tx.encryptedValue.update({ where: { id }, data })
-    : tx.encryptedValue.create({ data });
+    ? tx.encryptedValue.update({ where: { id }, data: envelope })
+    : tx.encryptedValue.create({ data: envelope });
 }

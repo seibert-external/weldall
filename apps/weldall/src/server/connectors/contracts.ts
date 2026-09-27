@@ -14,7 +14,7 @@ export const connectorConfig = z
     name: z.string().trim().min(1).max(200),
     type: z.literal("google"),
     enabled: z.boolean(),
-    envelopeProvider: z.literal("LOCAL_ENV"),
+    envelopeProvider: z.enum(["LOCAL_ENV", "OPENBAO"]),
     requiredScopes: requiredScopeKeys,
     provider: googleConfigSchema,
   })
