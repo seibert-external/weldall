@@ -1,7 +1,7 @@
 // Helpers for .github/workflows/release-docker-images.yml.
 //
 //   node scripts/image-release.mjs validate --tag @weldall/weldall@1.2.3
-//   node scripts/image-release.mjs plan-tags --repository seibertmediagmbh/weldall --version 1.2.3
+//   node scripts/image-release.mjs plan-tags --repository seibertgroup/weldall --version 1.2.3
 //   node scripts/image-release.mjs check-image --image local:tag --unit weldall --platform linux/amd64 --version 1.2.3 --revision <sha>
 //
 // Every subcommand appends its results to $GITHUB_OUTPUT when that variable is set.
@@ -25,7 +25,7 @@ export const imageReleaseUnits = {
     entrypoint: ["./entrypoint.sh"],
   },
   "@weldall/discovery-proxy": {
-    image: "discovery-proxy",
+    image: "weldall-discovery-proxy",
     directory: "apps/discovery-proxy",
     context: "apps/discovery-proxy",
     dockerfile: "apps/discovery-proxy/Dockerfile",

@@ -1,8 +1,8 @@
 name: Release Docker images
 
 # Builds, tests and publishes the two customer-facing linux/amd64 images:
-#   docker.io/<namespace>/weldall          from the root Dockerfile
-#   docker.io/<namespace>/discovery-proxy  from apps/discovery-proxy/Dockerfile
+#   docker.io/<namespace>/weldall                  from the root Dockerfile
+#   docker.io/<namespace>/weldall-discovery-proxy  from apps/discovery-proxy/Dockerfile
 # A Changesets release of @weldall/weldall or @weldall/discovery-proxy is the trigger;
 # the tag decides which image is built, so a proxy release never rebuilds the server.
 #
@@ -39,7 +39,7 @@ env:
   # The Docker Hub organization the images live in (its access token is the publish
   # credential, so this must match the token's organization). Changing it here is the
   # only edit needed if the images move; the Docker deployment documentation refers to it.
-  IMAGE_NAMESPACE: seibertmediagmbh
+  IMAGE_NAMESPACE: seibertgroup
   PLATFORM: linux/amd64
   IMAGE_UNDER_TEST: weldall-image-under-test:local
 
@@ -153,7 +153,7 @@ jobs:
         if: needs.prepare.outputs.image == 'weldall'
         run: sh scripts/test-weldall-image.sh "$IMAGE_UNDER_TEST"
       - name: Test the discovery proxy endpoint allowlist, unprivileged user and upstream validation
-        if: needs.prepare.outputs.image == 'discovery-proxy'
+        if: needs.prepare.outputs.image == 'weldall-discovery-proxy'
         run: sh apps/discovery-proxy/scripts/test-image.sh "$IMAGE_UNDER_TEST"
       # The content-addressed identity of the image that just passed the tests; the
       # publish job proves the loaded artifact and the pushed tag are this image.
