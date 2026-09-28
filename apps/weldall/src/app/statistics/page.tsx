@@ -1,20 +1,24 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
-import { listDirectoryResources } from "@/server/directory/search";
 import { canViewStatistics } from "@/server/statistics/access";
+import {
+  STATISTICS_INTERVAL_COOKIE,
+  resolveStatisticsInterval,
+} from "@/server/statistics/interval";
+import { getUsageStatistics } from "@/server/statistics/service";
 import { DirectoryHeader } from "../_components/directory-header";
-import { ResourceDirectoryTable } from "../_components/directory-table";
 import { DirectoryUserMenu } from "../_components/directory-user-menu";
+import { StatisticsAccessDenied, StatisticsDashboard } from "../_components/statistics-dashboard";
 
 export const dynamic = "force-dynamic";
 
-export default async function ResourcesPage({
+export default async function StatisticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ resource?: string | string[] }>;
+  searchParams: Promise<{ interval?: string | string[] }>;
 }) {
   const [logoUrls, session] = await Promise.all([
     getEffectiveCliLogoUrls(),
@@ -22,13 +26,18 @@ export default async function ResourcesPage({
   ]);
   if (!session?.user.email) redirect("/login");
 
-  const [resources, isAdmin, canSeeStatistics, params] = await Promise.all([
-    listDirectoryResources(),
+  const [isAdmin, canSeeStatistics, params, cookieStore] = await Promise.all([
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
     searchParams,
+    cookies(),
   ]);
-  const selectedKey = typeof params.resource === "string" ? params.resource : undefined;
+  const interval = resolveStatisticsInterval(
+    params.interval,
+    cookieStore.get(STATISTICS_INTERVAL_COOKIE)?.value,
+  );
+  // A failed server render leaves the first load to the client query instead of failing the page.
+  const statistics = canSeeStatistics ? await getUsageStatistics(interval).catch(() => null) : null;
 
   return (
     <div className="public-page">
@@ -40,7 +49,11 @@ export default async function ResourcesPage({
         />
       </DirectoryHeader>
       <main className="public-page-main">
-        <ResourceDirectoryTable resources={resources} selectedKey={selectedKey} />
+        {canSeeStatistics ? (
+          <StatisticsDashboard initialInterval={interval} initialStatistics={statistics} />
+        ) : (
+          <StatisticsAccessDenied />
+        )}
       </main>
     </div>
   );

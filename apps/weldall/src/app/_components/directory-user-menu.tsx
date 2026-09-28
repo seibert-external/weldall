@@ -32,6 +32,10 @@ const publicSectionDesigns = {
     light: toPair(corporateGradients.lavender.light),
     dark: toPair(corporateGradients.lavender.dark),
   },
+  statistics: {
+    light: toPair(corporateGradients.lake.light),
+    dark: toPair(corporateGradients.lake.dark),
+  },
   administration: {
     light: toPair(corporateGradients.pineTeal.light),
     dark: toPair(corporateGradients.pineTeal.dark),
@@ -44,7 +48,15 @@ function toPair(tuple: readonly [string, string]) {
 
 type SectionKey = keyof typeof publicSectionDesigns;
 
-export function DirectoryUserMenu({ email, isAdmin }: { email: string; isAdmin: boolean }) {
+export function DirectoryUserMenu({
+  email,
+  isAdmin,
+  canViewStatistics,
+}: {
+  email: string;
+  isAdmin: boolean;
+  canViewStatistics: boolean;
+}) {
   const pathname = usePathname();
   const { mode } = useThemeMode();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -110,6 +122,7 @@ export function DirectoryUserMenu({ email, isAdmin }: { email: string; isAdmin: 
     {
       dependencies: [
         activeSection,
+        canViewStatistics,
         highlightedSection,
         highlightedGradient,
         hoveredSection,
@@ -186,6 +199,19 @@ export function DirectoryUserMenu({ email, isAdmin }: { email: string; isAdmin: 
           onPreview={setHoveredSection}
           setItemRef={setItemRef}
         />
+        {canViewStatistics ? (
+          <DirectoryNavLink
+            href="/statistics"
+            label="Statistics"
+            icon={<StatisticsIcon />}
+            section="statistics"
+            isActive={activeSection === "statistics"}
+            isHighlighted={highlightedSection === "statistics"}
+            gradient={publicSectionDesigns.statistics[mode]}
+            onPreview={setHoveredSection}
+            setItemRef={setItemRef}
+          />
+        ) : null}
         {isAdmin ? (
           <DirectoryNavLink
             href="/admin/resources"
@@ -234,6 +260,7 @@ function getActiveSection(pathname: string): SectionKey | null {
   }
   if (pathname === "/resources" || pathname.startsWith("/resources/")) return "resources";
   if (pathname === "/scopes" || pathname.startsWith("/scopes/")) return "scopes";
+  if (pathname === "/statistics" || pathname.startsWith("/statistics/")) return "statistics";
   if (pathname === "/admin" || pathname.startsWith("/admin/")) return "administration";
   return null;
 }
@@ -325,6 +352,15 @@ function ScopeIcon(props: IconProps) {
       <path d="M5 5h14v5H5z" />
       <path d="M5 14h14v5H5z" />
       <path d="M8 7.5h.01M8 16.5h.01" />
+    </IconBase>
+  );
+}
+
+function StatisticsIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 20h16" />
+      <path d="M7 16v-5M12 16V6M17 16v-8" />
     </IconBase>
   );
 }
