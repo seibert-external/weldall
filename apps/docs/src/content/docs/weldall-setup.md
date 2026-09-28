@@ -5,7 +5,7 @@ sidebar:
   label: "How to: Set up Weldall"
 ---
 
-Running Weldall yourself means operating a single container. The image `docker.io/seibertmediagmbh/weldall` contains the authorization server and the administration interface; [Docker images](../docker/) covers tags, upgrades and the database. The image requires a PostgreSQL database, a defined set of environment variables, and a publicly reachable HTTPS URL. Once these requirements are met, the instance serves the web installer: it connects your identity provider and creates the first administrator account. [How to: Run the installer](../installer/) walks through it.
+Running Weldall yourself means operating a single container. The image `docker.io/seibertgroup/weldall` contains the authorization server and the administration interface; [Docker images](../docker/) covers tags, upgrades and the database. The image requires a PostgreSQL database, a defined set of environment variables, and a publicly reachable HTTPS URL. Once these requirements are met, the instance serves the web installer: it connects your identity provider and creates the first administrator account. [How to: Run the installer](../installer/) walks through it.
 
 This page assumes basic knowledge of Weldall. The [introduction](../) describes the product.
 
@@ -95,7 +95,7 @@ docker run -d --name weldall \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \
-  docker.io/seibertmediagmbh/weldall:X.Y.Z
+  docker.io/seibertgroup/weldall:X.Y.Z
 ```
 
 The container listens on port 3000. To build the image yourself, use the [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) in the repository root with BuildKit enabled, which current Docker versions do by default.

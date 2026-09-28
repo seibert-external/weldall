@@ -135,7 +135,7 @@ Die URL eines Cloud-Run-Dienstes steht schon vor der ersten Bereitstellung fest:
 WELDALL_URL="https://weldall-${PROJECT_NUMBER}.${REGION}.run.app"
 
 gcloud run deploy weldall --region "$REGION" \
-  --image "docker.io/seibertmediagmbh/weldall:${WELDALL_VERSION}" \
+  --image "docker.io/seibertgroup/weldall:${WELDALL_VERSION}" \
   --service-account "weldall-run@${PROJECT}.iam.gserviceaccount.com" \
   --port 3000 --cpu 1 --memory 1Gi \
   --min-instances 0 --max-instances 1 \
@@ -184,7 +184,7 @@ Führe die Testanmeldung des Installers zuerst mit leerem Feld **Allowed email d
 
 ```sh
 gcloud run deploy weldall-discovery-proxy --region "$REGION" \
-  --image "docker.io/seibertmediagmbh/discovery-proxy:${PROXY_VERSION}" \
+  --image "docker.io/seibertgroup/weldall-discovery-proxy:${PROXY_VERSION}" \
   --service-account "weldall-proxy-run@${PROJECT}.iam.gserviceaccount.com" \
   --port 8080 --cpu 1 --memory 256Mi \
   --min-instances 0 --max-instances 3 \
@@ -220,7 +220,7 @@ Stelle die neue Version bereit. Nur das Image ändert sich; alle anderen Einstel
 
 ```sh
 gcloud run deploy weldall --region "$REGION" \
-  --image "docker.io/seibertmediagmbh/weldall:${NEW_VERSION}"
+  --image "docker.io/seibertgroup/weldall:${NEW_VERSION}"
 ```
 
 Das Log der neuen Revision zeigt nur die neuen Migrationen, dann die Initialisierung und den Serverstart. Führe die Prüfungen aus [Schritt 7](#7-weldall-prüfen-und-installer-ausführen) erneut aus.
@@ -234,7 +234,7 @@ Stelle das Backup aus Schritt 9 wieder her und starte dann das vorige Image:
 ```sh
 gcloud sql backups restore BACKUP_ID --restore-instance weldall-db --backup-instance weldall-db
 gcloud run deploy weldall --region "$REGION" \
-  --image "docker.io/seibertmediagmbh/weldall:${WELDALL_VERSION}"
+  --image "docker.io/seibertgroup/weldall:${WELDALL_VERSION}"
 ```
 
 - Die Wiederherstellung ersetzt die gesamte Instanz durch den Stand des Backups. Anmeldungen, Änderungen in der Administration und Audit-Einträge nach dem Backup gehen verloren.
@@ -247,7 +247,7 @@ Der Proxy speichert nichts und ist unabhängig von Weldall. Du aktualisierst ihn
 ```sh
 NEW_PROXY_VERSION=0.1.2   # the version you upgrade to
 gcloud run deploy weldall-discovery-proxy --region "$REGION" \
-  --image "docker.io/seibertmediagmbh/discovery-proxy:${NEW_PROXY_VERSION}"
+  --image "docker.io/seibertgroup/weldall-discovery-proxy:${NEW_PROXY_VERSION}"
 
 gcloud run revisions list --service weldall-discovery-proxy --region "$REGION"
 gcloud run services update-traffic weldall-discovery-proxy --region "$REGION" \

@@ -5,7 +5,7 @@ sidebar:
   label: "How to: Weldall aufsetzen"
 ---
 
-Eine Weldall-Instanz wird als einzelner Container betrieben. Das Image `docker.io/seibertmediagmbh/weldall` enthält den Authorization Server und die Administrationsoberfläche; Tags, Upgrades und die Datenbank beschreibt [Docker-Images](../docker/). Das Image benötigt eine PostgreSQL-Datenbank, eine definierte Menge an Umgebungsvariablen und eine öffentlich erreichbare HTTPS-URL. Sind diese Voraussetzungen erfüllt, liefert die Instanz den Web-Installer aus: Er bindet deinen Identity Provider an und legt das erste Administratorkonto an. [How to: Installer ausführen](../installer/) beschreibt den Ablauf.
+Eine Weldall-Instanz wird als einzelner Container betrieben. Das Image `docker.io/seibertgroup/weldall` enthält den Authorization Server und die Administrationsoberfläche; Tags, Upgrades und die Datenbank beschreibt [Docker-Images](../docker/). Das Image benötigt eine PostgreSQL-Datenbank, eine definierte Menge an Umgebungsvariablen und eine öffentlich erreichbare HTTPS-URL. Sind diese Voraussetzungen erfüllt, liefert die Instanz den Web-Installer aus: Er bindet deinen Identity Provider an und legt das erste Administratorkonto an. [How to: Installer ausführen](../installer/) beschreibt den Ablauf.
 
 Diese Seite setzt Grundkenntnisse über Weldall voraus. Das Produkt beschreibt die [Einführung](../).
 
@@ -95,7 +95,7 @@ docker run -d --name weldall \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \
-  docker.io/seibertmediagmbh/weldall:X.Y.Z
+  docker.io/seibertgroup/weldall:X.Y.Z
 ```
 
 Der Container lauscht auf Port 3000. Um das Image selbst zu bauen, verwende die [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) im Repository-Stamm mit aktiviertem BuildKit; aktuelle Docker-Versionen nutzen es standardmäßig.

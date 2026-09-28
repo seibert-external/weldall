@@ -7,10 +7,10 @@ sidebar:
 
 Weldall is published as two independent Docker images. Most installations run only the Weldall image next to a PostgreSQL database. The discovery proxy is an optional second container for resource servers that cannot reach Weldall directly.
 
-| Image                                        | Contains                                                                       | Needed by                                                                                             |
-| -------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `docker.io/seibertmediagmbh/weldall`         | The Weldall server: authorization server, administration interface, installer. | Every installation.                                                                                   |
-| `docker.io/seibertmediagmbh/discovery-proxy` | An unprivileged Nginx that forwards only the Weldall metadata and JWKS.        | Only resource servers that cannot reach Weldall directly, see [Discovery proxy](../discovery-proxy/). |
+| Image                                            | Contains                                                                       | Needed by                                                                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `docker.io/seibertgroup/weldall`                 | The Weldall server: authorization server, administration interface, installer. | Every installation.                                                                                   |
+| `docker.io/seibertgroup/weldall-discovery-proxy` | An unprivileged Nginx that forwards only the Weldall metadata and JWKS.        | Only resource servers that cannot reach Weldall directly, see [Discovery proxy](../discovery-proxy/). |
 
 Both images are built for `linux/amd64`, run as non-root users, and have their own version numbers. A proxy release never changes the Weldall image, and vice versa.
 
@@ -62,7 +62,7 @@ Store the output in your secret manager, not in a file next to the deployment. G
 docker run -d --name weldall \
   -p 3000:3000 \
   --env-file weldall.env \
-  docker.io/seibertmediagmbh/weldall:X.Y.Z
+  docker.io/seibertgroup/weldall:X.Y.Z
 ```
 
 `weldall.env` holds `POSTGRES_URL`, `WELDALL_ISSUER` and the generated secrets. Run exactly one Weldall container, see [Why exactly one Weldall container](#why-exactly-one-weldall-container).
@@ -117,7 +117,7 @@ The discovery proxy keeps no state. Scale it as needed.
 docker run -d --name weldall-discovery-proxy \
   -p 8080:8080 \
   -e WELDALL_UPSTREAM=https://weldall.example.com \
-  docker.io/seibertmediagmbh/discovery-proxy:X.Y.Z
+  docker.io/seibertgroup/weldall-discovery-proxy:X.Y.Z
 ```
 
 - `WELDALL_UPSTREAM` is the public HTTPS URL of Weldall, without path, query or credentials. With a missing or invalid value, the container exits on start and names the variable.
