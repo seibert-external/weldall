@@ -9,7 +9,7 @@ name: Release Docker images
 # The tested bytes are what gets published: the image is built once, tested, saved as an
 # artifact, and only the publish job (guarded by the `release` environment) pushes. The
 # immutable commit-SHA tag is written and verified before any floating tag (X.Y.Z, X.Y,
-# latest) moves, and floating tags only ever move forward.
+# X, latest) moves, and floating tags only ever move forward.
 
 on:
   release:
@@ -94,7 +94,7 @@ jobs:
         id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       # Read-only lookup of what Docker Hub already serves, so a re-release of an older
-      # line never moves X.Y or latest backwards. A dry run reports the plan too.
+      # line never moves X.Y, X or latest backwards. A dry run reports the plan too.
       - name: Plan the floating tags against what Docker Hub already publishes
         id: plan
         env:

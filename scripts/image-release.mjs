@@ -70,20 +70,30 @@ export function compareVersions(left, right) {
   return 0;
 }
 
-// The exact version tag is always written. The floating tags only move forward:
-// X.Y follows the highest patch of that minor line and latest follows the highest
-// version overall, so re-releasing an older line never rolls a customer back.
+// The floating tags a release may carry besides its exact X.Y.Z tag: X.Y for the minor
+// line, X for the major line (a deployment pinned to X takes every release that is not
+// a major bump), and latest.
+export function floatingImageTags(version) {
+  const [major, minor] = version.split(".");
+  return [`${major}.${minor}`, major, "latest"];
+}
+
+// The exact version tag is always written. The floating tags only move forward: each
+// one follows the highest version of its line (X.Y, X, or all), so re-releasing an
+// older line never rolls a customer back.
 export function planImageTags(version, publishedVersions) {
   if (!versionPattern.test(version))
     throw new Error(`Expected an X.Y.Z version; got ${JSON.stringify(version)}`);
   const published = publishedVersions.filter((value) => versionPattern.test(value));
   const [major, minor] = version.split(".");
-  const sameMinor = published.filter((value) => value.startsWith(`${major}.${minor}.`));
   const isHighest = (candidates) =>
     candidates.every((candidate) => compareVersions(version, candidate) >= 0);
+  const [minorTag, majorTag, latestTag] = floatingImageTags(version);
   const tags = [version];
-  if (isHighest(sameMinor)) tags.push(`${major}.${minor}`);
-  if (isHighest(published)) tags.push("latest");
+  if (isHighest(published.filter((value) => value.startsWith(`${major}.${minor}.`))))
+    tags.push(minorTag);
+  if (isHighest(published.filter((value) => value.startsWith(`${major}.`)))) tags.push(majorTag);
+  if (isHighest(published)) tags.push(latestTag);
   return tags;
 }
 
@@ -167,9 +177,7 @@ async function planTags() {
   const version = argument("version");
   const published = await fetchPublishedVersions(repository);
   const tags = planImageTags(version, published);
-  const skipped = ["latest", version.split(".").slice(0, 2).join(".")].filter(
-    (tag) => !tags.includes(tag),
-  );
+  const skipped = floatingImageTags(version).filter((tag) => !tags.includes(tag));
   if (skipped.length > 0)
     console.log(
       `Not moving ${skipped.join(", ")}: ${repository} already publishes a higher version than ${version}`,

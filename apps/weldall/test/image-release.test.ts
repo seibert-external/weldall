@@ -59,24 +59,35 @@ describe("image release tags", () => {
 
 describe("floating tag plan", () => {
   it("writes every tag for the first or highest release", () => {
-    expect(planImageTags("0.1.0", [])).toEqual(["0.1.0", "0.1", "latest"]);
-    expect(planImageTags("1.0.0", ["0.9.9", "0.9.10"])).toEqual(["1.0.0", "1.0", "latest"]);
-    expect(planImageTags("1.2.3", ["1.2.3"])).toEqual(["1.2.3", "1.2", "latest"]);
+    expect(planImageTags("0.1.0", [])).toEqual(["0.1.0", "0.1", "0", "latest"]);
+    expect(planImageTags("1.0.0", ["0.9.9", "0.9.10"])).toEqual(["1.0.0", "1.0", "1", "latest"]);
+    expect(planImageTags("1.2.3", ["1.2.3"])).toEqual(["1.2.3", "1.2", "1", "latest"]);
+  });
+
+  it("adds the major tag to an image line that predates it", () => {
+    expect(planImageTags("0.5.2", ["0.5.1"])).toEqual(["0.5.2", "0.5", "0", "latest"]);
   });
 
   it("keeps latest on the newer line when an older line gets a patch", () => {
     expect(planImageTags("0.1.1", ["0.1.0", "0.2.0"])).toEqual(["0.1.1", "0.1"]);
   });
 
-  it("never moves X.Y or latest backwards", () => {
-    expect(planImageTags("0.1.0", ["0.1.1"])).toEqual(["0.1.0"]);
-    expect(planImageTags("0.1.9", ["0.1.10", "0.2.0"])).toEqual(["0.1.9"]);
+  it("keeps the major tag on the newer major when an older major gets a release", () => {
+    expect(planImageTags("1.4.1", ["1.4.0", "2.0.0"])).toEqual(["1.4.1", "1.4", "1"]);
+    expect(planImageTags("1.5.0", ["1.4.0", "2.0.0"])).toEqual(["1.5.0", "1.5", "1"]);
   });
 
-  it("ignores non-release tags such as commit SHAs and latest", () => {
-    expect(planImageTags("0.2.0", ["latest", "0.1", "abc123", "0.1.0"])).toEqual([
+  it("never moves X.Y, X or latest backwards", () => {
+    expect(planImageTags("0.1.0", ["0.1.1"])).toEqual(["0.1.0"]);
+    expect(planImageTags("0.1.9", ["0.1.10", "0.2.0"])).toEqual(["0.1.9"]);
+    expect(planImageTags("1.9.9", ["1.10.0"])).toEqual(["1.9.9", "1.9"]);
+  });
+
+  it("ignores non-release tags such as commit SHAs, X and latest", () => {
+    expect(planImageTags("0.2.0", ["latest", "0.1", "0", "abc123", "0.1.0"])).toEqual([
       "0.2.0",
       "0.2",
+      "0",
       "latest",
     ]);
   });
