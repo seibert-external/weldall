@@ -237,4 +237,11 @@ describe("release-docker-images workflow", () => {
     expect(pushedCheck).toBeGreaterThan(pushSha);
     expect(moveFloating).toBeGreaterThan(pushedCheck);
   });
+
+  it("copies the tested manifest onto floating tags instead of wrapping it in a new index", () => {
+    const publish = workflow.slice(workflow.indexOf("\n  publish:"));
+    const creates = publish.match(/docker buildx imagetools create[^\n]*/g) ?? [];
+    expect(creates.length).toBeGreaterThan(0);
+    for (const create of creates) expect(create).toContain("--prefer-index=false");
+  });
 });

@@ -240,10 +240,16 @@ jobs:
           digest="$(digest_of "$REPOSITORY:$SHA")"
           test -n "$digest"
           echo "Publishing $FLOATING_TAGS -> $digest"
+          # --prefer-index=false copies the single-platform manifest as is. The default
+          # wraps it in a new image index with its own digest, so the tag would no longer
+          # resolve to the tested digest.
           for tag in $(echo "$FLOATING_TAGS" | tr ',' ' '); do
-            docker buildx imagetools create --tag "$REPOSITORY:$tag" "$REPOSITORY@$digest"
+            docker buildx imagetools create --prefer-index=false --tag "$REPOSITORY:$tag" "$REPOSITORY@$digest"
             actual="$(digest_of "$REPOSITORY:$tag")"
-            test "$actual" = "$digest"
+            if [ "$actual" != "$digest" ]; then
+              echo "$REPOSITORY:$tag resolves to $actual, expected the tested $digest" >&2
+              exit 1
+            fi
             echo "$REPOSITORY:$tag -> $actual"
           done
 
