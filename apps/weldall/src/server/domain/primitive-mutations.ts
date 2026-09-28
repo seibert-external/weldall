@@ -103,14 +103,19 @@ export function normalizeMutationEmail(raw: string): string {
   return value;
 }
 
-export async function mutateScope(
-  tx: Prisma.TransactionClient,
+/** Applies one scope mutation while preserving references, versions, and audit history. */
+export async function mutateScope({
+  tx,
+  input,
+  actor,
+}: {
+  tx: Prisma.TransactionClient;
   input:
     | { action: "create"; key: string; description: string }
     | { action: "update"; id: string; description: string; expectedVersion: number }
-    | { action: "delete"; id: string; expectedVersion: number },
-  actor: MutationActor,
-): Promise<any> {
+    | { action: "delete"; id: string; expectedVersion: number };
+  actor: MutationActor;
+}): Promise<any> {
   if (input.action === "create") {
     const key = parseScopeKey(input.key);
     const description = parseDescription(input.description);
@@ -143,8 +148,12 @@ export async function mutateScope(
     await scopeAudit(tx, actor, "resource_scopes.replaced", current, updated);
     return updated;
   }
-  const [skill, resource, machine] = await Promise.all([
+  const [skill, connector, resource, machine] = await Promise.all([
     tx.skill.findFirst({ where: { requiredScopes: { has: current.key } }, select: { slug: true } }),
+    tx.connectorRequiredScope.findFirst({
+      where: { scopeId: current.id },
+      include: { connector: { select: { key: true } } },
+    }),
     tx.resourceScope.findFirst({
       where: { scopeId: current.id },
       include: { resource: { select: { key: true } } },
@@ -158,6 +167,11 @@ export async function mutateScope(
     throw new PrimitiveMutationError(
       "CONFLICT",
       `Scope ${current.key} is required by skill ${skill.slug}. Update that skill first.`,
+    );
+  if (connector)
+    throw new PrimitiveMutationError(
+      "CONFLICT",
+      `Scope ${current.key} is required by connector ${connector.connector.key}. Update that connector first.`,
     );
   if (resource)
     throw new PrimitiveMutationError(

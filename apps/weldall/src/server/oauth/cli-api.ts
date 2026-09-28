@@ -1,9 +1,9 @@
 import { db } from "@weldall/db";
-import { WeldallAuthError, inMemory, verifyEs256, verifyStrictDpop } from "@weldall/sdk";
+import { WeldallAuthError, verifyEs256, verifyStrictDpop } from "@weldall/sdk";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "./constants";
 import { getWeldallSigningKey } from "./jwt";
 
-const replay = inMemory({ suppressWarning: true });
+import { postgresReplayStore as replay } from "./replay";
 
 export async function authenticateCliApiRequest(
   request: Request,

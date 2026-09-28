@@ -92,7 +92,6 @@ it("encrypts with purpose and identity binding and protects setup token", () => 
 });
 it("shares the credential key without mixing credential purposes", () => {
   vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 3).toString("base64"));
-  vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION", "1");
   const oidc = seal("provider", "one", "oidc-secret");
   const attempt = seal("attempt", "one", "transient-secret");
   const group = { id: "one", ...encryptProviderToken("one", "group-token") };

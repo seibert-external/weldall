@@ -1,6 +1,9 @@
 export const AUDIT_EVENT_TYPES = [
   "login.installation.completed",
   "login.provider.saved",
+  "connector.configuration",
+  "connector.lifecycle",
+  "connector.request",
   "id_jag.issued",
   "id_jag.denied",
   "id_jag.failed",

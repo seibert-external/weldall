@@ -13,7 +13,6 @@ const originalKey = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
 
 afterEach(() => {
   process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY = originalKey;
-  delete process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION;
 });
 
 describe("management-api-v1 adapter", () => {

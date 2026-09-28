@@ -32,12 +32,11 @@ export function createPostgresReplayStore(): ReplayStore {
           });
       }
 
-      const inserted = await db.$executeRaw`
-        INSERT INTO "ReplayMarker" ("key", "expiresAt")
-        VALUES (${key}, ${expiresAt})
-        ON CONFLICT ("key") DO NOTHING
-      `;
-      return inserted === 1;
+      const inserted = await db.replayMarker.createMany({
+        data: [{ key, expiresAt }],
+        skipDuplicates: true,
+      });
+      return inserted.count === 1;
     },
   };
 }

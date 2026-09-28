@@ -1,5 +1,19 @@
 # @weldall/weldall
 
+## 0.3.0
+
+### Minor Changes
+
+- eecb200: Support OpenBao Transit envelope encryption for managed connectors and accept OPENBAO in declarative manifests. Keep OpenBao availability scoped to credential operations rather than administration or startup.
+
+## 0.2.0
+
+### Minor Changes
+
+- 0d18dd8: Add owner-managed Google connections for Gmail and Calendar, with encrypted server-side credential storage, administrator configuration through the UI and IaC, and CLI commands to connect, inspect, reconnect, disconnect, and proxy requests through Weldall.
+
+  Existing CLI workflows, including connector-free IaC, remain compatible with servers that do not support connectors. Connector commands and connector IaC declarations require the updated server.
+
 ## 0.1.0
 
 ### Minor Changes
