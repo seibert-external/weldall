@@ -45,6 +45,8 @@ const fetcher = vi.fn<typeof fetch>();
 let token: Record<string, unknown>;
 let resources: unknown[];
 let tokenStatus: number;
+let tokenText: string | undefined;
+let resourceStatus: number;
 const complete = () =>
   provider.completeAuthorization({
     config,
@@ -58,6 +60,8 @@ const grant = () => validateResources({ config, selection, credentials, resource
 
 beforeEach(() => {
   tokenStatus = 200;
+  tokenText = undefined;
+  resourceStatus = 200;
   token = {
     access_token: credentials.accessToken,
     refresh_token: credentials.refreshToken,
@@ -69,11 +73,12 @@ beforeEach(() => {
   fetcher.mockReset().mockImplementation(async (url) => {
     switch (String(url)) {
       case "https://auth.atlassian.com/oauth/token":
+        if (tokenText !== undefined) return new Response(tokenText, { status: tokenStatus });
         return Response.json(token, { status: tokenStatus });
       case "https://api.atlassian.com/me":
         return Response.json({ account_id: "account", name: "Owner" });
       case "https://api.atlassian.com/oauth/token/accessible-resources":
-        return Response.json(resources);
+        return Response.json(resources, { status: resourceStatus });
       default:
         throw new Error("Unexpected endpoint");
     }
@@ -292,13 +297,36 @@ describe("Atlassian authorization and rotation", () => {
     });
     expect(JSON.stringify(error)).not.toMatch(/private-|rotated-refresh/);
   });
-  it("marks invalid grants as authorization loss and does not retry uncertain server errors", async () => {
+  it("marks invalid grants as authorization loss and retries transient token failures", async () => {
     tokenStatus = 403;
     token = { error: "invalid_grant" };
     await expect(complete()).rejects.toMatchObject({ authorizationLost: true, retryable: false });
     tokenStatus = 503;
     token = { error: "server_error" };
-    await expect(complete()).rejects.toMatchObject({ authorizationLost: false, retryable: false });
+    await expect(complete()).rejects.toMatchObject({ authorizationLost: false, retryable: true });
+    tokenText = "temporary outage";
+    await expect(complete()).rejects.toMatchObject({ authorizationLost: false, retryable: true });
+  });
+  it("treats accessible-resources outages as transient grant verification failures", async () => {
+    resourceStatus = 503;
+    await expect(
+      provider.ensureGrantCurrent({ config, selection, credentials, previousGrant: grant() }),
+    ).rejects.toMatchObject({ code: "provider_unavailable", status: 502 });
+  });
+  it("persists rotated refresh credentials when post-refresh resource verification is transient", async () => {
+    token.refresh_token = "rotated-refresh";
+    resourceStatus = 503;
+    const result = await provider.refreshCredentials({
+      config,
+      secrets,
+      selection,
+      credentials,
+      previousGrant: grant(),
+    });
+    expect(result).toMatchObject({
+      credentials: { refreshToken: "rotated-refresh" },
+      grant: { cloudId: site },
+    });
   });
   it("rechecks upstream access even without a refresh", async () => {
     resources = [];

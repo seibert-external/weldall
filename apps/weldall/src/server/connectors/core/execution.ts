@@ -109,10 +109,11 @@ export async function executeConnectionRequest({
         previousGrant: provider.parseGrant(credentialState.providerGrant),
       });
     } catch (error) {
-      await db.connection.updateMany({
-        where: { id: initial.id, version: credentialState.version, status: "READY" },
-        data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
-      });
+      if (error instanceof ConnectorError && error.code === "grant_mismatch")
+        await db.connection.updateMany({
+          where: { id: initial.id, version: credentialState.version, status: "READY" },
+          data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
+        });
       throw error;
     }
     const upstreamUrl = provider.resolveUpstreamUrl({

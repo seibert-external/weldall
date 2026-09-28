@@ -48,7 +48,7 @@ import {
 import { googleProvider } from "../src/server/connectors/providers/google";
 import { getEnvelopeProvider } from "../src/server/connectors/envelope-providers";
 import { requiredScopes } from "../src/server/connectors/providers/google/setup";
-import { RejectedProviderCredentials } from "../src/server/connectors/errors";
+import { ConnectorError, RejectedProviderCredentials } from "../src/server/connectors/errors";
 import { createPostgresReplayStore } from "../src/server/oauth/replay";
 import { parseDesiredState } from "../src/server/iac/contracts";
 import { createPlan, loadPlanningState } from "../src/server/iac/planner";
@@ -1511,6 +1511,28 @@ describe.skipIf(!approvedTarget)(
       ).rejects.toThrow("not found");
       expect(fetcher).toHaveBeenCalledTimes(1);
       fresh.mockRestore();
+    });
+    it("keeps ready connections available after transient grant freshness failures", async () => {
+      const f = await ready();
+      vi.spyOn(googleProvider, "ensureGrantCurrent").mockRejectedValueOnce(
+        new ConnectorError("provider_unavailable", "Could not verify provider access.", 502),
+      );
+      const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [] }));
+      vi.stubGlobal("fetch", fetcher);
+      await expect(
+        executeConnectionRequest({
+          request: new Request(`https://weldall.example.com/connectors/${f.key}`, {
+            headers: {
+              "x-weldall-connection": f.id,
+              "x-weldall-upstream-url": "https://www.googleapis.com/calendar/v3/users/me/events",
+            },
+          }),
+          actor,
+          connectorKey: f.key,
+        }),
+      ).rejects.toMatchObject({ code: "provider_unavailable", status: 502 });
+      expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe("READY");
+      expect(fetcher).not.toHaveBeenCalled();
     });
     it("fails closed on unknown providers, unsafe origins, rate limits and authentication failures", async () => {
       const f = await ready();

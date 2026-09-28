@@ -31,6 +31,14 @@ async function readJson(response: Response, signal: AbortSignal) {
     Buffer.from(await readBoundedBody({ response, maximum: 256_000, signal })).toString("utf8"),
   ) as unknown;
 }
+function transientTokenFailure(value: unknown, status: number) {
+  return (
+    status === 429 ||
+    status >= 500 ||
+    z.object({ error: z.enum(["temporarily_unavailable", "server_error"]) }).safeParse(value)
+      .success
+  );
+}
 /** All credential-bearing requests use fixed reviewed endpoints and reject redirects. */
 export async function getAtlassianJson(
   path: "/me" | "/oauth/token/accessible-resources",
@@ -44,7 +52,13 @@ export async function getAtlassianJson(
   });
   if (!response.ok) {
     await response.body?.cancel();
-    throw new ConnectorError("grant_unavailable", "Could not verify Atlassian access.", 502);
+    throw new ConnectorError(
+      response.status === 401 || response.status === 403
+        ? "grant_mismatch"
+        : "provider_unavailable",
+      "Could not verify Atlassian access.",
+      502,
+    );
   }
   return readJson(response, signal);
 }
@@ -63,11 +77,18 @@ export async function exchangeToken(body: Record<string, string>, requestedScope
     redirect: "error",
     signal,
   });
-  const value = await readJson(response, signal);
+  let value: unknown;
+  try {
+    value = await readJson(response, signal);
+  } catch {
+    if (!response.ok && (response.status === 429 || response.status >= 500))
+      throw new ProviderTokenError({ authorizationLost: false, retryable: true });
+    throw new ProviderTokenError({ authorizationLost: false });
+  }
   if (!response.ok)
     throw new ProviderTokenError({
       authorizationLost: z.object({ error: z.literal("invalid_grant") }).safeParse(value).success,
-      retryable: response.status === 429,
+      retryable: transientTokenFailure(value, response.status),
     });
   const parsed = tokenSchema.safeParse(value);
   if (!parsed.success || parsed.data.token_type.toLowerCase() !== "bearer") {

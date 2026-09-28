@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { RejectedProviderCredentials } from "../../errors";
+import { ConnectorError, RejectedProviderCredentials } from "../../errors";
 import type { ConnectorProvider } from "../../provider";
 import {
   atlassianConfigSchema,
@@ -150,7 +150,9 @@ export const atlassianProvider = {
           expectedCloudId: parseGrant(previousGrant).cloudId,
         }),
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof ConnectorError && error.code === "provider_unavailable")
+        return { credentials: next, grant: parseGrant(previousGrant) };
       throw new RejectedProviderCredentials({ credentials: next });
     }
   },
