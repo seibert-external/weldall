@@ -27,7 +27,7 @@ describe("image release tags", () => {
     });
     expect(parseImageReleaseTag("@weldall/discovery-proxy@0.1.0")).toMatchObject({
       packageName: "@weldall/discovery-proxy",
-      image: "discovery-proxy",
+      image: "weldall-discovery-proxy",
       version: "0.1.0",
       context: "apps/discovery-proxy",
       dockerfile: "apps/discovery-proxy/Dockerfile",
@@ -108,7 +108,10 @@ describe("image check", () => {
   };
 
   it("indexes every unit by image name with its entrypoint", () => {
-    expect(Object.keys(imageReleaseUnitsByImage).sort()).toEqual(["discovery-proxy", "weldall"]);
+    expect(Object.keys(imageReleaseUnitsByImage).sort()).toEqual([
+      "weldall",
+      "weldall-discovery-proxy",
+    ]);
     for (const unit of Object.values(imageReleaseUnits)) expect(unit.entrypoint).not.toEqual([]);
   });
 
