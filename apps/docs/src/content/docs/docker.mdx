@@ -1,0 +1,134 @@
+---
+title: Docker images
+description: Run Weldall and the discovery proxy from the published Docker Hub images, and upgrade them safely.
+sidebar:
+  label: Docker images
+---
+
+Weldall is published as two independent Docker images. Most installations run only the Weldall image next to a PostgreSQL database. The discovery proxy is an optional second container for resource servers that cannot reach Weldall directly.
+
+| Image                                        | Contains                                                                       | Needed by                                                                                             |
+| -------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `docker.io/seibertmediagmbh/weldall`         | The Weldall server: authorization server, administration interface, installer. | Every installation.                                                                                   |
+| `docker.io/seibertmediagmbh/discovery-proxy` | An unprivileged Nginx that forwards only the Weldall metadata and JWKS.        | Only resource servers that cannot reach Weldall directly, see [Discovery proxy](../discovery-proxy/). |
+
+Both images are built for `linux/amd64`, run as non-root users, and have their own version numbers. A proxy release never changes the Weldall image, and vice versa.
+
+## Tags and versions
+
+Each release publishes these tags:
+
+| Tag                   | Points to                                      |
+| --------------------- | ---------------------------------------------- |
+| `X.Y.Z`, e.g. `0.1.1` | Exactly this release. Never moved.             |
+| `X.Y`, e.g. `0.1`     | The newest patch release of this line.         |
+| `latest`              | The newest release overall.                    |
+| Git commit SHA        | The image built from this commit. Never moved. |
+
+Pin a full `X.Y.Z` tag in production and change it deliberately. `X.Y` and `latest` move with every release; a restart can then silently start a newer version that runs new database migrations. Every published tag points to an image that passed the release tests before it was published.
+
+The version numbers follow Semantic Versioning. The release notes of each version are on the [GitHub releases page](https://github.com/seibert-external/weldall/releases) under the tags `@weldall/weldall@X.Y.Z` and `@weldall/discovery-proxy@X.Y.Z`.
+
+## Weldall container
+
+### Requirements
+
+- **PostgreSQL 16.** Weldall stores its configuration, audit records and replay markers there. The image contains no database; you operate PostgreSQL yourself or use a managed service. Releases are tested against PostgreSQL 16.
+- **A database user that may change the schema.** The container applies database migrations on every start, see [Start-up](#start-up-migrations-and-initialization). The user needs to create and alter tables, indexes and types in the `public` schema of the Weldall database. In practice: make the user the owner of the database.
+- **A public HTTPS URL**, set as `WELDALL_ISSUER`. Terminate TLS in front of the container; the container itself listens on plain HTTP on port 3000.
+- **The configuration from [How to: Set up Weldall](../weldall-setup/#environment-variables).** The container refuses to start if a required variable is missing and names the variable in its log.
+
+### Generate the secrets
+
+The secrets only need Node.js. Without a repository checkout, run the generator in a Node container:
+
+```sh
+docker run --rm node:24-slim node -e '
+const { generateKeyPairSync, randomBytes, randomUUID } = require("node:crypto");
+const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+console.log(`BETTER_AUTH_SECRET=${randomBytes(32).toString("base64url")}`);
+console.log(`WELDALL_SETUP_TOKEN=${randomBytes(32).toString("base64url")}`);
+console.log(`WELDALL_CREDENTIAL_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}`);
+console.log(`WELDALL_SIGNING_PRIVATE_JWK=${JSON.stringify(privateKey.export({ format: "jwk" }))}`);
+console.log(`WELDALL_SIGNING_PUBLIC_JWK=${JSON.stringify(publicKey.export({ format: "jwk" }))}`);
+console.log(`WELDALL_SIGNING_KID=${randomUUID()}`);'
+```
+
+Store the output in your secret manager, not in a file next to the deployment. Generate the values once and keep them for the life of the installation: a new signing key invalidates issued identity assertions, and a new encryption key makes the stored provider credentials unreadable.
+
+### Run
+
+```sh
+docker run -d --name weldall \
+  -p 3000:3000 \
+  --env-file weldall.env \
+  docker.io/seibertmediagmbh/weldall:X.Y.Z
+```
+
+`weldall.env` holds `POSTGRES_URL`, `WELDALL_ISSUER` and the generated secrets. Run exactly one Weldall container, see [Why exactly one Weldall container](#why-exactly-one-weldall-container).
+
+### Start-up: migrations and initialization
+
+Every start runs three steps in this order:
+
+1. `prisma migrate deploy` applies all database migrations the database does not have yet. A fresh database receives all of them, an upgrade only the new ones. Prisma records applied migrations in the table `_prisma_migrations`.
+2. Deployment initialization creates the required default records and refreshes the published skill catalogs.
+3. The server starts and answers on port 3000.
+
+If step 1 or 2 fails, the container exits with a non-zero code and the server does not start. Typical causes are an unreachable database (Prisma error `P1001`), a user without schema permissions, or a database that already contains conflicting tables (`P3005`, `P3018`). The log names the failing migration. Fix the cause and start the container again; Prisma continues with the migrations that are still missing.
+
+### Health check
+
+The image declares a Docker `HEALTHCHECK` on `GET /.well-known/openid-configuration`. The first start runs all migrations and can take longer than later starts; the check allows 30 seconds before it counts failures.
+
+Platforms that ignore the Docker `HEALTHCHECK`, for example Kubernetes and Cloud Run, need their own startup and liveness probes on the same path and port 3000. Give the startup probe enough time for the migrations of an upgrade.
+
+## Upgrades and rollbacks
+
+An upgrade can change the database schema. Before every upgrade:
+
+1. **Take a database backup.** Do it directly before the upgrade; everything written after the backup is lost if you restore it.
+2. Change the image tag to the new `X.Y.Z` and restart the container. The new version applies its migrations on start.
+3. Check the log for `All migrations have been successfully applied.` or `No pending migrations to apply.`, followed by the server start.
+
+:::caution[A rollback does not undo migrations]
+Starting an older image does not remove the migrations a newer version applied. The older version starts without a warning and reports `No pending migrations to apply.`, because it does not know the newer migrations. If the newer version changed or removed a column, the older version fails later, on the first request that touches it.
+
+To roll back safely, restore the database backup from before the upgrade **and** start the older image.
+:::
+
+Upgrade the discovery proxy independently. It stores nothing, so you can switch its version back and forth without further steps.
+
+## Why exactly one Weldall container
+
+Part of the replay protection is kept in the memory of the Weldall process: DPoP proofs sent to the Weldall CLI API are remembered only there. A second Weldall container would not see the proofs the first one accepted, so a captured proof could be replayed against the other container.
+
+Run exactly one Weldall container. Weldall does not enforce this itself. The consequences:
+
+- While the container restarts, for example during an upgrade, Weldall is unavailable. Employees see failed logins, and resource servers cannot fetch new keys until the container is back.
+- Platforms that start the new version before stopping the old one run two processes for a short time. The window is limited to the switch-over.
+- High availability with several Weldall containers is not supported.
+
+The discovery proxy keeps no state. Scale it as needed.
+
+## Discovery proxy container
+
+```sh
+docker run -d --name weldall-discovery-proxy \
+  -p 8080:8080 \
+  -e WELDALL_UPSTREAM=https://weldall.example.com \
+  docker.io/seibertmediagmbh/discovery-proxy:X.Y.Z
+```
+
+- `WELDALL_UPSTREAM` is the public HTTPS URL of Weldall, without path, query or credentials. With a missing or invalid value, the container exits on start and names the variable.
+- The proxy listens on plain HTTP on port 8080. Terminate TLS in front of it; resource servers must reach it over HTTPS.
+- It verifies the TLS certificate of `WELDALL_UPSTREAM` against the public CA bundle of the image.
+- Only `GET /.well-known/oauth-authorization-server` and `GET /api/oauth/jwks` are forwarded, unchanged. Every other path answers `404`, other methods `405`.
+- It has no health endpoint of its own. Use a TCP check on port 8080; an HTTP check on a forwarded path would also fail whenever Weldall is down.
+
+Run Weldall and the proxy as separate containers. They share nothing except the URL the proxy points to.
+
+## Next steps
+
+- [How to: Deploy on Google Cloud](../google-cloud/) walks through both containers on Cloud Run with Cloud SQL.
+- [How to: Run the installer](../installer/) connects your identity provider after the first start.

@@ -5,7 +5,7 @@ sidebar:
   label: "How to: Weldall aufsetzen"
 ---
 
-Eine Weldall-Instanz wird als einzelner Container betrieben. Das Repository enthält eine [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile), die den Authorization Server und die Administrationsoberfläche zu einem Image baut. Das Image benötigt eine PostgreSQL-Datenbank, eine definierte Menge an Umgebungsvariablen und eine öffentlich erreichbare HTTPS-URL. Sind diese Voraussetzungen erfüllt, liefert die Instanz den Web-Installer aus: Er bindet deinen Identity Provider an und legt das erste Administratorkonto an. [How to: Installer ausführen](../installer/) beschreibt den Ablauf.
+Eine Weldall-Instanz wird als einzelner Container betrieben. Das Image `docker.io/seibertmediagmbh/weldall` enthält den Authorization Server und die Administrationsoberfläche; Tags, Upgrades und die Datenbank beschreibt [Docker-Images](../docker/). Das Image benötigt eine PostgreSQL-Datenbank, eine definierte Menge an Umgebungsvariablen und eine öffentlich erreichbare HTTPS-URL. Sind diese Voraussetzungen erfüllt, liefert die Instanz den Web-Installer aus: Er bindet deinen Identity Provider an und legt das erste Administratorkonto an. [How to: Installer ausführen](../installer/) beschreibt den Ablauf.
 
 Diese Seite setzt Grundkenntnisse über Weldall voraus. Das Produkt beschreibt die [Einführung](../).
 
@@ -67,7 +67,7 @@ Optionale Variablen – wenn du OpenBao nicht nutzt, lass die beiden OpenBao-Var
 
 ## Secrets erzeugen
 
-Signaturschlüssel und Secrets erzeugt das Repository:
+Ohne Checkout des Repositorys erzeugst du die Secrets mit dem Befehl unter [Docker-Images](../docker/#secrets-erzeugen). Mit Checkout erzeugt sie das Repository:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -80,13 +80,11 @@ Der Befehl gibt Umgebungszeilen für den gesamten Workspace aus. Für den Contai
 Lass den Rest der Ausgabe weg: `WELDALL_DEPLOYMENT_MODE=development`, `NODE_USE_SYSTEM_CA`, `DEV_IDP_*`, `EXPENSES_*` und `DEV_M2M_*` gehören zum lokalen Entwicklungsstack. Der Container verlangt `WELDALL_DEPLOYMENT_MODE=production` und startet mit keinem anderen Wert.
 :::
 
-## Bauen und starten
+## Starten
 
-Das Image wird aus der [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) im Repository-Stamm gebaut und anschließend mit der jeweiligen Konfiguration gestartet:
+Starte das veröffentlichte Image mit der Konfiguration. Ersetze `X.Y.Z` durch die Version, die du installierst; die Tags erklärt [Docker-Images](../docker/#tags-und-versionen):
 
 ```sh
-docker build -t weldall .
-
 docker run -d --name weldall \
   -p 3000:3000 \
   -e POSTGRES_URL=postgresql://user:password@db:5432/weldall \
@@ -97,10 +95,10 @@ docker run -d --name weldall \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \
-  weldall
+  docker.io/seibertmediagmbh/weldall:X.Y.Z
 ```
 
-Der Container lauscht auf Port 3000. Alternativ kann eine Container-Plattform die Dockerfile direkt aus dem Repository bauen; auf diesem Weg wird auch die Produktionsinstanz bereitgestellt.
+Der Container lauscht auf Port 3000. Um das Image selbst zu bauen, verwende die [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) im Repository-Stamm mit aktiviertem BuildKit; aktuelle Docker-Versionen nutzen es standardmäßig.
 
 ## Installer ausführen
 
