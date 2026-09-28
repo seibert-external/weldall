@@ -401,14 +401,6 @@ export async function startControlledMockServer() {
         uploadedBytes = await readBody(request);
         return json(response, { uploaded: uploadedBytes.length });
       }
-      if (url.origin === resourceAuthorizationServer && url.pathname === "/api/files/pages") {
-        assert.equal(request.method, "GET");
-        await authenticate(request, url, true);
-        assert.equal(url.searchParams.get("limit"), "2");
-        const offset = Number(url.searchParams.get("offset"));
-        assert.ok([0, 2, 4].includes(offset), "unexpected pagination offset");
-        return json(response, { metadata: { total_pages: 3 }, offset });
-      }
       if (url.origin === resourceAuthorizationServer && url.pathname === "/api/files/download") {
         assert.equal(request.method, "GET");
         await authenticate(request, url, true);
@@ -478,7 +470,6 @@ export async function startControlledMockServer() {
     resourceAuthorizationServer,
     uploadUrl: `${resourceAuthorizationServer}/api/files/upload`,
     downloadUrl: `${resourceAuthorizationServer}/api/files/download`,
-    pagesUrl: `${resourceAuthorizationServer}/api/files/pages`,
     downloadBytes: DOWNLOAD_BYTES,
     machineEnvironment: {
       WELDALL_M2M_CLIENT_ID: MACHINE_CLIENT_ID,

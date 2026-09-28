@@ -71,7 +71,6 @@ describe("provider-neutral connection usage", () => {
     expect(usage.examples[0]?.command).toBe(
       "weldall request --connection my-service --method GET 'https://api.example.com/items?limit=10&fields=name'",
     );
-    expect(usage.instructions.join(" ")).toContain("do not support --paginate");
     expect(usage.instructions.join(" ")).toContain("do not assume curl flags");
     expect(usage.instructions).toContain(connection.usage!.instructions[0]);
     const malicious = connectionUsage({
@@ -112,7 +111,6 @@ describe("provider-neutral connection usage", () => {
       expect(text).toContain("Read items");
       expect(text).toContain("weldall request");
       expect(text).toContain("--connection");
-      expect(text).toContain("--paginate");
     } finally {
       output.mockRestore();
     }

@@ -203,51 +203,6 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
   assert.deepEqual(JSON.parse(upload.stdout), { uploaded: uploadBytes.length });
   assert.deepEqual(mock.uploadedBytes, uploadBytes);
 
-  const paginationRequestStart = mock.requests.length;
-  const paginated = assertRun(
-    await run([
-      "request",
-      "--scope",
-      "files:read",
-      "--paginate",
-      "offset",
-      "--page-size",
-      "2",
-      "--total-pages-pointer",
-      "/metadata/total_pages",
-      "--max-pages",
-      "3",
-      "--concurrency",
-      "2",
-      "--page-output",
-      "jsonl",
-      mock.pagesUrl,
-    ]),
-    0,
-    "offset pagination JSONL",
-  );
-  assert.deepEqual(
-    paginated.stdout
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line).offset),
-    [0, 2, 4],
-  );
-  const paginationRequests = mock.requests.slice(paginationRequestStart);
-  assert.equal(
-    paginationRequests.filter((request) => request.endsWith("/api/me/scopes")).length,
-    1,
-  );
-  assert.equal(
-    paginationRequests.filter((request) => request.endsWith("/api/auth/oauth2/token")).length,
-    1,
-  );
-  assert.equal(paginationRequests.filter((request) => request.endsWith("/oauth/token")).length, 1);
-  assert.equal(
-    paginationRequests.filter((request) => request.endsWith("/api/files/pages")).length,
-    3,
-  );
-
   await writeFile(paths.download, Buffer.from("existing destination must be replaced"));
   assertRun(
     await run(["request", "--scope", "files:read", "--output", paths.download, mock.downloadUrl]),

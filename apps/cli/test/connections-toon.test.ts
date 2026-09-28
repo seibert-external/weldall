@@ -84,6 +84,8 @@ describe("managed connection TOON output", () => {
     expect(rows(output)).toHaveLength(2);
     expect(output).toContain("openid|calendar.events");
     expect(output).toContain("https://weldall.example.com");
+    expect(output).toContain("Provider-specific usage hints");
+    expect(output).toContain("showCommand");
     expect(output).not.toContain("requestPrefix");
   });
 
@@ -99,21 +101,67 @@ describe("managed connection TOON output", () => {
     expect(output).not.toContain("version");
   });
 
-  it("encodes connector scope catalogs as compact table cells", () => {
-    const output = encodeConnectorsToon([connector()]);
+  it("encodes connector scopes, connection states, and usage discovery", () => {
+    const output = encodeConnectorsToon({
+      connectors: [
+        connector(),
+        connector({ key: "atlassian", name: "Atlassian", type: "atlassian" }),
+        connector({ key: "notion", name: "Notion", type: "notion" }),
+      ],
+      connections: [
+        connection(),
+        connection({
+          id: "connection-2",
+          name: "my-atlassian",
+          connectorKey: "atlassian",
+          status: "RECONNECT_REQUIRED",
+        }),
+        connection({
+          id: "connection-3",
+          name: "old-notion",
+          connectorKey: "notion",
+          status: "DISCONNECTED",
+        }),
+      ],
+    });
     const decoded = decode(output, { delimiter: "\t" }) as {
-      connectors: Array<{ key: string; scopes: string; defaultScopes: string }>;
+      usageHints: string;
+      connectors: Array<{
+        key: string;
+        connectionState: string;
+        connections: string;
+        scopes: string;
+        defaultScopes: string;
+      }>;
+      connections: Array<{ name: string; status: string; showCommand: string }>;
     };
 
+    expect(decoded.usageHints).toContain("weldall connections show <connection-name> --agentic");
     expect(decoded.connectors).toEqual([
-      {
+      expect.objectContaining({
         key: "google",
-        name: "Google Workspace",
-        type: "google",
+        connectionState: "CONNECTED",
+        connections: "my-google",
         scopes: "openid|calendar.events",
         defaultScopes: "calendar.events",
-      },
+      }),
+      expect.objectContaining({
+        key: "atlassian",
+        connectionState: "NEEDS_ATTENTION",
+        connections: "my-atlassian",
+      }),
+      expect.objectContaining({
+        key: "notion",
+        connectionState: "NOT_CONNECTED",
+        connections: "",
+      }),
     ]);
+    expect(decoded.connections).toHaveLength(2);
+    expect(decoded.connections[1]).toMatchObject({
+      name: "my-atlassian",
+      status: "RECONNECT_REQUIRED",
+      showCommand: "weldall connections show my-atlassian --agentic",
+    });
   });
 
   it("keeps complete scope arrays on a single connection", () => {
@@ -152,9 +200,18 @@ describe("managed connection TOON output", () => {
   });
 
   it("uses the canonical empty-array representation", () => {
-    expect(encodeConnectionsToon({ connections: [], issuer: "https://weldall.example.com" })).toBe(
-      "connections: []\n",
-    );
-    expect(encodeConnectorsToon([])).toBe("connectors: []\n");
+    const connections = decode(
+      encodeConnectionsToon({ connections: [], issuer: "https://weldall.example.com" }),
+      { delimiter: "\t" },
+    ) as { connections: unknown[]; usageHints: string };
+    const connectors = decode(encodeConnectorsToon({ connectors: [], connections: [] }), {
+      delimiter: "\t",
+    }) as { connectors: unknown[]; connections: unknown[]; usageHints: string };
+
+    expect(connections.connections).toEqual([]);
+    expect(connections.usageHints).toContain("connections show");
+    expect(connectors.connectors).toEqual([]);
+    expect(connectors.connections).toEqual([]);
+    expect(connectors.usageHints).toContain("connections show");
   });
 });
