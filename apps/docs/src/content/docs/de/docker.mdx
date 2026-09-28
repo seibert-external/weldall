@@ -22,10 +22,11 @@ Jedes Release veröffentlicht diese Tags:
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `X.Y.Z`, z. B. `0.1.1` | Genau dieses Release. Wird nie verschoben.                                                                                        |
 | `X.Y`, z. B. `0.1`     | Das neueste Patch-Release dieser Linie.                                                                                           |
+| `X`, z. B. `0`         | Das neueste Release dieser Major-Version, also jedes Release, das kein Major-Sprung ist.                                          |
 | `latest`               | Das neueste Release insgesamt.                                                                                                    |
 | Git-Commit-SHA         | Das Image, das aus diesem Commit gebaut wurde. Wird nur verschoben, wenn ein fehlgeschlagenes Release erneut veröffentlicht wird. |
 
-Pinne in Produktion ein vollständiges `X.Y.Z`-Tag und ändere es bewusst. `X.Y` und `latest` wandern mit jedem Release; ein Neustart kann dann unbemerkt eine neuere Version starten, die neue Datenbankmigrationen ausführt. Jedes veröffentlichte Tag zeigt auf ein Image, das vor der Veröffentlichung die Release-Tests bestanden hat.
+Pinne in Produktion ein vollständiges `X.Y.Z`-Tag und ändere es bewusst. `X.Y`, `X` und `latest` wandern mit jedem Release; ein Neustart kann dann unbemerkt eine neuere Version starten, die neue Datenbankmigrationen ausführt. Jedes veröffentlichte Tag zeigt auf ein Image, das vor der Veröffentlichung die Release-Tests bestanden hat. Vor Version 1.0 bietet das `X`-Tag nicht mehr Stabilität als `latest`: Solange jede Version mit `0.` beginnt, kann auch ein Minor-Release Breaking Changes enthalten.
 
 Die Versionsnummern folgen Semantic Versioning. Die Release-Notes jeder Version stehen auf der [GitHub-Release-Seite](https://github.com/seibert-external/weldall/releases) unter den Tags `@weldall/weldall@X.Y.Z` und `@weldall/discovery-proxy@X.Y.Z`.
 
