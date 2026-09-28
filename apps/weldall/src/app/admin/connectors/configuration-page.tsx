@@ -12,6 +12,7 @@ import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { MultiSelector } from "@astryxdesign/core/MultiSelector";
 import { EnvelopeProviderField } from "./envelope-provider-field";
+import { ConnectorDialog } from "./provider-dialog";
 import { Switch } from "@astryxdesign/core/Switch";
 import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
@@ -219,6 +220,7 @@ export function ManagedConfiguration() {
       />
       {editingConnector !== undefined ? (
         <ConnectorDialog
+          googleDialog={GoogleConnectorDialog}
           key={editingConnector?.id ?? "new"}
           connector={editingConnector}
           scopeOptions={scopeOptionsQuery.data ?? []}
@@ -337,14 +339,18 @@ function ManagedTable({
 }
 
 /** Collects and validates connector configuration before the admin mutation is submitted. */
-function ConnectorDialog({
+export function GoogleConnectorDialog({
   connector,
   scopeOptions,
   onClose,
   onDelete,
   onSaved,
 }: {
-  connector: ConnectorRow | null;
+  connector:
+    | (Omit<ConnectorRow, "config"> & {
+        config: Extract<ConnectorRow["config"], { type: "google" }>;
+      })
+    | null;
   scopeOptions: ScopeOption[];
   onClose: () => void;
   onDelete: (connector: ConnectorRow) => void;

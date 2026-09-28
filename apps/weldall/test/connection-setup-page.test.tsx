@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Page from "../src/app/connections/setup/[id]/page";
 import { ScopeChoices, SetupForm } from "../src/app/connections/setup/[id]/setup-form";
 import type { ScopeDescriptor } from "../src/server/connectors/display";
@@ -45,7 +45,9 @@ const attempt = {
   selection: { scopes: [selectedScope] },
 };
 
+afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
+  vi.clearAllMocks();
   mocks.useQuery.mockReturnValue({ isPending: false, error: null, data: attempt });
   mocks.useMutation.mockReturnValue({ isPending: false, error: null, mutate: vi.fn() });
 });
@@ -86,6 +88,48 @@ describe("connection setup presentation", () => {
     expect(inputs[2]).toContain('checked=""');
   });
 
+  it("renders provider-owned single choices without interpreting their keys", () => {
+    mocks.useQuery.mockReturnValue({
+      isPending: false,
+      data: {
+        ...attempt,
+        selection: { ...attempt.selection, target: "second" },
+        choices: [
+          {
+            key: "target",
+            label: "Target",
+            description: "Choose a target",
+            options: [
+              { value: "first", label: "First" },
+              { value: "second", label: "Second" },
+            ],
+          },
+        ],
+      },
+    });
+    const html = renderToStaticMarkup(<SetupForm id="attempt" />);
+    expect(html).toContain("Choose a target");
+    expect(html).toContain('value="second" selected=""');
+    expect(html).toContain('value="first"');
+  });
+  it("preserves opaque provider selection fields when submitting scopes", async () => {
+    mocks.useQuery.mockReturnValue({
+      isPending: false,
+      data: { ...attempt, selection: { ...attempt.selection, target: "second" } },
+    });
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(Response.json({ url: "https://provider.example.com/authorize" }));
+    const assign = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    vi.stubGlobal("window", { location: { assign } });
+    renderToStaticMarkup(<SetupForm id="attempt" />);
+    await mocks.useMutation.mock.calls[0]![0].mutationFn();
+    expect(JSON.parse(fetcher.mock.calls[0]![1].body)).toEqual({
+      selection: { scopes: [selectedScope], target: "second" },
+    });
+    expect(assign).toHaveBeenCalledWith("https://provider.example.com/authorize");
+  });
   it("shows a loading message without a form", () => {
     mocks.useQuery.mockReturnValue({ isPending: true });
     const html = renderToStaticMarkup(<SetupForm id="attempt" />);

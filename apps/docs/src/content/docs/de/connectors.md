@@ -1,11 +1,11 @@
 ---
 title: Connectors
-description: Google-APIs im Namen der angemeldeten Person aufrufen.
+description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person aufrufen.
 ---
 
 Connectors rufen einen Dienst **im Namen der nutzenden Person** auf. Jede Person verbindet ihr eigenes Konto und gibt den Zugriff frei. Weldall speichert die Zugangsdaten verschlüsselt auf dem Server und führt die Aufrufe aus; Provider-Tokens gelangen nie in die CLI.
 
-Google ist derzeit der einzige unterstützte Connector-OAuth-Client. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. Connectors sind für persönliche, selbst freigegebene Zugriffe gedacht – nicht als Voraussetzung für jede Integration.
+Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. Connectors sind für persönliche, selbst freigegebene Zugriffe gedacht – nicht als Voraussetzung für jede Integration.
 
 ## Google einrichten
 
@@ -24,9 +24,37 @@ Gib beim Verbinden den Kalenderzugriff frei, um dieses Beispiel zu nutzen. Conne
 
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 
+## Atlassian Cloud einrichten
+
+### 1. OAuth-App konfigurieren
+
+Erstelle eine **ressourcenbezogene OAuth-2.0-Integration (3LO)** in der [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/). Aktiviere die Freigabe, die benötigten Jira- oder Confluence-Berechtigungen und die User Identity API (`read:me`). Hinterlege `https://weldall.example.com/api/connectors/atlassian/callback` mit deiner Weldall-Domain als Callback. Weldall fordert `read:me` und `offline_access` automatisch an.
+
+### 2. Unternehmens-Sites freigeben
+
+Trage unter **Admin → Connectors → Atlassian Cloud** Client-ID und Client-Secret ein, wähle Produkte und Berechtigungen und aktiviere den Connector. Ergänze die erlaubten Site-Cloud-IDs. Die jeweilige `cloudId` findest du unter `https://your-site.atlassian.net/_edge/tenant_info`.
+
+### 3. Konto verbinden
+
+Für einen Connector namens `company-jira`:
+
+```sh
+weldall connections connect company-jira --name my-jira
+weldall request --connection my-jira \
+  https://api.atlassian.com/ex/jira/CLOUD_ID/rest/api/3/myself
+```
+
+Wähle auf Atlassians Freigabeseite eine Site. Weldall prüft sie gegen die Allowlist. Jede weitere Site benötigt eine eigene Verbindung. `weldall connections show my-jira` zeigt die Site-ID, fertige Request-Beispiele und Hinweise zur Paginierung. Mit `--agentic` erhältst du die Ausgabe für Agenten.
+
+Requests verwenden `api.atlassian.com`, nicht die Domain der Site. Für Confluence-Seiten lautet der Pfad `/ex/confluence/CLOUD_ID/wiki/api/v2/pages`.
+
+:::note[Verbindung entfernen]
+`weldall connections disconnect my-jira` entfernt die Verbindung aus Weldall. Um den Atlassian-Zugriff zu widerrufen, entferne die App in deinen [Atlassian-Kontoeinstellungen](https://id.atlassian.com/manage-profile/apps). Das kann weitere Verbindungen derselben App betreffen.
+:::
+
 ## Anfragelimits
 
-Weldall erlaubt **60 Anfragen pro Verbindung innerhalb eines 60-Sekunden-Zeitfensters**. Ist das Limit erreicht, antwortet Weldall mit HTTP `429`, bevor OpenBao oder Google kontaktiert werden. Anfragen, die diese Prüfung passieren, zählen auch dann, wenn sie später fehlschlagen. Das ist ein Limit von Weldall; die API-Limits von Google gelten zusätzlich.
+Weldall erlaubt **60 Anfragen pro Verbindung innerhalb eines 60-Sekunden-Zeitfensters**. Ist das Limit erreicht, antwortet Weldall mit HTTP `429`, bevor OpenBao oder der Provider kontaktiert werden. Anfragen, die diese Prüfung passieren, zählen auch dann, wenn sie später fehlschlagen. Das ist ein Limit von Weldall; die API-Limits des Providers gelten zusätzlich.
 
 Pro Person sind außerdem höchstens **10 offene, noch nicht abgelaufene Verbindungsversuche** erlaubt, über alle Connectoren hinweg. Jeder Versuch ist zehn Minuten gültig. Brich unbenötigte Versuche ab oder warte, bis sie abgelaufen sind, bevor du einen weiteren startest.
 

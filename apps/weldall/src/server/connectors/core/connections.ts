@@ -818,6 +818,7 @@ export async function cancelAuthorizationAttempt({
       409,
     );
   let expectedStatus = a.status;
+  let revocationUnsupported = false;
   if (["NEEDS_REVOCATION", "REVOCATION_PENDING"].includes(a.status) && a.payloadId) {
     const payloadId = a.payloadId;
     const value = attemptPayload.parse(
@@ -849,7 +850,8 @@ export async function cancelAuthorizationAttempt({
           secrets: readConnectorSecrets(a.connector),
           credentials: value.credentials,
         });
-        if (remote.status !== "revoked")
+        revocationUnsupported = remote.status === "unsupported";
+        if (remote.status !== "revoked" && !revocationUnsupported)
           throw new ConnectorError(
             "revocation_unconfirmed",
             "Provider revocation is unconfirmed.",
@@ -886,9 +888,17 @@ export async function cancelAuthorizationAttempt({
       actor,
       event: "lifecycle",
       subjectId: id,
-      operation: "authorization.cancelled",
+      operation: revocationUnsupported
+        ? "authorization.cancelled_revocation_unsupported"
+        : "authorization.cancelled",
     });
   });
+  return revocationUnsupported
+    ? {
+        message:
+          "Setup removed from Weldall. Provider revocation is unsupported; remove access in provider account settings. This may affect other connections using the same application.",
+      }
+    : {};
 }
 /** Decrypts only owner-authorized state and delegates credential validation to its provider. */
 async function readStoredCredentials({

@@ -147,6 +147,11 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           <DetailValue label="Provider account ID">
             <code>{connection.accountId}</code>
           </DetailValue>
+          {connection.details?.map((detail) => (
+            <DetailValue key={detail.label} label={detail.label}>
+              {detail.value}
+            </DetailValue>
+          ))}
         </dl>
       </section>
       <hr className="border-border m-0 border-0 border-t" />

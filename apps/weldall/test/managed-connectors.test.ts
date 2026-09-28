@@ -132,7 +132,7 @@ describe("managed provider boundaries", () => {
       { ...config, provider: { ...providerConfig, clientSecret: "secret" } },
     ])
       expect(connectorConfig.safeParse(value).success).toBe(false);
-    for (const type of ["atlassian", "__proto__", "constructor", "Google", ""])
+    for (const type of ["unknown", "__proto__", "constructor", "Google", ""])
       expect(() => getConnectorProvider(type)).toThrow("Unsupported provider");
   });
   it("requires every configured Weldall scope while leaving empty policies unrestricted", () => {

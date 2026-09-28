@@ -6,6 +6,7 @@ import { parseDocument } from "yaml";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { CliError } from "../errors.js";
 import { isRecord } from "../http.js";
+import { validateAtlassianConfiguration, canonicalAtlassianConfiguration } from "./atlassian.js";
 
 export const MANIFEST_VERSION = "weldall.dev/v1";
 export const MANIFEST_FILE = "weldall.yml";
@@ -310,12 +311,16 @@ function validatePrimitive({
     validateText({ field: "name", max: 200 });
     if (object.envelopeProvider !== "LOCAL_ENV" && object.envelopeProvider !== "OPENBAO")
       throw new CliError("Envelope provider must be LOCAL_ENV or OPENBAO");
-    if (object.type !== "google" || typeof object.enabled !== "boolean")
+    if (
+      !["google", "atlassian"].includes(String(object.type)) ||
+      typeof object.enabled !== "boolean"
+    )
       throw new CliError("Invalid connector type or enabled flag");
     const requiredScopes = validateStringList({ field: "requiredScopes" });
     if (!requiredScopes.every((scope) => /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/.test(scope)))
       throw new CliError("Invalid connectors.requiredScopes");
-    validateGoogleConfiguration(object.provider);
+    if (object.type === "atlassian") validateAtlassianConfiguration(object.provider);
+    else validateGoogleConfiguration(object.provider);
   } else if (section === "scopes") {
     validateText({
       field: "key",
@@ -545,7 +550,9 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
             ...value,
             requiredScopes: canonicalSet(value.requiredScopes),
             provider: {
-              ...value.provider,
+              ...(value.type === "atlassian"
+                ? canonicalAtlassianConfiguration(value.provider)
+                : value.provider),
               allowedScopes: canonicalSet(value.provider.allowedScopes),
               defaultScopes: canonicalSet(value.provider.defaultScopes),
             },

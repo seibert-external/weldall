@@ -518,7 +518,7 @@ describe("provider-neutral connection guidance", () => {
       "Delete a managed connection after best-effort provider revocation",
     );
     expect(await renderConnectionHelp(["connections", "cancel", "--help"])).toContain(
-      "Cancel an attempt and revoke any retained unused provider grant",
+      "Cancel an attempt and clean up its unused provider grant where supported",
     );
   });
   it("rejects managed pagination without prescribing a provider's cursor scheme", async () => {
