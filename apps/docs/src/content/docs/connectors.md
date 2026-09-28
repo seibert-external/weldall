@@ -54,7 +54,7 @@ Requests use `api.atlassian.com`, not the site's own domain. For Confluence page
 
 ## Request limits
 
-Weldall allows **60 requests per connection in each 60-second window**. Once that limit is reached, it returns HTTP `429` before contacting OpenBao or the provider. Requests that pass this check still count if they later fail. This is Weldall's limit; The provider's API limits apply separately.
+Weldall allows **60 requests per connection in each 60-second window**. Once that limit is reached, it returns HTTP `429` before contacting OpenBao or the provider. Requests that pass this check still count if they later fail. This is Weldall's limit; the provider's API limits apply separately.
 
 You can also have up to **10 open, unexpired connection-setup attempts per user**, across all connectors. Each attempt is valid for ten minutes. Cancel unused attempts or wait for them to expire before starting another.
 

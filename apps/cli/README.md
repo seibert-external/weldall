@@ -92,11 +92,11 @@ weldall state mv scope.old scope.new
 
 These commands appear in `weldall --help` only while `WELDALL_M2M_CLIENT_ID`, `WELDALL_M2M_KID`, and the `WELDALL_M2M_PRIVATE_JWK`/`WELDALL_M2M_PUBLIC_JWK` pair are set, because a browser login never makes them usable.
 
-## Managed Google connections
+## Managed connections
 
 Connector commands and connector IaC declarations require a server with managed-connector support. Upgrading the CLI does not require upgrading the server for existing login, scopes, skills, `request --scope`, or connector-free IaC workflows.
 
-Provider credentials stay encrypted on Weldall, never in the CLI. Connect once and use the same owner-only connection from any signed-in device. Browser setup must use the initiating Weldall account; optional permissions can be unticked before Google consent.
+Provider credentials stay encrypted on Weldall, never in the CLI. Connect once and use the same owner-only connection from any signed-in device. Browser setup must use the initiating Weldall account; optional permissions can be unticked before provider consent.
 
 ```sh
 weldall connectors
@@ -109,6 +109,8 @@ weldall connections disconnect my-google
 ```
 
 These commands use the existing Weldall API session, not downstream token exchange. Use `--connection` without `--scope`; normal resource requests still require `--scope`. Google pagination uses `pageToken` in subsequent provider URLs, not `--paginate offset`. Connector transfers use bounded buffering up to 10 MiB. Arbitrary paths and query parameters are accepted only on server-reviewed Google origins; Google authorizes operations using the exact granted scopes. The CLI sends the provider URL as untrusted metadata to Weldall, never as a direct authenticated fetch target. Disconnect blocks requests, attempts provider revocation, then always deletes the connection and encrypted retry material so its name can be reused immediately. It exits nonzero and directs the user to Google account settings if revocation is unconfirmed. Google revocation may affect other authorizations for the same account/client.
+
+Atlassian Cloud connectors support Jira and Confluence through `api.atlassian.com` gateway URLs. Admins configure resource-level OAuth credentials, allowed cloud IDs, products, and product scopes in the UI or IaC. Users authorize one allowed site per connection, and `connections show` includes provider-generated request examples and pagination guidance. Atlassian does not offer targeted token revocation for one connection, so disconnect deletes the Weldall connection locally and prints the provider-account cleanup warning instead of failing the cleanup.
 
 `connections status <attempt-id>` recovers setup status after interruption; `connections cancel <attempt-id>` cancels or retries cleanup of an unused grant. `connections show <name-or-id>` reports selected/granted permissions and health. Administrative deletion is local-only and does not revoke provider access; ask owners to disconnect first when best-effort revocation is desired. Connection lists render as terminal tables by default. Connector discovery renders one card per connector with grouped permission descriptions and the signed-in owner's current connections. Use `--json` for stable machine-readable data or `--agentic` for compact TOON. `show` and `status` support the same output flags. Existing Weldall login/session storage is unchanged.
 

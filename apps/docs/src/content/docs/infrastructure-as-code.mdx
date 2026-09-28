@@ -143,6 +143,47 @@ machines:
 
 Only public machine keys belong in the manifest.
 
+Managed connectors can also be declared in YAML. The manifest carries only public policy; OAuth client secrets are entered in the administration UI and are never accepted by the CLI. `envelopeProvider` is immutable after creation. Google connectors list exact Google OAuth scopes. Atlassian Cloud connectors must use resource-level grants, at least one allowed Jira or Confluence product scope, and at least one allowed site `cloudId`.
+
+```yaml
+connectors:
+  google:
+    key: google
+    name: Google Workspace
+    type: google
+    enabled: true
+    envelopeProvider: LOCAL_ENV
+    requiredScopes: []
+    provider:
+      clientId: google-client-id.apps.googleusercontent.com
+      allowedScopes:
+        - https://www.googleapis.com/auth/calendar.readonly
+      defaultScopes:
+        - https://www.googleapis.com/auth/calendar.readonly
+  company_jira:
+    key: company-jira
+    name: Company Jira
+    type: atlassian
+    enabled: true
+    envelopeProvider: OPENBAO
+    requiredScopes:
+      - jira:use
+    provider:
+      clientId: atlassian-client-id
+      grantType: resource
+      products:
+        - jira
+      allowedCloudIds:
+        - 8594f221-9797-5f78-1fa4-485e198d7cd0
+      allowedScopes:
+        - read:jira-work
+        - read:jira-user
+      defaultScopes:
+        - read:jira-work
+```
+
+Connector manifests can be planned and applied like any other object. Manual UI edits to managed connector policy appear as drift, while provider secrets remain outside the manifest.
+
 The CLI welcome page logo can be managed as a singleton setting. An empty URL removes the company logo:
 
 ```yaml
