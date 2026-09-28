@@ -13,7 +13,7 @@ This guide deploys Weldall as a Cloud Run service with one instance, stores its 
 
 - A Google Cloud project with billing enabled, and the Owner role in it.
 - [Cloud Shell](https://cloud.google.com/shell). It has `gcloud`, `node` and `jq` preinstalled; every command below runs there.
-- The Weldall version you want to run, for example `0.1.1`. The available versions are on the [GitHub releases page](https://github.com/seibert-external/weldall/releases).
+- The Weldall version you want to run, for example `0.5.1`. The available versions are on the [GitHub releases page](https://github.com/seibert-external/weldall/releases).
 - Access to your identity provider to create an OIDC client, see [How to: Run the installer](../installer/).
 
 Set these variables once per Cloud Shell session:
@@ -22,7 +22,7 @@ Set these variables once per Cloud Shell session:
 PROJECT=your-project-id
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT" --format="value(projectNumber)")
 REGION=europe-west3
-WELDALL_VERSION=0.1.1
+WELDALL_VERSION=0.5.1
 PROXY_VERSION=0.1.1
 gcloud config set project "$PROJECT"
 ```
@@ -150,6 +150,7 @@ gcloud run deploy weldall --region "$REGION" \
 - `--max-instances 1` keeps Weldall to one instance. [Docker images](../docker/#why-exactly-one-weldall-container) explains why, and [Availability](#availability-with-one-instance) what it means on Cloud Run.
 - Cloud Run ignores the Docker `HEALTHCHECK`. The startup probe gives the first start four minutes for the migrations; the liveness probe restarts a hanging instance.
 - `--allow-unauthenticated` makes Weldall reachable for browsers, the CLI and resource servers. Cloud Run provides the HTTPS certificate for the `run.app` URL. The installer stays closed to anyone without the setup token.
+- Cloud Run pulls public Docker Hub images without credentials and pins the image digest per revision. A moving tag such as `0.5` or `latest` therefore does not change a running service; only the next `gcloud run deploy` resolves it again.
 - `--min-instances 0` lets Cloud Run stop the instance when idle. The first request afterwards waits for a cold start of a few seconds. `--min-instances 1` avoids that and is billed continuously.
 
 ## 7. Verify Weldall and run the installer
@@ -211,7 +212,7 @@ Resource servers use `$PROXY_URL` as `discoveryProxyOrigin` and keep `$WELDALL_U
 Take a backup directly before the upgrade and note its ID:
 
 ```sh
-NEW_VERSION=0.1.2   # the version you upgrade to
+NEW_VERSION=0.5.2   # the version you upgrade to
 gcloud sql backups create --instance weldall-db --description "before Weldall ${NEW_VERSION}"
 gcloud sql backups list --instance weldall-db --limit 3
 ```

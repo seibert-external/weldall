@@ -18,12 +18,12 @@ Both images are built for `linux/amd64`, run as non-root users, and have their o
 
 Each release publishes these tags:
 
-| Tag                   | Points to                                      |
-| --------------------- | ---------------------------------------------- |
-| `X.Y.Z`, e.g. `0.1.1` | Exactly this release. Never moved.             |
-| `X.Y`, e.g. `0.1`     | The newest patch release of this line.         |
-| `latest`              | The newest release overall.                    |
-| Git commit SHA        | The image built from this commit. Never moved. |
+| Tag                   | Points to                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `X.Y.Z`, e.g. `0.1.1` | Exactly this release. Never moved.                                                     |
+| `X.Y`, e.g. `0.1`     | The newest patch release of this line.                                                 |
+| `latest`              | The newest release overall.                                                            |
+| Git commit SHA        | The image built from this commit. Moves only when a failed release is published again. |
 
 Pin a full `X.Y.Z` tag in production and change it deliberately. `X.Y` and `latest` move with every release; a restart can then silently start a newer version that runs new database migrations. Every published tag points to an image that passed the release tests before it was published.
 

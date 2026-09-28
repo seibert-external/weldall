@@ -18,12 +18,12 @@ Beide Images sind für `linux/amd64` gebaut, laufen ohne Root-Rechte und haben e
 
 Jedes Release veröffentlicht diese Tags:
 
-| Tag                    | Zeigt auf                                                           |
-| ---------------------- | ------------------------------------------------------------------- |
-| `X.Y.Z`, z. B. `0.1.1` | Genau dieses Release. Wird nie verschoben.                          |
-| `X.Y`, z. B. `0.1`     | Das neueste Patch-Release dieser Linie.                             |
-| `latest`               | Das neueste Release insgesamt.                                      |
-| Git-Commit-SHA         | Das Image, das aus diesem Commit gebaut wurde. Wird nie verschoben. |
+| Tag                    | Zeigt auf                                                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `X.Y.Z`, z. B. `0.1.1` | Genau dieses Release. Wird nie verschoben.                                                                                        |
+| `X.Y`, z. B. `0.1`     | Das neueste Patch-Release dieser Linie.                                                                                           |
+| `latest`               | Das neueste Release insgesamt.                                                                                                    |
+| Git-Commit-SHA         | Das Image, das aus diesem Commit gebaut wurde. Wird nur verschoben, wenn ein fehlgeschlagenes Release erneut veröffentlicht wird. |
 
 Pinne in Produktion ein vollständiges `X.Y.Z`-Tag und ändere es bewusst. `X.Y` und `latest` wandern mit jedem Release; ein Neustart kann dann unbemerkt eine neuere Version starten, die neue Datenbankmigrationen ausführt. Jedes veröffentlichte Tag zeigt auf ein Image, das vor der Veröffentlichung die Release-Tests bestanden hat.
 
