@@ -27,11 +27,11 @@ export async function GET(request: Request, context: Context) {
 /** Cancels one CLI caller's authorization attempt and performs required provider cleanup. */
 export async function DELETE(request: Request, context: Context) {
   try {
-    await cancelAuthorizationAttempt({
+    const result = await cancelAuthorizationAttempt({
       actor: await authenticateConnectorActor({ request }),
       id: (await context.params).id,
     });
-    return createJsonResponse({ cancelled: true });
+    return createJsonResponse({ cancelled: true, ...result });
   } catch (error) {
     return createConnectorErrorResponse(error);
   }

@@ -55,6 +55,7 @@ export function ScopeChoices({
 /** Drives the browser step that confirms scopes before redirecting to provider authorization. */
 export function SetupForm({ id }: { id: string }) {
   const [selected, setSelected] = useState<string[] | null>(null);
+  const [choices, setChoices] = useState<Record<string, string>>({});
   const query = useQuery({
     queryKey: ["connection-setup", id],
     retry: false,
@@ -72,7 +73,13 @@ export function SetupForm({ id }: { id: string }) {
       const response = await fetch(`/api/connectors/setup/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-weldall-csrf": "1" },
-        body: JSON.stringify({ selection: { scopes: selected ?? query.data?.selection?.scopes } }),
+        body: JSON.stringify({
+          selection: {
+            ...query.data?.selection,
+            ...choices,
+            scopes: selected ?? query.data?.selection?.scopes,
+          },
+        }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error_description);
@@ -108,6 +115,26 @@ export function SetupForm({ id }: { id: string }) {
             You are about to connect an account to {attempt.connector.name} in Weldall CLI.
           </Text>
         </VStack>
+        {attempt.choices?.map((choice) => (
+          <label key={choice.key} className="flex flex-col gap-2">
+            <Text type="label">{choice.label}</Text>
+            <select
+              required
+              value={choices[choice.key] ?? String(attempt.selection?.[choice.key] ?? "")}
+              onChange={(event) =>
+                setChoices((prior) => ({ ...prior, [choice.key]: event.target.value }))
+              }
+              className="rounded border p-2"
+            >
+              {choice.options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <Text color="secondary">{choice.description}</Text>
+          </label>
+        ))}
         <ScopeChoices
           scopes={attempt.scopes}
           selected={selected ?? attempt.selection?.scopes ?? []}

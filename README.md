@@ -37,7 +37,7 @@ Weldall CLI is a central access layer between **employees with their agents (lik
 
 Capabilities are defined centrally by administrators. Agents discover what they are allowed to do via the Weldall CLI. Each employee's agent gets its own skill set from the catalog, so you steer what your agents can do centrally and roll out the same workflows consistently across the company.
 
-Built-in [managed Google connections](apps/cli/README.md#managed-google-connections) add owner-only Gmail and Calendar access: provider tokens stay encrypted on Weldall, and users choose optional permissions during setup. Non-secret connector settings and the immutable envelope-provider choice support both the admin UI and IaC.
+Built-in [managed connections](apps/cli/README.md#managed-connections) add owner-only Google Workspace, Jira, and Confluence access: provider tokens stay encrypted on Weldall, and users choose the configured permissions during setup. Non-secret connector settings and the immutable envelope-provider choice support both the admin UI and IaC.
 
 The **agent never sees an access token.** The local CLI keeps credentials in the operating system's secure credential store and sends short-lived, device-bound (DPoP) requests itself. Captured tokens cannot be replayed on another machine, and every granted or denied request is recorded for audit.
 

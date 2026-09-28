@@ -23,6 +23,11 @@ export interface ConnectorSummary {
   defaultScopes: string[];
 }
 
+export interface ConnectionUsage {
+  instructions: string[];
+  examples: { label: string; method: string; url: string }[];
+}
+
 export interface ConnectionSummary {
   id: string;
   ownerId: string;
@@ -30,6 +35,8 @@ export interface ConnectionSummary {
   name: string;
   accountId: string;
   accountName: string;
+  details?: { label: string; value: string }[];
+  usage?: ConnectionUsage;
   selectedScopes: string[];
   grantedScopes: string[];
   status: string;
@@ -67,6 +74,38 @@ const isStringArray = (value: unknown): value is string[] =>
 const isNullableString = (value: unknown): value is string | null =>
   value === null || typeof value === "string";
 
+const isUsageUrl = (value: unknown): value is string => {
+  if (
+    typeof value !== "string" ||
+    value.length > 8000 ||
+    /[\u0000-\u0020\u007F-\u009F]/.test(value)
+  )
+    return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+  } catch {
+    return false;
+  }
+};
+/** Validate optional guidance without teaching the CLI any provider's URL or scope rules. */
+export const isConnectionUsage = (value: unknown): value is ConnectionUsage =>
+  isRecord(value) &&
+  isStringArray(value.instructions) &&
+  value.instructions.length <= 20 &&
+  value.instructions.every((instruction) => instruction.length <= 2000) &&
+  Array.isArray(value.examples) &&
+  value.examples.length <= 20 &&
+  value.examples.every(
+    (example) =>
+      isRecord(example) &&
+      typeof example.label === "string" &&
+      example.label.length <= 200 &&
+      typeof example.method === "string" &&
+      /^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/.test(example.method) &&
+      isUsageUrl(example.url),
+  );
+
 /** Validates the credential-free connection contract before CLI rendering or persistence. */
 export const isConnectionSummary = (value: unknown): value is ConnectionSummary =>
   isRecord(value) &&
@@ -76,6 +115,13 @@ export const isConnectionSummary = (value: unknown): value is ConnectionSummary 
   typeof value.name === "string" &&
   typeof value.accountId === "string" &&
   typeof value.accountName === "string" &&
+  (value.details === undefined ||
+    (Array.isArray(value.details) &&
+      value.details.every(
+        (detail) =>
+          isRecord(detail) && typeof detail.label === "string" && typeof detail.value === "string",
+      ))) &&
+  (value.usage === undefined || isConnectionUsage(value.usage)) &&
   isStringArray(value.selectedScopes) &&
   isStringArray(value.grantedScopes) &&
   typeof value.status === "string" &&

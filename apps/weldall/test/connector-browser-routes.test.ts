@@ -16,7 +16,8 @@ vi.mock("../src/server/connectors/core/connections", () => ({
   submitScopeSelection: mocks.submitScopeSelection,
   getAuthorizationAttempt: mocks.getAuthorizationAttempt,
 }));
-import { GET as callback } from "../src/app/api/connectors/google/callback/route";
+import { GET as googleCallback } from "../src/app/api/connectors/google/callback/route";
+import { GET as atlassianCallback } from "../src/app/api/connectors/atlassian/callback/route";
 import { POST as submit } from "../src/app/api/connectors/setup/[id]/route";
 import { WELDALL_ISSUER } from "../src/server/oauth/constants";
 import { EnvelopeEncryptionError } from "../src/server/connectors/envelope-errors";
@@ -26,10 +27,6 @@ const session = {
   session: { id: "authenticated-browser-session" },
 };
 const context = { params: Promise.resolve({ id: "attempt" }) };
-const callbackRequest = (query = "state=state&code=code") =>
-  new Request(`${WELDALL_ISSUER}/api/connectors/google/callback?${query}`, {
-    headers: { cookie: "signed-session-cookie", "sec-fetch-site": "cross-site" },
-  });
 const setupRequest = (body: unknown = { selection: { scopes: ["openid"] } }) =>
   new Request(`${WELDALL_ISSUER}/api/connectors/setup/attempt`, {
     method: "POST",
@@ -51,14 +48,29 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe("connector browser authentication", () => {
+describe.each([
+  ["google", googleCallback],
+  ["atlassian", atlassianCallback],
+] as const)("%s callback route authentication (mocked HTTP, no browser)", (type, callback) => {
+  const callbackRequest = (query = "state=state&code=code") =>
+    new Request(`${WELDALL_ISSUER}/api/connectors/${type}/callback?${query}`, {
+      headers: { cookie: "signed-session-cookie", "sec-fetch-site": "cross-site" },
+    });
+  it.each(["state=a&state=b&code=c", "state=a&code=b&code=c", "code=c"])(
+    "rejects ambiguous callback parameters: %s",
+    async (query) => {
+      const response = await callback(callbackRequest(query));
+      expect(response.headers.get("location")).toMatch(/\/failed$/);
+      expect(mocks.completeConnection).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     ["missing or expired session", null],
     ["unverified user", { ...session, user: { ...session.user, emailVerified: false } }],
   ])("rejects callbacks with %s before claiming state", async (_label, value) => {
     mocks.getSession.mockResolvedValue(value);
     const request = new Request(
-      `${WELDALL_ISSUER}/api/connectors/google/callback?state=state&code=code`,
+      `${WELDALL_ISSUER}/api/connectors/${type}/callback?state=state&code=code`,
     );
     const response = await callback(request);
     expect(response.status).toBe(303);

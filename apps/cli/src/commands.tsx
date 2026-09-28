@@ -7,6 +7,11 @@ import {
   encodeConnectorsToon,
   encodeDisconnectToon,
 } from "./connections-toon.js";
+import {
+  CONNECTION_REQUEST_INSTRUCTIONS,
+  connectionUsage,
+  withConnectionUsage,
+} from "./connection-usage.js";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
 import { CliError } from "./errors.js";
 import { responseValue } from "./http.js";
@@ -957,13 +962,21 @@ function ConnectionRequestGuide({ includeSetup = false }: { includeSetup?: boole
         <Text dimColor>Request: </Text>
         weldall request --connection &lt;connection-name-or-id&gt; &lt;provider-https-url&gt;
       </Text>
-      <Text dimColor>Run `weldall request --help` for methods, headers, and request bodies.</Text>
+      <Text>
+        Run `weldall connections show &lt;connection-name&gt;` for provider details and request
+        examples.
+      </Text>
+      {CONNECTION_REQUEST_INSTRUCTIONS.slice(1).map((instruction) => (
+        <Text key={instruction} dimColor>
+          {instruction}
+        </Text>
+      ))}
     </Card>
   );
 }
 
 /** Prints one connection's credential-free details for a human CLI user. */
-const printConnectionDetails = (connection: ConnectionSummary) => {
+export const printConnectionDetails = (connection: ConnectionSummary) => {
   const fields: Array<readonly [string, string]> = [
     ["Name", connection.name],
     ["Connection ID", connection.id],
@@ -978,8 +991,23 @@ const printConnectionDetails = (connection: ConnectionSummary) => {
     ["Created", formatShortTimestamp(connection.createdAt)],
     ["Updated", formatShortTimestamp(connection.updatedAt)],
   ];
+  for (const detail of connection.details ?? [])
+    fields.push([terminalText(detail.label), detail.value]);
   if (connection.revocationError) fields.push(["Revocation error", connection.revocationError]);
   printFields({ fields, title: "Connection" });
+  const usage = connectionUsage(connection);
+  printFields({
+    title: "Make provider requests",
+    fields: [
+      ...usage.instructions.map(
+        (instruction, index) => [`Hint ${index + 1}`, instruction] as const,
+      ),
+      ...usage.examples.map(
+        (example, index) =>
+          [`${index + 1}. ${terminalText(example.label)}`, example.command] as const,
+      ),
+    ],
+  });
 };
 
 /** Prints one interrupted setup attempt for human CLI recovery. */
@@ -1013,7 +1041,7 @@ export const printConnections = async ({
     return;
   }
   if (asJson) {
-    jsonOutput(connections);
+    jsonOutput(connections.map(withConnectionUsage));
     return;
   }
   if (connections.length === 0) {
@@ -1129,7 +1157,7 @@ const connectCommand = define({
     });
     if (values.agentic)
       process.stdout.write(encodeConnectionDetailToon({ connection, issuer: config.issuer }));
-    else if (values.json) jsonOutput(connection);
+    else if (values.json) jsonOutput(withConnectionUsage(connection));
     else {
       success(`Connected ${terminalText(connection.name)}.`);
       printConnectionDetails(connection);
@@ -1155,7 +1183,7 @@ const reconnectCommand = define({
     });
     if (values.agentic)
       process.stdout.write(encodeConnectionDetailToon({ connection, issuer: config.issuer }));
-    else if (values.json) jsonOutput(connection);
+    else if (values.json) jsonOutput(withConnectionUsage(connection));
     else {
       success(`Reconnected ${terminalText(connection.name)}.`);
       printConnectionDetails(connection);
@@ -1165,7 +1193,7 @@ const reconnectCommand = define({
 
 const showConnectionCommand = define({
   name: "show",
-  description: "Show one connection's permissions and health",
+  description: "Show one connection's permissions, provider details, and request examples",
   args: { connection: connectionSelector, json: jsonArgument, agentic: agenticArgument },
   examples:
     "weldall connections show my-google\nweldall connections show my-google --json\nweldall connections show my-google --agentic",
@@ -1175,7 +1203,7 @@ const showConnectionCommand = define({
     const connection = await showConnection({ config, selector: values.connection });
     if (values.agentic)
       process.stdout.write(encodeConnectionDetailToon({ connection, issuer: config.issuer }));
-    else if (values.json) jsonOutput(connection);
+    else if (values.json) jsonOutput(withConnectionUsage(connection));
     else printConnectionDetails(connection);
   },
 });
@@ -1225,7 +1253,7 @@ const connectionStatusCommand = define({
 
 const cancelConnectionCommand = define({
   name: "cancel",
-  description: "Cancel an attempt and revoke any retained unused provider grant",
+  description: "Cancel an attempt and clean up its unused provider grant where supported",
   args: { attempt: attemptSelector, json: jsonArgument },
   examples:
     "weldall connections cancel <attempt-id>\nweldall connections cancel <attempt-id> --json",
@@ -1236,6 +1264,16 @@ const cancelConnectionCommand = define({
       method: "DELETE",
     });
     if (values.json) jsonOutput(result);
+    else if (
+      result &&
+      typeof result === "object" &&
+      "message" in result &&
+      typeof result.message === "string"
+    )
+      warning({
+        message: `Cancelled setup attempt ${terminalText(values.attempt)}.`,
+        hint: result.message,
+      });
     else success(`Cancelled setup attempt ${terminalText(values.attempt)}.`);
   },
 });

@@ -6,6 +6,7 @@ import type {
   DisconnectResult,
 } from "./services/connections.js";
 import { TOON_OPTIONS, joined } from "./toon.js";
+import { connectionShowCommand, connectionUsage } from "./connection-usage.js";
 
 /**
  * Projects one connection to the selectors and exact scopes agents can act on. Owner IDs, database
@@ -27,6 +28,7 @@ const buildConnectionRow = ({
   issuer,
   requestCount: connection.requestCount,
   lastUsedAt: connection.lastUsedAt ?? "",
+  showCommand: `${connectionShowCommand(connection.name)} --agentic`,
 });
 
 /** Encodes connection selectors and scopes for compact agent-oriented CLI output. */
@@ -70,6 +72,8 @@ export function encodeConnectionDetailToon({
   return encode(
     {
       ...buildConnectionRow({ connection, issuer }),
+      ...(connection.details ? { details: connection.details } : {}),
+      usage: connectionUsage(connection),
       selectedScopes: connection.selectedScopes,
       grantedScopes: connection.grantedScopes,
       createdAt: connection.createdAt,
