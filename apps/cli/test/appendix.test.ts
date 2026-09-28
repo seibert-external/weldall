@@ -22,6 +22,8 @@ describe("CLI appendix cache", () => {
             available: true,
           },
         ],
+        connectors: [{ key: "google", name: "Google", groups: ["Gmail", "Calendar"] }],
+        connections: [{ name: "my-google", connectorKey: "google", status: "READY" }],
         skillsInitialized: true,
         subject: "account-a",
       });
@@ -38,6 +40,8 @@ describe("CLI appendix cache", () => {
             available: true,
           },
         ],
+        connectors: [{ key: "google", name: "Google", groups: ["Gmail", "Calendar"] }],
+        connections: [{ name: "my-google", connectorKey: "google", status: "READY" }],
         skillsInitialized: true,
         subject: "account-a",
       });
@@ -59,6 +63,8 @@ describe("CLI appendix cache", () => {
         appendix: "Shared instructions",
         scopes: ["account-a:read"],
         skills: [],
+        connectors: [{ key: "google", name: "Google", groups: ["Calendar"] }],
+        connections: [{ name: "my-google", connectorKey: "google", status: "READY" }],
         subject: "account-a",
       });
 
@@ -71,6 +77,8 @@ describe("CLI appendix cache", () => {
         appendix: "Shared instructions",
         scopes: [],
         skills: [],
+        connectors: [],
+        connections: [],
         skillsInitialized: false,
       });
       await expect(cache.readSnapshotForSubject(issuer, null)).resolves.toMatchObject({
@@ -94,6 +102,8 @@ describe("CLI appendix cache", () => {
         appendix: "Shared instructions",
         scopes: ["legacy:read"],
         skills: [{ slug: "legacy", title: "Legacy", available: true }],
+        connectors: [{ key: "legacy", name: "Legacy", groups: [] }],
+        connections: [{ name: "legacy", connectorKey: "legacy", status: "READY" }],
         skillsInitialized: true,
       });
 
@@ -101,6 +111,8 @@ describe("CLI appendix cache", () => {
         subject: "account-a",
         scopes: [],
         skills: [],
+        connectors: [],
+        connections: [],
         skillsInitialized: false,
       });
     } finally {

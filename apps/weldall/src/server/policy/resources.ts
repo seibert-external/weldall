@@ -66,6 +66,34 @@ export async function effectiveScopesFor(email: string): Promise<ScopeKey[]> {
   });
 }
 
+/** Loads one live effective-scope snapshot and requires a protected system scope within it. */
+export async function effectiveScopesRequiringSystemScopeFor({
+  email,
+  requiredSystemScope,
+}: {
+  email: string;
+  requiredSystemScope: string;
+}): Promise<ScopeKey[] | null> {
+  const normalizedEmail = normalizePolicyEmail(email);
+  const { memberships } = await resolveProviderMemberships(normalizedEmail);
+  return db.$transaction(
+    async (tx) => {
+      const [scope, effectiveScopes] = await Promise.all([
+        tx.scope.findUnique({
+          where: { key: requiredSystemScope },
+          select: { key: true, isSystem: true },
+        }),
+        loadEffectiveScopes(tx, normalizedEmail, memberships),
+      ]);
+      return isProtectedSystemScope(scope, requiredSystemScope) &&
+        effectiveScopes.includes(scopeKeySchema.parse(requiredSystemScope))
+        ? effectiveScopes
+        : null;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
+}
+
 export async function hasEffectiveSystemScopeFor(
   email: string,
   scopeKey: string,

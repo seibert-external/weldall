@@ -685,6 +685,117 @@
     padding-block: 3rem 6rem;
   }
 
+  .statistics-page {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .statistics-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .statistics-heading h1,
+  .statistics-card h2 {
+    margin: 0;
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .statistics-card {
+    display: grid;
+    align-content: start;
+    gap: 0.75rem;
+  }
+
+  .statistics-card h2 {
+    font-size: 1rem;
+  }
+
+  .statistics-count {
+    margin: 0;
+    font-size: 3rem;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1;
+  }
+
+  .statistics-count-small {
+    font-size: 2rem;
+    text-align: center;
+  }
+
+  .statistics-muted {
+    margin: 0;
+    color: var(--color-text-secondary);
+  }
+
+  .statistics-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  @media (max-width: 60rem) {
+    .statistics-summary {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .statistics-active {
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  .statistics-active-total {
+    display: grid;
+    align-content: start;
+    gap: 0.5rem;
+    padding-inline-end: 1.5rem;
+    border-inline-end: 1px solid var(--color-border);
+  }
+
+  .statistics-active .statistics-count {
+    font-size: 4rem;
+    text-align: center;
+  }
+
+  .statistics-people {
+    display: grid;
+    align-content: start;
+    gap: 0.75rem;
+  }
+
+  .statistics-people .skill-retriever-list {
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    margin: 0;
+  }
+
+  @media (max-width: 40rem) {
+    .statistics-active {
+      grid-template-columns: 1fr;
+    }
+
+    .statistics-active-total {
+      padding-inline-end: 0;
+      border-inline-end: 0;
+    }
+  }
+
+  .statistics-charts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  @media (max-width: 60rem) {
+    .statistics-charts {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .directory-table-layout {
     display: grid;
     gap: 1rem;

@@ -17,15 +17,6 @@ const envelopeSchema = z
   })
   .strict();
 
-export function credentialEncryptionKeyVersion(): number {
-  const raw = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION ?? "1";
-  const version = Number(raw);
-  if (!Number.isSafeInteger(version) || version < 1) {
-    throw new Error("Weldall credential encryption key version is invalid.");
-  }
-  return version;
-}
-
 export function encryptProviderToken(
   providerId: string,
   token: string,
@@ -33,7 +24,8 @@ export function encryptProviderToken(
   encryptedToken: string;
   encryptionKeyVersion: number;
 } {
-  const keyVersion = credentialEncryptionKeyVersion();
+  // Fixed format marker, not key rotation. Stored historical markers remain part of read AAD.
+  const keyVersion = 1;
   const nonce = randomBytes(12);
   const cipher = createCipheriv(CIPHER_ALGORITHM, credentialKey(), nonce);
   cipher.setAAD(associatedData(providerId, keyVersion));
@@ -79,7 +71,7 @@ function credentialKey(): Buffer {
   const configured = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY;
   if (!configured) throw new Error("WELDALL_CREDENTIAL_ENCRYPTION_KEY is required.");
   const key = Buffer.from(configured, "base64");
-  if (key.byteLength !== 32) {
+  if (key.byteLength !== 32 || key.toString("base64") !== configured) {
     throw new Error("WELDALL_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
   }
   return key;

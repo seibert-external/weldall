@@ -53,11 +53,17 @@ Für den Installer nötig:
 
 Der erste Start braucht beide: ohne sie bleibt der Installer geschlossen.
 
-Optionale Variablen:
+Für [Connectors](../connectors/) mit der Standardeinstellung `LOCAL_ENV` brauchst du zusätzlich `WELDALL_CONNECTOR_KEK`. Erzeuge dafür einen eigenen Schlüssel aus 32 zufälligen Bytes und kodiere ihn als Base64. Bewahre ihn unverändert im Secret Manager auf, getrennt von den Datenbank-Backups. Wer Datenbank und Schlüssel besitzt, kann die gespeicherten Verbindungszugangsdaten entschlüsseln.
 
-| Variable    | Zweck                                |
-| ----------- | ------------------------------------ |
-| `LOG_LEVEL` | Log-Verbosität, Standard ist `INFO`. |
+Wenn du für einen Connector `OPENBAO` wählst, verwendet er stattdessen die beiden OpenBao-Variablen unten. Wie du OpenBao dafür einrichtest, steht unter [Connectors](../connectors/#openbao-einrichten).
+
+Optionale Variablen – wenn du OpenBao nicht nutzt, lass die beiden OpenBao-Variablen weg:
+
+| Variable                | Zweck                                                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `WELDALL_OPENBAO_HOST`  | Adresse des OpenBao-Servers ohne Pfad, z. B. `https://openbao.example.com`.                                |
+| `WELDALL_OPENBAO_TOKEN` | Zugriffstoken für OpenBao. Bleibt auf dem Server und wird weder in der Datenbank noch in Logs gespeichert. |
+| `LOG_LEVEL`             | Legt fest, wie ausführlich Weldall protokolliert. Standard ist `INFO`.                                     |
 
 ## Secrets erzeugen
 

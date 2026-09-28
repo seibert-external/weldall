@@ -12,10 +12,17 @@ export const palette = {
   brand: "magenta",
 } as const;
 
-type Accent = (typeof palette)[keyof typeof palette];
+export type Accent = (typeof palette)[keyof typeof palette];
 type NoticeKind = "success" | "info" | "warning" | "error";
 type OutputStream = "stdout" | "stderr";
 type Field = readonly [label: string, value: string];
+
+export interface TableColumn {
+  header: string;
+  align?: "left" | "right";
+}
+
+const TABLE_GAP = 2;
 
 const LayoutContext = createContext(80);
 const outputStream = (stream: OutputStream) => process[stream];
@@ -32,12 +39,16 @@ export const terminalDocument = (value: string) =>
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "�");
 
-export const renderUi = (
-  node: ReactNode,
-  columns = terminalColumns(),
-  stream: OutputStream = "stdout",
-) => {
-  const width = frameColumns(columns);
+/** Renders one Ink tree using the explicit width and color policy of its destination stream. */
+const renderUiAtWidth = ({
+  node,
+  width,
+  stream,
+}: {
+  node: ReactNode;
+  width: number;
+  stream: OutputStream;
+}) => {
   if (width === 1) return "…";
   const previousColorLevel = chalk.level;
   chalk.level = colorsEnabled(stream) ? 1 : 0;
@@ -52,7 +63,20 @@ export const renderUi = (
   }
 };
 
-export const printUi = (node: ReactNode) => console.log(renderUi(node));
+/** Renders Ink UI deterministically for the selected terminal width and output stream. */
+export const renderUi = ({
+  node,
+  columns = terminalColumns(),
+  stream = "stdout",
+}: {
+  node: ReactNode;
+  columns?: number;
+  stream?: OutputStream;
+}) => renderUiAtWidth({ node, width: frameColumns(columns), stream });
+
+export const printUi = (node: ReactNode) => console.log(renderUi({ node }));
+export const printWideUi = (node: ReactNode) =>
+  console.log(renderUiAtWidth({ node, width: Math.max(1, terminalColumns()), stream: "stdout" }));
 
 export function Card({
   title,
@@ -75,6 +99,150 @@ export function Card({
         {children}
       </Box>
     </Box>
+  );
+}
+
+/** Allocates terminal table widths without truncating cell content from CLI output. */
+export const layoutTable = ({
+  columns,
+  rows,
+  available,
+}: {
+  columns: readonly TableColumn[];
+  rows: readonly (readonly string[])[];
+  available: number;
+}): number[] => {
+  if (columns.length === 0) return [];
+  const gaps = TABLE_GAP * (columns.length - 1);
+  const widths = columns.map((column, columnIndex) =>
+    Math.max(
+      column.header.length,
+      ...rows.map((row) => terminalText(row[columnIndex] ?? "").length),
+    ),
+  );
+  const floors = columns.map((column) => column.header.length);
+  let total = widths.reduce((sum, width) => sum + width, 0) + gaps;
+  while (total > available) {
+    let target = -1;
+    for (let columnIndex = 0; columnIndex < widths.length; columnIndex += 1) {
+      const width = widths[columnIndex]!;
+      if (width <= floors[columnIndex]!) continue;
+      if (target === -1 || width > widths[target]!) target = columnIndex;
+    }
+    if (target === -1) {
+      target = widths.indexOf(Math.max(...widths));
+      if (widths[target] === 0) break;
+    }
+    widths[target] = widths[target]! - 1;
+    total--;
+  }
+  return widths;
+};
+
+/** Wraps a sanitized terminal cell without discarding content at narrow widths. */
+const wrapTableCell = ({ value, width }: { value: string; width: number }) => {
+  const text = terminalText(value);
+  if (width <= 0 || text.length <= width) return [text];
+  const lines: string[] = [];
+  let remaining = text;
+  while (remaining.length > width) {
+    const whitespace = remaining.lastIndexOf(" ", width);
+    const breakAt = whitespace >= Math.ceil(width / 2) ? whitespace : width;
+    lines.push(remaining.slice(0, breakAt));
+    remaining = remaining.slice(breakAt).trimStart();
+  }
+  lines.push(remaining);
+  return lines;
+};
+
+/** Renders aligned, wrapping tabular data inside the shared Ink CLI layout. */
+export function DataTable({
+  columns,
+  rows,
+  accent = palette.primary,
+  cellColor,
+}: {
+  columns: readonly TableColumn[];
+  rows: readonly (readonly string[])[];
+  accent?: Accent;
+  cellColor?: (rowIndex: number, columnIndex: number, value: string) => Accent | undefined;
+}) {
+  const frameWidth = useContext(LayoutContext);
+  const widths = layoutTable({
+    columns,
+    rows,
+    available: Math.max(columns.length, frameWidth - 4),
+  });
+  const gap = " ".repeat(TABLE_GAP);
+  const renderCell = ({ value, columnIndex }: { value: string; columnIndex: number }) => {
+    const width = widths[columnIndex] ?? 0;
+    return columns[columnIndex]?.align === "right" ? value.padStart(width) : value.padEnd(width);
+  };
+  const tableWidth =
+    widths.reduce((sum, width) => sum + width, 0) + TABLE_GAP * (widths.length - 1);
+
+  return (
+    <Box flexDirection="column">
+      <Text bold color={accent}>
+        {columns
+          .map((column, columnIndex) => renderCell({ value: column.header, columnIndex }))
+          .join(gap)}
+      </Text>
+      <Text dimColor>{"─".repeat(Math.max(1, tableWidth))}</Text>
+      {rows.map((row, rowIndex) => {
+        const wrappedCells = columns.map((_, columnIndex) =>
+          wrapTableCell({ value: row[columnIndex] ?? "", width: widths[columnIndex] ?? 0 }),
+        );
+        const rowHeight = Math.max(...wrappedCells.map((lines) => lines.length));
+        return (
+          <Box key={rowIndex} flexDirection="column">
+            {Array.from({ length: rowHeight }, (_, lineIndex) => (
+              <Text key={lineIndex}>
+                {columns.map((_, columnIndex) => {
+                  const value = row[columnIndex] ?? "";
+                  const color = cellColor?.(rowIndex, columnIndex, value);
+                  return (
+                    <Text key={columnIndex} {...(color === undefined ? {} : { color })}>
+                      {renderCell({
+                        value: wrappedCells[columnIndex]?.[lineIndex] ?? "",
+                        columnIndex,
+                      })}
+                      {columnIndex === columns.length - 1 ? "" : gap}
+                    </Text>
+                  );
+                })}
+              </Text>
+            ))}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+/** Wraps a shared terminal data table in Weldall's standard titled card. */
+export function TableCard({
+  title,
+  columns,
+  rows,
+  accent = palette.primary,
+  cellColor,
+}: {
+  title: string;
+  columns: readonly TableColumn[];
+  rows: readonly (readonly string[])[];
+  accent?: Accent;
+  cellColor?: (rowIndex: number, columnIndex: number, value: string) => Accent | undefined;
+}) {
+  return (
+    <Card title={title} accent={accent}>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        accent={accent}
+        {...(cellColor === undefined ? {} : { cellColor })}
+      />
+    </Card>
   );
 }
 
@@ -237,35 +405,49 @@ export function Notice({
   );
 }
 
-const printNotice = (
-  kind: NoticeKind,
-  message: string,
-  hint?: string,
-  stream: "stdout" | "stderr" = kind === "error" ? "stderr" : "stdout",
-) => {
+/** Writes a styled notice to the correct stream while preserving redirect-safe output. */
+const printNotice = ({
+  kind,
+  message,
+  hint,
+  stream = kind === "error" ? "stderr" : "stdout",
+}: {
+  kind: NoticeKind;
+  message: string;
+  hint?: string | undefined;
+  stream?: "stdout" | "stderr" | undefined;
+}) => {
   const longestMessageLine = Math.max(
     ...terminalDocument(message)
       .split("\n")
       .map((line) => line.length),
   );
   const contentWidth = Math.max(longestMessageLine + 16, hint ? hint.length + 10 : 0);
-  const output = renderUi(
-    <Notice kind={kind} message={message} {...(hint === undefined ? {} : { hint })} />,
-    Math.min(terminalColumns(stream), contentWidth),
+  const output = renderUi({
+    node: <Notice kind={kind} message={message} {...(hint === undefined ? {} : { hint })} />,
+    columns: Math.min(terminalColumns(stream), contentWidth),
     stream,
-  );
+  });
   if (stream === "stderr") console.error(output);
   else console.log(output);
 };
 
-export const success = (message: string) => printNotice("success", message);
-export const info = (message: string) => printNotice("info", message);
-export const warning = (message: string, hint?: string) => printNotice("warning", message, hint);
-export const printWarning = (message: string, hint?: string) =>
-  printNotice("warning", message, hint, "stderr");
-export const printError = (message: string, hint?: string) => printNotice("error", message, hint);
+export const success = (message: string) => printNotice({ kind: "success", message });
+export const info = (message: string) => printNotice({ kind: "info", message });
+export const warning = ({ message, hint }: { message: string; hint?: string | undefined }) =>
+  printNotice({ kind: "warning", message, hint });
+export const printWarning = ({ message, hint }: { message: string; hint?: string | undefined }) =>
+  printNotice({ kind: "warning", message, hint, stream: "stderr" });
+export const printError = ({ message, hint }: { message: string; hint?: string | undefined }) =>
+  printNotice({ kind: "error", message, hint });
 
-export const printFields = (fields: ReadonlyArray<Field>, title = "Details") =>
+export const printFields = ({
+  fields,
+  title = "Details",
+}: {
+  fields: ReadonlyArray<Field>;
+  title?: string;
+}) =>
   printUi(
     <Card title={title} accent={palette.accent}>
       <FieldList fields={fields} />
@@ -281,6 +463,18 @@ export interface HeaderSkill {
   slug: string;
   title: string;
   available: boolean;
+}
+
+export interface HeaderConnector {
+  key: string;
+  name: string;
+  groups: string[];
+}
+
+export interface HeaderConnection {
+  name: string;
+  connectorKey: string;
+  status: string;
 }
 
 const PREVIEW_LIMIT = 5;
@@ -333,6 +527,71 @@ function ScopePreview({ scopes }: { scopes: string[] }) {
   );
 }
 
+function ConnectorPreview({
+  connectors,
+  connections,
+}: {
+  connectors: HeaderConnector[];
+  connections: HeaderConnection[];
+}) {
+  const visible = connectors.slice(0, PREVIEW_LIMIT);
+  const visibleKeys = new Set(visible.map((connector) => connector.key));
+  const visibleConnections = connections.filter(
+    (connection) =>
+      visibleKeys.has(connection.connectorKey) && connection.status !== "DISCONNECTED",
+  );
+  const firstReady = visibleConnections.find((connection) => connection.status === "READY");
+  const readyRequest = firstReady
+    ? `weldall request --connection ${terminalText(firstReady.name)} <provider-https-url>`
+    : null;
+  return (
+    <Card title="Connectors & connections" accent={palette.success}>
+      {visible.length > 0 ? (
+        visible.map((connector) => {
+          const connectorConnections = visibleConnections.filter(
+            (connection) => connection.connectorKey === connector.key,
+          );
+          return (
+            <Box key={connector.key} flexDirection="column">
+              <Text>
+                • {terminalText(connector.name)} ({terminalText(connector.key)})
+                {connector.groups.length > 0
+                  ? ` — ${connector.groups.map(terminalText).join(", ")}`
+                  : ""}
+              </Text>
+              {connectorConnections.map((connection) =>
+                connection.status === "READY" ? (
+                  <Text key={connection.name} color={palette.success}>
+                    {"  "}✓ {terminalText(connection.name)} is ready for{" "}
+                    {terminalText(connector.name)} requests.
+                  </Text>
+                ) : (
+                  <Text key={connection.name} color={palette.warning}>
+                    {"  "}! {terminalText(connection.name)} · {terminalText(connection.status)}
+                  </Text>
+                ),
+              )}
+            </Box>
+          );
+        })
+      ) : (
+        <Text dimColor>No cached connectors or connections.</Text>
+      )}
+      {connectors.length > visible.length && (
+        <Text dimColor>… {connectors.length - visible.length} more</Text>
+      )}
+      <Box flexDirection="column" marginTop={1}>
+        <Text>Run `weldall connectors --agentic` for the complete permission catalog.</Text>
+        {readyRequest ? (
+          <Text>Request now: `{readyRequest}`.</Text>
+        ) : (
+          <Text>Connect with `weldall connections connect &lt;key&gt; --name &lt;name&gt;`.</Text>
+        )}
+      </Box>
+    </Card>
+  );
+}
+
 function SkillPreview({ skills }: { skills: HeaderSkill[] }) {
   return (
     <Card title="Skills" accent={palette.accent}>
@@ -358,12 +617,16 @@ export function HelpHeader({
   appendix,
   scopes,
   skills,
+  connectors,
+  connections,
 }: {
   issuer: string | null;
   identity: HeaderIdentity | null;
   appendix: string;
   scopes: string[];
   skills: HeaderSkill[];
+  connectors: HeaderConnector[];
+  connections: HeaderConnection[];
 }) {
   const instructions = terminalDocument(appendix).trim();
   return (
@@ -373,49 +636,79 @@ export function HelpHeader({
         <Text>{instructions || "No organization instructions configured."}</Text>
       </Card>
       <ScopePreview scopes={scopes} />
+      <ConnectorPreview connectors={connectors} connections={connections} />
       <SkillPreview skills={skills} />
     </Box>
   );
 }
 
-export const brandHeading = (issuer: string | null, identity: HeaderIdentity | null = null) => {
+export const brandHeading = ({
+  issuer,
+  identity = null,
+}: {
+  issuer: string | null;
+  identity?: HeaderIdentity | null;
+}) => {
   const longestValue = Math.max(
     issuer?.length ?? "Not configured".length,
     identity?.name.length ?? "Not signed in".length,
     identity?.email.length ?? 0,
   );
-  return renderUi(
-    <WeldallCard issuer={issuer} identity={identity} />,
-    Math.min(terminalColumns(), Math.max(28, longestValue + 12)),
-  );
+  return renderUi({
+    node: <WeldallCard issuer={issuer} identity={identity} />,
+    columns: Math.min(terminalColumns(), Math.max(28, longestValue + 12)),
+  });
 };
 
-export const helpHeader = (
-  issuer: string | null,
-  identity: HeaderIdentity | null,
-  appendix: string,
-  scopes: string[] = [],
-  skills: HeaderSkill[] = [],
+export const helpHeader = ({
+  issuer,
+  identity,
+  appendix,
+  scopes = [],
+  skills = [],
+  connectors = [],
+  connections = [],
   columns = terminalColumns(),
-) =>
-  renderUi(
-    <HelpHeader
-      issuer={issuer}
-      identity={identity}
-      appendix={appendix}
-      scopes={scopes}
-      skills={skills}
-    />,
+}: {
+  issuer: string | null;
+  identity: HeaderIdentity | null;
+  appendix: string;
+  scopes?: string[];
+  skills?: HeaderSkill[];
+  connectors?: HeaderConnector[];
+  connections?: HeaderConnection[];
+  columns?: number;
+}) =>
+  renderUi({
+    node: (
+      <HelpHeader
+        issuer={issuer}
+        identity={identity}
+        appendix={appendix}
+        scopes={scopes}
+        skills={skills}
+        connectors={connectors}
+        connections={connections}
+      />
+    ),
     columns,
-  );
+  });
 
-export const appendixFrame = (value: string, columns = terminalColumns()) => {
+export const appendixFrame = ({
+  value,
+  columns = terminalColumns(),
+}: {
+  value: string;
+  columns?: number;
+}) => {
   const document = terminalDocument(value).trim();
   if (!document) return "";
-  return renderUi(
-    <Card title="Organization instructions" accent={palette.warning}>
-      <Text>{document}</Text>
-    </Card>,
+  return renderUi({
+    node: (
+      <Card title="Organization instructions" accent={palette.warning}>
+        <Text>{document}</Text>
+      </Card>
+    ),
     columns,
-  );
+  });
 };

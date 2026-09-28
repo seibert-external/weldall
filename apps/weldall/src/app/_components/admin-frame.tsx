@@ -154,7 +154,20 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 icon={CliIcon}
                 isSelected={selected("/admin/cli")}
               />
-
+              <SectionNavItem
+                route="connectors"
+                label="Connectors"
+                href="/admin/connectors"
+                icon={ResourceIcon}
+                isSelected={selected("/admin/connectors")}
+              />
+              <SectionNavItem
+                route="connections"
+                label="Managed connections"
+                href="/admin/connections"
+                icon={UserIcon}
+                isSelected={selected("/admin/connections")}
+              />
               <SectionNavItem
                 route="login-providers"
                 label="Login providers"

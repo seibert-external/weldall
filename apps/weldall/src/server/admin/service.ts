@@ -759,11 +759,11 @@ export async function createScope(
   return db.$transaction(async (tx) => {
     await lockConfigurationChanges(tx);
     try {
-      const scope = await mutateScope(
+      const scope = await mutateScope({
         tx,
-        { action: "create", key, description },
-        mutationActor(actor),
-      );
+        input: { action: "create", key, description },
+        actor: mutationActor(actor),
+      });
       return serializeScope(scope, 0);
     } catch (error) {
       throw mapPrimitiveError(error);
@@ -780,11 +780,16 @@ export async function updateScope(
   return db.$transaction(async (tx) => {
     await lockConfigurationChanges(tx);
     try {
-      const updated = await mutateScope(
+      const updated = await mutateScope({
         tx,
-        { action: "update", id: input.id, description, expectedVersion: input.expectedVersion },
-        mutationActor(actor),
-      );
+        input: {
+          action: "update",
+          id: input.id,
+          description,
+          expectedVersion: input.expectedVersion,
+        },
+        actor: mutationActor(actor),
+      });
       return serializeScope(updated, updated._count.grants + updated._count.groupGrants);
     } catch (error) {
       throw mapPrimitiveError(error);
@@ -799,7 +804,11 @@ export async function deleteScope(
   return db.$transaction(async (tx) => {
     await lockSkillScopeChanges(tx);
     try {
-      return await mutateScope(tx, { action: "delete", ...input }, mutationActor(actor));
+      return await mutateScope({
+        tx,
+        input: { action: "delete", ...input },
+        actor: mutationActor(actor),
+      });
     } catch (error) {
       throw mapPrimitiveError(error);
     }

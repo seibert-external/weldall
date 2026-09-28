@@ -397,6 +397,10 @@ describe("native YAML workspaces", () => {
       groupAssignments: {},
     };
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(canonicalManifestDigest(canonical));
+    // Preserve the pre-connector wire format and digest, even for an explicitly empty section.
+    expect(canonicalManifestDigest({ ...canonical, connectors: {} })).toBe(
+      canonicalManifestDigest(canonical),
+    );
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(
       "c2e1311af97134bca5534c104566d7efa1d873bc61d3ff8f71f2ddf3caa6a054",
     );
@@ -407,6 +411,9 @@ describe("native YAML workspaces", () => {
       objects: {},
     };
     expect(serverManifest(omittedAndUnsorted as any, lock)).toEqual(canonical);
+    expect(serverManifest({ ...omittedAndUnsorted, connectors: {} } as any, lock)).toEqual(
+      canonical,
+    );
   });
 
   it("reconstructs the complete lock from authoritative state, including no-op objects", () => {

@@ -20,5 +20,5 @@ for (const name of ["WELDALL", "EXPENSES", "DEV_IDP", "DEV_M2M"]) {
 console.log(`BETTER_AUTH_SECRET=${randomBytes(32).toString("base64url")}`);
 console.log(`WELDALL_SETUP_TOKEN=${randomBytes(32).toString("base64url")}`);
 console.log(`WELDALL_CREDENTIAL_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}`);
-console.log("WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION=1");
+console.log(`WELDALL_CONNECTOR_KEK=${randomBytes(32).toString("base64")}`);
 console.log(`DEV_IDP_CLIENT_SECRET=${randomBytes(32).toString("base64url")}`);

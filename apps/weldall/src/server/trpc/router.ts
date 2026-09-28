@@ -38,6 +38,9 @@ import {
   MAX_SKILL_RETRIEVAL_WINDOW_DAYS,
   getVisibleSkillRetrievalSummary,
 } from "../skills/retrieval-metrics";
+import { canViewStatistics } from "../statistics/access";
+import { STATISTICS_INTERVALS } from "../statistics/interval";
+import { getUsageStatistics } from "../statistics/service";
 import {
   createGroupAssignments,
   createGroupProvider,
@@ -67,6 +70,19 @@ import {
   updateMachineClient,
 } from "../machines/service";
 import type { TrpcContext } from "./context";
+import { ConnectorError, connectorConfig } from "../connectors/contracts";
+import {
+  deleteConnectorConfiguration,
+  listManagedConnectorConfiguration,
+  runConnectorTransaction,
+  saveConnectorSecrets,
+  saveConnectorConfiguration,
+} from "../connectors/configuration";
+import {
+  listConnections,
+  getConnectionDetails,
+  deleteConnection,
+} from "../connectors/core/connections";
 
 const trpc = initTRPC.context<TrpcContext>().create();
 const loggedProcedure = trpc.procedure.use(async ({ path, type, next }) => {
@@ -110,6 +126,7 @@ const skillRetrievalSummaryInput = z
       .default(DEFAULT_SKILL_RETRIEVAL_WINDOW_DAYS),
   })
   .strict();
+const statisticsSummaryInput = z.object({ interval: z.enum(STATISTICS_INTERVALS) }).strict();
 
 const adminProcedure = loggedProcedure.use(async ({ ctx, next }) => {
   const userId = ctx.session?.user.id;
@@ -128,6 +145,25 @@ const adminProcedure = loggedProcedure.use(async ({ ctx, next }) => {
     ...(ctx.correlationId ? { correlationId: ctx.correlationId } : {}),
   };
   return next({ ctx: { ...ctx, adminActor: actor } });
+});
+
+// Read-only like skillRetrievalMetrics.summary, so it skips the browser-request check that
+// guards admin mutations.
+const statisticsProcedure = loggedProcedure.use(async ({ ctx, next }) => {
+  const email = ctx.session?.user.email;
+  if (!email) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Sign in is required.",
+    });
+  }
+  if (!(await canViewStatistics(email))) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Statistics access is required.",
+    });
+  }
+  return next();
 });
 
 export const appRouter = trpc.router({
@@ -154,7 +190,86 @@ export const appRouter = trpc.router({
       return summary;
     }),
   }),
+  statistics: trpc.router({
+    summary: statisticsProcedure
+      .input(statisticsSummaryInput)
+      .query(({ input }) => getUsageStatistics(input.interval)),
+  }),
   admin: trpc.router({
+    managed: trpc.router({
+      configuration: adminProcedure.query(() => listManagedConnectorConfiguration()),
+      connections: adminProcedure.query(() => listConnections()),
+      connection: adminProcedure
+        .input(z.object({ id: z.string().min(1) }).strict())
+        .query(({ input }) => mapDomainErrors(() => getConnectionDetails(input.id))),
+      saveConnector: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string().optional(),
+              version: z.number().int().positive().nullable(),
+              config: connectorConfig,
+              providerSecrets: z.unknown().optional(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() =>
+            runConnectorTransaction(async (tx) => {
+              const row = await saveConnectorConfiguration({
+                tx,
+                value: input.config,
+                ...(input.providerSecrets !== undefined
+                  ? { providerSecrets: input.providerSecrets }
+                  : {}),
+                id: input.id,
+                expectedVersion: input.version,
+                actor: ctx.adminActor,
+              });
+              return { id: row.id };
+            }),
+          ),
+        ),
+      deleteConnector: adminProcedure
+        .input(z.object({ id: z.string(), version: z.number().int().positive() }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() =>
+            runConnectorTransaction((tx) =>
+              deleteConnectorConfiguration({
+                tx,
+                id: input.id,
+                version: input.version,
+                actor: ctx.adminActor,
+              }),
+            ),
+          ),
+        ),
+      secret: adminProcedure
+        .input(
+          z
+            .object({
+              id: z.string(),
+              version: z.number().int().positive(),
+              secrets: z.unknown(),
+            })
+            .strict(),
+        )
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() =>
+            saveConnectorSecrets({
+              id: input.id,
+              secrets: input.secrets,
+              expectedVersion: input.version,
+              actor: ctx.adminActor,
+            }),
+          ),
+        ),
+      deleteConnection: adminProcedure
+        .input(z.object({ id: z.string().min(1) }).strict())
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => deleteConnection({ actor: ctx.adminActor, id: input.id })),
+        ),
+    }),
     status: adminProcedure.query(({ ctx }) => ({
       authenticated: true as const,
       email: ctx.adminActor.email ?? null,
@@ -698,6 +813,11 @@ async function mapDomainErrors<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
+    if (error instanceof ConnectorError)
+      throw new TRPCError({
+        code: error.status === 409 ? "CONFLICT" : "BAD_REQUEST",
+        message: error.message,
+      });
     if (!(error instanceof AdminDomainError)) throw error;
     const code =
       error.code === "FORBIDDEN"

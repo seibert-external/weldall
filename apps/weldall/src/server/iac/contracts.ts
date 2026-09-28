@@ -9,6 +9,7 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { parseCliLogoUrl } from "../branding";
+import { connectorConfig } from "../connectors/contracts";
 
 export const IAC_MANIFEST_VERSION = "weldall.dev/v1" as const;
 export const IAC_API_VERSION = "v1" as const;
@@ -105,6 +106,7 @@ export const desiredStateSchema = z
       })
       .strict()
       .optional(),
+    connectors: z.record(addressKey, connectorConfig).default({}),
     scopes: z
       .record(
         addressKey,
@@ -196,6 +198,9 @@ export const desiredStateSchema = z
   .superRefine((manifest, context) => {
     const identities = new Set<string>();
     const entries: Array<[string, string]> = [
+      ...Object.values(manifest.connectors).map(
+        (item) => ["connector", item.key] as [string, string],
+      ),
       ...Object.values(manifest.scopes).map((item) => ["scope", item.key] as [string, string]),
       ...Object.values(manifest.resources).map(
         (item) => ["resource", item.key] as [string, string],
@@ -238,7 +243,14 @@ export const desiredStateSchema = z
 
 export type DesiredState = z.output<typeof desiredStateSchema>;
 export type IacKind =
-  "scope" | "resource" | "machine" | "emailAssignment" | "groupAssignment" | "skill" | "cli";
+  | "scope"
+  | "resource"
+  | "machine"
+  | "emailAssignment"
+  | "groupAssignment"
+  | "skill"
+  | "cli"
+  | "connector";
 export type IacActionType =
   "create" | "update" | "replace" | "delete" | "recreate" | "register_key" | "revoke_key" | "noop";
 export interface IacAction {
@@ -296,7 +308,7 @@ const operationId = z.string().uuid();
 const logicalAddress = z
   .string()
   .regex(
-    /^(scope|resource|machine|emailAssignment|groupAssignment|skill)\.[a-z][a-z0-9_-]{0,119}$/,
+    /^(scope|resource|machine|emailAssignment|groupAssignment|skill|connector)\.[a-z][a-z0-9_-]{0,119}$/,
   );
 export const planRequestSchema = z.object({ manifest: desiredStateSchema }).strict();
 export const applyRequestSchema = z
@@ -311,7 +323,15 @@ export const applyRequestSchema = z
 export const importRequestSchema = z
   .object({
     workspace: desiredStateSchema.shape.workspace,
-    kind: z.enum(["scope", "resource", "machine", "emailAssignment", "groupAssignment", "skill"]),
+    kind: z.enum([
+      "scope",
+      "resource",
+      "machine",
+      "emailAssignment",
+      "groupAssignment",
+      "skill",
+      "connector",
+    ]),
     identity: key,
     address: logicalAddress,
     operationId,

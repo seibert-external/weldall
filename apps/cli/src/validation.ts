@@ -46,5 +46,8 @@ const suggestion = (error: unknown): string | undefined => {
 export function printFriendlyValidation(error: AggregateError) {
   const message = error.errors.map(errorMessage).join("\n");
   const match = error.errors.map(suggestion).find((value) => value !== undefined);
-  printError(message, match === undefined ? undefined : `Did you mean ${match}?`);
+  printError({
+    message,
+    hint: match === undefined ? undefined : `Did you mean ${match}?`,
+  });
 }

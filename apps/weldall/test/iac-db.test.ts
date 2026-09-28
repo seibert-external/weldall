@@ -82,7 +82,11 @@ describe("IaC database transaction contracts", () => {
     await expect(
       db.$transaction(async (tx) => {
         await lockConfigurationChanges(tx);
-        await mutateScope(tx, { action: "create", key, description: "Rollback" }, actor);
+        await mutateScope({
+          tx,
+          input: { action: "create", key, description: "Rollback" },
+          actor,
+        });
         throw new Error("injected audit/reference failure");
       }),
     ).rejects.toThrow("injected audit/reference failure");
@@ -98,34 +102,38 @@ describe("IaC database transaction contracts", () => {
     const key = `${prefix}:concurrent`;
     const created = await db.$transaction(async (tx) => {
       await lockConfigurationChanges(tx);
-      return mutateScope(tx, { action: "create", key, description: "Initial" }, actor);
+      return mutateScope({
+        tx,
+        input: { action: "create", key, description: "Initial" },
+        actor,
+      });
     });
     const outcomes = await Promise.allSettled([
       db.$transaction(async (tx) => {
         await lockConfigurationChanges(tx);
-        return mutateScope(
+        return mutateScope({
           tx,
-          {
+          input: {
             action: "update",
             id: created.id,
             description: "First",
             expectedVersion: created.version,
           },
           actor,
-        );
+        });
       }),
       db.$transaction(async (tx) => {
         await lockConfigurationChanges(tx);
-        return mutateScope(
+        return mutateScope({
           tx,
-          {
+          input: {
             action: "update",
             id: created.id,
             description: "Second",
             expectedVersion: created.version,
           },
           actor,
-        );
+        });
       }),
     ]);
     expect(outcomes.filter(({ status }) => status === "fulfilled")).toHaveLength(1);

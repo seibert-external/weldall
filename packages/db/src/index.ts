@@ -4,6 +4,7 @@ export {
   IAC_SCOPE_KEY,
   LOGIN_SCOPE_KEY,
   MACHINE_ONLY_SYSTEM_SCOPE_KEYS,
+  STATISTICS_SCOPE_KEY,
   SUBJECT_SCOPES_CHECK_SCOPE_KEY,
   SYSTEM_SCOPE_DEFINITIONS,
   ensureSystemScopes,
@@ -16,4 +17,10 @@ export {
   Prisma,
   SkillVisibility,
 } from "@prisma/client";
-export type { OAuthDeviceRefreshBinding } from "@prisma/client";
+export type {
+  OAuthDeviceRefreshBinding,
+  Connector,
+  Connection,
+  EnvelopeProvider,
+  EncryptedValue,
+} from "@prisma/client";
