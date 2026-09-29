@@ -9,18 +9,13 @@ import {
 } from "./connections-toon.js";
 import {
   CONNECTION_REQUEST_INSTRUCTIONS,
+  CONNECTION_USAGE_DISCOVERY_HINT,
   connectionUsage,
   withConnectionUsage,
 } from "./connection-usage.js";
 import { discoverIssuer, resolveWeldallConfig, selectIssuer } from "./config.js";
 import { CliError } from "./errors.js";
 import { responseValue } from "./http.js";
-import {
-  MAX_PAGE_CONCURRENCY,
-  MAX_PAGE_COUNT,
-  MAX_PAGE_SIZE,
-  paginateOffset,
-} from "./pagination.js";
 import {
   Card,
   IdentityCard,
@@ -429,23 +424,6 @@ const parseJson = (value: string): unknown => {
   }
 };
 
-const boundedInteger = (name: string, maximum: number) => (value: string) => {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum)
-    throw new TypeError(`${name} must be an integer between 1 and ${maximum}`);
-  return parsed;
-};
-
-const parsePagination = (value: string) => {
-  if (value !== "offset") throw new TypeError("--paginate currently supports only offset");
-  return value;
-};
-
-const parsePageOutput = (value: string) => {
-  if (value !== "jsonl") throw new TypeError("--page-output currently supports only jsonl");
-  return value;
-};
-
 const parseHeaders = (values: string[] | undefined): Record<string, string> => {
   const headers: Record<string, string> = {};
   for (const value of values ?? []) {
@@ -523,57 +501,13 @@ export const requestCommand = define({
       short: "o",
       description: "Write the response body to a file, or `-` for stdout",
     },
-    paginate: {
-      type: "custom",
-      parse: parsePagination,
-      description: "Paginate GET requests; currently only `offset`",
-    },
-    pageSize: {
-      type: "custom",
-      toKebab: true,
-      parse: boundedInteger("--page-size", MAX_PAGE_SIZE),
-      description: `Items per page (1-${MAX_PAGE_SIZE}); defaults to 100`,
-    },
-    totalPagesPointer: {
-      type: "string",
-      toKebab: true,
-      description: "RFC 6901 JSON Pointer to the total page count",
-    },
-    maxPages: {
-      type: "custom",
-      toKebab: true,
-      parse: boundedInteger("--max-pages", MAX_PAGE_COUNT),
-      description: `Hard page limit (1-${MAX_PAGE_COUNT}); defaults to 20`,
-    },
-    concurrency: {
-      type: "custom",
-      parse: boundedInteger("--concurrency", MAX_PAGE_CONCURRENCY),
-      description: `Concurrent page requests (1-${MAX_PAGE_CONCURRENCY}); defaults to 3`,
-    },
-    pageOutput: {
-      type: "custom",
-      toKebab: true,
-      parse: parsePageOutput,
-      description: "Paginated output format; currently only `jsonl`",
-    },
-    limitParameter: {
-      type: "string",
-      toKebab: true,
-      description: "Offset pagination limit parameter; defaults to `limit`",
-    },
-    offsetParameter: {
-      type: "string",
-      toKebab: true,
-      description: "Offset pagination offset parameter; defaults to `offset`",
-    },
   },
   examples:
     "weldall request --connection my-google https://gmail.googleapis.com/gmail/v1/users/me/messages\n" +
     "weldall request --scope expenses:read https://expenses.example/api/expenses\n" +
     "weldall request -X POST --scope expenses:create --json '{\"amount\":24}' https://expenses.example/api/expenses\n" +
     "weldall request -X PUT --scope files:write -T ./report.pdf -H 'Content-Type: application/pdf' https://files.example/api/report.pdf\n" +
-    "weldall request --scope files:read -o ./report.pdf https://files.example/api/report.pdf\n" +
-    "weldall request --scope personio:read --paginate offset --page-size 100 --total-pages-pointer /metadata/total_pages --max-pages 20 --concurrency 3 --page-output jsonl https://gateway.example/personio/employees",
+    "weldall request --scope files:read -o ./report.pdf https://files.example/api/report.pdf",
   run: async (context) => {
     const headers = parseHeaders(context.values.header);
     const scopes = context.values.scope ?? [];
@@ -581,54 +515,6 @@ export const requestCommand = define({
       throw new CliError("--scope is required for normal resource requests");
     if (context.values.connection && scopes.length)
       throw new CliError("Managed connection permissions come from setup; do not pass --scope");
-    if (context.values.connection && context.values.paginate)
-      throw new CliError(
-        "Managed connections do not support --paginate; follow the provider's pagination instructions and request each page explicitly.",
-      );
-    if (context.values.paginate !== undefined) {
-      if (context.values.method !== "GET")
-        throw new CliError("Offset pagination is allowed only for GET requests");
-      if (context.values.totalPagesPointer === undefined)
-        throw new CliError("--total-pages-pointer is required with --paginate offset");
-      if (context.values.pageOutput !== "jsonl")
-        throw new CliError("--page-output jsonl is required with --paginate offset");
-      if (
-        context.values.data !== undefined ||
-        context.values.json !== undefined ||
-        context.values.uploadFile !== undefined ||
-        context.values.form !== undefined ||
-        context.values.output !== undefined
-      )
-        throw new CliError("Pagination cannot be combined with request bodies or --output");
-      const config = await resolveWeldallConfig();
-      const pages = await paginateOffset(config, {
-        url: parseRequestUrl(context.values.url),
-        scopes,
-        headers,
-        pageSize: context.values.pageSize ?? 100,
-        totalPagesPointer: context.values.totalPagesPointer,
-        maxPages: context.values.maxPages ?? 20,
-        concurrency: context.values.concurrency ?? 3,
-        ...(context.values.limitParameter === undefined
-          ? {}
-          : { limitParameter: context.values.limitParameter }),
-        ...(context.values.offsetParameter === undefined
-          ? {}
-          : { offsetParameter: context.values.offsetParameter }),
-      });
-      for (const page of pages) console.log(JSON.stringify(page));
-      return;
-    }
-    if (
-      context.values.pageOutput !== undefined ||
-      context.values.totalPagesPointer !== undefined ||
-      context.values.pageSize !== undefined ||
-      context.values.maxPages !== undefined ||
-      context.values.concurrency !== undefined ||
-      context.values.limitParameter !== undefined ||
-      context.values.offsetParameter !== undefined
-    )
-      throw new CliError("Pagination options require --paginate offset");
 
     const payload = await buildRequestPayload({
       method: context.values.method,
@@ -901,22 +787,26 @@ export function ConnectorCard({
         <Text dimColor> · Type </Text>
         {terminalText(connector.type)}
       </Text>
-      {connections.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold>Your connections</Text>
-          {connections.map((connection) => {
+      <Box flexDirection="column" marginTop={1}>
+        <Text bold>Connection status</Text>
+        {connections.length === 0 ? (
+          <Text dimColor>• Not connected</Text>
+        ) : (
+          connections.map((connection) => {
             const color = getConnectionStatusColor(connection.status);
+            const state = connection.status === "READY" ? "Connected" : "Needs attention";
             return (
               <Text key={connection.id}>
-                • {terminalText(connection.name)} · {terminalText(connection.accountName)} ·{" "}
+                • {state}: {terminalText(connection.name)} · {terminalText(connection.accountName)}{" "}
+                ·{" "}
                 <Text {...(color === undefined ? {} : { color })}>
                   {terminalText(connection.status)}
                 </Text>
               </Text>
             );
-          })}
-        </Box>
-      )}
+          })
+        )}
+      </Box>
       {groups.length === 0 ? (
         <Box marginTop={1}>
           <Text dimColor>No permissions are exposed by this connector.</Text>
@@ -962,10 +852,7 @@ function ConnectionRequestGuide({ includeSetup = false }: { includeSetup?: boole
         <Text dimColor>Request: </Text>
         weldall request --connection &lt;connection-name-or-id&gt; &lt;provider-https-url&gt;
       </Text>
-      <Text>
-        Run `weldall connections show &lt;connection-name&gt;` for provider details and request
-        examples.
-      </Text>
+      <Text>{terminalText(CONNECTION_USAGE_DISCOVERY_HINT)}</Text>
       {CONNECTION_REQUEST_INSTRUCTIONS.slice(1).map((instruction) => (
         <Text key={instruction} dimColor>
           {instruction}
@@ -1093,7 +980,7 @@ export const connectorsCommand = define({
   run: async (context) => {
     assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
     const config = await resolveWeldallConfig();
-    const showConnections = !context.values.agentic && !context.values.json;
+    const showConnections = !context.values.json;
     const [connectors, connections] = await Promise.all([
       listConnectors(config),
       showConnections ? listConnections(config) : Promise.resolve([]),
@@ -1103,7 +990,7 @@ export const connectorsCommand = define({
       ...(showConnections ? { connections } : {}),
     });
     if (context.values.agentic) {
-      process.stdout.write(encodeConnectorsToon(connectors));
+      process.stdout.write(encodeConnectorsToon({ connectors, connections }));
       return;
     }
     if (context.values.json) {

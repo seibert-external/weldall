@@ -11,7 +11,6 @@ import {
   mainCommand,
   printPermissions,
   printSkills,
-  requestCommand,
   scopesCommand,
   skillsCommand,
 } from "../src/commands.js";
@@ -211,8 +210,9 @@ describe("CLI brand", () => {
     expect(heading).toContain("Run `weldall scopes` to view the complete list.");
     expect(heading).toContain("Connectors & connections");
     expect(heading).toContain("• Google (google) — Gmail, Calendar");
-    expect(heading).toContain("✓ my-google is ready for Google requests.");
-    expect(heading).toContain("! old-slack · RECONNECT_REQUIRED");
+    expect(heading).toContain("✓ Connected: my-google is ready for Google requests.");
+    expect(heading).toContain("! Connected, needs attention: old-slack · RECONNECT_REQUIRED");
+    expect(heading).toContain("○ Not connected.");
     expect(heading).not.toContain("Sixth Connector");
     expect(heading).toContain(
       "Run `weldall connectors --agentic` for the complete permission catalog.",
@@ -221,6 +221,10 @@ describe("CLI brand", () => {
       "Request now: `weldall request --connection my-google <provider-https-url>`.",
     );
     expect(heading).not.toContain("weldall connections connect <key> --name <name>");
+    expect(heading).toContain(
+      "Provider-specific usage hints and request examples: weldall connections show",
+    );
+    expect(heading).toContain("<connection-name>.");
     expect(heading).toContain("weldall skills find <keyword>");
     expect(heading).toContain("6 cached skills");
     expect(heading).toContain("Run `weldall skills list` for the complete list.");
@@ -482,14 +486,33 @@ describe("managed connection tables", () => {
 
     expect(output).toContain("Google");
     expect(output).toContain("Key google · Type google");
-    expect(output).toContain("Your connections");
-    expect(output).toContain("• my-google · ada@example.com · READY");
+    expect(output).toContain("Connection status");
+    expect(output).toContain("• Connected: my-google · ada@example.com · READY");
     expect(output).toContain("Identity");
     expect(output).toContain("• Identify your Google account (required)");
     expect(output).toContain("Verify the connected account.");
     expect(output).toContain("Calendar");
     expect(output).toContain("• Read and edit events (selected by default)");
     expect(output).toContain("Manage calendar events.");
+  });
+
+  it("explicitly identifies connectors without a connection", () => {
+    const output = renderUi({
+      node: createElement(ConnectorCard, {
+        connector: {
+          key: "atlassian",
+          name: "Atlassian",
+          type: "atlassian",
+          requiredScopes: [],
+          scopes: [],
+          defaultScopes: [],
+        },
+      }),
+      columns: 80,
+    });
+
+    expect(output).toContain("Connection status");
+    expect(output).toContain("• Not connected");
   });
 
   it("wraps long cells instead of replacing their text with an ellipsis", () => {
@@ -519,13 +542,6 @@ describe("provider-neutral connection guidance", () => {
     );
     expect(await renderConnectionHelp(["connections", "cancel", "--help"])).toContain(
       "Cancel an attempt and clean up its unused provider grant where supported",
-    );
-  });
-  it("rejects managed pagination without prescribing a provider's cursor scheme", async () => {
-    const run = (command: { run?: (context: never) => unknown }) =>
-      command.run?.({ values: { connection: "example", paginate: "offset" } } as never);
-    await expect(run(requestCommand)).rejects.toThrow(
-      "Managed connections do not support --paginate; follow the provider's pagination instructions and request each page explicitly.",
     );
   });
 });

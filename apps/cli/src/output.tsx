@@ -2,6 +2,7 @@ import { stripVTControlCharacters } from "node:util";
 import { createContext, useContext, type PropsWithChildren, type ReactNode } from "react";
 import chalk from "chalk";
 import { Box, Text, renderToString } from "ink";
+import { CONNECTION_USAGE_DISCOVERY_HINT } from "./connection-usage.js";
 
 export const palette = {
   primary: "blue",
@@ -559,17 +560,22 @@ function ConnectorPreview({
                   ? ` — ${connector.groups.map(terminalText).join(", ")}`
                   : ""}
               </Text>
-              {connectorConnections.map((connection) =>
-                connection.status === "READY" ? (
-                  <Text key={connection.name} color={palette.success}>
-                    {"  "}✓ {terminalText(connection.name)} is ready for{" "}
-                    {terminalText(connector.name)} requests.
-                  </Text>
-                ) : (
-                  <Text key={connection.name} color={palette.warning}>
-                    {"  "}! {terminalText(connection.name)} · {terminalText(connection.status)}
-                  </Text>
-                ),
+              {connectorConnections.length === 0 ? (
+                <Text dimColor>{"  "}○ Not connected.</Text>
+              ) : (
+                connectorConnections.map((connection) =>
+                  connection.status === "READY" ? (
+                    <Text key={connection.name} color={palette.success}>
+                      {"  "}✓ Connected: {terminalText(connection.name)} is ready for{" "}
+                      {terminalText(connector.name)} requests.
+                    </Text>
+                  ) : (
+                    <Text key={connection.name} color={palette.warning}>
+                      {"  "}! Connected, needs attention: {terminalText(connection.name)} ·{" "}
+                      {terminalText(connection.status)}
+                    </Text>
+                  ),
+                )
               )}
             </Box>
           );
@@ -587,6 +593,7 @@ function ConnectorPreview({
         ) : (
           <Text>Connect with `weldall connections connect &lt;key&gt; --name &lt;name&gt;`.</Text>
         )}
+        <Text>{terminalText(CONNECTION_USAGE_DISCOVERY_HINT)}</Text>
       </Box>
     </Card>
   );

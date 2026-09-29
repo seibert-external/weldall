@@ -160,22 +160,6 @@ token; before forwarding its ID-JAG, the CLI verifies the bound subject and veri
 the audience, resource, scopes, and device key. It then adds the DPoP authorization headers.
 `weldall skills list` refreshes a searchable local catalog. `weldall skills find <keywords>` searches cached slugs, titles, catalog previews, tags, owners, and resource names without networking after initialization. Multi-word queries rank skills matching more terms first; on no match, try fewer or broader system, resource, or action words, or browse with `weldall skills list`. `weldall skills <skill-id>` is an alias for `weldall skills show <skill-id>`.
 
-For offset-paginated JSON APIs, one process can prepare authorization once and request bounded pages concurrently:
-
-```sh
-weldall request \
-  --scope personio:read \
-  --paginate offset \
-  --page-size 100 \
-  --total-pages-pointer /metadata/total_pages \
-  --max-pages 20 \
-  --concurrency 3 \
-  --page-output jsonl \
-  'https://gateway.example/personio/employees?limit=100&offset=0'
-```
-
-Pagination is GET-only, manages `limit` and `offset`, emits pages in deterministic JSON Lines order only after all pages succeed, and enforces page-count, concurrency, and 50 MiB aggregate response limits. It does not follow server-provided next links or retry failed pages.
-
 Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. Human-facing
 output is rendered with Ink in bordered account, access, skill, notice, and configuration panels. ANSI
 colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON, documents, response
