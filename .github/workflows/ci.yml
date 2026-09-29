@@ -163,9 +163,6 @@ jobs:
           pnpm typecheck
           pnpm test
 
-      - name: Verify discovery proxy image
-        run: pnpm --filter @weldall/discovery-proxy image:test
-
       - name: Build workspaces
         run: pnpm build:dev
 
@@ -173,6 +170,30 @@ jobs:
         run: |
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
+
+  # Builds both production images and runs the same black-box tests as
+  # release-docker-images.yml, so a broken Dockerfile or entrypoint fails the pull
+  # request instead of the first release. The scripts need only docker, curl, openssl
+  # and node, so this job installs no workspace dependencies.
+  images:
+    name: Docker images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - name: Verify Weldall image
+        run: pnpm --filter @weldall/weldall image:test
+      - name: Verify discovery proxy image
+        run: pnpm --filter @weldall/discovery-proxy image:test
 
   package-compat:
     runs-on: weldall
@@ -396,6 +417,7 @@ jobs:
     needs:
       - python-sdk
       - verify
+      - images
       - package-compat
       - cli-native
       - cli-standalone-detached
