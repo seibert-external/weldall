@@ -177,18 +177,28 @@
                     "minItems": 1,
                     "maxItems": 50,
                     "items": {
-                      "enum": [
-                        "read:jira-work",
-                        "read:jira-user",
-                        "write:jira-work",
-                        "manage:jira-project",
-                        "manage:jira-configuration",
-                        "manage:jira-webhook",
-                        "read:confluence-content.all",
-                        "search:confluence",
-                        "read:confluence-space.summary",
-                        "read:confluence-user",
-                        "write:confluence-content"
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "read:jira-work",
+                            "read:jira-user",
+                            "write:jira-work",
+                            "manage:jira-project",
+                            "manage:jira-configuration",
+                            "manage:jira-webhook",
+                            "read:confluence-content.all",
+                            "search:confluence",
+                            "read:confluence-space.summary",
+                            "read:confluence-user",
+                            "write:confluence-content"
+                          ]
+                        },
+                        {
+                          "pattern": "^(read|write|delete|send|validate):[a-z0-9._-]+:(jira|jira-software|jira-service-management)$"
+                        },
+                        {
+                          "pattern": "^(read|write|delete):[a-z0-9._-]+:confluence$"
+                        }
                       ]
                     }
                   },
@@ -196,18 +206,28 @@
                     "type": "array",
                     "maxItems": 50,
                     "items": {
-                      "enum": [
-                        "read:jira-work",
-                        "read:jira-user",
-                        "write:jira-work",
-                        "manage:jira-project",
-                        "manage:jira-configuration",
-                        "manage:jira-webhook",
-                        "read:confluence-content.all",
-                        "search:confluence",
-                        "read:confluence-space.summary",
-                        "read:confluence-user",
-                        "write:confluence-content"
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "read:jira-work",
+                            "read:jira-user",
+                            "write:jira-work",
+                            "manage:jira-project",
+                            "manage:jira-configuration",
+                            "manage:jira-webhook",
+                            "read:confluence-content.all",
+                            "search:confluence",
+                            "read:confluence-space.summary",
+                            "read:confluence-user",
+                            "write:confluence-content"
+                          ]
+                        },
+                        {
+                          "pattern": "^(read|write|delete|send|validate):[a-z0-9._-]+:(jira|jira-software|jira-service-management)$"
+                        },
+                        {
+                          "pattern": "^(read|write|delete):[a-z0-9._-]+:confluence$"
+                        }
                       ]
                     },
                     "description": "Must be a subset of allowedScopes. Scope sets are deduplicated and sorted."

@@ -1,20 +1,45 @@
 import { z } from "zod";
 import { ConnectorError } from "../../errors";
-import { JIRA_CLASSIC_SCOPES } from "./jira-scopes";
+import { CONFLUENCE_GRANULAR_SCOPE_IDS } from "./granular-scopes";
+import { JIRA_CLASSIC_SCOPES, JIRA_GRANULAR_SCOPES } from "./jira-scopes";
 
 // Cloud IDs are UUID-shaped opaque identifiers, not necessarily RFC4122 variant UUIDs.
 export const cloudIdSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 export const requiredScopes = ["offline_access", "read:me"];
-export const scopeCatalog = [
-  ...JIRA_CLASSIC_SCOPES.map((scope) => ({ ...scope, product: "jira" as const })),
-  { id: "read:confluence-content.all", label: "Read Confluence content", product: "confluence" },
-  { id: "search:confluence", label: "Search Confluence", product: "confluence" },
-  { id: "read:confluence-space.summary", label: "Read Confluence spaces", product: "confluence" },
-  { id: "read:confluence-user", label: "Read Confluence users", product: "confluence" },
-  { id: "write:confluence-content", label: "Write Confluence content", product: "confluence" },
+const CONFLUENCE_CLASSIC_SCOPES = [
+  { id: "read:confluence-content.all", label: "Read Confluence content" },
+  { id: "search:confluence", label: "Search Confluence" },
+  { id: "read:confluence-space.summary", label: "Read Confluence spaces" },
+  { id: "read:confluence-user", label: "Read Confluence users" },
+  { id: "write:confluence-content", label: "Write Confluence content" },
 ] as const;
+export const scopeCatalog = [
+  ...JIRA_CLASSIC_SCOPES.map((scope) => ({
+    ...scope,
+    product: "jira" as const,
+    mode: "classic" as const,
+  })),
+  ...JIRA_GRANULAR_SCOPES.map((scope) => ({
+    ...scope,
+    product: "jira" as const,
+    mode: "granular" as const,
+  })),
+  ...CONFLUENCE_CLASSIC_SCOPES.map((scope) => ({
+    ...scope,
+    description: "Classic Confluence OAuth permission.",
+    product: "confluence" as const,
+    mode: "classic" as const,
+  })),
+  ...CONFLUENCE_GRANULAR_SCOPE_IDS.map((id) => ({
+    id,
+    label: id,
+    description: "Granular Confluence OAuth permission.",
+    product: "confluence" as const,
+    mode: "granular" as const,
+  })),
+];
 export const canonicalScopes = (values: string[]) => [...new Set(values)].sort();
 const scopeSet = z.array(z.string().min(1).max(200)).max(50).transform(canonicalScopes);
 export const atlassianConfigSchema = z

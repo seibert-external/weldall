@@ -26,7 +26,7 @@ export function validateAtlassianConfiguration(value: unknown) {
   const sites = value.allowedCloudIds;
   const allowed = value.allowedScopes;
   const defaults = value.defaultScopes;
-  const scopes = {
+  const classicScopes = {
     jira: [
       "read:jira-work",
       "read:jira-user",
@@ -43,6 +43,13 @@ export function validateAtlassianConfiguration(value: unknown) {
       "write:confluence-content",
     ],
   };
+  const granularScopePatterns = {
+    jira: /^(?:read|write|delete|send|validate):[a-z0-9._-]+:(?:jira|jira-software|jira-service-management)$/,
+    confluence: /^(?:read|write|delete):[a-z0-9._-]+:confluence$/,
+  };
+  const supportsScope = (product: "jira" | "confluence", scope: unknown) =>
+    typeof scope === "string" &&
+    (classicScopes[product].includes(scope) || granularScopePatterns[product].test(scope));
   if (
     !Array.isArray(products) ||
     !products.length ||
@@ -60,8 +67,7 @@ export function validateAtlassianConfiguration(value: unknown) {
     !allowed.length ||
     allowed.length > 50 ||
     allowed.some(
-      (scope) =>
-        !products.some((product: "jira" | "confluence") => scopes[product].includes(scope)),
+      (scope) => !products.some((product: "jira" | "confluence") => supportsScope(product, scope)),
     ) ||
     !Array.isArray(defaults) ||
     defaults.length > 50 ||

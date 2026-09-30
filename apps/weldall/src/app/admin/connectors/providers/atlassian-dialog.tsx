@@ -191,7 +191,10 @@ export function AtlassianConnectorDialog({
                   value={value.provider.allowedScopes}
                   options={scopeCatalog
                     .filter((scope) => value.provider.products.includes(scope.product))
-                    .map((scope) => ({ value: scope.id, label: scope.label }))}
+                    .map((scope) => ({
+                      value: scope.id,
+                      label: scope.mode === "granular" ? `${scope.id} (granular)` : scope.label,
+                    }))}
                   onChange={(allowedScopes) =>
                     provider({
                       allowedScopes,
@@ -200,17 +203,40 @@ export function AtlassianConnectorDialog({
                       ),
                     })
                   }
+                  hasSearch
+                  searchPlaceholder="Search permissions..."
                   width="100%"
                 />
-                <MultiSelector
-                  label="Selected by default"
-                  value={value.provider.defaultScopes}
-                  options={scopeCatalog
-                    .filter((scope) => value.provider.allowedScopes.includes(scope.id))
-                    .map((scope) => ({ value: scope.id, label: scope.label }))}
-                  onChange={(defaultScopes) => provider({ defaultScopes })}
-                  width="100%"
-                />
+                <div className="grid gap-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">Selected by default</span>
+                    <Button
+                      type="button"
+                      label="Select all"
+                      variant="ghost"
+                      size="sm"
+                      isDisabled={
+                        value.provider.defaultScopes.length === value.provider.allowedScopes.length
+                      }
+                      onClick={() => provider({ defaultScopes: [...value.provider.allowedScopes] })}
+                    />
+                  </div>
+                  <MultiSelector
+                    label="Selected by default"
+                    isLabelHidden
+                    value={value.provider.defaultScopes}
+                    options={scopeCatalog
+                      .filter((scope) => value.provider.allowedScopes.includes(scope.id))
+                      .map((scope) => ({
+                        value: scope.id,
+                        label: scope.mode === "granular" ? `${scope.id} (granular)` : scope.label,
+                      }))}
+                    onChange={(defaultScopes) => provider({ defaultScopes })}
+                    hasSearch
+                    searchPlaceholder="Search permissions..."
+                    width="100%"
+                  />
+                </div>
                 <MultiSelector
                   label="Required Weldall scopes"
                   value={value.requiredScopes}

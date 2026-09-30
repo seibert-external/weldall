@@ -32,7 +32,7 @@ Create a **resource-level OAuth 2.0 (3LO) integration** in the [Atlassian develo
 
 ### 2. Allow company sites
 
-Under **Admin → Connectors → Atlassian Cloud**, enter the client ID and secret, select products and permissions, and enable the connector. Add the allowed site cloud IDs; you can find each site's `cloudId` at `https://your-site.atlassian.net/_edge/tenant_info`.
+Under **Admin → Connectors → Atlassian Cloud**, enter the client ID and secret, select products and permissions, and enable the connector. The permission catalog includes Atlassian's classic scopes plus the granular scopes for the Jira Platform, Jira Software, Jira Service Management, and Confluence API routes that Weldall supports. Select only the scopes your users need (up to 50), and enable the same scopes in Atlassian's developer console. Add the allowed site cloud IDs; you can find each site's `cloudId` at `https://your-site.atlassian.net/_edge/tenant_info`.
 
 ### 3. Connect your account
 
@@ -46,7 +46,7 @@ weldall request --connection my-jira \
 
 Choose a site on Atlassian's consent screen. Weldall checks it against the allowlist. Each additional site needs a separate connection. `weldall connections show my-jira` shows the site ID, ready-to-use request examples, and pagination instructions. Use `--agentic` for agent-oriented output.
 
-Requests use `api.atlassian.com`, not the site's own domain. For Confluence pages, use `/ex/confluence/CLOUD_ID/wiki/api/v2/pages`.
+Requests use `api.atlassian.com`, not the site's own domain. Confluence v2 endpoints require their granular scopes; for example, `/wiki/api/v2/pages` uses `read:page:confluence` and `/wiki/api/v2/spaces` uses `read:space:confluence`. `connections show` advertises v2 examples only when the connection has the required granular scope and otherwise uses a compatible v1 example where available.
 
 :::note[Disconnect]
 `weldall connections disconnect my-jira` removes the connection from Weldall. To revoke Atlassian access, remove the app in your [Atlassian account settings](https://id.atlassian.com/manage-profile/apps). This can affect other connections using that app.

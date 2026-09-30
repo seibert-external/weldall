@@ -1,4 +1,6 @@
-/** Jira Cloud platform classic OAuth scopes. Granular scopes are not supported. */
+import { JIRA_GRANULAR_SCOPE_IDS } from "./granular-scopes";
+
+/** Jira Cloud platform OAuth scope reference. */
 export const JIRA_SCOPES_REFERENCE =
   "https://developer.atlassian.com/cloud/jira/platform/scopes-for-oauth-2-3LO-and-forge-apps/";
 
@@ -40,6 +42,12 @@ export const JIRA_CLASSIC_SCOPES = [
     description: "Fetch, register, refresh, and delete dynamically declared Jira webhooks.",
   },
 ] as const;
+
+export const JIRA_GRANULAR_SCOPES = JIRA_GRANULAR_SCOPE_IDS.map((id) => ({
+  id,
+  label: id,
+  description: "Granular Jira OAuth permission.",
+}));
 
 export type JiraScope = (typeof JIRA_CLASSIC_SCOPES)[number];
 export type JiraScopeId = JiraScope["id"];

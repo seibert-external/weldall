@@ -32,7 +32,7 @@ Erstelle eine **ressourcenbezogene OAuth-2.0-Integration (3LO)** in der [Atlassi
 
 ### 2. Unternehmens-Sites freigeben
 
-Trage unter **Admin → Connectors → Atlassian Cloud** Client-ID und Client-Secret ein, wähle Produkte und Berechtigungen und aktiviere den Connector. Ergänze die erlaubten Site-Cloud-IDs. Die jeweilige `cloudId` findest du unter `https://your-site.atlassian.net/_edge/tenant_info`.
+Trage unter **Admin → Connectors → Atlassian Cloud** Client-ID und Client-Secret ein, wähle Produkte und Berechtigungen und aktiviere den Connector. Der Berechtigungskatalog enthält Atlassians klassische Scopes sowie die granularen Scopes für die von Weldall unterstützten Routen von Jira Platform, Jira Software, Jira Service Management und Confluence. Wähle nur die benötigten Scopes (höchstens 50) und aktiviere dieselben Scopes in der Atlassian Developer Console. Ergänze die erlaubten Site-Cloud-IDs. Die jeweilige `cloudId` findest du unter `https://your-site.atlassian.net/_edge/tenant_info`.
 
 ### 3. Konto verbinden
 
@@ -46,7 +46,7 @@ weldall request --connection my-jira \
 
 Wähle auf Atlassians Freigabeseite eine Site. Weldall prüft sie gegen die Allowlist. Jede weitere Site benötigt eine eigene Verbindung. `weldall connections show my-jira` zeigt die Site-ID, fertige Request-Beispiele und Hinweise zur Paginierung. Mit `--agentic` erhältst du die Ausgabe für Agenten.
 
-Requests verwenden `api.atlassian.com`, nicht die Domain der Site. Für Confluence-Seiten lautet der Pfad `/ex/confluence/CLOUD_ID/wiki/api/v2/pages`.
+Requests verwenden `api.atlassian.com`, nicht die Domain der Site. Confluence-v2-Endpunkte benötigen ihre granularen Scopes: `/wiki/api/v2/pages` verwendet beispielsweise `read:page:confluence`, `/wiki/api/v2/spaces` verwendet `read:space:confluence`. `connections show` zeigt v2-Beispiele nur mit dem erforderlichen granularen Scope und verwendet ansonsten, sofern vorhanden, ein kompatibles v1-Beispiel.
 
 :::note[Verbindung entfernen]
 `weldall connections disconnect my-jira` entfernt die Verbindung aus Weldall. Um den Atlassian-Zugriff zu widerrufen, entferne die App in deinen [Atlassian-Kontoeinstellungen](https://id.atlassian.com/manage-profile/apps). Das kann weitere Verbindungen derselben App betreffen.

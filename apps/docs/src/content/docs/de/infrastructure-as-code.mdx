@@ -143,7 +143,7 @@ machines:
 
 Ins Manifest gehören nur öffentliche Machine-Schlüssel.
 
-Managed Connectors können ebenfalls in YAML beschrieben werden. Das Manifest enthält nur öffentliche Policy; OAuth-Client-Secrets werden in der Admin-Oberfläche eingetragen und von der CLI nie akzeptiert. `envelopeProvider` ist nach der Erstellung unveränderlich. Google-Connectors listen exakte Google-OAuth-Scopes. Atlassian-Cloud-Connectors müssen ressourcenbezogene Grants, mindestens einen erlaubten Jira- oder Confluence-Product-Scope und mindestens eine erlaubte Site-`cloudId` verwenden.
+Managed Connectors können ebenfalls in YAML beschrieben werden. Das Manifest enthält nur öffentliche Policy; OAuth-Client-Secrets werden in der Admin-Oberfläche eingetragen und von der CLI nie akzeptiert. `envelopeProvider` ist nach der Erstellung unveränderlich. Google-Connectors listen exakte Google-OAuth-Scopes. Atlassian-Cloud-Connectors müssen ressourcenbezogene Grants, mindestens einen erlaubten Jira- oder Confluence-Product-Scope und mindestens eine erlaubte Site-`cloudId` verwenden. `allowedScopes` und `defaultScopes` akzeptieren die klassischen und granularen Atlassian-Berechtigungen aus der Admin-Oberfläche, jeweils höchstens 50 Scopes.
 
 ```yaml
 connectors:

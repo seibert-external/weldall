@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { logger } from "../../../observability/logger";
 import { ConnectorError } from "../../errors";
 import type { ProviderGrant, ProviderUpstreamUrl } from "../../provider";
 import {
@@ -67,6 +68,17 @@ export function validateResources({
       resources.some((resource) => scopes.every((scope) => resource.scopes.includes(scope)))
     );
   });
+  logger.debug(
+    {
+      event: "connector.atlassian.grant_scopes_observed",
+      selectedScopes: selected.scopes,
+      issuedScopes: tokens.grantedScopes,
+      resourceScopes: canonicalScopes(resources.flatMap((resource) => resource.scopes)),
+      resourceCount: resources.length,
+      products,
+    },
+    "Observed Atlassian OAuth scopes during grant validation",
+  );
   if (
     productScopes.some(
       (id) => !scopeCatalog.some((scope) => scope.id === id && products.includes(scope.product)),

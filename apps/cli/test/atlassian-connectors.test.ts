@@ -6,8 +6,9 @@ import { validateAtlassianConfiguration } from "../src/iac/atlassian.js";
 import { loadWorkspace, newLock, serverManifest } from "../src/iac/manifest.js";
 import { isConnectionSummary } from "../src/services/connections.js";
 import { encodeConnectionDetailToon } from "../src/connections-toon.js";
-// Keep CLI validation aligned with the provider's authoritative classic catalog.
+// Keep CLI validation aligned with the provider's authoritative scope catalog.
 import { JIRA_CLASSIC_SCOPES } from "../../weldall/src/server/connectors/providers/atlassian/jira-scopes.js";
+import { scopeCatalog } from "../../weldall/src/server/connectors/providers/atlassian/config.js";
 
 const site = "8594f221-9797-5f78-1fa4-485e198d7cd0";
 const provider = {
@@ -24,8 +25,19 @@ describe("Atlassian connector IaC", () => {
       validateAtlassianConfiguration({ ...provider, allowedScopes: [id], defaultScopes: [id] }),
     ).not.toThrow();
   });
-  it.each(["read:issue:jira", "write:project:jira", "delete:issue:jira", "read:page:confluence"])(
-    "rejects granular scope %s",
+  it("accepts every provider-reviewed granular scope", () => {
+    for (const scope of scopeCatalog.filter((scope) => scope.mode === "granular"))
+      expect(() =>
+        validateAtlassianConfiguration({
+          ...provider,
+          products: [scope.product],
+          allowedScopes: [scope.id],
+          defaultScopes: [scope.id],
+        }),
+      ).not.toThrow();
+  });
+  it.each(["read:page:other", "unknown:jira", "read::jira"])(
+    "rejects malformed scope %s",
     (scope) => {
       expect(() =>
         validateAtlassianConfiguration({

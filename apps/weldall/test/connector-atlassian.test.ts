@@ -7,11 +7,19 @@ import {
   scopeCatalog,
 } from "../src/server/connectors/providers/atlassian/config";
 import { JIRA_CLASSIC_SCOPES } from "../src/server/connectors/providers/atlassian/jira-scopes";
+import {
+  CONFLUENCE_GRANULAR_SCOPE_IDS,
+  JIRA_GRANULAR_SCOPE_IDS,
+  JIRA_PLATFORM_GRANULAR_SCOPE_IDS,
+  JIRA_SERVICE_MANAGEMENT_GRANULAR_SCOPE_IDS,
+  JIRA_SOFTWARE_GRANULAR_SCOPE_IDS,
+} from "../src/server/connectors/providers/atlassian/granular-scopes";
 import { validateResources } from "../src/server/connectors/providers/atlassian/grant";
 import type { ConnectorProvider } from "../src/server/connectors/provider";
 import { connectorConfig } from "../src/server/connectors/contracts";
 import { getConnectorProvider } from "../src/server/connectors/registry";
 import { RejectedProviderCredentials } from "../src/server/connectors/errors";
+import { logger } from "../src/server/observability/logger";
 
 const provider: ConnectorProvider = adapter;
 const cloudId = "1324a887-45db-1bf4-1e99-ef0ff456d421";
@@ -92,7 +100,9 @@ describe("Atlassian policy and provider boundary", () => {
     const ids = JIRA_CLASSIC_SCOPES.map((scope) => scope.id);
     expect(ids).toHaveLength(6);
     expect(
-      scopeCatalog.filter((scope) => scope.product === "jira").map((scope) => scope.id),
+      scopeCatalog
+        .filter((scope) => scope.product === "jira" && scope.mode === "classic")
+        .map((scope) => scope.id),
     ).toEqual(ids);
     const policy = atlassianConfigSchema.parse({ ...config, allowedScopes: ids });
     expect(policy.defaultScopes).toEqual(config.defaultScopes);
@@ -112,8 +122,56 @@ describe("Atlassian policy and provider boundary", () => {
       ).not.toThrow();
     }
   });
-  it.each(["read:issue:jira", "write:project:jira", "delete:issue:jira", "read:page:confluence"])(
-    "rejects granular scope %s",
+  it("offers every reviewed granular scope for the routed Atlassian APIs", () => {
+    expect(JIRA_PLATFORM_GRANULAR_SCOPE_IDS).toHaveLength(177);
+    expect(JIRA_SOFTWARE_GRANULAR_SCOPE_IDS).toHaveLength(12);
+    expect(JIRA_SERVICE_MANAGEMENT_GRANULAR_SCOPE_IDS).toHaveLength(69);
+    expect(JIRA_GRANULAR_SCOPE_IDS).toHaveLength(258);
+    expect(CONFLUENCE_GRANULAR_SCOPE_IDS).toHaveLength(71);
+    expect(new Set(scopeCatalog.map((scope) => scope.id)).size).toBe(scopeCatalog.length);
+    for (const [product, ids] of [
+      ["jira", JIRA_GRANULAR_SCOPE_IDS],
+      ["confluence", CONFLUENCE_GRANULAR_SCOPE_IDS],
+    ] as const)
+      for (const scope of ids)
+        expect(() =>
+          atlassianConfigSchema.parse({
+            ...config,
+            products: [product],
+            allowedScopes: [scope],
+            defaultScopes: [],
+          }),
+        ).not.toThrow();
+  });
+  it("binds granular Jira and Confluence scopes to their routed products", () => {
+    const granularScopes = canonicalScopes([
+      ...requiredScopes,
+      "read:sprint:jira-software",
+      "read:request:jira-service-management",
+      "read:page:confluence",
+    ]);
+    const granularConfig = {
+      ...config,
+      products: ["jira", "confluence"],
+      allowedScopes: granularScopes.filter((scope) => !requiredScopes.includes(scope)),
+      defaultScopes: [],
+    };
+    expect(
+      validateResources({
+        config: granularConfig,
+        selection: { scopes: granularScopes },
+        credentials: { ...credentials, grantedScopes: granularScopes },
+        resources: [
+          {
+            ...resource,
+            scopes: granularScopes.filter((scope) => !requiredScopes.includes(scope)),
+          },
+        ],
+      }),
+    ).toMatchObject({ products: ["jira", "confluence"], scopes: granularScopes });
+  });
+  it.each(["read:unknown:jira", "read:unknown:confluence", "read:page:other"])(
+    "rejects unreviewed scope %s",
     (scope) => {
       expect(() =>
         atlassianConfigSchema.parse({
@@ -254,6 +312,26 @@ describe("Atlassian authorization and rotation", () => {
   it("rejects expanded token consent", async () => {
     token.scope = `${scopes.join(" ")} write:jira-work`;
     await expect(complete()).rejects.toBeInstanceOf(RejectedProviderCredentials);
+  });
+  it("logs scope reconciliation without credential values", () => {
+    const debug = vi.spyOn(logger, "debug").mockImplementation(() => undefined);
+    try {
+      grant();
+      expect(debug).toHaveBeenCalledExactlyOnceWith(
+        {
+          event: "connector.atlassian.grant_scopes_observed",
+          selectedScopes: scopes,
+          issuedScopes: scopes,
+          resourceScopes: ["read:jira-work"],
+          resourceCount: 1,
+          products: ["jira"],
+        },
+        "Observed Atlassian OAuth scopes during grant validation",
+      );
+      expect(JSON.stringify(debug.mock.calls)).not.toMatch(/private-access|private-refresh/);
+    } finally {
+      debug.mockRestore();
+    }
   });
   it("supports separate product entries sharing a cloud ID", () => {
     const combinedScopes = canonicalScopes([...scopes, "read:confluence-content.all"]);

@@ -4,6 +4,7 @@ import { parseGrant } from "./grant";
 /** Builds guidance exclusively from the connection's verified, single-site grant. */
 export function describeAtlassianUsage(value: unknown): ConnectionUsage {
   const grant = parseGrant(value);
+  const hasScopes = (...scopes: string[]) => scopes.every((scope) => grant.scopes.includes(scope));
   const instructions = [
     "Send requests to the api.atlassian.com gateway, not the site's atlassian.net URL. Weldall forwards the gateway URL unchanged.",
   ];
@@ -11,7 +12,16 @@ export function describeAtlassianUsage(value: unknown): ConnectionUsage {
   if (grant.products.includes("jira")) {
     const base = `https://api.atlassian.com/ex/jira/${grant.cloudId}`;
     instructions.push(`Jira API base: ${base}/rest/api/3/`);
-    if (grant.scopes.includes("read:jira-work")) {
+    if (
+      grant.scopes.includes("read:jira-work") ||
+      hasScopes(
+        "read:issue-details:jira",
+        "read:audit-log:jira",
+        "read:avatar:jira",
+        "read:field-configuration:jira",
+        "read:issue-meta:jira",
+      )
+    ) {
       const url = new URL(`${base}/rest/api/3/search/jql`);
       url.search = new URLSearchParams({
         jql: "ORDER BY created DESC",
@@ -24,7 +34,7 @@ export function describeAtlassianUsage(value: unknown): ConnectionUsage {
         "Jira issue search uses nextPageToken: request the next page with that query parameter, keeping the same JQL and fields. Stop when isLast is true or no nextPageToken is returned. Do not assume the response includes a total count.",
       );
     }
-    if (grant.scopes.includes("read:jira-user"))
+    if (grant.scopes.includes("read:jira-user") || grant.scopes.includes("read:user:jira"))
       examples.push({
         label: "Current Jira user",
         method: "GET",
@@ -36,7 +46,7 @@ export function describeAtlassianUsage(value: unknown): ConnectionUsage {
     instructions.push(
       `Confluence API base: ${base}/wiki/api/v2/ (v2) or ${base}/wiki/rest/api/ (v1).`,
     );
-    if (grant.scopes.includes("read:confluence-content.all")) {
+    if (grant.scopes.includes("read:page:confluence")) {
       examples.push({
         label: "Confluence pages",
         method: "GET",
@@ -45,7 +55,24 @@ export function describeAtlassianUsage(value: unknown): ConnectionUsage {
       instructions.push(
         "For Confluence v2 pages, take the cursor from the JSON response's _links.next URL and request the same gateway endpoint with cursor set to that value. Stop when _links.next is absent.",
       );
-    }
+    } else if (grant.scopes.includes("read:confluence-content.all"))
+      examples.push({
+        label: "Confluence pages (v1)",
+        method: "GET",
+        url: `${base}/wiki/rest/api/content?type=page&limit=10`,
+      });
+    if (grant.scopes.includes("read:space:confluence"))
+      examples.push({
+        label: "Confluence spaces",
+        method: "GET",
+        url: `${base}/wiki/api/v2/spaces?limit=10`,
+      });
+    else if (grant.scopes.includes("read:confluence-space.summary"))
+      examples.push({
+        label: "Confluence spaces (v1)",
+        method: "GET",
+        url: `${base}/wiki/rest/api/space?limit=10`,
+      });
     if (grant.scopes.includes("search:confluence")) {
       examples.push({
         label: "Search Confluence pages",

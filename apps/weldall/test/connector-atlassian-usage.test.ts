@@ -45,8 +45,12 @@ describe("provider-generated Atlassian usage", () => {
   });
   it.each([
     [["jira"], ["read:jira-user"], ["Current Jira user"]],
+    [["jira"], ["read:user:jira"], ["Current Jira user"]],
     [["jira"], ["write:jira-work"], []],
-    [["confluence"], ["read:confluence-content.all"], ["Confluence pages"]],
+    [["confluence"], ["read:confluence-content.all"], ["Confluence pages (v1)"]],
+    [["confluence"], ["read:page:confluence"], ["Confluence pages"]],
+    [["confluence"], ["read:confluence-space.summary"], ["Confluence spaces (v1)"]],
+    [["confluence"], ["read:space:confluence"], ["Confluence spaces"]],
     [["confluence"], ["search:confluence"], ["Search Confluence pages"]],
     [["confluence"], ["write:confluence-content"], []],
   ] as const)(
@@ -56,6 +60,19 @@ describe("provider-generated Atlassian usage", () => {
       expect(metadata.usage.examples.map((example) => example.label)).toEqual(labels);
     },
   );
+  it("advertises Jira search when its complete granular scope set is granted", () => {
+    const { metadata } = display(
+      ["jira"],
+      [
+        "read:issue-details:jira",
+        "read:audit-log:jira",
+        "read:avatar:jira",
+        "read:field-configuration:jira",
+        "read:issue-meta:jira",
+      ],
+    );
+    expect(metadata.usage.examples.map((example) => example.label)).toEqual(["Latest Jira issues"]);
+  });
   it("generates only URLs accepted by the existing provider request boundary", () => {
     const { metadata, selection, grant, config } = display(
       ["jira", "confluence"],
