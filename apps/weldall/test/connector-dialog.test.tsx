@@ -9,6 +9,23 @@ vi.mock("@astryxdesign/core/Dialog", () => ({
   Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
 }));
+vi.mock("@astryxdesign/core/MultiSelector", () => ({
+  MultiSelector: ({
+    label,
+    hasSearch,
+    searchPlaceholder,
+  }: {
+    label: string;
+    hasSearch?: boolean;
+    searchPlaceholder?: string;
+  }) => (
+    <div
+      data-selector={label}
+      data-searchable={hasSearch ? "true" : "false"}
+      data-search-placeholder={searchPlaceholder}
+    />
+  ),
+}));
 vi.mock("@/trpc/react", () => ({
   useTRPC: () => ({ admin: { managed: { saveConnector: { mutationOptions: () => ({}) } } } }),
 }));
@@ -42,5 +59,11 @@ describe("connector dialog presentation", () => {
     expect(html).not.toContain("Create a resource-level OAuth");
     expect(html).not.toContain("Register the callback URL");
     expect(html).not.toContain("rounded border p-2");
+    expect(html.match(/data-searchable="true"/g)).toHaveLength(2);
+    expect(html).toContain('data-selector="Allowed permissions"');
+    expect(html).toContain('data-selector="Selected by default"');
+    expect(html).toContain('data-search-placeholder="Search permissions..."');
+    expect(html).toContain('type="button"');
+    expect(html).toContain("Select all");
   });
 });

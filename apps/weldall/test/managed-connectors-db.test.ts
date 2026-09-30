@@ -1534,9 +1534,9 @@ describe.skipIf(!approvedTarget)(
       expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe("READY");
       expect(fetcher).not.toHaveBeenCalled();
     });
-    it("fails closed on unknown providers, unsafe origins, rate limits and authentication failures", async () => {
+    it("fails closed before dispatch but preserves connections after upstream authorization failures", async () => {
       const f = await ready();
-      const fetcher = vi.fn().mockResolvedValue(new Response("unauthorized", { status: 401 }));
+      const fetcher = vi.fn(async () => new Response("unauthorized", { status: 401 }));
       vi.stubGlobal("fetch", fetcher);
       const execute = (target = "https://gmail.googleapis.com/arbitrary") =>
         executeConnectionRequest({
@@ -1566,11 +1566,9 @@ describe.skipIf(!approvedTarget)(
       expect(fetcher).not.toHaveBeenCalled();
       await db.connection.update({ where: { id: f.id }, data: { rateCount: 0 } });
       expect((await execute()).status).toBe(401);
-      expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe(
-        "RECONNECT_REQUIRED",
-      );
-      await expect(execute()).rejects.toThrow("not available");
-      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe("READY");
+      expect((await execute()).status).toBe(401);
+      expect(fetcher).toHaveBeenCalledTimes(2);
     });
     it("reserves the last quota slot before decryption under concurrent requests", async () => {
       const f = await ready();

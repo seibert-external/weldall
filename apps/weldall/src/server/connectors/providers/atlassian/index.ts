@@ -39,8 +39,8 @@ export const atlassianProvider = {
           .map((scope) => ({
             id: scope.id,
             label: scope.label,
-            description: "description" in scope ? `${scope.description} (${scope.id})` : scope.id,
-            group: scope.product === "jira" ? "Jira Cloud" : "Confluence Cloud",
+            description: `${scope.description} (${scope.id})`,
+            group: `${scope.product === "jira" ? "Jira Cloud" : "Confluence Cloud"} · ${scope.mode === "classic" ? "Classic" : "Granular"}`,
             required: false,
           })),
       ],
@@ -53,11 +53,16 @@ export const atlassianProvider = {
   describeConnection({ selection, grant }) {
     const selected = selectionSchema.parse(selection);
     const approved = parseGrant(grant);
+    const displayedScopes = new Set([...selected.scopes, ...approved.scopes]);
     return {
       selectedScopes: selected.scopes,
       grantedScopes: approved.scopes,
       usage: describeAtlassianUsage(approved),
-      scopeLabels: Object.fromEntries(scopeCatalog.map((scope) => [scope.id, scope.label])),
+      scopeLabels: Object.fromEntries(
+        scopeCatalog
+          .filter((scope) => displayedScopes.has(scope.id))
+          .map((scope) => [scope.id, scope.label]),
+      ),
       details: [
         { label: "Site", value: `${approved.siteName} (${approved.cloudId})` },
         { label: "Site URL", value: approved.siteUrl },
