@@ -6,6 +6,7 @@ const allowedOrigins = new Set([
   "https://gmail.googleapis.com",
   "https://www.googleapis.com",
   "https://calendar.googleapis.com",
+  "https://bigquery.googleapis.com",
 ]);
 /**
  * Authorizes only reviewed Google origins, without interpreting API paths or query parameters.

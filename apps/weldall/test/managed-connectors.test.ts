@@ -3,6 +3,7 @@ import { googleProvider } from "../src/server/connectors/providers/google";
 import {
   requiredScopes,
   canonicalizeScopes,
+  scopeCatalog,
 } from "../src/server/connectors/providers/google/setup";
 import { parseGoogleGrant } from "../src/server/connectors/providers/google/credentials";
 import { getConnectorProvider } from "../src/server/connectors/registry";
@@ -57,6 +58,13 @@ afterEach(() => {
 });
 
 describe("managed provider boundaries", () => {
+  it("offers the service-specific BigQuery scopes", () => {
+    expect(scopeCatalog.filter(({ group }) => group === "BigQuery").map(({ id }) => id)).toEqual([
+      "https://www.googleapis.com/auth/bigquery.readonly",
+      "https://www.googleapis.com/auth/bigquery.insertdata",
+      "https://www.googleapis.com/auth/bigquery",
+    ]);
+  });
   it("canonicalizes exact sets without scope aliases or implication mappings", async () => {
     expect(
       googleProvider.validateSetupInput({
@@ -212,6 +220,7 @@ describe("managed provider boundaries", () => {
       "https://gmail.googleapis.com",
       "https://www.googleapis.com",
       "https://calendar.googleapis.com",
+      "https://bigquery.googleapis.com",
     ]) {
       const requestedUrl = parseCanonicalHttps(
         `${origin}/future/v99/accounts/someone@example.com/arbitrary?newKey=yes&newKey=no&q=hello%20world`,
