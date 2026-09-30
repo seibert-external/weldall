@@ -1,6 +1,7 @@
 import { db, type Prisma } from "@weldall/db";
 import { ConnectorError, type AuthorizedConnectorActor } from "../contracts";
 import { runConnectorTransaction } from "../configuration";
+import { logger } from "../../observability/logger";
 import { accessCredentials, findOwnedConnection } from "./connections";
 import { getConnectorProvider } from "../registry";
 import { fingerprintConnectorRequest, writeConnectorAuditLog } from "../audit";
@@ -165,12 +166,23 @@ export async function executeConnectionRequest({
         signal,
       }),
     });
-    // A 401 blocks credentials even if response buffering subsequently fails.
-    if (response.status === 401)
-      await db.connection.updateMany({
-        where: { id: initial.id, version: credentialState.version, status: "READY" },
-        data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
-      });
+    // Upstream authorization failures may be endpoint-specific. Only provider grant validation
+    // and token refresh are authoritative enough to change connection lifecycle state.
+    if (!response.ok)
+      logger.warn(
+        {
+          event: "connector.request.upstream_failed",
+          provider: provider.type,
+          connectorId: initial.connectorId,
+          connectionId: initial.id,
+          method: request.method,
+          requestFingerprint: details.requestFingerprint,
+          status: response.status,
+          atlTraceId: response.headers.get("atl-traceid") ?? undefined,
+          atlassianRequestId: response.headers.get("x-arequestid") ?? undefined,
+        },
+        "Connector upstream request failed",
+      );
     let responseHeaders: Headers;
     try {
       responseHeaders = filterProxyHeaders({ input: response.headers, response: true });
