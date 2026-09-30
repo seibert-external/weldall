@@ -22,6 +22,14 @@ weldall request --connection my-google \
 
 Approve Calendar access during setup to use this example. Use `--connection` instead of `--scope` for connector requests. The connection belongs to you and works across your signed-in devices.
 
+The Google connector also supports BigQuery's read-only, row-insertion, and full-management OAuth permissions. Administrators choose which permissions to offer; users only see and approve those choices. For example, a connection with read-only BigQuery access can run a query as the connected user, preserving that user's BigQuery row- and column-level access:
+
+```sh
+weldall request --connection my-google -X POST \
+  --json '{"query":"SELECT name FROM `my-project.analytics.customers` LIMIT 10","useLegacySql":false,"maximumBytesBilled":"10000000"}' \
+  https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
+```
+
 To remove it, run `weldall connections disconnect my-google`. Weldall attempts to revoke access at Google and removes the stored connection. If revocation cannot be confirmed, the CLI asks you to finish in your Google account settings.
 
 ## Set up Atlassian Cloud

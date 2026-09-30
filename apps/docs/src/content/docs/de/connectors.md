@@ -22,6 +22,14 @@ weldall request --connection my-google \
 
 Gib beim Verbinden den Kalenderzugriff frei, um dieses Beispiel zu nutzen. Connector-Anfragen verwenden `--connection` statt `--scope`. Die Verbindung gehört dir und funktioniert auf allen Geräten, auf denen du angemeldet bist.
 
+Der Google-Connector unterstützt außerdem OAuth-Berechtigungen für lesenden BigQuery-Zugriff, das Einfügen von Zeilen und die vollständige Verwaltung. Administratoren wählen aus, welche Berechtigungen angeboten werden; Nutzende sehen und bestätigen nur diese Auswahl. Eine Verbindung mit lesendem BigQuery-Zugriff kann beispielsweise eine Abfrage als verbundene Person ausführen, sodass deren zeilen- und spaltenbezogene BigQuery-Zugriffsregeln erhalten bleiben:
+
+```sh
+weldall request --connection my-google -X POST \
+  --json '{"query":"SELECT name FROM `my-project.analytics.customers` LIMIT 10","useLegacySql":false,"maximumBytesBilled":"10000000"}' \
+  https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
+```
+
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 
 ## Atlassian Cloud einrichten

@@ -62,6 +62,27 @@ export const scopeCatalog: ScopeDescriptor[] = [
     group: "Calendar",
     required: false,
   },
+  {
+    id: `${google}bigquery.readonly`,
+    label: "View BigQuery data",
+    description: "View data and metadata in Google BigQuery, including running read-only queries.",
+    group: "BigQuery",
+    required: false,
+  },
+  {
+    id: `${google}bigquery.insertdata`,
+    label: "Insert BigQuery data",
+    description: "Insert rows into Google BigQuery tables.",
+    group: "BigQuery",
+    required: false,
+  },
+  {
+    id: `${google}bigquery`,
+    label: "Manage BigQuery data",
+    description: "View and manage data in Google BigQuery.",
+    group: "BigQuery",
+    required: false,
+  },
 ];
 export const requiredScopes = scopeCatalog.filter((s) => s.required).map((s) => s.id);
 /** Canonicalizes scope sets without aliases or inferred permissions. */
