@@ -3,7 +3,7 @@ import { isRecord } from "../http.js";
 import {
   CONFLUENCE_GRANULAR_SCOPE_IDS,
   JIRA_GRANULAR_SCOPE_IDS,
-} from "../../../weldall/src/server/connectors/providers/atlassian/granular-scopes.js";
+} from "./atlassian-granular-scopes.js";
 
 const JIRA_CLASSIC_SCOPE_IDS = [
   "read:jira-user",

@@ -1,7 +1,7 @@
 {
   "extends": "@weldall/tsconfig/node.json",
   "compilerOptions": {
-    "rootDir": "../..",
+    "rootDir": "src",
     "outDir": "dist",
     "jsx": "react-jsx"
   },

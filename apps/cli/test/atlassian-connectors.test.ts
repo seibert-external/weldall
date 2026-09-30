@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { validateAtlassianConfiguration } from "../src/iac/atlassian.js";
+import {
+  CONFLUENCE_GRANULAR_SCOPE_IDS,
+  JIRA_GRANULAR_SCOPE_IDS,
+} from "../src/iac/atlassian-granular-scopes.js";
 import { loadWorkspace, newLock, serverManifest } from "../src/iac/manifest.js";
 import { isConnectionSummary } from "../src/services/connections.js";
 import { encodeConnectionDetailToon } from "../src/connections-toon.js";
@@ -35,6 +39,18 @@ describe("Atlassian connector IaC", () => {
           defaultScopes: [scope.id],
         }),
       ).not.toThrow();
+  });
+  it("keeps the standalone CLI scope mirror aligned with the provider catalog", () => {
+    expect(JIRA_GRANULAR_SCOPE_IDS).toEqual(
+      scopeCatalog
+        .filter((scope) => scope.product === "jira" && scope.mode === "granular")
+        .map((scope) => scope.id),
+    );
+    expect(CONFLUENCE_GRANULAR_SCOPE_IDS).toEqual(
+      scopeCatalog
+        .filter((scope) => scope.product === "confluence" && scope.mode === "granular")
+        .map((scope) => scope.id),
+    );
   });
   it.each(["read:page:other", "unknown:jira", "read::jira"])(
     "rejects malformed scope %s",
