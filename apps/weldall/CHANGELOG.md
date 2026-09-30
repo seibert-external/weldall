@@ -1,5 +1,11 @@
 # @weldall/weldall
 
+## 0.5.2
+
+### Patch Changes
+
+- 667628f: Keep managed connections usable when an upstream endpoint rejects a request with HTTP 401, add safe Atlassian diagnostics, and support selectable granular scopes for every Jira, Jira Software, Jira Service Management, and Confluence route accepted by the connector.
+
 ## 0.5.1
 
 ### Patch Changes

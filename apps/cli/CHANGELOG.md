@@ -1,5 +1,15 @@
 # @weldall/cli
 
+## 0.20.0
+
+### Minor Changes
+
+- e364eda: Make connector discovery show which providers are connected and point human and agent output to provider-specific usage hints. Remove the specialized offset-pagination options from `weldall request`; callers now follow each provider's pagination instructions with explicit requests.
+
+### Patch Changes
+
+- 667628f: Keep managed connections usable when an upstream endpoint rejects a request with HTTP 401, add safe Atlassian diagnostics, and support selectable granular scopes for every Jira, Jira Software, Jira Service Management, and Confluence route accepted by the connector.
+
 ## 0.19.0
 
 ### Minor Changes
