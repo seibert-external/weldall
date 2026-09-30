@@ -170,6 +170,29 @@ describe("Atlassian policy and provider boundary", () => {
       }),
     ).toMatchObject({ products: ["jira", "confluence"], scopes: granularScopes });
   });
+  it("accepts Jira scopes split across same-site accessible resource entries", () => {
+    const granularScopes = canonicalScopes([
+      ...requiredScopes,
+      "read:issue-details:jira",
+      "read:sprint:jira-software",
+    ]);
+    const granularConfig = {
+      ...config,
+      allowedScopes: granularScopes.filter((scope) => !requiredScopes.includes(scope)),
+      defaultScopes: [],
+    };
+    expect(
+      validateResources({
+        config: granularConfig,
+        selection: { scopes: granularScopes },
+        credentials: { ...credentials, grantedScopes: granularScopes },
+        resources: [
+          { ...resource, scopes: ["read:issue-details:jira"] },
+          { ...resource, scopes: ["read:sprint:jira-software"] },
+        ],
+      }),
+    ).toMatchObject({ products: ["jira"], scopes: granularScopes });
+  });
   it.each(["read:unknown:jira", "read:unknown:confluence", "read:page:other"])(
     "rejects unreviewed scope %s",
     (scope) => {

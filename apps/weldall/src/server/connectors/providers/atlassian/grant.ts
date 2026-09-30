@@ -59,21 +59,19 @@ export function validateResources({
       "Authorize one approved site with the requested permissions. An existing connection cannot switch sites during use.",
     );
   const productScopes = selected.scopes.filter((scope) => !requiredScopes.includes(scope));
+  const resourceScopes = canonicalScopes(resources.flatMap((resource) => resource.scopes));
   const products = (["jira", "confluence"] as const).filter((product) => {
     const scopes = productScopes.filter((id) =>
       scopeCatalog.some((scope) => scope.id === id && scope.product === product),
     );
-    return (
-      scopes.length > 0 &&
-      resources.some((resource) => scopes.every((scope) => resource.scopes.includes(scope)))
-    );
+    return scopes.length > 0 && scopes.every((scope) => resourceScopes.includes(scope));
   });
   logger.debug(
     {
       event: "connector.atlassian.grant_scopes_observed",
       selectedScopes: selected.scopes,
       issuedScopes: tokens.grantedScopes,
-      resourceScopes: canonicalScopes(resources.flatMap((resource) => resource.scopes)),
+      resourceScopes,
       resourceCount: resources.length,
       products,
     },
