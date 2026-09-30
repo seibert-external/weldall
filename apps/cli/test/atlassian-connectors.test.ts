@@ -58,7 +58,7 @@ describe("Atlassian connector IaC", () => {
       }),
     ).toThrow();
   });
-  it("keeps manifest schema scope patterns string-only", async () => {
+  it("keeps manifest schema scopes aligned to the reviewed provider catalog", async () => {
     const schema = JSON.parse(
       await readFile(
         new URL("../../../schemas/weldall-manifest-v1.schema.json", import.meta.url),
@@ -70,19 +70,16 @@ describe("Atlassian connector IaC", () => {
         (branch: { properties?: { grantType?: { const?: string } } }) =>
           branch.properties?.grantType?.const === "resource",
       );
+    const reviewedScopeIds = scopeCatalog.map((scope) => scope.id);
     const acceptsItem = (property: "allowedScopes" | "defaultScopes", value: unknown) => {
-      const branches = atlassianProviderSchema.properties[property].items.anyOf;
-      return branches.some((branch: { type?: string; enum?: unknown[]; pattern?: string }) => {
-        if (branch.type === "string" && typeof value !== "string") return false;
-        if (branch.enum) return branch.enum.includes(value);
-        if (branch.pattern && typeof value === "string")
-          return new RegExp(branch.pattern).test(value);
-        return false;
-      });
+      const allowedValues = atlassianProviderSchema.properties[property].items.enum;
+      expect(allowedValues).toEqual(reviewedScopeIds);
+      return allowedValues.includes(value);
     };
     expect(acceptsItem("allowedScopes", 123)).toBe(false);
     expect(acceptsItem("defaultScopes", 123)).toBe(false);
     expect(acceptsItem("allowedScopes", "read:jira-work")).toBe(true);
+    expect(acceptsItem("allowedScopes", "read:not-a-real:jira")).toBe(false);
   });
   it.each([
     { grantType: "account" },
