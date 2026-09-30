@@ -143,7 +143,7 @@ machines:
 
 Only public machine keys belong in the manifest.
 
-Managed connectors can also be declared in YAML. The manifest carries only public policy; OAuth client secrets are entered in the administration UI and are never accepted by the CLI. `envelopeProvider` is immutable after creation. Google connectors list exact Google OAuth scopes. Atlassian Cloud connectors must use resource-level grants, at least one allowed Jira or Confluence product scope, and at least one allowed site `cloudId`. `allowedScopes` and `defaultScopes` accept the classic and granular Atlassian permissions shown in the admin UI, with at most 50 scopes per list.
+Managed connectors can also be declared in YAML. The manifest carries only public policy; OAuth client secrets are entered in the administration UI and are never accepted by the CLI. `envelopeProvider` is immutable after creation. Google connectors list exact Google OAuth scopes. Atlassian Cloud connectors must use resource-level grants, at least one allowed Jira or Confluence product scope, and at least one allowed site `cloudId`.
 
 ```yaml
 connectors:
