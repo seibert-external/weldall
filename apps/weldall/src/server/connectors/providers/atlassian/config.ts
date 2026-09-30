@@ -41,7 +41,12 @@ export const scopeCatalog = [
   })),
 ];
 export const canonicalScopes = (values: string[]) => [...new Set(values)].sort();
-const scopeSet = z.array(z.string().min(1).max(200)).max(50).transform(canonicalScopes);
+const scopeIdSchema = z.string().min(1).max(200);
+const productScopeSet = z.array(scopeIdSchema).max(50).transform(canonicalScopes);
+const selectionScopeSet = z
+  .array(scopeIdSchema)
+  .max(50 + requiredScopes.length)
+  .transform(canonicalScopes);
 export const atlassianConfigSchema = z
   .object({
     clientId: z.string().trim().min(1).max(500),
@@ -56,8 +61,8 @@ export const atlassianConfigSchema = z
       .min(1)
       .max(100)
       .transform((values) => [...new Set(values)].sort()),
-    allowedScopes: scopeSet,
-    defaultScopes: scopeSet,
+    allowedScopes: productScopeSet,
+    defaultScopes: productScopeSet,
   })
   .strict()
   .superRefine((config, ctx) => {
@@ -82,7 +87,7 @@ export type AtlassianConfig = z.infer<typeof atlassianConfigSchema>;
 export const atlassianSecretsSchema = z
   .object({ clientSecret: z.string().trim().min(1).max(10_000) })
   .strict();
-export const selectionSchema = z.object({ scopes: scopeSet }).strict();
+export const selectionSchema = z.object({ scopes: selectionScopeSet }).strict();
 export function validateSelection(config: unknown, selection: unknown) {
   const policy = atlassianConfigSchema.parse(config);
   const selected = selectionSchema.parse(selection);

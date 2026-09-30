@@ -226,6 +226,14 @@ describe("Atlassian policy and provider boundary", () => {
       provider.validateSetupInput({ config, value: { ...selection, scopes: ["read:jira-work"] } }),
     ).toThrow();
   });
+  it("keeps fifty default product scopes valid after adding required OAuth scopes", () => {
+    const productScopes = JIRA_GRANULAR_SCOPE_IDS.slice(0, 50);
+    const policy = { ...config, allowedScopes: productScopes, defaultScopes: productScopes };
+    const initial = provider.buildInitialSelection({ config: policy });
+    expect(initial.scopes).toHaveLength(52);
+    expect(initial.scopes).toEqual(canonicalScopes([...requiredScopes, ...productScopes]));
+    expect(() => provider.validateSetupInput({ config: policy, value: initial })).not.toThrow();
+  });
   it("includes mandatory scopes without inventing a resource-level authorize parameter", async () => {
     const result = await provider.beginAuthorization({
       config,

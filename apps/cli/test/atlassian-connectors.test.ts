@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -49,6 +49,41 @@ describe("Atlassian connector IaC", () => {
       ).toThrow();
     },
   );
+  it("rejects syntactically valid scopes absent from the reviewed provider catalog", () => {
+    expect(() =>
+      validateAtlassianConfiguration({
+        ...provider,
+        allowedScopes: ["read:not-a-real:jira"],
+        defaultScopes: [],
+      }),
+    ).toThrow();
+  });
+  it("keeps manifest schema scope patterns string-only", async () => {
+    const schema = JSON.parse(
+      await readFile(
+        new URL("../../../schemas/weldall-manifest-v1.schema.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const atlassianProviderSchema =
+      schema.properties.connectors.additionalProperties.properties.provider.oneOf.find(
+        (branch: { properties?: { grantType?: { const?: string } } }) =>
+          branch.properties?.grantType?.const === "resource",
+      );
+    const acceptsItem = (property: "allowedScopes" | "defaultScopes", value: unknown) => {
+      const branches = atlassianProviderSchema.properties[property].items.anyOf;
+      return branches.some((branch: { type?: string; enum?: unknown[]; pattern?: string }) => {
+        if (branch.type === "string" && typeof value !== "string") return false;
+        if (branch.enum) return branch.enum.includes(value);
+        if (branch.pattern && typeof value === "string")
+          return new RegExp(branch.pattern).test(value);
+        return false;
+      });
+    };
+    expect(acceptsItem("allowedScopes", 123)).toBe(false);
+    expect(acceptsItem("defaultScopes", 123)).toBe(false);
+    expect(acceptsItem("allowedScopes", "read:jira-work")).toBe(true);
+  });
   it.each([
     { grantType: "account" },
     { allowedCloudIds: [] },

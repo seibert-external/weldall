@@ -194,9 +194,11 @@
                           ]
                         },
                         {
+                          "type": "string",
                           "pattern": "^(read|write|delete|send|validate):[a-z0-9._-]+:(jira|jira-software|jira-service-management)$"
                         },
                         {
+                          "type": "string",
                           "pattern": "^(read|write|delete):[a-z0-9._-]+:confluence$"
                         }
                       ]
@@ -223,9 +225,11 @@
                           ]
                         },
                         {
+                          "type": "string",
                           "pattern": "^(read|write|delete|send|validate):[a-z0-9._-]+:(jira|jira-software|jira-service-management)$"
                         },
                         {
+                          "type": "string",
                           "pattern": "^(read|write|delete):[a-z0-9._-]+:confluence$"
                         }
                       ]
