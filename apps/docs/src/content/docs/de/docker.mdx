@@ -62,7 +62,7 @@ console.log(`WELDALL_SIGNING_PUBLIC_JWK=${JSON.stringify(publicKey.export({ form
 console.log(`WELDALL_SIGNING_KID=${randomUUID()}`);'
 ```
 
-Lege die Ausgabe in deinem Secret Manager ab, nicht in einer Datei neben dem Deployment. Erzeuge die Werte einmal und ersetze sie nicht, solange die Installation besteht: Ein neuer Signaturschlüssel entwertet ausgestellte Identitäts-Assertions, ein neuer Verschlüsselungsschlüssel macht gespeicherte Provider-Zugangsdaten unlesbar. `WELDALL_CONNECTOR_KEK` wird beim Start nicht geprüft: Ohne ihn läuft der Server, aber das Anlegen eines [Connectors](../connectors/) schlägt fehl.
+Lege die Ausgabe in deinem Secret Manager ab. Erzeuge die Werte einmal und ersetze sie nicht, solange die Installation besteht: Ein neuer Signaturschlüssel entwertet ausgestellte Identitäts-Assertions, ein neuer Verschlüsselungsschlüssel macht gespeicherte Provider-Zugangsdaten unlesbar. `WELDALL_CONNECTOR_KEK` wird beim Start nicht geprüft: Ohne ihn läuft der Server, aber das Anlegen eines [Connectors](../connectors/) schlägt fehl.
 
 ### Starten
 
@@ -84,6 +84,18 @@ Jeder Start durchläuft drei Schritte in dieser Reihenfolge:
 3. Der Server startet und antwortet auf Port 3000.
 
 Scheitert Schritt 1 oder 2, beendet sich der Container mit einem Fehlercode, und der Server startet nicht. Typische Ursachen sind eine nicht erreichbare Datenbank (Prisma-Fehler `P1001`), ein Nutzer ohne Rechte am Schema oder eine Datenbank, die bereits kollidierende Tabellen enthält (`P3005`, `P3018`). Das Log nennt die fehlgeschlagene Migration. Behebe die Ursache und starte den Container erneut; Prisma setzt mit den noch fehlenden Migrationen fort.
+
+Ein Fall braucht einen zusätzlichen Schritt: Ist eine Migration beim Anwenden gescheitert (`P3018`), bricht jeder weitere Start mit `P3009` ab, auch wenn die Ursache behoben ist. Markiere die gescheiterte Migration mit der Prisma-CLI im Image als zurückgerollt und starte den Container danach erneut:
+
+```sh
+docker run --rm --env-file weldall.env \
+  --entrypoint /app/packages/db/node_modules/.bin/prisma \
+  docker.io/seibertgroup/weldall:X.Y.Z \
+  migrate resolve --rolled-back MIGRATION_NAME \
+  --schema /app/packages/db/prisma/schema.prisma
+```
+
+`MIGRATION_NAME` ist die Migration, die das Log nennt.
 
 ### Healthcheck
 
@@ -134,9 +146,6 @@ docker run -d --name weldall-discovery-proxy \
 - Nur `GET /.well-known/oauth-authorization-server` und `GET /api/oauth/jwks` werden weitergereicht, unverändert. Jeder andere Pfad antwortet mit `404`, andere Methoden mit `405`.
 - Er hat keinen eigenen Health-Endpunkt. Verwende einen TCP-Check auf Port 8080; ein HTTP-Check auf einen weitergereichten Pfad schlüge auch immer dann fehl, wenn Weldall nicht erreichbar ist.
 
-Betreibe Weldall und den Proxy als getrennte Container. Sie teilen nichts außer der URL, auf die der Proxy zeigt.
-
 ## Nächste Schritte
 
-- [How to: Google Cloud](../google-cloud/) führt durch beide Container auf Cloud Run mit Cloud SQL.
 - [How to: Installer ausführen](../installer/) bindet nach dem ersten Start deinen Identity Provider an.
