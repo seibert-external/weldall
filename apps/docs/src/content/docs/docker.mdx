@@ -89,7 +89,7 @@ If step 1 or 2 fails, the container exits with a non-zero code and the server do
 
 The image declares a Docker `HEALTHCHECK` on `GET /.well-known/openid-configuration`. The first start runs all migrations and can take longer than later starts; the check allows 30 seconds before it counts failures.
 
-Some platforms ignore the Docker `HEALTHCHECK`, for example Kubernetes and Cloud Run. If you configure probes there, use the same path and port 3000, and give the startup probe enough time for the migrations of an upgrade.
+If your platform uses its own probes instead, point them at the same path and the container port, 3000 by default. The port opens only after the migrations, so give the startup probe enough time for an upgrade.
 
 ## Upgrades and rollbacks
 
