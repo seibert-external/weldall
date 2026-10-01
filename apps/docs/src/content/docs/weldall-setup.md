@@ -21,7 +21,7 @@ The container runs as a non-root user and exposes a health check on `/.well-know
 
 ## Prerequisites
 
-Before building and starting the image, the following requirements must be met:
+Before starting the container, the following requirements must be met:
 
 - **A PostgreSQL database** – Weldall stores configuration and audit records in PostgreSQL.
 - **A public HTTPS URL** – Employees sign in through this URL; it must be reachable and use HTTPS. The same URL is used for `WELDALL_ISSUER` and for the login redirect.

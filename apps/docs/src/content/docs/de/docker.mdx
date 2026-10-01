@@ -26,16 +26,22 @@ Jedes Release veröffentlicht diese Tags:
 | `latest`               | Das neueste Release insgesamt.                                                                                                    |
 | Git-Commit-SHA         | Das Image, das aus diesem Commit gebaut wurde. Wird nur verschoben, wenn ein fehlgeschlagenes Release erneut veröffentlicht wird. |
 
-Pinne in Produktion ein vollständiges `X.Y.Z`-Tag und ändere es bewusst. `X.Y`, `X` und `latest` wandern mit jedem Release; ein Neustart kann dann unbemerkt eine neuere Version starten, die neue Datenbankmigrationen ausführt. Jedes veröffentlichte Tag zeigt auf ein Image, das vor der Veröffentlichung die Release-Tests bestanden hat. Vor Version 1.0 bietet das `X`-Tag nicht mehr Stabilität als `latest`: Solange jede Version mit `0.` beginnt, kann auch ein Minor-Release Breaking Changes enthalten.
+Pinne in Produktion ein vollständiges `X.Y.Z`-Tag. `X.Y`, `X` und `latest` wandern mit jedem Release, ein einfacher Container-Neustart kann also eine neuere Version starten und deren Datenbankmigrationen ausführen. Vor Version 1.0 ist `0` nicht sicherer als `latest`: Auch ein Minor-Release kann Breaking Changes enthalten.
 
-Die Versionsnummern folgen Semantic Versioning. Die Release-Notes jeder Version stehen auf der [GitHub-Release-Seite](https://github.com/seibert-external/weldall/releases) unter den Tags `@weldall/weldall@X.Y.Z` und `@weldall/discovery-proxy@X.Y.Z`.
+Die veröffentlichten Tags stehen auf Docker Hub: [`seibertgroup/weldall`](https://hub.docker.com/r/seibertgroup/weldall/tags) und [`seibertgroup/weldall-discovery-proxy`](https://hub.docker.com/r/seibertgroup/weldall-discovery-proxy/tags).
+
+Die Release-Notes stehen auf der [GitHub-Release-Seite](https://github.com/seibert-external/weldall/releases) unter den Tags `@weldall/weldall@X.Y.Z` und `@weldall/discovery-proxy@X.Y.Z`. Nicht zu jedem dort gelisteten Release gibt es ein Image; betreiben lassen sich nur die Tags auf Docker Hub.
 
 ## Weldall-Container
+
+:::note[Auf Google Cloud bereitstellen]
+Du kannst beide Images auf Google Cloud betreiben. [How to: Google Cloud](../google-cloud/) führt Schritt für Schritt durch Cloud Run, Cloud SQL und Secret Manager; die öffentliche HTTPS-URL bringt Cloud Run dort mit. Die Abschnitte unten beschreiben, was die Container auf jeder Plattform brauchen.
+:::
 
 ### Voraussetzungen
 
 - **PostgreSQL 16.** Weldall speichert dort Konfiguration, Audit-Einträge und Replay-Marker. Das Image enthält keine Datenbank; du betreibst PostgreSQL selbst oder nutzt einen verwalteten Dienst. Releases werden gegen PostgreSQL 16 getestet.
-- **Ein Datenbanknutzer, der das Schema ändern darf.** Der Container wendet bei jedem Start Datenbankmigrationen an, siehe [Start](#start-migrationen-und-initialisierung). Der Nutzer muss im Schema `public` der Weldall-Datenbank Tabellen, Indizes und Typen anlegen und ändern dürfen. In der Praxis: Mach ihn zum Eigentümer der Datenbank.
+- **Ein Datenbanknutzer, dem die Weldall-Datenbank gehört.** Der Container wendet bei jedem Start die Migrationen mit diesem Nutzer an, siehe [Start](#start-migrationen-und-initialisierung). Ein Nutzer, der nur lesen und schreiben darf, scheitert beim ersten Start.
 - **Eine öffentliche HTTPS-URL**, gesetzt als `WELDALL_ISSUER`. Terminiere TLS vor dem Container; der Container selbst lauscht per HTTP auf Port 3000.
 - **Die Konfiguration aus [How to: Weldall aufsetzen](../weldall-setup/#umgebungsvariablen).** Fehlt eine Pflichtvariable, verweigert der Container den Start und nennt die Variable im Log.
 
@@ -50,12 +56,13 @@ const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256
 console.log(`BETTER_AUTH_SECRET=${randomBytes(32).toString("base64url")}`);
 console.log(`WELDALL_SETUP_TOKEN=${randomBytes(32).toString("base64url")}`);
 console.log(`WELDALL_CREDENTIAL_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}`);
+console.log(`WELDALL_CONNECTOR_KEK=${randomBytes(32).toString("base64")}`);
 console.log(`WELDALL_SIGNING_PRIVATE_JWK=${JSON.stringify(privateKey.export({ format: "jwk" }))}`);
 console.log(`WELDALL_SIGNING_PUBLIC_JWK=${JSON.stringify(publicKey.export({ format: "jwk" }))}`);
 console.log(`WELDALL_SIGNING_KID=${randomUUID()}`);'
 ```
 
-Lege die Ausgabe in deinem Secret Manager ab, nicht in einer Datei neben dem Deployment. Erzeuge die Werte einmal und behalte sie, solange die Installation besteht: Ein neuer Signaturschlüssel entwertet ausgestellte Identitäts-Assertions, ein neuer Verschlüsselungsschlüssel macht gespeicherte Provider-Zugangsdaten unlesbar.
+Lege die Ausgabe in deinem Secret Manager ab, nicht in einer Datei neben dem Deployment. Erzeuge die Werte einmal und ersetze sie nicht, solange die Installation besteht: Ein neuer Signaturschlüssel entwertet ausgestellte Identitäts-Assertions, ein neuer Verschlüsselungsschlüssel macht gespeicherte Provider-Zugangsdaten unlesbar. `WELDALL_CONNECTOR_KEK` wird beim Start nicht geprüft: Ohne ihn läuft der Server, aber das Anlegen eines [Connectors](../connectors/) schlägt fehl.
 
 ### Starten
 
@@ -82,7 +89,7 @@ Scheitert Schritt 1 oder 2, beendet sich der Container mit einem Fehlercode, und
 
 Das Image deklariert einen Docker-`HEALTHCHECK` auf `GET /.well-known/openid-configuration`. Der erste Start führt alle Migrationen aus und kann länger dauern als spätere Starts; der Check wartet 30 Sekunden, bevor er Fehlschläge zählt.
 
-Plattformen, die den Docker-`HEALTHCHECK` ignorieren, zum Beispiel Kubernetes und Cloud Run, brauchen eigene Startup- und Liveness-Probes auf denselben Pfad und Port 3000. Gib der Startup-Probe genug Zeit für die Migrationen eines Upgrades.
+Manche Plattformen ignorieren den Docker-`HEALTHCHECK`, zum Beispiel Kubernetes und Cloud Run. Wenn du dort Probes einrichtest, verwende denselben Pfad und Port 3000 und gib der Startup-Probe genug Zeit für die Migrationen eines Upgrades.
 
 ## Upgrades und Rollbacks
 
@@ -102,7 +109,7 @@ Den Discovery-Proxy aktualisierst du unabhängig davon. Er speichert nichts; du 
 
 ## Warum genau ein Weldall-Container
 
-Ein Teil des Replay-Schutzes liegt im Speicher des Weldall-Prozesses: DPoP-Proofs an die CLI-API von Weldall merkt sich nur dieser Prozess. Ein zweiter Weldall-Container sähe die Proofs nicht, die der erste angenommen hat; ein abgefangener Proof ließe sich dann gegen den anderen Container erneut verwenden.
+Ein Teil des Replay-Schutzes liegt im Speicher des Weldall-Prozesses: DPoP-Proofs an den OAuth-Token- und den Userinfo-Endpunkt bei CLI-Anmeldung und Token-Refresh merkt sich nur dieser Prozess. Ein zweiter Weldall-Container sähe die Proofs nicht, die der erste angenommen hat; ein abgefangener Proof ließe sich dann während seiner Gültigkeit von 60 Sekunden gegen den anderen Container erneut verwenden. Der Proof allein liefert kein Token, weil Authorization Codes und Refresh Tokens in der Datenbank nur einmal verwendbar sind, der Schutz ist aber schwächer als mit einem Container.
 
 Betreibe genau einen Weldall-Container. Weldall setzt das nicht selbst durch. Die Folgen:
 

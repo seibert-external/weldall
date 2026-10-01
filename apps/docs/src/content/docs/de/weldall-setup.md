@@ -21,7 +21,7 @@ Der Container läuft als Nicht-Root-Benutzer und bietet einen Health-Check auf `
 
 ## Voraussetzungen
 
-Vor dem Bau und Start des Images müssen folgende Voraussetzungen erfüllt sein:
+Vor dem Start des Containers müssen folgende Voraussetzungen erfüllt sein:
 
 - **Eine PostgreSQL-Datenbank** – Weldall speichert Konfiguration und Audit-Einträge in PostgreSQL.
 - **Eine öffentliche HTTPS-URL** – Mitarbeitende melden sich über diese URL an; sie muss erreichbar sein und HTTPS verwenden. Dieselbe URL wird für `WELDALL_ISSUER` und für die Login-Weiterleitung verwendet.

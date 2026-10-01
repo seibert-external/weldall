@@ -13,7 +13,7 @@ Diese Anleitung stellt Weldall als Cloud-Run-Dienst mit einer Instanz bereit, sp
 
 - Ein Google-Cloud-Projekt mit aktiver Abrechnung und die Owner-Rolle darin.
 - Die [Cloud Shell](https://cloud.google.com/shell). Dort sind `gcloud`, `node` und `jq` vorinstalliert; alle Befehle unten laufen dort.
-- Die Weldall-Version, die du betreiben willst, zum Beispiel `0.5.1`. Die verfügbaren Versionen stehen auf der [GitHub-Release-Seite](https://github.com/seibert-external/weldall/releases).
+- Die Versionen der beiden Images, die du betreiben willst, zum Beispiel `0.5.1` für Weldall und `0.1.1` für den Discovery-Proxy. Die verfügbaren Versionen sind die Tags auf Docker Hub: [`seibertgroup/weldall`](https://hub.docker.com/r/seibertgroup/weldall/tags) und [`seibertgroup/weldall-discovery-proxy`](https://hub.docker.com/r/seibertgroup/weldall-discovery-proxy/tags). Verwende ein vollständiges `X.Y.Z`-Tag, siehe [Docker-Images](../docker/#tags-und-versionen).
 - Zugriff auf deinen Identity Provider, um einen OIDC-Client anzulegen, siehe [How to: Installer ausführen](../installer/).
 
 Setze diese Variablen einmal pro Cloud-Shell-Sitzung:
@@ -24,10 +24,9 @@ PROJECT_NUMBER=$(gcloud projects describe "$PROJECT" --format="value(projectNumb
 REGION=europe-west3
 WELDALL_VERSION=0.5.1
 PROXY_VERSION=0.1.1
+DB_TIER=db-f1-micro   # database machine type for a test; for production e.g. db-custom-1-3840
 gcloud config set project "$PROJECT"
 ```
-
-Die Cloud-SQL-Instanz kostet, solange sie existiert, unabhängig davon, ob Weldall genutzt wird. Die Cloud-Run-Dienste kosten im Leerlauf fast nichts.
 
 ## 1. Dienste aktivieren
 
@@ -43,18 +42,15 @@ gcloud sql instances create weldall-db \
   --region "$REGION" \
   --database-version POSTGRES_16 \
   --edition ENTERPRISE \
-  --tier db-f1-micro \
-  --storage-size 10 --storage-type SSD \
-  --backup-start-time 03:00 \
-  --availability-type zonal
+  --tier "$DB_TIER"
 
 gcloud sql databases create weldall --instance weldall-db
 ```
 
 - Das Anlegen der Instanz dauert etwa 15 Minuten.
-- `db-f1-micro` ist die kleinste Maschinengröße und für einen Test geeignet. Für Produktion wählst du eine Größe mit dediziertem Kern, zum Beispiel `db-custom-1-3840`.
-- `--edition ENTERPRISE` ist für die kleinen Maschinengrößen nötig; PostgreSQL 16 verwendet sonst Enterprise Plus.
-- `--backup-start-time` aktiviert tägliche automatische Backups. Vor jedem Upgrade erstellst du trotzdem ein eigenes Backup, siehe [Schritt 9](#9-weldall-aktualisieren).
+- Der Befehl legt nur fest, was Weldall braucht: die Region des Cloud-Run-Dienstes, PostgreSQL 16 und eine Maschinengröße. Für Speicher, Verfügbarkeit und automatische Backups gelten die Standardwerte von Cloud SQL; prüfe sie in den [Instanzeinstellungen](https://cloud.google.com/sql/docs/postgres/instance-settings) gegen deine Anforderungen.
+- `db-f1-micro` ist eine Shared-Core-Maschinengröße für Tests und nicht vom Cloud-SQL-SLA abgedeckt. Für Produktion setzt du `DB_TIER` auf eine Größe mit dediziertem Kern, zum Beispiel `db-custom-1-3840`.
+- `--edition ENTERPRISE` ist für diese Maschinengrößen nötig; PostgreSQL 16 verwendet sonst Enterprise Plus.
 
 ## 3. Datenbanknutzer anlegen
 
@@ -104,28 +100,30 @@ process.stdout.write(JSON.stringify({
   "weldall-better-auth-secret": randomBytes(32).toString("base64url"),
   "weldall-setup-token": randomBytes(32).toString("base64url"),
   "weldall-credential-encryption-key": randomBytes(32).toString("base64"),
+  "weldall-connector-kek": randomBytes(32).toString("base64"),
   "weldall-signing-private-jwk": JSON.stringify(privateKey.export({ format: "jwk" })),
   "weldall-signing-public-jwk": JSON.stringify(publicKey.export({ format: "jwk" })),
   "weldall-signing-kid": randomUUID(),
 }));' > "$tmp"
 
 for name in weldall-better-auth-secret weldall-setup-token weldall-credential-encryption-key \
-            weldall-signing-private-jwk weldall-signing-public-jwk weldall-signing-kid; do
+            weldall-connector-kek weldall-signing-private-jwk weldall-signing-public-jwk \
+            weldall-signing-kid; do
   jq -j --arg k "$name" '.[$k]' "$tmp" | gcloud secrets create "$name" \
     --replication-policy user-managed --locations "$REGION" --data-file=-
 done
 rm -f "$tmp"
 
 for name in weldall-postgres-url weldall-better-auth-secret weldall-setup-token \
-            weldall-credential-encryption-key weldall-signing-private-jwk \
-            weldall-signing-public-jwk weldall-signing-kid; do
+            weldall-credential-encryption-key weldall-connector-kek \
+            weldall-signing-private-jwk weldall-signing-public-jwk weldall-signing-kid; do
   gcloud secrets add-iam-policy-binding "$name" \
     --member "serviceAccount:weldall-run@${PROJECT}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor
 done
 ```
 
-Behalte diese Secrets, solange die Installation besteht. [Docker-Images](../docker/#secrets-erzeugen) erklärt, warum.
+Erzeuge diese Secrets einmal und ersetze sie nicht, solange diese Installation besteht. [Docker-Images](../docker/#secrets-erzeugen) erklärt, warum.
 
 ## 6. Weldall bereitstellen
 
@@ -137,33 +135,36 @@ WELDALL_URL="https://weldall-${PROJECT_NUMBER}.${REGION}.run.app"
 gcloud run deploy weldall --region "$REGION" \
   --image "docker.io/seibertgroup/weldall:${WELDALL_VERSION}" \
   --service-account "weldall-run@${PROJECT}.iam.gserviceaccount.com" \
-  --port 3000 --cpu 1 --memory 1Gi \
-  --min-instances 0 --max-instances 1 \
+  --port 3000 \
+  --max-instances 1 \
   --add-cloudsql-instances "$CONN" \
-  --set-env-vars "WELDALL_ISSUER=${WELDALL_URL},WELDALL_DEPLOYMENT_MODE=production,WELDALL_CREDENTIAL_ENCRYPTION_KEY_VERSION=1" \
-  --set-secrets "POSTGRES_URL=weldall-postgres-url:latest,BETTER_AUTH_SECRET=weldall-better-auth-secret:latest,WELDALL_SETUP_TOKEN=weldall-setup-token:latest,WELDALL_CREDENTIAL_ENCRYPTION_KEY=weldall-credential-encryption-key:latest,WELDALL_SIGNING_PRIVATE_JWK=weldall-signing-private-jwk:latest,WELDALL_SIGNING_PUBLIC_JWK=weldall-signing-public-jwk:latest,WELDALL_SIGNING_KID=weldall-signing-kid:latest" \
-  --startup-probe "httpGet.path=/.well-known/openid-configuration,httpGet.port=3000,periodSeconds=5,timeoutSeconds=3,failureThreshold=48" \
+  --set-env-vars "WELDALL_ISSUER=${WELDALL_URL}" \
+  --set-secrets "POSTGRES_URL=weldall-postgres-url:latest,BETTER_AUTH_SECRET=weldall-better-auth-secret:latest,WELDALL_SETUP_TOKEN=weldall-setup-token:latest,WELDALL_CREDENTIAL_ENCRYPTION_KEY=weldall-credential-encryption-key:latest,WELDALL_CONNECTOR_KEK=weldall-connector-kek:latest,WELDALL_SIGNING_PRIVATE_JWK=weldall-signing-private-jwk:latest,WELDALL_SIGNING_PUBLIC_JWK=weldall-signing-public-jwk:latest,WELDALL_SIGNING_KID=weldall-signing-kid:latest" \
   --liveness-probe "httpGet.path=/.well-known/openid-configuration,httpGet.port=3000,periodSeconds=30,timeoutSeconds=5,failureThreshold=3" \
   --allow-unauthenticated
 ```
 
-- `--max-instances 1` begrenzt Weldall auf eine Instanz. [Docker-Images](../docker/#warum-genau-ein-weldall-container) erklärt, warum, und [Verfügbarkeit](#verfügbarkeit-mit-einer-instanz), was das auf Cloud Run bedeutet.
-- Cloud Run ignoriert den Docker-`HEALTHCHECK`. Die Startup-Probe gibt dem ersten Start vier Minuten für die Migrationen; die Liveness-Probe startet eine hängende Instanz neu.
+- Der Befehl legt nur fest, was Weldall braucht. Für CPU, Speicher und Mindestinstanzen gelten die Standardwerte von Cloud Run; passe sie an deine Anforderungen an, siehe die [Referenz zu `gcloud run deploy`](https://cloud.google.com/sdk/gcloud/reference/run/deploy).
+- `--port 3000` ist der Port, auf dem das Weldall-Image lauscht.
+- `--max-instances 1` begrenzt Weldall auf eine Instanz; [Docker-Images](../docker/#warum-genau-ein-weldall-container) erklärt, warum. Die Grenze gilt pro Revision: Während eines Deploys laufen die alte und die neue Revision kurz nebeneinander.
+- `--liveness-probe` lässt Cloud Run eine hängende Instanz neu starten. Ohne sie bemerkt Cloud Run nur einen Prozess, der sich beendet.
 - `--allow-unauthenticated` macht Weldall für Browser, CLI und Resource-Server erreichbar. Cloud Run stellt das HTTPS-Zertifikat für die `run.app`-URL bereit. Ohne Setup-Token bleibt der Installer geschlossen.
 - Cloud Run zieht öffentliche Docker-Hub-Images ohne Zugangsdaten und legt pro Revision den genauen Image-Digest fest. Ein wandernder Tag wie `0.5` oder `latest` ändert einen laufenden Dienst deshalb nicht; erst das nächste `gcloud run deploy` löst ihn neu auf.
-- `--min-instances 0` erlaubt Cloud Run, die Instanz im Leerlauf zu stoppen. Die erste Anfrage danach wartet einige Sekunden auf einen Kaltstart. `--min-instances 1` vermeidet das und wird dauerhaft abgerechnet.
+- Standardmäßig stoppt Cloud Run die Instanz im Leerlauf. Die erste Anfrage danach wartet einige Sekunden auf einen Kaltstart. `--min-instances 1` vermeidet das und wird dauerhaft abgerechnet.
 
 ## 7. Weldall prüfen und Installer ausführen
 
 ```sh
 curl -s "$WELDALL_URL/.well-known/openid-configuration" | jq -r .issuer   # prints $WELDALL_URL
-curl -s "$WELDALL_URL/api/me/skills"                                    # 401 invalid_token
+curl -s "$WELDALL_URL/api/me/skills"; echo                                # invalid_token
 
 gcloud logging read \
   'resource.type="cloud_run_revision" AND resource.labels.service_name="weldall"' \
   --order=asc --limit 200 --format="value(textPayload,jsonPayload.message)" \
   | grep -E "migrations found|Applying migration|successfully applied|No pending|Deployment initialization|server initialized"
 ```
+
+Der zweite Aufruf antwortet mit `invalid_token`. Das ist das erwartete Ergebnis: Die API verlangt eine Anmeldung.
 
 Beim ersten Start zeigt das Log, wie jede Migration angewendet wird, dann `All migrations have been successfully applied.`, dann `Deployment initialization completed`, dann `Weldall server initialized`.
 
@@ -187,12 +188,11 @@ Führe die Testanmeldung des Installers zuerst mit leerem Feld **Allowed email d
 gcloud run deploy weldall-discovery-proxy --region "$REGION" \
   --image "docker.io/seibertgroup/weldall-discovery-proxy:${PROXY_VERSION}" \
   --service-account "weldall-proxy-run@${PROJECT}.iam.gserviceaccount.com" \
-  --port 8080 --cpu 1 --memory 256Mi \
-  --min-instances 0 --max-instances 3 \
   --set-env-vars "WELDALL_UPSTREAM=${WELDALL_URL}" \
-  --startup-probe "tcpSocket.port=8080,periodSeconds=2,timeoutSeconds=1,failureThreshold=15" \
   --allow-unauthenticated
 ```
+
+Für alles andere gelten die Standardwerte von Cloud Run, auch für Port 8080, auf dem der Proxy lauscht.
 
 Prüfe, dass der Proxy beide Dokumente unverändert weiterreicht und alles andere blockiert:
 
@@ -262,28 +262,3 @@ gcloud run services update-traffic weldall-discovery-proxy --region "$REGION" --
 ```
 
 Rolle Weldall nicht auf diese Weise zurück: Damit würde eine alte Revision aktiv, ohne dass die Datenbank wiederhergestellt ist.
-
-## Verfügbarkeit mit einer Instanz
-
-- `--max-instances` gilt pro Revision. Während einer Bereitstellung startet Cloud Run die neue Revision, während die alte noch Anfragen beantwortet; kurz laufen also zwei Weldall-Prozesse. Das Fenster schließt sich, sobald der Traffic umgeschaltet ist.
-- Während die einzige Instanz startet, antwortet Weldall nicht. Das passiert bei Upgrades, nach Leerlauf mit `--min-instances 0` und wenn Cloud Run eine Instanz ersetzt.
-- Wartungen und Wiederherstellungen in Cloud SQL machen die Datenbank zeitweise unerreichbar. Weldall beantwortet dann Anfragen, die die Datenbank brauchen, mit Fehlern.
-- Weldall hat kein Hochverfügbarkeits-Setup. Plane Upgrades und Wiederherstellungen für Zeiten mit wenig Nutzung.
-
-## Testinstallation entfernen
-
-Eine Testinstallation kostet so lange, bis die Cloud-SQL-Instanz gelöscht ist:
-
-```sh
-gcloud run services delete weldall weldall-discovery-proxy --region "$REGION"
-gcloud sql instances delete weldall-db
-for name in weldall-postgres-url weldall-better-auth-secret weldall-setup-token \
-            weldall-credential-encryption-key weldall-signing-private-jwk \
-            weldall-signing-public-jwk weldall-signing-kid; do
-  gcloud secrets delete "$name" --quiet
-done
-gcloud iam service-accounts delete "weldall-run@${PROJECT}.iam.gserviceaccount.com" --quiet
-gcloud iam service-accounts delete "weldall-proxy-run@${PROJECT}.iam.gserviceaccount.com" --quiet
-```
-
-Standardmäßig löscht das Entfernen der Instanz auch ihre automatischen und manuellen Backups.
