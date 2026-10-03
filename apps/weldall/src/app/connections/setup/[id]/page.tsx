@@ -11,13 +11,6 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     <div className="login-shell">
       <main className="login-panel setup-panel">
         <VStack gap={5} hAlign="stretch">
-          <img
-            src="/assets/images/weldall.png"
-            alt="Weldall"
-            width={182}
-            height={51}
-            className="login-auth-logo"
-          />
           <SetupForm id={(await params).id} />
         </VStack>
       </main>

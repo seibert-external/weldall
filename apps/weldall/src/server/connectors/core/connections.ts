@@ -358,7 +358,12 @@ export async function getAuthorizationAttempt({
   return {
     id: a.id,
     status,
-    connector: { key: a.connector.key, name: a.connector.name, version: a.connectorVersion },
+    connector: {
+      key: a.connector.key,
+      name: a.connector.name,
+      version: a.connectorVersion,
+      providerType: a.connector.providerType,
+    },
     ...getConnectorProvider(a.connector.providerType).describeSetup({
       config: a.connector.providerConfig,
       previousSelection: a.providerSelection,

@@ -40,7 +40,7 @@ const scopeCatalog: ScopeDescriptor[] = [
 ];
 const attempt = {
   status: "SETUP",
-  connector: { name: "Example service" },
+  connector: { name: "Example service", providerType: "google" },
   scopes: scopeCatalog,
   selection: { scopes: [selectedScope] },
 };
@@ -58,21 +58,30 @@ describe("connection setup presentation", () => {
     expect(html).toContain('class="login-shell"');
     expect(html).toContain('class="login-panel setup-panel"');
     expect(html).toContain('alt="Weldall"');
+    expect(html).toContain("lucide-link-2");
+    expect(html).toContain('src="/assets/images/connectors/google.svg"');
+    expect(html).toContain('alt="Google"');
+    expect(html).toContain('width="48" height="48"');
+    expect(html.indexOf('alt="Weldall"')).toBeLessThan(html.indexOf("lucide-link-2"));
+    expect(html.indexOf("lucide-link-2")).toBeLessThan(html.indexOf('alt="Google"'));
     expect(html.indexOf('alt="Weldall"')).toBeLessThan(html.indexOf("<form"));
     expect(html).toContain(
       "You are about to connect an account to Example service in Weldall CLI.",
     );
     expect(html).toContain("Continue to provider");
-    expect(html).not.toContain("Google");
-    expect(html).toContain(
-      "You can disconnect the account or change the permissions via Weldall CLI. Just ask your agent.",
-    );
+    expect(html).toContain("Configure access");
+    expect(html.indexOf("Configure access")).toBeLessThan(html.indexOf("Continue to provider"));
+    expect(html).not.toContain("You can disconnect the account");
   });
 
-  it("keeps named scope groups, descriptions, required scopes and saved selections", () => {
+  it("keeps scopes collapsed by default with named groups, descriptions and selections", () => {
     const html = renderToStaticMarkup(
       <ScopeChoices scopes={scopeCatalog} selected={[selectedScope]} onChange={vi.fn()} />,
     );
+    expect(html).not.toContain("<details");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("You will be granting 3 out of 4 permissions");
+    expect(html.indexOf('aria-expanded="false"')).toBeLessThan(html.indexOf("<fieldset"));
     expect(html.match(/<fieldset/g)).toHaveLength(3);
     for (const group of ["Identity", "Mail", "Calendar"]) expect(html).toContain(group);
     for (const scope of scopeCatalog) {
@@ -86,6 +95,30 @@ describe("connection setup presentation", () => {
     expect(inputs[0]).toContain('checked=""');
     expect(inputs[1]).toContain('checked=""');
     expect(inputs[2]).toContain('checked=""');
+  });
+
+  it("can render scope choices expanded", () => {
+    const html = renderToStaticMarkup(
+      <ScopeChoices
+        scopes={scopeCatalog}
+        selected={[selectedScope]}
+        onChange={vi.fn()}
+        isExpanded
+      />,
+    );
+    expect(html).toContain('aria-expanded="true"');
+  });
+
+  it("renders the Atlassian connector logo", () => {
+    mocks.useQuery.mockReturnValue({
+      isPending: false,
+      error: null,
+      data: { ...attempt, connector: { ...attempt.connector, providerType: "atlassian" } },
+    });
+    const html = renderToStaticMarkup(<SetupForm id="attempt" />);
+    expect(html).toContain('src="/assets/images/connectors/atlassian.svg"');
+    expect(html).toContain('alt="Atlassian"');
+    expect(html).toContain('width="48" height="48"');
   });
 
   it("renders provider-owned single choices without interpreting their keys", () => {
