@@ -12,7 +12,7 @@ import { WELDALL_ISSUER } from "@/server/oauth/constants";
 const completion = (outcome: "success" | "cancelled" | "failed") =>
   new Response(null, {
     status: 303,
-    headers: { ...privateHeaders, location: `${WELDALL_ISSUER}/api/connectors/result/${outcome}` },
+    headers: { ...privateHeaders, location: `${WELDALL_ISSUER}/connections/result/${outcome}` },
   });
 /** Fixed callback for resource-level Atlassian OAuth; core owns state and owner binding. */
 export async function GET(request: Request) {

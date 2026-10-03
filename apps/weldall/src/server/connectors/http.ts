@@ -109,22 +109,3 @@ export function createConnectorErrorResponse(error: unknown) {
     { status: 503, headers: privateHeaders },
   );
 }
-/** Creates the locked-down browser completion page shown after a provider OAuth callback. */
-export function createConnectorCompletionResponse(outcome: "success" | "cancelled" | "failed") {
-  const message = {
-    success: "Connection ready. Return to the CLI to see the granted scopes.",
-    cancelled: "Authorization cancelled. Return to the CLI.",
-    failed: "Authorization failed. Return to the CLI to check status and any required cleanup.",
-  }[outcome];
-  return new Response(
-    `<!doctype html><html lang="en"><meta charset="utf-8"><title>Weldall connection</title><p>${message}</p></html>`,
-    {
-      status: outcome === "failed" ? 400 : 200,
-      headers: {
-        ...privateHeaders,
-        "content-type": "text/html; charset=utf-8",
-        "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-      },
-    },
-  );
-}

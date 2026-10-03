@@ -106,9 +106,13 @@ async function authenticatedFlow({ run, interruptRun, mock, paths, workspace, pr
   try {
     const authorizationUrl = await waitForFile(paths.browser);
     const callback = mock.registerAuthorization(authorizationUrl);
-    const callbackResponse = await fetch(callback);
-    assert.equal(callbackResponse.status, 200, "real loopback callback must accept exact binding");
-    assert.match(await callbackResponse.text(), /login complete/);
+    const callbackResponse = await fetch(callback, { redirect: "manual" });
+    assert.equal(callbackResponse.status, 303, "real loopback callback must accept exact binding");
+    assert.equal(
+      callbackResponse.headers.get("location"),
+      new URL("/login/complete", mock.issuer).toString(),
+      "successful login must open the styled completion page",
+    );
     loginResult = await login;
   } finally {
     if (loginResult === undefined) {

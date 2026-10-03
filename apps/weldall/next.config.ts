@@ -6,7 +6,15 @@ const config: NextConfig = {
   async headers() {
     return [
       {
-        source: "/connections/setup/:path*",
+        source: "/connections/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+          { key: "X-Frame-Options", value: "DENY" },
+        ],
+      },
+      {
+        source: "/login/complete",
         headers: [
           { key: "Referrer-Policy", value: "no-referrer" },
           { key: "Cache-Control", value: "no-store" },

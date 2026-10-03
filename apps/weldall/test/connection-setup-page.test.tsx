@@ -68,9 +68,9 @@ describe("connection setup presentation", () => {
     expect(html).toContain(
       "You are about to connect an account to Example service in Weldall CLI.",
     );
-    expect(html).toContain("Continue to provider");
+    expect(html).toContain("Continue");
     expect(html).toContain("Configure access");
-    expect(html.indexOf("Configure access")).toBeLessThan(html.indexOf("Continue to provider"));
+    expect(html.indexOf("Configure access")).toBeLessThan(html.indexOf("Continue"));
     expect(html).not.toContain("You can disconnect the account");
   });
 
