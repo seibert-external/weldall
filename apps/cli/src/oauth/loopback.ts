@@ -62,7 +62,9 @@ export async function loopback(
       const description = descriptions[0];
       reject(new Error(description ? `${error}: ${description}` : error));
     } else {
-      response.end("Weldall login complete. You may close this window.");
+      response
+        .writeHead(303, { location: new URL("/login/complete", expectedIssuer).toString() })
+        .end();
       resolve(codes[0]!);
     }
     server.close();

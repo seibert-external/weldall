@@ -12,7 +12,7 @@ import { WELDALL_ISSUER } from "@/server/oauth/constants";
 const createCompletionRedirect = (outcome: "success" | "cancelled" | "failed") =>
   new Response(null, {
     status: 303,
-    headers: { ...privateHeaders, location: `${WELDALL_ISSUER}/api/connectors/result/${outcome}` },
+    headers: { ...privateHeaders, location: `${WELDALL_ISSUER}/connections/result/${outcome}` },
   });
 /** Handles Google's fixed OAuth callback route and commits the owner connection lifecycle. */
 export async function GET(request: Request) {

@@ -74,7 +74,7 @@ describe.each([
     );
     const response = await callback(request);
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(`${WELDALL_ISSUER}/api/connectors/result/failed`);
+    expect(response.headers.get("location")).toBe(`${WELDALL_ISSUER}/connections/result/failed`);
     expect(mocks.completeConnection).not.toHaveBeenCalled();
   });
 
@@ -95,9 +95,7 @@ describe.each([
       code: "code",
       cancelled: false,
     });
-    expect(response.headers.get("location")).toBe(
-      `${WELDALL_ISSUER}/api/connectors/result/success`,
-    );
+    expect(response.headers.get("location")).toBe(`${WELDALL_ISSUER}/connections/result/success`);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await response.text()).not.toContain(session.session.id);

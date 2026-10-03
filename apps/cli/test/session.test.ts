@@ -111,7 +111,9 @@ describe("native login", () => {
     valid.searchParams.set("code", "authorization-code");
     valid.searchParams.set("state", "expected-state");
     valid.searchParams.set("iss", "https://issuer.example");
-    expect((await fetch(valid)).status).toBe(200);
+    const response = await fetch(valid, { redirect: "manual" });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://issuer.example/login/complete");
     await expect(callback.code).resolves.toBe("authorization-code");
   });
 
@@ -134,7 +136,9 @@ describe("native login", () => {
       expect((await fetch(candidate)).status).toBe(400);
     }
     expect((await fetch(base, { method: "POST" })).status).toBe(400);
-    expect((await fetch(base)).status).toBe(200);
+    const response = await fetch(base, { redirect: "manual" });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://issuer.example/login/complete");
     await expect(callback.code).resolves.toBe("authorization-code");
   });
 
