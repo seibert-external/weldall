@@ -5,7 +5,7 @@ sidebar:
   label: "How to: Set up Weldall"
 ---
 
-Running Weldall yourself means operating a single container. The repository contains a [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) that builds the authorization server and the administration interface into one image. The image requires a PostgreSQL database, a defined set of environment variables, and a publicly reachable HTTPS URL. Once these requirements are met, the instance serves the web installer: it connects your identity provider and creates the first administrator account. [How to: Run the installer](../installer/) walks through it.
+Running Weldall yourself means operating a single container. The image `docker.io/seibertgroup/weldall` contains the authorization server and the administration interface; [Docker images](../docker/) covers tags, upgrades and the database. The image requires a PostgreSQL database, a defined set of environment variables, and a publicly reachable HTTPS URL. Once these requirements are met, the instance serves the web installer: it connects your identity provider and creates the first administrator account. [How to: Run the installer](../installer/) walks through it.
 
 This page assumes basic knowledge of Weldall. The [introduction](../) describes the product.
 
@@ -21,7 +21,7 @@ The container runs as a non-root user and exposes a health check on `/.well-know
 
 ## Prerequisites
 
-Before building and starting the image, the following requirements must be met:
+Before starting the container, the following requirements must be met:
 
 - **A PostgreSQL database** – Weldall stores configuration and audit records in PostgreSQL.
 - **A public HTTPS URL** – Employees sign in through this URL; it must be reachable and use HTTPS. The same URL is used for `WELDALL_ISSUER` and for the login redirect.
@@ -67,7 +67,7 @@ Optional variables – leave both OpenBao variables unset if you do not use Open
 
 ## Generate the secrets
 
-Signing keys and secrets come from the repository:
+Without a repository checkout, generate the secrets with the command in [Docker images](../docker/#generate-the-secrets). With a checkout, they come from the repository:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -80,13 +80,11 @@ The command prints environment lines for the whole workspace. For the container,
 Leave the rest of the output out: `WELDALL_DEPLOYMENT_MODE=development`, `NODE_USE_SYSTEM_CA`, `DEV_IDP_*`, `EXPENSES_*` and `DEV_M2M_*` belong to the local development stack. The container requires `WELDALL_DEPLOYMENT_MODE=production` and refuses to start with any other value.
 :::
 
-## Build and run
+## Run
 
-The image is built from the [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) in the repository root and started with the respective configuration:
+Start the published image with the configuration. Replace `X.Y.Z` with the version you install; [Docker images](../docker/#tags-and-versions) explains the tags:
 
 ```sh
-docker build -t weldall .
-
 docker run -d --name weldall \
   -p 3000:3000 \
   -e POSTGRES_URL=postgresql://user:password@db:5432/weldall \
@@ -97,10 +95,10 @@ docker run -d --name weldall \
   -e WELDALL_SIGNING_PRIVATE_JWK='...' \
   -e WELDALL_SIGNING_PUBLIC_JWK='...' \
   -e WELDALL_SIGNING_KID=... \
-  weldall
+  docker.io/seibertgroup/weldall:X.Y.Z
 ```
 
-The container listens on port 3000. Alternatively, a container platform can build the Dockerfile directly from the repository; the production instance is deployed this way.
+The container listens on port 3000. To build the image yourself, use the [Dockerfile](https://github.com/seibert-external/weldall/blob/main/Dockerfile) in the repository root with BuildKit enabled, which current Docker versions do by default.
 
 ## Run the installer
 

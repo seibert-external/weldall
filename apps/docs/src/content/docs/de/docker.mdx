@@ -1,0 +1,151 @@
+---
+title: Docker-Images
+description: Weldall und den Discovery-Proxy aus den veröffentlichten Docker-Hub-Images betreiben und sicher aktualisieren.
+sidebar:
+  label: Docker-Images
+---
+
+Weldall erscheint als zwei unabhängige Docker-Images. Die meisten Installationen betreiben nur das Weldall-Image neben einer PostgreSQL-Datenbank. Der Discovery-Proxy ist ein optionaler zweiter Container für Resource-Server, die Weldall nicht direkt erreichen.
+
+| Image                                            | Enthält                                                                         | Gebraucht von                                                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `docker.io/seibertgroup/weldall`                 | Den Weldall-Server: Authorization Server, Administrationsoberfläche, Installer. | Jeder Installation.                                                                                     |
+| `docker.io/seibertgroup/weldall-discovery-proxy` | Ein Nginx ohne Root-Rechte, der nur Weldall-Metadaten und JWKS weiterreicht.    | Nur Resource-Servern, die Weldall nicht direkt erreichen, siehe [Discovery-Proxy](../discovery-proxy/). |
+
+Beide Images sind für `linux/amd64` gebaut, laufen ohne Root-Rechte und haben eigene Versionsnummern. Ein Proxy-Release verändert das Weldall-Image nicht und umgekehrt.
+
+## Tags und Versionen
+
+Jedes Release veröffentlicht diese Tags:
+
+| Tag                    | Zeigt auf                                                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `X.Y.Z`, z. B. `0.1.1` | Genau dieses Release. Wird nie verschoben.                                                                                        |
+| `X.Y`, z. B. `0.1`     | Das neueste Patch-Release dieser Linie.                                                                                           |
+| `X`, z. B. `0`         | Das neueste Release dieser Major-Version, also jedes Release, das kein Major-Sprung ist.                                          |
+| `latest`               | Das neueste Release insgesamt.                                                                                                    |
+| Git-Commit-SHA         | Das Image, das aus diesem Commit gebaut wurde. Wird nur verschoben, wenn ein fehlgeschlagenes Release erneut veröffentlicht wird. |
+
+Pinne in Produktion ein vollständiges `X.Y.Z`-Tag. `X.Y`, `X` und `latest` wandern mit jedem Release, ein einfacher Container-Neustart kann also eine neuere Version starten und deren Datenbankmigrationen ausführen. Vor Version 1.0 ist `0` nicht sicherer als `latest`: Auch ein Minor-Release kann Breaking Changes enthalten.
+
+Die veröffentlichten Tags stehen auf Docker Hub: [`seibertgroup/weldall`](https://hub.docker.com/r/seibertgroup/weldall/tags) und [`seibertgroup/weldall-discovery-proxy`](https://hub.docker.com/r/seibertgroup/weldall-discovery-proxy/tags).
+
+Die Release-Notes stehen auf der [GitHub-Release-Seite](https://github.com/seibert-external/weldall/releases) unter den Tags `@weldall/weldall@X.Y.Z` und `@weldall/discovery-proxy@X.Y.Z`. Nicht zu jedem dort gelisteten Release gibt es ein Image; betreiben lassen sich nur die Tags auf Docker Hub.
+
+## Weldall-Container
+
+:::note[Auf Google Cloud bereitstellen]
+Du kannst beide Images auf Google Cloud betreiben. [How to: Google Cloud](../google-cloud/) führt Schritt für Schritt durch Cloud Run, Cloud SQL und Secret Manager; die öffentliche HTTPS-URL bringt Cloud Run dort mit. Die Abschnitte unten beschreiben, was die Container auf jeder Plattform brauchen.
+:::
+
+### Voraussetzungen
+
+- **PostgreSQL 16.** Weldall speichert dort Konfiguration, Audit-Einträge und Replay-Marker. Das Image enthält keine Datenbank; du betreibst PostgreSQL selbst oder nutzt einen verwalteten Dienst. Releases werden gegen PostgreSQL 16 getestet.
+- **Ein Datenbanknutzer, dem die Weldall-Datenbank gehört.** Der Container wendet bei jedem Start die Migrationen mit diesem Nutzer an, siehe [Start](#start-migrationen-und-initialisierung). Ein Nutzer, der nur lesen und schreiben darf, scheitert beim ersten Start.
+- **Eine öffentliche HTTPS-URL**, gesetzt als `WELDALL_ISSUER`. Terminiere TLS vor dem Container; der Container selbst lauscht per HTTP auf Port 3000.
+- **Die Konfiguration aus [How to: Weldall aufsetzen](../weldall-setup/#umgebungsvariablen).** Fehlt eine Pflichtvariable, verweigert der Container den Start und nennt die Variable im Log.
+
+### Secrets erzeugen
+
+Für die Secrets genügt Node.js. Ohne Checkout des Repositorys startest du den Generator in einem Node-Container:
+
+```sh
+docker run --rm node:24-slim node -e '
+const { generateKeyPairSync, randomBytes, randomUUID } = require("node:crypto");
+const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+console.log(`BETTER_AUTH_SECRET=${randomBytes(32).toString("base64url")}`);
+console.log(`WELDALL_SETUP_TOKEN=${randomBytes(32).toString("base64url")}`);
+console.log(`WELDALL_CREDENTIAL_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}`);
+console.log(`WELDALL_CONNECTOR_KEK=${randomBytes(32).toString("base64")}`);
+console.log(`WELDALL_SIGNING_PRIVATE_JWK=${JSON.stringify(privateKey.export({ format: "jwk" }))}`);
+console.log(`WELDALL_SIGNING_PUBLIC_JWK=${JSON.stringify(publicKey.export({ format: "jwk" }))}`);
+console.log(`WELDALL_SIGNING_KID=${randomUUID()}`);'
+```
+
+Lege die Ausgabe in deinem Secret Manager ab. Erzeuge die Werte einmal und ersetze sie nicht, solange die Installation besteht: Ein neuer Signaturschlüssel entwertet ausgestellte Identitäts-Assertions, ein neuer Verschlüsselungsschlüssel macht gespeicherte Provider-Zugangsdaten unlesbar. `WELDALL_CONNECTOR_KEK` wird beim Start nicht geprüft: Ohne ihn läuft der Server, aber das Anlegen eines [Connectors](../connectors/) schlägt fehl.
+
+### Starten
+
+```sh
+docker run -d --name weldall \
+  -p 3000:3000 \
+  --env-file weldall.env \
+  docker.io/seibertgroup/weldall:X.Y.Z
+```
+
+`weldall.env` enthält `POSTGRES_URL`, `WELDALL_ISSUER` und die erzeugten Secrets. Betreibe genau einen Weldall-Container, siehe [Warum genau ein Weldall-Container](#warum-genau-ein-weldall-container).
+
+### Start: Migrationen und Initialisierung
+
+Jeder Start durchläuft drei Schritte in dieser Reihenfolge:
+
+1. `prisma migrate deploy` wendet alle Datenbankmigrationen an, die der Datenbank noch fehlen. Eine leere Datenbank erhält alle, ein Upgrade nur die neuen. Prisma vermerkt angewendete Migrationen in der Tabelle `_prisma_migrations`.
+2. Die Deployment-Initialisierung legt die nötigen Standardeinträge an und aktualisiert die veröffentlichten Skill-Kataloge.
+3. Der Server startet und antwortet auf Port 3000.
+
+Scheitert Schritt 1 oder 2, beendet sich der Container mit einem Fehlercode, und der Server startet nicht. Typische Ursachen sind eine nicht erreichbare Datenbank (Prisma-Fehler `P1001`), ein Nutzer ohne Rechte am Schema oder eine Datenbank, die bereits kollidierende Tabellen enthält (`P3005`, `P3018`). Das Log nennt die fehlgeschlagene Migration. Behebe die Ursache und starte den Container erneut; Prisma setzt mit den noch fehlenden Migrationen fort.
+
+Ein Fall braucht einen zusätzlichen Schritt: Ist eine Migration beim Anwenden gescheitert (`P3018`), bricht jeder weitere Start mit `P3009` ab, auch wenn die Ursache behoben ist. Markiere die gescheiterte Migration mit der Prisma-CLI im Image als zurückgerollt und starte den Container danach erneut:
+
+```sh
+docker run --rm --env-file weldall.env \
+  --entrypoint /app/packages/db/node_modules/.bin/prisma \
+  docker.io/seibertgroup/weldall:X.Y.Z \
+  migrate resolve --rolled-back MIGRATION_NAME \
+  --schema /app/packages/db/prisma/schema.prisma
+```
+
+`MIGRATION_NAME` ist die Migration, die das Log nennt.
+
+### Healthcheck
+
+Das Image deklariert einen Docker-`HEALTHCHECK` auf `GET /.well-known/openid-configuration`. Der erste Start führt alle Migrationen aus und kann länger dauern als spätere Starts; der Check wartet 30 Sekunden, bevor er Fehlschläge zählt.
+
+Verwendet deine Plattform stattdessen eigene Probes, richte sie auf denselben Pfad und den Container-Port, standardmäßig 3000. Der Port öffnet sich erst nach den Migrationen; gib der Startup-Probe deshalb genug Zeit für ein Upgrade.
+
+## Upgrades und Rollbacks
+
+Ein Upgrade kann das Datenbankschema ändern. Vor jedem Upgrade:
+
+1. **Erstelle ein Datenbank-Backup.** Und zwar direkt vor dem Upgrade; alles, was nach dem Backup geschrieben wird, geht bei einer Wiederherstellung verloren.
+2. Ändere das Image-Tag auf die neue `X.Y.Z` und starte den Container neu. Die neue Version wendet ihre Migrationen beim Start an.
+3. Prüfe im Log auf `All migrations have been successfully applied.` oder `No pending migrations to apply.`, gefolgt vom Serverstart.
+
+:::caution[Ein Rollback nimmt keine Migrationen zurück]
+Ein älteres Image entfernt keine Migrationen, die eine neuere Version angewendet hat. Die ältere Version startet ohne Warnung und meldet `No pending migrations to apply.`, weil sie die neueren Migrationen nicht kennt. Hat die neuere Version eine Spalte geändert oder entfernt, scheitert die ältere Version später, bei der ersten Anfrage, die sie betrifft.
+
+Für einen sicheren Rollback stellst du das Backup von vor dem Upgrade wieder her **und** startest das ältere Image.
+:::
+
+Den Discovery-Proxy aktualisierst du unabhängig davon. Er speichert nichts; du kannst seine Version ohne weitere Schritte vor- und zurückschalten.
+
+## Warum genau ein Weldall-Container
+
+Ein Teil des Replay-Schutzes liegt im Speicher des Weldall-Prozesses: DPoP-Proofs an den OAuth-Token- und den Userinfo-Endpunkt bei CLI-Anmeldung und Token-Refresh merkt sich nur dieser Prozess. Ein zweiter Weldall-Container sähe die Proofs nicht, die der erste angenommen hat; ein abgefangener Proof ließe sich dann während seiner Gültigkeit von 60 Sekunden gegen den anderen Container erneut verwenden. Der Proof allein liefert kein Token, weil Authorization Codes und Refresh Tokens in der Datenbank nur einmal verwendbar sind, der Schutz ist aber schwächer als mit einem Container.
+
+Betreibe genau einen Weldall-Container. Weldall setzt das nicht selbst durch. Die Folgen:
+
+- Während der Container neu startet, zum Beispiel bei einem Upgrade, ist Weldall nicht erreichbar. Mitarbeitende sehen fehlgeschlagene Anmeldungen, und Resource-Server können keine neuen Schlüssel abrufen, bis der Container wieder läuft.
+- Plattformen, die die neue Version starten, bevor sie die alte stoppen, betreiben kurz zwei Prozesse. Das Fenster ist auf den Wechsel begrenzt.
+- Hochverfügbarkeit mit mehreren Weldall-Containern wird nicht unterstützt.
+
+Der Discovery-Proxy hält keinen Zustand. Skaliere ihn nach Bedarf.
+
+## Discovery-Proxy-Container
+
+```sh
+docker run -d --name weldall-discovery-proxy \
+  -p 8080:8080 \
+  -e WELDALL_UPSTREAM=https://weldall.example.com \
+  docker.io/seibertgroup/weldall-discovery-proxy:X.Y.Z
+```
+
+- `WELDALL_UPSTREAM` ist die öffentliche HTTPS-URL von Weldall, ohne Pfad, Query oder Zugangsdaten. Fehlt der Wert oder ist er ungültig, beendet sich der Container beim Start und nennt die Variable.
+- Der Proxy lauscht per HTTP auf Port 8080. Terminiere TLS davor; Resource-Server müssen ihn per HTTPS erreichen.
+- Er prüft das TLS-Zertifikat von `WELDALL_UPSTREAM` gegen das öffentliche CA-Bundle des Images.
+- Nur `GET /.well-known/oauth-authorization-server` und `GET /api/oauth/jwks` werden weitergereicht, unverändert. Jeder andere Pfad antwortet mit `404`, andere Methoden mit `405`.
+- Er hat keinen eigenen Health-Endpunkt. Verwende einen TCP-Check auf Port 8080; ein HTTP-Check auf einen weitergereichten Pfad schlüge auch immer dann fehl, wenn Weldall nicht erreichbar ist.
+
+## Nächste Schritte
+
+- [How to: Installer ausführen](../installer/) bindet nach dem ersten Start deinen Identity Provider an.
