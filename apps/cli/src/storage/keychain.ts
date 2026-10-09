@@ -141,6 +141,7 @@ const macOsLegacyItemHint = `If a session from an older CLI build blocks the key
 
 const execFileAsync = promisify(execFile);
 const isMacOs = () => process.platform === "darwin";
+const isWindows = () => process.platform === "win32";
 const isBun = () => (globalThis as typeof globalThis & { Bun?: unknown }).Bun !== undefined;
 
 // Writes and deletes can collide with a legacy item on macOS (see deleteMacOsItem); reads
@@ -164,9 +165,20 @@ const deleteMacOsItem = async (service: string, account: string) => {
   }
 };
 
+// Windows Credential Manager caps a credential blob at 2560 bytes, which setPassword's UTF-16
+// fills at 1280 characters, so Windows values are stored as UTF-8 bytes. Values written by older
+// builds are UTF-16; for a value starting with an ASCII character (a session starts with "{")
+// the second byte is zero only in UTF-16.
+const decodeWindowsSecret = (secret: Uint8Array) =>
+  Buffer.from(secret).toString(secret.length > 1 && secret[1] === 0 ? "utf16le" : "utf8");
+
 export const nativeCredentialStore = {
   async get(service: string, account: string) {
     const { AsyncEntry, findCredentialsAsync } = await import("@napi-rs/keyring");
+    if (isWindows()) {
+      const secret = await new AsyncEntry(service, account).getSecret();
+      return secret ? decodeWindowsSecret(secret) : null;
+    }
     const raw = await new AsyncEntry(service, account).getPassword();
     if (raw !== null && raw !== undefined) return raw;
     // Bun 1.3.14's compiled Intel macOS N-API path can return null for an exact lookup even
@@ -189,7 +201,9 @@ export const nativeCredentialStore = {
     // Only explicit login recreates macOS ownership. Refresh/profile writes must not
     // delete the existing session before an update that can fail or be interrupted.
     if (isMacOs() && mode === "replace") await deleteMacOsItem(service, account);
-    await new AsyncEntry(service, account).setPassword(password);
+    const entry = new AsyncEntry(service, account);
+    if (isWindows()) await entry.setSecret(Buffer.from(password, "utf8"));
+    else await entry.setPassword(password);
   },
 
   async clear(service: string, account: string) {

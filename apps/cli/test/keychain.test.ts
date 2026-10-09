@@ -14,6 +14,8 @@ afterEach(() => {
 type KeyringBehavior = {
   getPassword?: () => Promise<string | null>;
   setPassword?: (password: string) => Promise<void>;
+  getSecret?: () => Promise<Uint8Array | undefined>;
+  setSecret?: (secret: Uint8Array) => Promise<void>;
   deletePassword?: () => Promise<boolean>;
   findCredentials?: () => Promise<Array<{ account: string; password: string }>>;
   onDelete?: () => void;
@@ -55,18 +57,31 @@ const loadNativeStore = async (behavior: KeyringBehavior, securityExitCode?: num
         );
     },
   );
+  const setSecret = vi.fn(behavior.setSecret ?? (async () => {}));
+  const getSecret = vi.fn(behavior.getSecret ?? (async () => undefined));
   const deletePassword = vi.fn(behavior.deletePassword ?? (async () => true));
   vi.doMock("node:child_process", () => ({ execFile }));
   vi.doMock("@napi-rs/keyring", () => ({
     AsyncEntry: class {
       getPassword = behavior.getPassword ?? (async () => null);
       setPassword = setPassword;
+      getSecret = getSecret;
+      setSecret = setSecret;
       deletePassword = deletePassword;
     },
     findCredentialsAsync: behavior.findCredentials ?? (async () => []),
   }));
   const { nativeCredentialStore, keychain } = await import("../src/storage/keychain.js");
-  return { nativeCredentialStore, keychain, setPassword, deletePassword, execFile, order };
+  return {
+    nativeCredentialStore,
+    keychain,
+    setPassword,
+    getSecret,
+    setSecret,
+    deletePassword,
+    execFile,
+    order,
+  };
 };
 
 // Asserts the one and only `execFile` call was a prompt-free security-tool delete of exactly
@@ -365,6 +380,64 @@ describe("native credential store", () => {
       const { nativeCredentialStore } = await loadNativeStore({}, 1);
       await expect(nativeCredentialStore.clear("svc", "acct")).rejects.toThrow("security exited 1");
     } finally {
+      restore();
+    }
+  });
+
+  // Windows Credential Manager rejects blobs over 2560 bytes; setPassword stores UTF-16.
+  const windowsBlobLimit = {
+    setPassword: async (password: string) => {
+      if (password.length * 2 > 2560) throw new Error("longer than the platform limit");
+    },
+    setSecret: async (secret: Uint8Array) => {
+      if (secret.length > 2560) throw new Error("longer than the platform limit");
+    },
+  };
+
+  it("stores a Windows session as UTF-8 bytes so it fits the credential blob limit", async () => {
+    const restore = withPlatform("win32");
+    try {
+      const session = JSON.stringify({ version: 2, refreshToken: "r".repeat(2000) });
+      const { nativeCredentialStore, setPassword, setSecret, execFile } =
+        await loadNativeStore(windowsBlobLimit);
+      await expect(nativeCredentialStore.set("svc", "acct", session)).resolves.toBeUndefined();
+      expect(setPassword).not.toHaveBeenCalled();
+      expect(Buffer.from(setSecret.mock.calls[0]![0]).toString("utf8")).toBe(session);
+      expect(execFile).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it.each([
+    ["UTF-8", "utf8"],
+    ["legacy UTF-16", "utf16le"],
+  ] as const)("reads a %s Windows session as bytes", async (_label, encoding) => {
+    const restore = withPlatform("win32");
+    try {
+      const session = '{"version":2,"issuer":"https://weldall.example.com"}';
+      const getPassword = vi.fn(async () => null);
+      const { nativeCredentialStore } = await loadNativeStore({
+        getPassword,
+        getSecret: async () => new Uint8Array(Buffer.from(session, encoding)),
+      });
+      await expect(nativeCredentialStore.get("svc", "acct")).resolves.toBe(session);
+      expect(getPassword).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns null for a missing Windows session without enumerating", async () => {
+    const restore = withPlatform("win32");
+    vi.stubGlobal("Bun", { version: "test" });
+    try {
+      const findCredentials = vi.fn(async () => []);
+      const { nativeCredentialStore } = await loadNativeStore({ findCredentials });
+      await expect(nativeCredentialStore.get("svc", "acct")).resolves.toBeNull();
+      expect(findCredentials).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
       restore();
     }
   });
