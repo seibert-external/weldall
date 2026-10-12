@@ -87,7 +87,7 @@ export const scopeCatalog: ScopeDescriptor[] = [
     id: `${google}drive.file`,
     label: "Create and open your Drive files",
     description:
-      "Upload new files to Drive and read or change only the files created or opened through this connection.",
+      "Upload new files to Drive and read or change only the files Weldall created, not the rest of your Drive.",
     group: "Drive",
     required: false,
   },
