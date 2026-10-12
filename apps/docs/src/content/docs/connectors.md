@@ -30,7 +30,7 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
-It also offers Drive's per-file permission. It lets a connection upload new files and read or change only the files created or opened through it, not the rest of the user's Drive. For example, upload a PDF:
+It also offers Drive's per-file permission. It lets a connection upload new files and read or change only the files Weldall created, not the rest of the user's Drive. For example, upload a PDF (Drive names it "Untitled" until you rename it):
 
 ```sh
 weldall request --connection my-google -X POST \

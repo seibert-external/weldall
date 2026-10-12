@@ -30,7 +30,7 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
-Außerdem gibt es die dateibezogene Drive-Berechtigung. Eine Verbindung kann damit neue Dateien hochladen und nur die Dateien lesen oder ändern, die über sie angelegt oder geöffnet wurden, nicht den Rest des Drives. Ein PDF hochladen zum Beispiel:
+Außerdem gibt es die dateibezogene Drive-Berechtigung. Eine Verbindung kann damit neue Dateien hochladen und nur die Dateien lesen oder ändern, die Weldall angelegt hat, nicht den Rest des Drives. Ein PDF hochladen zum Beispiel (Drive nennt es "Untitled", bis du es umbenennst):
 
 ```sh
 weldall request --connection my-google -X POST \
