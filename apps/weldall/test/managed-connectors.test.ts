@@ -65,6 +65,11 @@ describe("managed provider boundaries", () => {
       "https://www.googleapis.com/auth/bigquery",
     ]);
   });
+  it("offers only the per-file Drive scope", () => {
+    expect(scopeCatalog.filter(({ group }) => group === "Drive").map(({ id }) => id)).toEqual([
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
+  });
   it("canonicalizes exact sets without scope aliases or implication mappings", async () => {
     expect(
       googleProvider.validateSetupInput({
