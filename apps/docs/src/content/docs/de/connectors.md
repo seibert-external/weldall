@@ -30,6 +30,14 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
+Außerdem gibt es die dateibezogene Drive-Berechtigung. Eine Verbindung kann damit neue Dateien hochladen und nur die Dateien lesen oder ändern, die über sie angelegt oder geöffnet wurden, nicht den Rest des Drives. Ein PDF hochladen zum Beispiel:
+
+```sh
+weldall request --connection my-google -X POST \
+  -T ./report.pdf -H 'Content-Type: application/pdf' \
+  'https://www.googleapis.com/upload/drive/v3/files?uploadType=media'
+```
+
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 
 ## Atlassian Cloud einrichten

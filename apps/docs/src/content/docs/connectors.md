@@ -30,6 +30,14 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
+It also offers Drive's per-file permission. It lets a connection upload new files and read or change only the files created or opened through it, not the rest of the user's Drive. For example, upload a PDF:
+
+```sh
+weldall request --connection my-google -X POST \
+  -T ./report.pdf -H 'Content-Type: application/pdf' \
+  'https://www.googleapis.com/upload/drive/v3/files?uploadType=media'
+```
+
 To remove it, run `weldall connections disconnect my-google`. Weldall attempts to revoke access at Google and removes the stored connection. If revocation cannot be confirmed, the CLI asks you to finish in your Google account settings.
 
 ## Set up Atlassian Cloud

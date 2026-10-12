@@ -83,6 +83,14 @@ export const scopeCatalog: ScopeDescriptor[] = [
     group: "BigQuery",
     required: false,
   },
+  {
+    id: `${google}drive.file`,
+    label: "Create and open your Drive files",
+    description:
+      "Upload new files to Drive and read or change only the files created or opened through this connection.",
+    group: "Drive",
+    required: false,
+  },
 ];
 export const requiredScopes = scopeCatalog.filter((s) => s.required).map((s) => s.id);
 /** Canonicalizes scope sets without aliases or inferred permissions. */
