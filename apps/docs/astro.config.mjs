@@ -60,6 +60,16 @@ export default defineConfig({
               link: "/weldall-setup/",
             },
             {
+              label: "Docker images",
+              translations: { de: "Docker-Images" },
+              link: "/docker/",
+            },
+            {
+              label: "How to: Google Cloud",
+              translations: { de: "How to: Google Cloud" },
+              link: "/google-cloud/",
+            },
+            {
               label: "How to: Run the installer",
               translations: { de: "How to: Installer ausführen" },
               link: "/installer/",

@@ -83,6 +83,10 @@ weldall login
 
 Standalone binaries (no Node.js required) are available for Linux x64, Windows x64, and macOS from the [releases page](https://github.com/seibert-external/weldall/releases).
 
+### Stock Goose extension
+
+[`@weldall/goose`](apps/goose-extension/README.md) exposes skill search, skill documents, connections, and separate read/write tools over local stdio MCP. It delegates authentication to the local Weldall binary in PATH; it never installs a CLI or reads credentials itself. See the package README for local branch testing, version-pinned installation and compatibility requirements.
+
 ### A typical inspection flow
 
 ```sh
@@ -105,16 +109,17 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 ## What's in the box
 
-| Workspace                             | Purpose                                                                                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [`@weldall/weldall`](apps/weldall/)   | The Next.js authorization server and administration UI.                                         |
-| [`@weldall/cli`](apps/cli/)           | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests. |
-| [`@weldall/sdk`](packages/sdk/)       | TypeScript resource-server SDK for Fetch, Hono, Next.js, and Astro.                             |
-| [`weldall-sdk`](packages/python-sdk/) | Python resource-server SDK for framework-neutral use, FastAPI, and Django.                      |
-| [`@weldall/dev-idp`](apps/dev-idp/)   | A local-only OpenID Connect provider for development.                                           |
-| [`@weldall/expenses`](apps/expenses/) | A demo resource server protected by the SDK.                                                    |
-| [`@weldall/docs`](apps/docs/)         | The documentation site (German and English).                                                    |
-| [`@weldall/db`](packages/db/)         | The Prisma database package and migrations.                                                     |
+| Workspace                                 | Purpose                                                                                         |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [`@weldall/weldall`](apps/weldall/)       | The Next.js authorization server and administration UI.                                         |
+| [`@weldall/cli`](apps/cli/)               | Cross-platform CLI: IaC, interactive OAuth login, capability discovery, authenticated requests. |
+| [`@weldall/goose`](apps/goose-extension/) | Stock Goose stdio MCP server using the local Weldall binary.                                    |
+| [`@weldall/sdk`](packages/sdk/)           | TypeScript resource-server SDK for Fetch, Hono, Next.js, and Astro.                             |
+| [`weldall-sdk`](packages/python-sdk/)     | Python resource-server SDK for framework-neutral use, FastAPI, and Django.                      |
+| [`@weldall/dev-idp`](apps/dev-idp/)       | A local-only OpenID Connect provider for development.                                           |
+| [`@weldall/expenses`](apps/expenses/)     | A demo resource server protected by the SDK.                                                    |
+| [`@weldall/docs`](apps/docs/)             | The documentation site (German and English).                                                    |
+| [`@weldall/db`](packages/db/)             | The Prisma database package and migrations.                                                     |
 
 ## Compatibility
 
