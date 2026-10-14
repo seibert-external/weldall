@@ -345,6 +345,8 @@ export const statusCommand = define({
         identity,
         assignedScopes: permissions.assignedScopes,
         grants: permissions.resources,
+        // null means the live load failed; an empty string means none are configured.
+        organizationInstructions: appendix ?? null,
       });
     else printStatus(identity, permissions);
   },
