@@ -1,4 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
+import { createServer } from "node:net";
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -7,6 +9,18 @@ import { fileURLToPath } from "node:url";
 const sdkDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const root = resolve(sdkDir, "../..");
 const temp = mkdtempSync(join(tmpdir(), "weldall-sdk-examples-"));
+
+// CI jobs can share a runner's network namespace. Avoid fixed example ports.
+const availablePort = async () => {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address();
+  await new Promise((resolveClose, reject) => {
+    server.close((error) => (error ? reject(error) : resolveClose()));
+  });
+  return String(port);
+};
 
 const waitForUrl = async (url, child) => {
   let exit;
@@ -86,6 +100,8 @@ try {
       },
     });
 
+    const port = await availablePort();
+    const origin = `http://127.0.0.1:${port}`;
     if (name === "basic") {
       execFileSync("node", ["dist/index.js"], { cwd: target, stdio: "inherit" });
     } else if (name === "hono") {
@@ -93,21 +109,21 @@ try {
         target,
         "node",
         ["dist/index.js"],
-        "http://127.0.0.1:39001/.well-known/oauth-protected-resource",
-        { PORT: "39001" },
+        `${origin}/.well-known/oauth-protected-resource`,
+        { PORT: port },
       );
     } else if (name === "next") {
       await smokeServer(
         target,
         "pnpm",
-        ["exec", "next", "start", "-H", "127.0.0.1", "-p", "39002"],
-        "http://127.0.0.1:39002/",
+        ["exec", "next", "start", "-H", "127.0.0.1", "-p", port],
+        `${origin}/`,
         { NEXT_TELEMETRY_DISABLED: "1" },
       );
     } else if (name === "astro") {
-      await smokeServer(target, "node", ["dist/server/entry.mjs"], "http://127.0.0.1:39003/", {
+      await smokeServer(target, "node", ["dist/server/entry.mjs"], `${origin}/`, {
         HOST: "127.0.0.1",
-        PORT: "39003",
+        PORT: port,
         ASTRO_TELEMETRY_DISABLED: "1",
       });
     } else {
@@ -120,19 +136,19 @@ try {
         target,
         "node",
         ["dist/server/entry.mjs"],
-        "http://127.0.0.1:39004/",
+        `${origin}/`,
         {
           HOST: "127.0.0.1",
-          PORT: "39004",
+          PORT: port,
           ASTRO_TELEMETRY_DISABLED: "1",
           WELDALL_SIGNING_KEY: signingKey,
         },
         async () => {
-          const response = await fetch("http://127.0.0.1:39004/api/search?q=umsatz");
+          const response = await fetch(`${origin}/api/search?q=umsatz`);
           if (response.status !== 401) {
             throw new Error(`starlight unauthenticated search returned ${response.status}`);
           }
-          const content = await fetch("http://127.0.0.1:39004/api/content?path=/team/overview/");
+          const content = await fetch(`${origin}/api/content?path=/team/overview/`);
           if (content.status !== 401) {
             throw new Error(`starlight unauthenticated content returned ${content.status}`);
           }
