@@ -1,5 +1,11 @@
 # @weldall/weldall
 
+## 0.5.3
+
+### Patch Changes
+
+- 7a3caa8: Improve account connection setup and OAuth completion pages with provider branding, collapsible permission selection, and styled result states.
+
 ## 0.5.2
 
 ### Patch Changes
