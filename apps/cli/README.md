@@ -160,6 +160,8 @@ token; before forwarding its ID-JAG, the CLI verifies the bound subject and veri
 the audience, resource, scopes, and device key. It then adds the DPoP authorization headers.
 `weldall skills list` refreshes a searchable local catalog. `weldall skills find <keywords>` searches cached slugs, titles, catalog previews, tags, owners, and resource names without networking after initialization. Multi-word queries rank skills matching more terms first; on no match, try fewer or broader system, resource, or action words, or browse with `weldall skills list`. `weldall skills <skill-id>` is an alias for `weldall skills show <skill-id>`.
 
+`weldall status --json` includes `organizationInstructions` alongside `identity`, `assignedScopes`, and `grants`. This is the current organization-instructions text loaded from Weldall, not the cached help header: an empty string means no instructions are configured; `null` means the settings could not be loaded (including older servers without that endpoint). Existing identity/permission failures still fail the command. Clients that require organizational context should distinguish these states rather than silently substituting cached text or assuming an empty configuration.
+
 Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. Human-facing
 output is rendered with Ink in bordered account, access, skill, notice, and configuration panels. ANSI
 colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON, documents, response

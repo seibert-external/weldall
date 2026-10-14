@@ -1,0 +1,50 @@
+{
+  "name": "@weldall/goose",
+  "version": "0.1.0",
+  "mcpName": "io.github.seibert-external/weldall",
+  "description": "Weldall skills and governed API tools for Goose over stdio MCP; requires the local Weldall binary",
+  "license": "FSL-1.1-ALv2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seibert-external/weldall.git",
+    "directory": "apps/goose-extension"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "bin": {
+    "weldall-goose": "dist/index.js"
+  },
+  "files": [
+    "dist/index.js",
+    "README.md",
+    "LICENSE",
+    "dist/server.json"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "pnpm build",
+    "goose:link": "node scripts/goose-link.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:check": "pnpm build && node scripts/verify-package.mjs",
+    "smoke:packed": "pnpm build && node scripts/smoke-packed.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@weldall/tsconfig": "workspace:*",
+    "esbuild": "^0.28.2",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

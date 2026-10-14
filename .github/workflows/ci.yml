@@ -170,6 +170,8 @@ jobs:
         run: |
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
+          pnpm --filter @weldall/goose pack:check
+          pnpm --filter @weldall/goose smoke:packed
 
   # Builds both production images and runs the same black-box tests as
   # release-docker-images.yml, so a broken Dockerfile or entrypoint fails the pull
@@ -223,6 +225,10 @@ jobs:
           pnpm --filter @weldall/sdk typecheck
           pnpm --filter @weldall/sdk test
           pnpm --filter @weldall/sdk pack:check
+          pnpm --filter @weldall/goose typecheck
+          pnpm --filter @weldall/goose test
+          pnpm --filter @weldall/goose pack:check
+          pnpm --filter @weldall/goose smoke:packed
 
   cli-native:
     # Share setup across source, packed npm, and standalone checks on each platform.
@@ -452,6 +458,7 @@ jobs:
         run: |
           pnpm --filter @weldall/sdk pack:check
           pnpm --filter @weldall/cli pack:check
+          pnpm --filter @weldall/goose pack:check
 
       # CLI v3 requires action v2's structured publish output; v1 silently skips releases.
       # Pass the PAT/App token as an input so release.published can start release-cli-assets.yml.

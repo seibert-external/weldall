@@ -1,0 +1,5 @@
+{
+  "extends": "@weldall/tsconfig/node.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "resolveJsonModule": true },
+  "include": ["src/**/*.ts"]
+}
