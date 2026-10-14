@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "mcpName": "io.github.seibert-external/weldall",
   "description": "Weldall skills and governed API tools for Goose over stdio MCP; requires the local Weldall binary",
-  "license": "FSL-1.1-ALv2",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/seibert-external/weldall.git",
