@@ -202,6 +202,7 @@ describe("fixed tool adapters", () => {
       { url: "https://example.com", scope: "read", headers: ["Accept: json\r\nHost: attacker"] },
     ],
     ["get", { url: "https://example.com", scope: "read", output: "/tmp/file" }],
+    ["get", { url: "https://example.com", scope: "read", responseMode: "binary" }],
     ["send", { url: "https://example.com", scope: "write", method: "GET" }],
     [
       "send",
