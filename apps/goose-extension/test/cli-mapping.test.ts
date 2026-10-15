@@ -124,6 +124,7 @@ describe("mapped request arguments", () => {
     { name: "send", input: { url, connection: "work", method: "POST", form: ["file=@/tmp/file"] } },
     { name: "get", input: { url, connection: "work", output: "/tmp/file" } },
     { name: "get", input: { url, connection: "work", responseMode: "binary" } },
+    { name: "get", input: { url, connection: "work", responseMode: "auto" } },
     { name: "get", input: { url, connection: "work", headers: ["Authorization: secret"] } },
   ])("rejects unsupported mapped arguments without dispatch (case %#)", async ({ name, input }) => {
     const cli = { run: vi.fn() };

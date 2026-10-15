@@ -114,10 +114,10 @@ const header = z
     );
   }, "Unsupported header. Authentication and routing headers are managed by Weldall.");
 const responseMode = z
-  .enum(["auto", "text"])
+  .literal("text")
   .optional()
   .describe(
-    'Response handling. "auto" parses ordinary text/JSON responses; "text" returns bounded response bytes as UTF-8, including multipart/mixed. Use "text" only for responses documented as textual, not binary downloads.',
+    'Set to "text" to return bounded response bytes as UTF-8, including multipart/mixed, for a response documented as textual. Omit it for automatic text/JSON handling. Not for binary downloads.',
   );
 const requestFields = {
   url,
@@ -257,7 +257,7 @@ export function requestArguments(
     if (args.json !== undefined) argv.push(`--json=${JSON.stringify(args.json)}`);
     if (args.text !== undefined) argv.push(`--data=${args.text}`);
   }
-  if (args.responseMode === "text") argv.push("--output=-");
+  if (args.responseMode !== undefined) argv.push("--output=-");
   argv.push(args.url);
   // Stay below Windows' command-line limit, including the executable and quoting.
   if (argv.join(" ").length > 24_000 || argv.some((arg) => arg.includes("\0")))
