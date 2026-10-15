@@ -18,6 +18,7 @@ describe("Goose Code Mode schema compatibility", () => {
     expect(schema.required).toContain("method");
     expect(schema.required).not.toContain("json");
     expect(schema.properties?.json).toEqual({ description: expect.stringContaining("JSON") });
+    expect(schema.properties?.responseMode).toMatchObject({ const: "text" });
   });
 
   it.each([

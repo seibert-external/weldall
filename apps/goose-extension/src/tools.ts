@@ -113,11 +113,18 @@ const header = z
       !/[\u0000-\u001f\u007f]/.test(value)
     );
   }, "Unsupported header. Authentication and routing headers are managed by Weldall.");
+const responseMode = z
+  .literal("text")
+  .optional()
+  .describe(
+    'Set to "text" to return bounded response bytes as UTF-8, including multipart/mixed, for a response documented as textual. Omit it for automatic text/JSON handling. Not for binary downloads.',
+  );
 const requestFields = {
   url,
   scope: z.union([identifier, z.array(identifier).min(1).max(32)]).optional(),
   connection: identifier.optional(),
   headers: z.array(header).max(16).optional(),
+  responseMode,
 };
 const getSchema = z.strictObject(requestFields);
 const sendSchema = z.strictObject({
@@ -179,14 +186,14 @@ const definitions = [
     name: "get",
     title: "Read through Weldall",
     description:
-      "Use instead of shell for a skill\'s weldall request with GET or no --method/-X. One authenticated GET to the exact documented HTTPS URL. Map --connection to connection, --scope/-s to scope (string or array), --header/-H to headers. Supply exactly one of scope and connection. No body or file downloads; report unsupported options instead of dropping them or using shell. Supported headers: Accept, Content-Type, conditional headers, Prefer, Idempotency-Key.",
+      'Use instead of shell for a skill\'s weldall request with GET or no --method/-X. One authenticated GET to the exact documented HTTPS URL. Map --connection to connection, --scope/-s to scope (string or array), --header/-H to headers. Supply exactly one of scope and connection. Set responseMode to "text" only for a documented textual response whose content type is not handled automatically, including multipart/mixed. Binary and file downloads remain unsupported. Supported headers: Accept, Content-Type, conditional headers, Prefer, Idempotency-Key.',
     schema: getSchema,
   },
   {
     name: "send",
     title: "Write through Weldall",
     description:
-      "Use instead of shell for a skill\'s weldall request --method/-X POST, PUT, PATCH or DELETE, only when authorized by the user. Preserve URL and method. Map --connection to connection or --scope/-s to scope (exactly one), --header/-H to headers, --json/-j to a JSON value in json or --data/-d to text (at most one body). No files/uploads; report unsupported options instead of dropping them or using shell. Never automatically retry a write, including after timeout, cancellation, binary response or ambiguous failure.",
+      'Use instead of shell for a skill\'s weldall request --method/-X POST, PUT, PATCH or DELETE, only when authorized by the user. Preserve URL and method. Map --connection to connection or --scope/-s to scope (exactly one), --header/-H to headers, --json/-j to a JSON value in json or --data/-d to text (at most one body). Set responseMode to "text" only for a documented textual response whose content type is not handled automatically, including multipart/mixed. Files, uploads and binary downloads remain unsupported. Never automatically retry a write, including after timeout, cancellation or ambiguous failure.',
     schema: sendSchema,
   },
 ] as const;
@@ -250,6 +257,7 @@ export function requestArguments(
     if (args.json !== undefined) argv.push(`--json=${JSON.stringify(args.json)}`);
     if (args.text !== undefined) argv.push(`--data=${args.text}`);
   }
+  if (args.responseMode !== undefined) argv.push("--output=-");
   argv.push(args.url);
   // Stay below Windows' command-line limit, including the executable and quoting.
   if (argv.join(" ").length > 24_000 || argv.some((arg) => arg.includes("\0")))

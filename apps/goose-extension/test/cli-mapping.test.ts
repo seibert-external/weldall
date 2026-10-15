@@ -95,6 +95,27 @@ describe("mapped request arguments", () => {
   });
 
   it.each([
+    { name: "get", input: { url, connection: "work", responseMode: "text" } },
+    {
+      name: "send",
+      input: {
+        url,
+        method: "POST",
+        connection: "work",
+        headers: ["Content-Type: multipart/mixed; boundary=batch"],
+        text: "--batch--",
+        responseMode: "text",
+      },
+    },
+  ])("captures a documented textual $name response through stdout", async ({ name, input }) => {
+    const cli = { run: vi.fn().mockResolvedValue("--response--") };
+    const result = await callTool(cli, name, input);
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: "--response--" }]);
+    expect(cli.run.mock.calls[0]?.[0]).toContain("--output=-");
+  });
+
+  it.each([
     { name: "get", input: { url, connection: "work", json: { body: true } } },
     { name: "send", input: { url, connection: "work", json: { body: true } } },
     { name: "send", input: { url, connection: "work", method: "HEAD" } },
@@ -102,6 +123,8 @@ describe("mapped request arguments", () => {
     { name: "send", input: { url, connection: "work", method: "POST", uploadFile: "/tmp/file" } },
     { name: "send", input: { url, connection: "work", method: "POST", form: ["file=@/tmp/file"] } },
     { name: "get", input: { url, connection: "work", output: "/tmp/file" } },
+    { name: "get", input: { url, connection: "work", responseMode: "binary" } },
+    { name: "get", input: { url, connection: "work", responseMode: "auto" } },
     { name: "get", input: { url, connection: "work", headers: ["Authorization: secret"] } },
   ])("rejects unsupported mapped arguments without dispatch (case %#)", async ({ name, input }) => {
     const cli = { run: vi.fn() };
