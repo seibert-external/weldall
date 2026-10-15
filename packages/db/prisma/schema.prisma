@@ -130,6 +130,7 @@ model Skill {
   title          String
   content        String
   requiredScopes String[]          @default([])
+  mcpDependencies Json             @default("[]")
   visibility     SkillVisibility   @default(DEFAULT)
   meta           Json?
   lastUpdatedAt  String?
@@ -223,6 +224,7 @@ model DiscoveredSkill {
   title          String
   content        String
   requiredScopes String[]               @default([])
+  mcpDependencies Json                  @default("[]")
   visibility     SkillVisibility        @default(DEFAULT)
   meta           Json?
   lastUpdatedAt  String?
@@ -422,6 +424,19 @@ model Connector {
   attempts                 ConnectionAuthorization[]
   requiredScopes           ConnectorRequiredScope[]
   iacBinding               IacObjectBinding?
+  registration             ConnectorRegistration?
+}
+
+/// Public-client DCR state; contains no client secret or user token. A claimed registration is
+/// never automatically reclaimed after a crash/ambiguous upstream result.
+model ConnectorRegistration {
+  connectorId String @id
+  status String
+  binding String
+  clientId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  connector Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 }
 
 model ConnectorRequiredScope {

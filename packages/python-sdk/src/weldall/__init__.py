@@ -89,7 +89,14 @@ from .signing import (
     sign_with_provider,
     validated_jwks,
 )
-from .skills import PublishedSkill, SkillCatalog, SkillMeta, load_skill_catalog, parse_skill_catalog
+from .skills import (
+    PublishedSkill,
+    SkillCatalog,
+    SkillMcpDependency,
+    SkillMeta,
+    load_skill_catalog,
+    parse_skill_catalog,
+)
 from .types import (
     JWK,
     AuthContext,
@@ -172,6 +179,7 @@ __all__ = [
     "Signing",
     "SigningKeyProvider",
     "SkillCatalog",
+    "SkillMcpDependency",
     "SkillMeta",
     "SkillProvider",
     "SkillVisibility",

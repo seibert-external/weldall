@@ -9,7 +9,9 @@ from weldall import (
     MachineAuthContext,
     MachineToken,
     MachineTokenRequestInput,
+    PublishedSkill,
     Signing,
+    SkillMcpDependency,
     SkillProvider,
     SkillVisibility,
     UserAuthContext,
@@ -55,6 +57,22 @@ def typed_inputs(
     assert_type(skills, SkillProvider)
     assert_type(visibility, SkillVisibility)
     assert_type(claims["urn:weldall:id-jag-draft"], str)
+
+
+def typed_skill() -> PublishedSkill:
+    dependency: SkillMcpDependency = {
+        "connectorKey": "atlassian-mcp",
+        "tools": ["search"],
+        "includeResources": False,
+    }
+    return {
+        "id": "recent",
+        "title": "Recent issues",
+        "content": "# Recent issues",
+        "requiredScopes": [],
+        "visibility": "DEFAULT",
+        "mcpDependencies": [dependency],
+    }
 
 
 def public_constructors(

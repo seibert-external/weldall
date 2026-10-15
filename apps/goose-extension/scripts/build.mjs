@@ -10,6 +10,12 @@ await build({
   format: "esm",
   target: "node22.15",
   packages: "external",
+  // Bundle our unpublished workspace contracts; only pinned public packages remain external.
+  alias: {
+    "@weldall/sdk/mcp": fileURLToPath(
+      new URL("../../../packages/sdk/src/mcp/index.ts", import.meta.url),
+    ),
+  },
 });
 await chmod(root + "dist/index.js", 0o755);
 const pkg = JSON.parse(await readFile(root + "package.json", "utf8"));

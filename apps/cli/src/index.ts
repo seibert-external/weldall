@@ -1,4 +1,5 @@
 #!/usr/bin/env -S node --use-system-ca
+import { mcpCommand } from "./mcp-commands.js";
 import { cli } from "gunshi";
 import packageJson from "../package.json" with { type: "json" };
 import {
@@ -103,6 +104,7 @@ export async function runCli(argv = process.argv.slice(2)) {
         request: requestCommand,
         config: configCommand,
         connections: connectionsCommand,
+        mcp: mcpCommand,
         connectors: connectorsCommand,
         ...iacSubCommands(isIacMachineConfigured()),
       },

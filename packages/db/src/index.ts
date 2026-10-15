@@ -20,6 +20,7 @@ export {
 export type {
   OAuthDeviceRefreshBinding,
   Connector,
+  ConnectorRegistration,
   Connection,
   EnvelopeProvider,
   EncryptedValue,

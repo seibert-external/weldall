@@ -5,6 +5,7 @@ import {
   generateEs256KeyPair,
   issueAccessToken,
   normalizeHtu,
+  parseSkillCatalog,
   signEs256,
   verifyAccessToken,
   verifyEs256,
@@ -61,6 +62,8 @@ if (process.argv[2] === "generate") {
 } else if (process.argv[2] === "normalize") {
   const input = JSON.parse(readFileSync(0, "utf8")) as { urls: string[] };
   process.stdout.write(JSON.stringify({ urls: input.urls.map((value) => normalizeHtu(value)) }));
+} else if (process.argv[2] === "skill-catalog") {
+  process.stdout.write(JSON.stringify(parseSkillCatalog(JSON.parse(readFileSync(0, "utf8")))));
 } else if (process.argv[2] === "verify") {
   const input = JSON.parse(readFileSync(0, "utf8")) as Record<string, any>;
   const generic = await verifyEs256(input.genericJwt, {
@@ -94,5 +97,5 @@ if (process.argv[2] === "generate") {
   if (proof.jkt !== input.deviceJkt) throw new Error("Python DPoP proof key mismatch");
   process.stdout.write(JSON.stringify({ ok: true }));
 } else {
-  throw new Error("expected generate or verify");
+  throw new Error("expected generate, normalize, skill-catalog or verify");
 }

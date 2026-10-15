@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { parseDocument } from "yaml";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
+import { skillMcpDependenciesSchema, atlassianMcpConfigSchema } from "@weldall/sdk/mcp";
 import { CliError } from "../errors.js";
 import { isRecord } from "../http.js";
 import { validateAtlassianConfiguration, canonicalAtlassianConfiguration } from "./atlassian.js";
@@ -255,7 +256,16 @@ function validatePrimitive({
       "requestPrefixes",
       "scopes",
     ],
-    skills: ["slug", "title", "content", "requiredScopes", "visibility", "meta", "lastUpdatedAt"],
+    skills: [
+      "slug",
+      "title",
+      "content",
+      "requiredScopes",
+      "visibility",
+      "meta",
+      "lastUpdatedAt",
+      "mcpDependencies",
+    ],
     machines: ["clientId", "name", "enabled", "publicKeys", "resources", "scopes"],
     emailAssignments: ["email", "scopes"],
     groupAssignments: ["provider", "groupId", "scopes"],
@@ -263,7 +273,10 @@ function validatePrimitive({
   for (const field of Object.keys(object))
     if (!fields[section].includes(field)) throw new CliError(`Unknown ${section} field ${field}`);
   const required = fields[section].filter(
-    (field) => !["skillDiscoveryEnabled", "publicKeys", "meta", "lastUpdatedAt"].includes(field),
+    (field) =>
+      !["skillDiscoveryEnabled", "publicKeys", "meta", "lastUpdatedAt", "mcpDependencies"].includes(
+        field,
+      ),
   );
   for (const field of required)
     if (!(field in object)) throw new CliError(`${section}.${field} is required`);
@@ -312,7 +325,7 @@ function validatePrimitive({
     if (object.envelopeProvider !== "LOCAL_ENV" && object.envelopeProvider !== "OPENBAO")
       throw new CliError("Envelope provider must be LOCAL_ENV or OPENBAO");
     if (
-      !["google", "atlassian"].includes(String(object.type)) ||
+      !["google", "atlassian", "atlassian-mcp"].includes(String(object.type)) ||
       typeof object.enabled !== "boolean"
     )
       throw new CliError("Invalid connector type or enabled flag");
@@ -320,7 +333,10 @@ function validatePrimitive({
     if (!requiredScopes.every((scope) => /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/.test(scope)))
       throw new CliError("Invalid connectors.requiredScopes");
     if (object.type === "atlassian") validateAtlassianConfiguration(object.provider);
-    else validateGoogleConfiguration(object.provider);
+    else if (object.type === "atlassian-mcp") {
+      if (!atlassianMcpConfigSchema.safeParse(object.provider).success)
+        throw new CliError("Invalid Atlassian MCP scope policy");
+    } else validateGoogleConfiguration(object.provider);
   } else if (section === "scopes") {
     validateText({
       field: "key",
@@ -360,6 +376,11 @@ function validatePrimitive({
         throw new CliError("requestPrefixes must be canonical HTTPS URLs");
     validateStringList({ field: "scopes" });
   } else if (section === "skills") {
+    if (
+      object.mcpDependencies !== undefined &&
+      !skillMcpDependenciesSchema.safeParse(object.mcpDependencies).success
+    )
+      throw new CliError("Invalid skills.mcpDependencies");
     validateText({
       field: "slug",
       max: 120,
@@ -566,8 +587,11 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
       requestPrefixes: canonicalSet(value.requestPrefixes),
       scopes: canonicalSet(value.scopes),
     })),
-    skills: canonicalRecords("skills", (value) => ({
+    skills: canonicalRecords("skills", ({ mcpDependencies, ...value }) => ({
       ...value,
+      ...(mcpDependencies?.length
+        ? { mcpDependencies: skillMcpDependenciesSchema.parse(mcpDependencies) }
+        : {}),
       content: value.content.trim(),
       requiredScopes: canonicalSet(value.requiredScopes),
     })),

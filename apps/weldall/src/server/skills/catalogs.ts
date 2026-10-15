@@ -256,6 +256,7 @@ export async function refreshCatalog(
             title: skill.title,
             content: skill.content,
             requiredScopes: skill.requiredScopes,
+            mcpDependencies: skill.mcpDependencies ?? [],
             visibility: skill.visibility,
             ...(skill.meta ? { meta: { ...skill.meta } } : {}),
             ...(skill.lastUpdatedAt !== undefined ? { lastUpdatedAt: skill.lastUpdatedAt } : {}),

@@ -2,7 +2,8 @@ import { stripVTControlCharacters } from "node:util";
 import { createContext, useContext, type PropsWithChildren, type ReactNode } from "react";
 import chalk from "chalk";
 import { Box, Text, renderToString } from "ink";
-import { CONNECTION_USAGE_DISCOVERY_HINT } from "./connection-usage.js";
+import { CONNECTION_USAGE_DISCOVERY_HINT, connectionMcpToolsCommand } from "./connection-usage.js";
+import type { ConnectorCapability } from "@weldall/sdk";
 
 export const palette = {
   primary: "blue",
@@ -467,12 +468,14 @@ export interface HeaderSkill {
 }
 
 export interface HeaderConnector {
+  capabilities?: ConnectorCapability[];
   key: string;
   name: string;
   groups: string[];
 }
 
 export interface HeaderConnection {
+  capabilities?: ConnectorCapability[];
   name: string;
   connectorKey: string;
   status: string;
@@ -543,7 +546,11 @@ function ConnectorPreview({
   );
   const firstReady = visibleConnections.find((connection) => connection.status === "READY");
   const readyRequest = firstReady
-    ? `weldall request --connection ${terminalText(firstReady.name)} <provider-https-url>`
+    ? firstReady.capabilities?.includes("mcp")
+      ? terminalText(connectionMcpToolsCommand(firstReady))
+      : firstReady.capabilities === undefined || firstReady.capabilities.includes("http")
+        ? `weldall request --connection ${terminalText(firstReady.name)} <provider-https-url>`
+        : null
     : null;
   return (
     <Card title="Connectors & connections" accent={palette.success}>
@@ -556,6 +563,7 @@ function ConnectorPreview({
             <Box key={connector.key} flexDirection="column">
               <Text>
                 • {terminalText(connector.name)} ({terminalText(connector.key)})
+                {connector.capabilities ? ` [${connector.capabilities.join(", ")}]` : ""}
                 {connector.groups.length > 0
                   ? ` — ${connector.groups.map(terminalText).join(", ")}`
                   : ""}

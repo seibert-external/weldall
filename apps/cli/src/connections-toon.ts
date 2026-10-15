@@ -26,6 +26,7 @@ const buildConnectionRow = ({
   name: connection.name,
   id: connection.id,
   connector: connection.connectorKey,
+  ...(connection.capabilities ? { capabilities: connection.capabilities } : {}),
   account: connection.accountName,
   status: connection.status,
   scopes: joined(connection.grantedScopes),
@@ -79,6 +80,7 @@ export function encodeConnectorsToon({
           key: connector.key,
           name: connector.name,
           type: connector.type,
+          ...(connector.capabilities ? { capabilities: connector.capabilities } : {}),
           connectionState:
             matches.length === 0
               ? "NOT_CONNECTED"
@@ -93,6 +95,7 @@ export function encodeConnectorsToon({
       connections: active.map((connection) => ({
         name: connection.name,
         connector: connection.connectorKey,
+        ...(connection.capabilities ? { capabilities: connection.capabilities } : {}),
         status: connection.status,
         showCommand: `${connectionShowCommand(connection.name)} --agentic`,
       })),

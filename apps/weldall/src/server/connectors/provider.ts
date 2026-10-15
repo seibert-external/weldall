@@ -1,4 +1,10 @@
 import type { ConnectionDisplay, ConnectorSetupDisplay } from "./display";
+import type { ConnectorCapability } from "@weldall/sdk";
+
+/** Derived from implemented transport support, never persisted or administrator-configurable. */
+export function connectorCapabilities(provider: ConnectorProvider): ConnectorCapability[] {
+  return provider.mcp ? ["mcp"] : ["http"];
+}
 
 declare const grantBrand: unique symbol;
 declare const upstreamUrlBrand: unique symbol;
@@ -17,6 +23,24 @@ export type ConnectorProxyRequest = {
 /** Provider-owned values remain opaque to lifecycle and transport code. Each adapter parses boundary input. */
 export interface ConnectorProvider {
   readonly type: string;
+  /** Public-client registration. Client IDs are public; unused secrets are never retained. */
+  readonly registration?: {
+    binding(input: { callbackUrl: string; config: unknown }): string;
+    register(input: { callbackUrl: string; config: unknown }): Promise<{ clientId: string }>;
+  };
+  readonly mcp?: {
+    getEndpoint(config: unknown): URL;
+    validateEndpoint(input: { endpoint: URL; config: unknown }): void;
+    buildAuthenticatedRequest(input: {
+      endpoint: URL;
+      credentials: unknown;
+      method: string;
+      headers: Headers;
+      body?: string;
+      signal: AbortSignal;
+    }): RequestInit;
+    assertSafeResult(value: unknown, credentials: unknown): void;
+  };
   /** Parses public policy without accepting secrets. */
   parseConfiguration(value: unknown): object;
   /** Parses write-only application secrets. */
@@ -33,9 +57,13 @@ export interface ConnectorProvider {
   buildInitialSelection(input: { config: unknown; previousSelection?: unknown }): object;
   /** Creates provider redirect and opaque attempt data; core binds the returned state to its owner. */
   beginAuthorization(
-    input: ProviderContext & { secrets: unknown; callbackUrl: string },
+    input: ProviderContext & {
+      secrets: unknown;
+      callbackUrl: string;
+      registration?: { clientId: string } | undefined;
+    },
   ): Promise<{ url: string; state: string; attempt: object }>;
-  /** Verifies identity and exact consent before returning executable credentials and a branded grant. */
+  /** Verifies identity and provider-specific consent before returning executable credentials and a branded grant. */
   completeAuthorization(
     input: ProviderContext & {
       secrets: unknown;
@@ -50,7 +78,7 @@ export interface ConnectorProvider {
   parseGrant(value: unknown): ProviderGrant;
   /** Keeps provider expiry semantics outside core. */
   needsRefresh(value: unknown): boolean;
-  /** Rotates credentials while enforcing exact consent; rejected credentials may only be retained for cleanup. */
+  /** Rotates credentials within selected consent; rejected credentials may only be retained for cleanup. */
   refreshCredentials(
     input: ProviderContext & {
       secrets: unknown;

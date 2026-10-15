@@ -10,6 +10,7 @@ import {
 import { z } from "zod";
 import { parseCliLogoUrl } from "../branding";
 import { connectorConfig } from "../connectors/contracts";
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 
 export const IAC_MANIFEST_VERSION = "weldall.dev/v1" as const;
 export const IAC_API_VERSION = "v1" as const;
@@ -160,6 +161,9 @@ export const desiredStateSchema = z
               .strict()
               .optional(),
             lastUpdatedAt: z.string().optional(),
+            mcpDependencies: skillMcpDependenciesSchema
+              .optional()
+              .transform((value) => (value?.length ? value : undefined)),
           })
           .strict(),
       )

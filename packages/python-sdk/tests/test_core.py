@@ -162,6 +162,13 @@ def test_skill_catalog_is_protected_and_replay_safe(keys, discovery):
                         "appearance": {"icon": "file-text", "gradientFrom": "invalid-but-safe"},
                     },
                     "lastUpdatedAt": "not restricted to a timestamp",
+                    "mcpDependencies": [
+                        {
+                            "connectorKey": "atlassian-mcp",
+                            "tools": ["search"],
+                            "includeResources": False,
+                        }
+                    ],
                 }
             ]
         },
@@ -198,6 +205,9 @@ def test_skill_catalog_is_protected_and_replay_safe(keys, discovery):
     response = sdk.handlers.skills(request())
     assert response.status == 200
     assert response.json_body()["skills"][0]["meta"]["tags"] == ["finance", "review"]
+    assert response.json_body()["skills"][0]["mcpDependencies"] == [
+        {"connectorKey": "atlassian-mcp", "tools": ["search"], "includeResources": False}
+    ]
     assert sdk.handlers.skills(request()).status == 401
     assert (
         sdk.handlers.skills(Request("POST", f"{ORIGIN}/.well-known/weldall-skills")).status == 405

@@ -7,7 +7,7 @@ import type { Lockfile, Manifest } from "./manifest.js";
 interface Discovery {
   issuer: string;
   token_endpoint: string;
-  weldall_iac?: { endpoint: string; installationId?: string; scope: string };
+  weldall_iac?: { endpoint: string; installationId?: string; scope: string; features?: string[] };
 }
 interface Credentials {
   clientId: string;
@@ -81,6 +81,20 @@ export class IacClient {
       lock.server.installationId !== discovery.weldall_iac.installationId
     )
       throw new CliError("Lockfile installation ID does not match this server; refusing mutation");
+    if (
+      (Object.values(manifest.connectors ?? {}).some(
+        (connector) => (connector as { type?: string }).type === "atlassian-mcp",
+      ) ||
+        Object.values(manifest.skills ?? {}).some(
+          (skill) =>
+            Array.isArray((skill as { mcpDependencies?: unknown }).mcpDependencies) &&
+            (skill as { mcpDependencies: unknown[] }).mcpDependencies.length > 0,
+        )) &&
+      !discovery.weldall_iac.features?.includes("mcp")
+    )
+      throw new CliError(
+        "This Weldall server does not support MCP connectors or skill dependencies. Upgrade the server before applying MCP configuration.",
+      );
     return new IacClient(discovery, credentials(), discovery.weldall_iac.installationId);
   }
   private async token(): Promise<string> {

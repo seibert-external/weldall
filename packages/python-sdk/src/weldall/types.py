@@ -55,6 +55,12 @@ class SkillMeta(TypedDict, total=False):
     appearance: dict[str, str]
 
 
+class SkillMcpDependency(TypedDict):
+    connectorKey: str
+    tools: list[str]
+    includeResources: bool
+
+
 class PublishedSkill(TypedDict):
     id: str
     title: str
@@ -63,6 +69,7 @@ class PublishedSkill(TypedDict):
     content: str
     meta: NotRequired[SkillMeta]
     lastUpdatedAt: NotRequired[str]
+    mcpDependencies: NotRequired[list[SkillMcpDependency]]
 
 
 class SkillCatalog(TypedDict):

@@ -7,6 +7,17 @@ Connectors rufen einen Dienst **im Namen der nutzenden Person** auf. Jede Person
 
 Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. Connectors sind für persönliche, selbst freigegebene Zugriffe gedacht – nicht als Voraussetzung für jede Integration.
 
+Für Remote-MCP-Tools statt REST-Anfragen erstelle einen **Atlassian MCP**-Connector in der Admin-Oberfläche oder über [IaC](../mcp/). Endpunkt und OAuth-Client-Registrierung sind automatisch. Bestehende Atlassian-REST-Verbindungen werden nicht wiederverwendet.
+
+## Fähigkeiten erkennen
+
+`weldall connectors --json` und `weldall connections show <name> --json` liefern ein aus der Provider-Implementierung abgeleitetes Array `capabilities`. Clients werten dieses Feld aus, statt Connector-Key, Name oder Provider-Typ zu interpretieren:
+
+- `["http"]`: Google und Atlassian REST; Aufrufe über `weldall request --connection …`.
+- `["mcp"]`: MCP-Tools und Ressourcen; den aktuellen Katalog über `weldall mcp tools <connector-key> --connection …` entdecken.
+
+Die CLI zeigt Fähigkeiten auch in `--agentic` und zwischengespeicherten Vorschauen. Sie beschreiben unterstützte Transportwege, keine Berechtigungen oder garantierte Tool-Verfügbarkeit. Es gibt dafür kein konfigurierbares IaC-Feld und keinen Admin-Schalter.
+
 ## Google einrichten
 
 Lege unter **Admin → Connectors** einen Google-Connector mit deiner Google-OAuth-Client-ID und dem Client-Secret an. Hinterlege `https://weldall.example.com/api/connectors/google/callback` bei Google als erlaubte Redirect-URI und ersetze die Domain durch deine Weldall-URL. Wähle die angebotenen Google-Berechtigungen und die nötigen Weldall-Scopes aus und aktiviere den Connector.

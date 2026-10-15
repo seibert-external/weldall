@@ -19,7 +19,7 @@ export function canAccessConnector({
   actor,
 }: {
   connector: ConnectorAccessPolicy;
-  actor: Pick<AuthorizedConnectorActor, "scopeKeys">;
+  actor: { scopeKeys: readonly string[] };
 }): boolean {
   const granted = new Set<string>(actor.scopeKeys);
   return connector.requiredScopes.every(({ scope }) => granted.has(scope.key));

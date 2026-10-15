@@ -1,6 +1,7 @@
 import { db, IAC_SCOPE_KEY, Prisma, SYSTEM_SCOPE_DEFINITIONS } from "@weldall/db";
 import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
-import { createPlan, desiredObjects, loadPlanningState } from "./planner";
+import { createPlan, desiredObjects, loadPlanningState, skillMcpState } from "./planner";
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import { lockSkillScopeChanges } from "../domain/configuration";
 import { prismaAuditWriter, type AuditEventInput } from "../audit/service";
 import type { AuditReasonCode } from "../../lib/audit";
@@ -20,6 +21,7 @@ import {
   mutateSkill,
   reconcileMachine,
   type MutationActor,
+  type SkillMetaInput,
   PrimitiveMutationError,
 } from "../domain/primitive-mutations";
 
@@ -185,6 +187,7 @@ async function executeDesiredState({
   const bindings = await tx.iacObjectBinding.findMany({
     where: { workspaceId: manifest.workspace.id },
   });
+  await stageMcpRemovals(tx, bindings, desired, actor);
   const replacementResources = new Set<string>();
   const replacementScopes = new Map<string, string>();
   for (const item of desired) {
@@ -392,6 +395,45 @@ async function executeDesiredState({
         await reconcileObject({ item });
 }
 
+/** Remove outgoing references within the same transaction before disabling/replacing targets.
+ * Existing admin fields are preserved; the final skill write still goes through mutateSkill.
+ */
+async function stageMcpRemovals(
+  tx: Prisma.TransactionClient,
+  bindings: Prisma.IacObjectBindingGetPayload<{}>[],
+  desired: ReturnType<typeof desiredObjects>,
+  actor: IacActor,
+) {
+  const desiredByAddress = new Map(desired.map((item) => [item.address, item]));
+  for (const binding of bindings.filter((b) => b.skillId)) {
+    const current = await tx.skill.findUnique({ where: { id: binding.skillId! } });
+    if (!current) continue;
+    const previous = skillMcpDependenciesSchema.parse(current.mcpDependencies);
+    const next = desiredByAddress.get(binding.address);
+    const desiredDeps = next?.kind === "skill" ? ((next.state as any).mcpDependencies ?? []) : [];
+    const kept = previous.filter((dep) =>
+      desiredDeps.some((d: { connectorKey: string }) => d.connectorKey === dep.connectorKey),
+    );
+    if (kept.length === previous.length) continue;
+    await mutateSkill(
+      tx,
+      {
+        action: "update",
+        id: current.id,
+        expectedVersion: current.version,
+        title: current.title,
+        content: current.content,
+        visibility: current.visibility,
+        requiredScopes: current.requiredScopes,
+        meta: current.meta === null ? undefined : (current.meta as SkillMetaInput),
+        lastUpdatedAt: current.lastUpdatedAt ?? undefined,
+        mcpDependencies: kept,
+      },
+      mutationActor(actor),
+    );
+  }
+}
+
 /** Upserts one manifest object through the product-specific mutation path used by IaC apply. */
 async function upsertObject({
   tx,
@@ -496,6 +538,7 @@ async function upsertObject({
               title: state.title,
               content: state.content,
               requiredScopes: state.requiredScopes,
+              mcpDependencies: state.mcpDependencies ?? [],
               visibility: state.visibility,
               meta: state.meta,
               lastUpdatedAt: state.lastUpdatedAt,
@@ -506,6 +549,7 @@ async function upsertObject({
               title: state.title,
               content: state.content,
               requiredScopes: state.requiredScopes,
+              mcpDependencies: state.mcpDependencies ?? [],
               visibility: state.visibility,
               meta: state.meta,
               lastUpdatedAt: state.lastUpdatedAt,
@@ -1339,6 +1383,7 @@ async function findNatural({
                     title: row.title,
                     content: row.content,
                     requiredScopes: [...row.requiredScopes].sort(),
+                    ...skillMcpState(row.mcpDependencies),
                     visibility: row.visibility,
                   };
   return { id: row.id, owned: owned?.workspaceId, state };

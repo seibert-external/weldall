@@ -337,6 +337,7 @@ describe.skipIf(!approvedTarget)(
       expect(
         (await listConnectors(authorizedActor)).find(({ key }) => key === f.key),
       ).toMatchObject({
+        capabilities: ["http"],
         requiredScopes: [scopeKey],
       });
       expect(connector.requiredScopes.map(({ scope }) => scope.key)).toEqual([scopeKey]);

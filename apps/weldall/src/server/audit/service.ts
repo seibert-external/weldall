@@ -1,5 +1,6 @@
 import { db, Prisma } from "@weldall/db";
 import { z } from "zod";
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import {
   AUDIT_EVENT_TYPES,
   type AuditActorType,
@@ -201,6 +202,7 @@ const skillMeta = z
   .nullable();
 const skillSnapshot = z
   .object({
+    mcpDependencies: skillMcpDependenciesSchema.optional(),
     title: z.string().min(1).max(200),
     requiredScopes: scopeArray,
     visibility: skillVisibility,
@@ -212,6 +214,7 @@ const skillSnapshot = z
   .strict();
 const skillCreatedMetadata = z
   .object({
+    mcpDependencies: skillMcpDependenciesSchema.optional(),
     slug: z.string().min(1).max(120),
     title: z.string().min(1).max(200),
     requiredScopes: scopeArray,
@@ -270,6 +273,10 @@ const connectorMetadata = z
       .string()
       .regex(/^[A-Z]{1,20}$/)
       .optional(),
+    connectorKey: z.string().max(120).optional(),
+    toolName: z.string().max(64).optional(),
+    ownerId: z.string().max(191).optional(),
+    authorizationSource: z.literal("owner").optional(),
     requestFingerprint: z
       .string()
       .regex(/^[a-f0-9]{64}$/)

@@ -1,4 +1,6 @@
 import type { Prisma } from "@weldall/db";
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
+import type { ConnectorConfig } from "../connectors/contracts";
 import { buildConnectorState } from "../connectors/configuration";
 import { connectorScopeInclude } from "../connectors/access";
 import { getConnectorProvider } from "../connectors/registry";
@@ -203,7 +205,8 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
       });
     }
   }
-  const orderedActions = actions.sort(compareActions);
+  blockers.push(...mcpGraphBlockers(manifest, current.objects));
+  const orderedActions = orderMcpActions(actions.sort(compareActions), desired, current.objects);
   const planWithoutDigest = {
     version: 1 as const,
     workspaceId: manifest.workspace.id,
@@ -418,6 +421,7 @@ export async function loadPlanningState({
         title: item.title,
         content: item.content,
         requiredScopes: [...item.requiredScopes].sort(),
+        ...skillMcpState(item.mcpDependencies),
         visibility: item.visibility,
         ...(item.meta !== null ? { meta: item.meta } : {}),
         ...(item.lastUpdatedAt !== null ? { lastUpdatedAt: item.lastUpdatedAt } : {}),
@@ -488,7 +492,11 @@ export async function loadPlanningState({
         address: `connector.${address}`,
         message: "Connector envelope provider cannot change.",
       });
-    if (config.enabled && !current?.encryptedProviderSecrets)
+    if (
+      config.enabled &&
+      !current?.encryptedProviderSecrets &&
+      !getConnectorProvider(config.type).registration
+    )
       externalBlockers.push({
         code: "MISSING_SECRET",
         address: `connector.${address}`,
@@ -627,6 +635,88 @@ export async function loadPlanningState({
       : {}),
     externalBlockers,
   };
+}
+
+/** Empty fields are omitted for compatibility with the shipped manifest contract only. */
+export function skillMcpState(value: unknown) {
+  const dependencies = skillMcpDependenciesSchema.parse(value);
+  return dependencies.length ? { mcpDependencies: dependencies } : {};
+}
+
+function mcpGraphBlockers(manifest: DesiredState, current: CurrentObject[]): IacBlocker[] {
+  const desired = desiredObjects(manifest);
+  const retained = current.filter(
+    (o) => !o.tombstone && o.ownerWorkspaceId !== manifest.workspace.id,
+  );
+  const final = [...retained, ...desired];
+  const connectors = new Map(
+    final
+      .filter((o) => o.kind === "connector")
+      .map((o) => [o.identity, o.state as ConnectorConfig]),
+  );
+  const blockers: IacBlocker[] = [];
+  for (const object of final.filter((o) => o.kind === "skill")) {
+    const deps = skillMcpDependenciesSchema.parse((object.state as any).mcpDependencies ?? []);
+    for (const dep of deps) {
+      const connector = connectors.get(dep.connectorKey);
+      const isDesired = desired.includes(object as (typeof desired)[number]);
+      const wasResolved = current.some(
+        (o) =>
+          o.kind === "connector" &&
+          o.identity === dep.connectorKey &&
+          (o.state as ConnectorConfig).enabled &&
+          getConnectorProvider((o.state as ConnectorConfig).type).mcp,
+      );
+      if (
+        (!connector?.enabled || !getConnectorProvider(connector.type).mcp) &&
+        (isDesired || wasResolved)
+      )
+        blockers.push({
+          code: "UNRESOLVED_MCP_DEPENDENCY",
+          ...(object.address ? { address: object.address } : {}),
+          message: `Skill ${object.identity} requires enabled MCP connector ${dep.connectorKey}.`,
+        });
+    }
+  }
+  return blockers;
+}
+
+/** Stable topological ordering adds only MCP graph edges to the existing action ordering. */
+function orderMcpActions(
+  actions: IacAction[],
+  desired: ReturnType<typeof desiredObjects>,
+  current: CurrentObject[],
+) {
+  const before = new Map<IacAction, Set<IacAction>>(actions.map((a) => [a, new Set()]));
+  const edge = (parentKind: IacKind, parentIdentity: string, child: IacAction) => {
+    const parent = actions.find(
+      (a) => a.kind === parentKind && a.identity === parentIdentity && a.action !== "noop",
+    );
+    if (!parent || child.action === "noop") return;
+    if (child.action === "delete" && parent.action === "delete") before.get(parent)!.add(child);
+    else if (child.action !== "delete" && parent.action !== "delete")
+      before.get(child)!.add(parent);
+  };
+  for (const action of actions) {
+    const object = (action.action === "delete" ? current : desired).find(
+      (o) => o.address === action.address,
+    );
+    if (!object?.state) continue;
+    if (action.kind === "skill")
+      for (const dep of (object.state as any).mcpDependencies ?? [])
+        edge("connector", dep.connectorKey, action);
+  }
+  const ordered: IacAction[] = [];
+  const remaining = new Set(actions);
+  while (remaining.size) {
+    const next = actions.find(
+      (a) => remaining.has(a) && [...before.get(a)!].every((p) => !remaining.has(p)),
+    );
+    if (!next) throw new Error("Invalid MCP dependency graph");
+    ordered.push(next);
+    remaining.delete(next);
+  }
+  return ordered;
 }
 
 function bindingInfo(binding: { address: string; workspaceId: string } | undefined) {

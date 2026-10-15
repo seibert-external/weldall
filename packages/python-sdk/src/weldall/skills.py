@@ -14,7 +14,7 @@ from .constants import (
     SKILL_TAG_LENGTH_LIMIT,
     SKILL_TAG_LIMIT,
 )
-from .types import PublishedSkill, SkillCatalog, SkillMeta
+from .types import PublishedSkill, SkillCatalog, SkillMcpDependency, SkillMeta
 
 _LOCAL_SKILL_ID = re.compile(r"^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
 _GLOBAL_SCOPE = re.compile(r"^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$")
@@ -28,7 +28,11 @@ _SKILL_KEYS = {
     "content",
     "meta",
     "lastUpdatedAt",
+    "mcpDependencies",
 }
+_MCP_DEPENDENCY_KEYS = {"connectorKey", "tools", "includeResources"}
+_MCP_CONNECTOR_KEY = re.compile(r"[a-z0-9][a-z0-9._-]{0,119}")
+_MCP_TOOL_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")
 _META_KEYS = {"tags", "owner", "appearance"}
 
 
@@ -38,6 +42,42 @@ def _record(value: object) -> TypeGuard[dict[str, Any]]:
 
 def _js_len(value: str) -> int:
     return len(value.encode("utf-16-le")) // 2
+
+
+def _parse_mcp_dependencies(value: object) -> list[SkillMcpDependency]:
+    if not isinstance(value, list) or len(value) > 8:
+        raise TypeError("invalid skill MCP dependencies")
+    result: list[SkillMcpDependency] = []
+    keys: set[str] = set()
+    for dependency in value:
+        if not _record(dependency) or dependency.keys() != _MCP_DEPENDENCY_KEYS:
+            raise TypeError("invalid skill MCP dependencies")
+        key = dependency["connectorKey"]
+        tools = dependency["tools"]
+        include_resources = dependency["includeResources"]
+        if (
+            not isinstance(key, str)
+            or _MCP_CONNECTOR_KEY.fullmatch(key) is None
+            or key in keys
+            or not isinstance(tools, list)
+            or len(tools) > 32
+            or any(
+                not isinstance(tool, str) or _MCP_TOOL_NAME.fullmatch(tool) is None
+                for tool in tools
+            )
+            or type(include_resources) is not bool
+            or (not tools and not include_resources)
+        ):
+            raise TypeError("invalid skill MCP dependencies")
+        keys.add(key)
+        result.append(
+            {
+                "connectorKey": key,
+                "tools": sorted(set(tools)),
+                "includeResources": include_resources,
+            }
+        )
+    return sorted(result, key=lambda dependency: dependency["connectorKey"])
 
 
 def parse_skill_catalog(value: object, expected_resource: str | None = None) -> SkillCatalog:
@@ -56,6 +96,7 @@ def parse_skill_catalog(value: object, expected_resource: str | None = None) -> 
     for candidate in raw_skills:
         if not _record(candidate) or any(key not in _SKILL_KEYS for key in candidate):
             raise TypeError("invalid published skill")
+        dependencies = _parse_mcp_dependencies(candidate.get("mcpDependencies", []))
         skill_id = candidate.get("id")
         title = candidate.get("title")
         required = candidate.get("requiredScopes")
@@ -121,6 +162,8 @@ def parse_skill_catalog(value: object, expected_resource: str | None = None) -> 
             "visibility": visibility,  # type: ignore[typeddict-item]
             "content": content,
         }
+        if dependencies:
+            skill["mcpDependencies"] = dependencies
         if has_meta:
             skill["meta"] = cast(SkillMeta, meta)
         if has_updated:
@@ -151,6 +194,7 @@ __all__ = [
     "SKILL_TAG_LIMIT",
     "PublishedSkill",
     "SkillCatalog",
+    "SkillMcpDependency",
     "SkillMeta",
     "load_skill_catalog",
     "parse_skill_catalog",

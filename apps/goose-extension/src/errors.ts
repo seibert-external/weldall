@@ -14,6 +14,12 @@ export const messages = {
   output_limit: "The response exceeded the output limit. Do not repeat a write.",
   timeout: "The operation timed out. The outcome may be unknown; do not repeat a write.",
   cancelled: "The operation was cancelled. The outcome may be unknown; do not repeat a write.",
+  mcp_unavailable:
+    "The skill requires an MCP connector or tool that is unavailable. Check its configuration and your connection.",
+  mcp_selection:
+    "Choose a ready connection for a pending skill dependency. Do not choose an account arbitrarily.",
+  mcp_rebind:
+    "This MCP connector is already bound to a different connection. Start a new session to change accounts.",
   busy: "Too many concurrent operations. Wait for the current operations to finish.",
 } as const;
 export type ErrorCode = keyof typeof messages;

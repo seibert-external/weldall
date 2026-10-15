@@ -13,7 +13,7 @@ import {
 import { readConnectorSecrets, runConnectorTransaction } from "../configuration";
 import { getConnectorProvider } from "../registry";
 import { ProviderTokenError, RejectedProviderCredentials } from "../errors";
-import type { ProviderGrant } from "../provider";
+import { connectorCapabilities, type ProviderGrant } from "../provider";
 import {
   prepareSecretEnvelope,
   prepareSecretEncryption,
@@ -31,6 +31,7 @@ import {
 } from "../access";
 import { effectiveScopesRequiringSystemScopeFor } from "../../policy/resources";
 import { deleteConnectionState } from "./deletion";
+import { ensureConnectorRegistration } from "./registration";
 
 type Tx = Prisma.TransactionClient;
 
@@ -141,6 +142,7 @@ export function buildConnectionMetadata({
     updatedAt: row.updatedAt,
     connectorKey: connector.key,
     connectorEnabled: connector.enabled,
+    capabilities: connectorCapabilities(getConnectorProvider(connector.providerType)),
   };
 }
 /** Resolves an owner-scoped connection by stable ID first and then by owner-unique name. */
@@ -208,6 +210,7 @@ export async function listConnectors(actor: AuthorizedConnectorActor) {
       key: connector.key,
       name: connector.name,
       type: getConnectorProvider(connector.providerType).type,
+      capabilities: connectorCapabilities(getConnectorProvider(connector.providerType)),
       requiredScopes: getConnectorRequiredScopeKeys(connector),
       ...getConnectorProvider(connector.providerType).describeSetup({
         config: connector.providerConfig,
@@ -416,6 +419,7 @@ export async function submitScopeSelection({
     secrets: readConnectorSecrets(a.connector),
     selection: validated,
     callbackUrl: buildCallbackUrl(a.connector),
+    registration: await ensureConnectorRegistration(a.connector, buildCallbackUrl(a.connector)),
   });
   const envelope = await prepareSecretEnvelope({
     provider: a.connector.envelopeProvider,
@@ -601,7 +605,7 @@ export async function completeConnection({
         phase: "provider_authorization",
         authorizationId: a.id,
         connectorId: a.connectorId,
-        error: { code: error instanceof ConnectorError ? error.code : "provider_error" },
+        errorCode: error instanceof ConnectorError ? error.code : "provider_error",
       },
       "Connector provider authorization failed",
     );
@@ -784,7 +788,7 @@ export async function completeConnection({
         phase: "grant_validation_or_persistence",
         authorizationId: a.id,
         connectorId: a.connectorId,
-        error: { code: error instanceof ConnectorError ? error.code : "persistence_error" },
+        errorCode: error instanceof ConnectorError ? error.code : "persistence_error",
       },
       "Connector grant validation or persistence failed",
     );

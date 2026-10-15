@@ -96,6 +96,58 @@ describe("managed connection CLI", () => {
     // Client checks are not authorization; the adapter rejects this origin on the server.
     expect(() => validateConnectionTarget("https://evil.example/a")).not.toThrow();
   });
+  it("refuses HTTP dispatch for an MCP-only connection without assuming a provider type", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(Response.json({ ...connection, capabilities: ["mcp"] }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(
+      requestConnection({
+        config,
+        selector: connection.name,
+        input: { method: "GET", url: "https://api.example.com/items" },
+      }),
+    ).rejects.toThrow("does not support HTTP");
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it.each([["http"], ["mcp"], ["http", "mcp"]])(
+    "preserves generic catalog capabilities %j",
+    async (...capabilities) => {
+      const connector = {
+        key: "work",
+        name: "Work",
+        type: "arbitrary-provider",
+        capabilities,
+        requiredScopes: [],
+        scopes: [scope],
+        defaultScopes: [],
+      };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([connector])));
+      await expect(listConnectors(config)).resolves.toEqual([connector]);
+    },
+  );
+  it.each([null, "mcp", ["mcp", "mcp"], ["invalid"]].map((capabilities) => [capabilities]))(
+    "rejects invalid catalog capabilities %j",
+    async (capabilities) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          Response.json([
+            {
+              key: "work",
+              name: "Work",
+              type: "arbitrary-provider",
+              capabilities,
+              requiredScopes: [],
+              scopes: [scope],
+              defaultScopes: [],
+            },
+          ]),
+        ),
+      );
+      await expect(listConnectors(config)).rejects.toThrow("invalid connector");
+    },
+  );
   it("polls metadata only through Weldall", async () => {
     const fetcher = vi
       .fn()

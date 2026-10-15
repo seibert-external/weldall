@@ -22,6 +22,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "default": "./dist/mcp/index.js"
+    },
     "./hono": {
       "types": "./dist/hono.d.ts",
       "default": "./dist/hono.js"
@@ -52,7 +56,8 @@
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "jose": "^6.2.10"
+    "jose": "^6.2.10",
+    "zod": "4.4.3"
   },
   "peerDependencies": {
     "astro": ">=7 <8",

@@ -1,3 +1,5 @@
+import { skillMcpDependenciesSchema, type SkillMcpDependency } from "./mcp/contracts.js";
+
 export const SKILL_CATALOG_SCHEMA_VERSION = 1 as const;
 export const SKILL_CATALOG_PATH = "/.well-known/weldall-skills" as const;
 export const SKILL_ASSERTION_TYPE = "weldall-skills+jwt" as const;
@@ -20,6 +22,7 @@ export interface PublishedSkill {
   content: string;
   meta?: SkillMeta;
   lastUpdatedAt?: string;
+  mcpDependencies?: SkillMcpDependency[];
 }
 
 export interface SkillCatalog {
@@ -46,6 +49,7 @@ const SKILL_KEYS = new Set([
   "content",
   "meta",
   "lastUpdatedAt",
+  "mcpDependencies",
 ]);
 const SKILL_META_KEYS = new Set(["tags", "owner", "appearance"]);
 
@@ -77,6 +81,10 @@ export function parseSkillCatalog(value: unknown, expectedResource?: string): Sk
       throw new TypeError("invalid published skill");
     }
     const { id, title, requiredScopes, visibility, content, meta, lastUpdatedAt } = candidate;
+    const dependencies =
+      candidate.mcpDependencies === undefined
+        ? []
+        : skillMcpDependenciesSchema.parse(candidate.mcpDependencies);
     if (typeof id !== "string" || id.length > 120 || !LOCAL_SKILL_ID.test(id) || ids.has(id)) {
       throw new TypeError("published skill IDs must be unique valid local IDs");
     }
@@ -131,6 +139,7 @@ export function parseSkillCatalog(value: unknown, expectedResource?: string): Sk
       content,
       ...(meta !== undefined ? { meta: meta as SkillMeta } : {}),
       ...(lastUpdatedAt !== undefined ? { lastUpdatedAt } : {}),
+      ...(dependencies.length ? { mcpDependencies: dependencies } : {}),
     };
   });
   return {

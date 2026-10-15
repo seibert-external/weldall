@@ -1,11 +1,8 @@
-import { db, type Prisma } from "@weldall/db";
+import { db } from "@weldall/db";
 import { ConnectorError, type AuthorizedConnectorActor } from "../contracts";
-import { runConnectorTransaction } from "../configuration";
 import { logger } from "../../observability/logger";
-import { accessCredentials, findOwnedConnection } from "./connections";
-import { getConnectorProvider } from "../registry";
 import { fingerprintConnectorRequest, writeConnectorAuditLog } from "../audit";
-import { assertConnectorAccess } from "../access";
+import { authorizeConnectionUse } from "./authorization";
 import {
   assertHeaderSize,
   dispatchUpstream,
@@ -15,7 +12,7 @@ import {
   TRANSFER_LIMIT,
 } from "./transport";
 
-/** Authorizes one owner-scoped dispatch. Provider validation is the only route to a trusted target. */
+/** HTTP proxy and MCP share the owner/quota/refresh/version authorization boundary. */
 export async function executeConnectionRequest({
   request,
   actor,
@@ -41,178 +38,101 @@ export async function executeConnectionRequest({
     method: request.method,
   };
   try {
-    const initial = await findOwnedConnection({ tx: db, selector, actor });
-    assertConnectorAccess({ connector: initial.connector, actor });
-    connectionId = initial.id;
-    const provider = getConnectorProvider(initial.connector.providerType);
-    details = { ...details, provider: provider.type };
-    const authorize = (row: typeof initial) => {
-      if (row.connector.key !== connectorKey || !row.connector.enabled || row.status !== "READY")
-        throw new ConnectorError(
-          "connection_denied",
-          "Connection is not available to this caller.",
-          403,
-        );
-      provider.validateSetupInput({
-        config: row.connector.providerConfig,
-        value: row.providerSelection,
-      });
-    };
-    if (initial.status !== "REFRESHING") authorize(initial);
-    else if (!initial.connector.enabled || initial.connector.key !== connectorKey)
-      throw new ConnectorError(
-        "connection_denied",
-        "Connection is not available to this caller.",
-        403,
-      );
     const requestedUrl = parseCanonicalHttps(request.headers.get("x-weldall-upstream-url") ?? "");
     details.requestFingerprint = fingerprintConnectorRequest({
       method: request.method,
       requestedUrl,
     });
-    // Reject invalid origins before refreshing or reading provider credentials.
-    provider.resolveUpstreamUrl({
-      requestedUrl,
-      config: initial.connector.providerConfig,
-      selection: initial.providerSelection,
-      grant: provider.parseGrant(initial.providerGrant),
-    });
-    // Reserve quota before crypto or provider I/O; subsequent failures still consume this slot.
-    signal.throwIfAborted();
-    await runConnectorTransaction(async (tx) => {
-      const row = await findOwnedConnection({ tx, selector: initial.id, actor });
-      const reset = row.rateWindow.getTime() <= Date.now() - 60_000;
-      if (!reset && row.rateCount >= 60)
-        throw new ConnectorError(
-          "rate_limit",
-          "Weldall connection request limit exceeded. Retry next minute.",
-          429,
-        );
-      await tx.connection.update({
-        where: { id: row.id, version: row.version },
-        data: {
-          rateWindow: reset ? new Date() : row.rateWindow,
-          rateCount: reset ? 1 : { increment: 1 },
-        },
-      });
-    });
-    const { credentials, row: credentialState } = await accessCredentials({
+    return await authorizeConnectionUse({
       actor,
-      selector: initial.id,
-    });
-    authorize(credentialState);
-    let grant;
-    try {
-      grant = await provider.ensureGrantCurrent({
-        config: credentialState.connector.providerConfig,
-        selection: credentialState.providerSelection,
-        credentials,
-        previousGrant: provider.parseGrant(credentialState.providerGrant),
-      });
-    } catch (error) {
-      if (error instanceof ConnectorError && error.code === "grant_mismatch")
-        await db.connection.updateMany({
-          where: { id: initial.id, version: credentialState.version, status: "READY" },
-          data: { status: "RECONNECT_REQUIRED", version: { increment: 1 } },
-        });
-      throw error;
-    }
-    const upstreamUrl = provider.resolveUpstreamUrl({
-      requestedUrl,
-      config: credentialState.connector.providerConfig,
-      selection: credentialState.providerSelection,
-      grant,
-    });
-    const body =
-      request.method === "GET" || request.method === "HEAD"
-        ? undefined
-        : await readBoundedBody({ response: request, maximum: TRANSFER_LIMIT, signal });
-    const headers = filterProxyHeaders({ input: request.headers });
-    signal.throwIfAborted();
-    await runConnectorTransaction(async (tx) => {
-      const row = await findOwnedConnection({ tx, selector: initial.id, actor });
-      assertConnectorAccess({ connector: row.connector, actor });
-      authorize(row);
-      if (
-        row.version !== credentialState.version ||
-        row.connector.version !== credentialState.connector.version
-      )
-        throw new ConnectorError(
-          "conflict",
-          "Connection changed before dispatch. Retry with current state.",
-          409,
-        );
-      await tx.connection.update({
-        where: { id: row.id, version: row.version },
-        data: {
-          providerGrant: JSON.parse(JSON.stringify(grant)) as Prisma.InputJsonObject,
-          lastUsedAt: new Date(),
-          requestCount: { increment: 1 },
-        },
-      });
-    });
-    const response = await dispatchUpstream({
-      upstreamUrl,
+      selector,
+      connectorKey,
       signal,
-      init: provider.buildUpstreamRequest({
-        upstreamUrl,
-        credentials,
-        request: {
+      preflight(row, provider) {
+        connectionId = row.id;
+        details = { ...details, provider: provider.type };
+        provider.resolveUpstreamUrl({
           requestedUrl,
-          method: request.method,
-          headers,
-          ...(body === undefined ? {} : { body }),
-        },
-        signal,
-      }),
-    });
-    // Upstream authorization failures may be endpoint-specific. Only provider grant validation
-    // and token refresh are authoritative enough to change connection lifecycle state.
-    if (!response.ok)
-      logger.warn(
-        {
-          event: "connector.request.upstream_failed",
-          provider: provider.type,
-          connectorId: initial.connectorId,
-          connectionId: initial.id,
-          method: request.method,
-          requestFingerprint: details.requestFingerprint,
-          status: response.status,
-          atlTraceId: response.headers.get("atl-traceid") ?? undefined,
-          atlassianRequestId: response.headers.get("x-arequestid") ?? undefined,
-        },
-        "Connector upstream request failed",
-      );
-    let responseHeaders: Headers;
-    try {
-      responseHeaders = filterProxyHeaders({ input: response.headers, response: true });
-    } catch (error) {
-      await response.body?.cancel();
-      throw error;
-    }
-    const bytes = await readBoundedBody({ response, maximum: TRANSFER_LIMIT, signal });
-    responseHeaders.set("cache-control", "no-store");
-    responseHeaders.set("x-content-type-options", "nosniff");
-    await writeConnectorAuditLog({
-      tx: db,
-      actor,
-      event: "request",
-      subjectId: initial.id,
-      operation: "proxy.request",
-      outcome: response.ok ? "success" : "failed",
-      details: {
-        ...details,
-        connectorId: initial.connectorId,
-        durationMs: Date.now() - started,
-        status: response.status,
+          config: row.connector.providerConfig,
+          selection: row.providerSelection,
+          grant: provider.parseGrant(row.providerGrant),
+        });
+      },
+      async run({ row, provider, credentials, grant, assertCurrent }) {
+        const upstreamUrl = provider.resolveUpstreamUrl({
+          requestedUrl,
+          config: row.connector.providerConfig,
+          selection: row.providerSelection,
+          grant,
+        });
+        const body =
+          request.method === "GET" || request.method === "HEAD"
+            ? undefined
+            : await readBoundedBody({ response: request, maximum: TRANSFER_LIMIT, signal });
+        const headers = filterProxyHeaders({ input: request.headers });
+        await assertCurrent();
+        const response = await dispatchUpstream({
+          upstreamUrl,
+          signal,
+          init: provider.buildUpstreamRequest({
+            upstreamUrl,
+            credentials,
+            request: {
+              requestedUrl,
+              method: request.method,
+              headers,
+              ...(body === undefined ? {} : { body }),
+            },
+            signal,
+          }),
+        });
+        if (!response.ok)
+          logger.warn(
+            {
+              event: "connector.request.upstream_failed",
+              provider: provider.type,
+              connectorId: row.connectorId,
+              connectionId: row.id,
+              method: request.method,
+              requestFingerprint: details.requestFingerprint,
+              status: response.status,
+              atlTraceId: response.headers.get("atl-traceid") ?? undefined,
+              atlassianRequestId: response.headers.get("x-arequestid") ?? undefined,
+            },
+            "Connector upstream request failed",
+          );
+        let responseHeaders: Headers;
+        try {
+          responseHeaders = filterProxyHeaders({ input: response.headers, response: true });
+        } catch (error) {
+          await response.body?.cancel();
+          throw error;
+        }
+        const bytes = await readBoundedBody({ response, maximum: TRANSFER_LIMIT, signal });
+        responseHeaders.set("cache-control", "no-store");
+        responseHeaders.set("x-content-type-options", "nosniff");
+        await writeConnectorAuditLog({
+          tx: db,
+          actor,
+          event: "request",
+          subjectId: row.id,
+          operation: "proxy.request",
+          outcome: response.ok ? "success" : "failed",
+          details: {
+            ...details,
+            connectorId: row.connectorId,
+            durationMs: Date.now() - started,
+            status: response.status,
+          },
+        });
+        return new Response(
+          request.method === "HEAD" || [204, 205, 304].includes(response.status)
+            ? null
+            : Buffer.from(bytes),
+          { status: response.status, headers: responseHeaders },
+        );
       },
     });
-    return new Response(
-      request.method === "HEAD" || [204, 205, 304].includes(response.status)
-        ? null
-        : Buffer.from(bytes),
-      { status: response.status, headers: responseHeaders },
-    );
   } catch (error) {
     await writeConnectorAuditLog({
       tx: db,

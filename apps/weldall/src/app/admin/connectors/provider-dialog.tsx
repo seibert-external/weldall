@@ -7,6 +7,7 @@ import { VStack } from "@astryxdesign/core/Stack";
 import type { listManagedConnectorConfiguration } from "@/server/connectors/configuration";
 import type { listScopeOptions } from "@/server/admin/service";
 import { AtlassianConnectorDialog } from "./providers/atlassian-dialog";
+import { AtlassianMcpConnectorDialog } from "./providers/atlassian-mcp-dialog";
 
 // Brand marks from Simple Icons (https://simpleicons.org), bundled locally.
 function GoogleLogo() {
@@ -46,6 +47,17 @@ export function ConnectorDialog({
         {...props}
         connector={
           props.connector?.config.type === "google"
+            ? { ...props.connector, config: props.connector.config }
+            : null
+        }
+      />
+    );
+  if (type === "atlassian-mcp")
+    return (
+      <AtlassianMcpConnectorDialog
+        {...props}
+        connector={
+          props.connector?.config.type === "atlassian-mcp"
             ? { ...props.connector, config: props.connector.config }
             : null
         }
@@ -91,6 +103,11 @@ export function ConnectorDialog({
                 label="Atlassian Cloud"
                 icon={<AtlassianLogo />}
                 onClick={() => setType("atlassian")}
+              />
+              <Button
+                label="Atlassian MCP"
+                icon={<AtlassianLogo />}
+                onClick={() => setType("atlassian-mcp")}
               />
             </VStack>
           </LayoutContent>

@@ -66,6 +66,20 @@ const fetchCatalog = vi.fn(async (input: string | URL | Request, init?: RequestI
           visibility: "DEFAULT",
           content: "# Unknown scope test",
         },
+        {
+          id: "mcp-missing",
+          title: "Unconfigured MCP connector test",
+          requiredScopes: [],
+          visibility: "DEFAULT",
+          content: "# Unconfigured MCP connector test",
+          mcpDependencies: [
+            {
+              connectorKey: "catalogtest-unconfigured",
+              tools: ["search"],
+              includeResources: false,
+            },
+          ],
+        },
       ],
     });
   }
@@ -146,10 +160,18 @@ describe("persisted skill catalog refresh", () => {
       lastFailureCategory: null,
     });
     expect(catalog.skills.map((skill) => skill.canonicalId)).toEqual([
+      `${key}.mcp-missing`,
       `${key}.review`,
       `${key}.system-scope`,
       `${key}.unknown-scope`,
     ]);
+
+    expect(catalog.skills.find((skill) => skill.localId === "mcp-missing")).toMatchObject({
+      requiredScopes: [],
+      mcpDependencies: [
+        { connectorKey: "catalogtest-unconfigured", tools: ["search"], includeResources: false },
+      ],
+    });
 
     const admin = await listSkills({ page: 1, pageSize: 20, q: key });
     expect(admin.items.find((skill) => skill.slug.endsWith("unknown-scope"))).toMatchObject({
@@ -161,7 +183,7 @@ describe("persisted skill catalog refresh", () => {
       scopeWarnings: [],
     });
     await expect(listSkills({ page: 1, pageSize: 20, source: resource.id })).resolves.toMatchObject(
-      { total: 3 },
+      { total: 4 },
     );
     await expect(
       listSkills({ page: 1, pageSize: 20, q: key, source: "manual" }),
@@ -190,6 +212,8 @@ describe("persisted skill catalog refresh", () => {
       missingScopes: ["weldall:administer"],
     });
     expect(visible.items.some((skill) => skill.slug === `${key}.unknown-scope`)).toBe(false);
+    expect(visible.items.some((skill) => skill.slug === `${key}.mcp-missing`)).toBe(false);
+    await expect(getVisibleSkill(adminEmail, `${key}.mcp-missing`)).resolves.toBeNull();
     await expect(getVisibleSkill(adminEmail, `${key}.review`)).resolves.toMatchObject({
       meta: {
         tags: ["catalog", "review"],
@@ -273,7 +297,7 @@ describe("persisted skill catalog refresh", () => {
         include: { skills: true },
       });
       expect(catalog.lastFailureCategory).toBe("metadata_unavailable");
-      expect(catalog.skills).toHaveLength(3);
+      expect(catalog.skills).toHaveLength(4);
       const nonAdminView = await listVisibleSkills(`${id}-non-admin@example.com`);
       expect(nonAdminView.warnings).toEqual([]);
       const adminView = await listVisibleSkills(adminEmail);

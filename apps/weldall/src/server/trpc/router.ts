@@ -1,3 +1,4 @@
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { z } from "zod";
@@ -576,6 +577,7 @@ export const appRouter = trpc.router({
               visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
               meta: skillMetaInput,
               lastUpdatedAt: z.string().optional(),
+              mcpDependencies: skillMcpDependenciesSchema.optional(),
             })
             .strict(),
         )
@@ -591,6 +593,7 @@ export const appRouter = trpc.router({
               visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
               meta: skillMetaInput,
               lastUpdatedAt: z.string().optional(),
+              mcpDependencies: skillMcpDependenciesSchema.optional(),
               expectedVersion: z.number().int().positive(),
             })
             .strict(),
