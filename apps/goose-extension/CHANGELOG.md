@@ -1,5 +1,11 @@
 # @weldall/goose
 
+## 0.2.1
+
+### Patch Changes
+
+- 9aa34ee: Add an explicit text response mode for bounded textual responses with content types such as `multipart/mixed`, allowing Gmail batch results to be returned inline without enabling binary downloads or file output.
+
 ## 0.2.0
 
 ### Minor Changes
