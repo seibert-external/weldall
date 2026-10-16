@@ -173,15 +173,21 @@ import asyncio
 from weldall import request_machine_token, create_weldall_mcp_client
 
 token = request_machine_token(
-    issuer=issuer, client_id=client_id, kid=kid, key=key,
-    resource=f"{issuer}/api", scopes=["weldall:mcp", "atlassian-mcp:use-shared"],
+    issuer=issuer,
+    client_id=client_id,
+    kid=kid,
+    key=key,
+    resource=f"{issuer}/api",
+    scopes=["weldall:mcp", "atlassian-mcp:use-shared"],
 )
+
 
 async def main():
     mcp = create_weldall_mcp_client(issuer=issuer, access_token=token["access_token"], key=key)
     target = {"connector_key": "atlassian-mcp", "connection": "production-bot"}
     await mcp.list_tools(**target)
     await mcp.call_tool(**target, name="TOOL_NAME", arguments={})
+
 
 asyncio.run(main())
 ```
