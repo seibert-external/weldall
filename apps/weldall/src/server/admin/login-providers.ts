@@ -4,8 +4,16 @@ import { z } from "zod";
 import { requireAdminUser } from "./service";
 import { callbackUrl, installationCompleted } from "../auth/login-service";
 import { LoginError, providerConfigSchema } from "../auth/oidc-config";
-import { seal, unseal } from "../auth/oidc-credentials";
-import { discover } from "../auth/oidc-runtime";
+import { unseal } from "../auth/oidc-credentials";
+import {
+  prepareLoginProviderConfiguration,
+  saveLoginProviderConfiguration,
+} from "../domain/login-provider-configuration";
+import {
+  lockConfigurationChanges,
+  managementBindingInclude,
+  managementMetadata,
+} from "../domain/configuration";
 
 export const loginProviderInput = z
   .object({
@@ -18,7 +26,11 @@ export const loginProviderInput = z
   })
   .strict();
 export type LoginProviderInput = z.infer<typeof loginProviderInput>;
-export function loginProviderDto(row: LoginProvider) {
+export function loginProviderDto(
+  row: LoginProvider & {
+    iacBinding?: { address: string; workspace: { id: string; name: string } } | null;
+  },
+) {
   return {
     id: row.id,
     name: row.name,
@@ -34,7 +46,15 @@ export function loginProviderDto(row: LoginProvider) {
     enabled: row.enabled,
     version: row.version,
     hasClientSecret: Boolean(row.encryptedClientSecret),
-    validatedAt: row.validatedAt.toISOString(),
+    validatedAt: row.validatedAt?.toISOString() ?? null,
+    readiness: !row.encryptedClientSecret
+      ? "MISSING_CREDENTIAL"
+      : !row.enabled
+        ? "DISABLED"
+        : row.validatedAt
+          ? "READY"
+          : "NOT_VALIDATED",
+    management: managementMetadata(row.iacBinding),
     callbackUrl: callbackUrl(row.id),
   };
 }
@@ -42,7 +62,11 @@ export type LoginProviderDto = ReturnType<typeof loginProviderDto>;
 export async function listLoginProviders(userId: string) {
   await requireAdminUser(userId);
   return (
-    await db.loginProvider.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 100 })
+    await db.loginProvider.findMany({
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      take: 100,
+      include: { iacBinding: managementBindingInclude },
+    })
   ).map(loginProviderDto);
 }
 export async function resolveLoginProviderInput(input: LoginProviderInput) {
@@ -54,7 +78,9 @@ export async function resolveLoginProviderInput(input: LoginProviderInput) {
     ...input.config,
     clientSecret:
       input.config.clientSecret ??
-      (row ? unseal("provider", row.id, row.encryptedClientSecret) : undefined),
+      (row?.encryptedClientSecret
+        ? unseal("provider", row.id, row.encryptedClientSecret)
+        : undefined),
   });
   return { row, config };
 }
@@ -64,21 +90,19 @@ export async function saveLoginProvider(
   input: LoginProviderInput,
 ) {
   await requireAdminUser(initiatingSession.userId);
-  const { row: original, config } = await resolveLoginProviderInput(input);
-  const authorityUnchanged =
-    original &&
-    config.issuer === original.issuer &&
-    (config.discoveryUrl ?? null) === original.discoveryUrl &&
-    config.clientId === original.clientId &&
-    config.clientSecret === unseal("provider", original.id, original.encryptedClientSecret) &&
-    config.tokenEndpointAuthMethod === original.tokenEndpointAuthMethod &&
-    JSON.stringify(config.scopes) === JSON.stringify(original.scopes) &&
-    JSON.stringify(config.allowedEmailDomains) === JSON.stringify(original.allowedEmailDomains);
-  const preflight = !authorityUnchanged || (!original?.enabled && input.enabled);
-  if (preflight) await discover(config);
+  if (!(await installationCompleted())) throw new LoginError("setup_required");
+  const original = await db.loginProvider.findUnique({ where: { id: input.providerId } });
+  if ((original?.version ?? 0) !== input.expectedVersion) throw new LoginError("stale_provider");
+  const { clientSecret, ...publicConfig } = input.config;
+  const prepared = await prepareLoginProviderConfiguration(
+    { ...publicConfig, id: input.providerId, enabled: input.enabled },
+    original,
+    clientSecret,
+  );
   // Serialize count/last-enabled checks across processes; lock the row used by login finalization too.
   return db.$transaction(
     async (tx) => {
+      await lockConfigurationChanges(tx);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(181923, 3)`;
       await tx.$queryRaw`SELECT "id" FROM "LoginProvider" WHERE "id" = ${input.providerId} FOR UPDATE`;
       // Discovery and either lock may have waited while authorization was revoked elsewhere.
@@ -90,58 +114,20 @@ export async function saveLoginProvider(
       });
       if (session?.userId !== actor.id || session.expiresAt <= new Date())
         throw new LoginError("admin_session_required");
-      const row = await tx.loginProvider.findUnique({ where: { id: input.providerId } });
-      if ((row?.version ?? 0) !== input.expectedVersion) throw new LoginError("stale_provider");
-      if (row && row.issuer !== config.issuer) throw new LoginError("immutable_issuer");
-      if (!row && (await tx.loginProvider.count()) >= 100)
-        throw new LoginError("too_many_providers");
-      // A fresh acknowledgement for every enabled save also covers credential/endpoint authority changes.
       if (input.enabled && !input.acknowledgeAuthority)
         throw new LoginError("authority_acknowledgement_required");
-      if (
-        row?.enabled &&
-        !input.enabled &&
-        (await tx.loginProvider.count({ where: { enabled: true } })) === 1 &&
-        !input.acknowledgeLockout
-      )
-        throw new LoginError("last_provider_acknowledgement_required");
-      const { clientSecret, ...nonsecret } = config;
-      const data = {
-        ...nonsecret,
-        discoveryUrl: config.discoveryUrl ?? null,
-        encryptedClientSecret: seal("provider", input.providerId, clientSecret),
-        enabled: input.enabled,
-        validatedAt: preflight ? new Date() : original!.validatedAt,
-        updatedBy: actor.id,
-      };
-      const saved = row
-        ? await tx.loginProvider.update({
-            where: { id: row.id },
-            data: { ...data, version: { increment: 1 } },
-          })
-        : await tx.loginProvider.create({
-            data: { ...data, id: input.providerId, createdBy: actor.id },
-          });
-      await tx.auditEvent.create({
-        data: {
-          eventType: "login.provider.saved",
-          actorType: "user",
-          actorId: actor.id,
-          actorEmail: actor.email,
+      const saved = await saveLoginProviderConfiguration(
+        tx,
+        prepared,
+        {
+          type: "user",
+          id: actor.id,
+          email: actor.email,
           requestId,
-          outcome: "success",
-          subjectType: "login-provider",
-          subjectId: saved.id,
-          metadata: {
-            providerId: saved.id,
-            versionBefore: row?.version ?? 0,
-            versionAfter: saved.version,
-            enabledBefore: row?.enabled ?? false,
-            enabledAfter: saved.enabled,
-            secretChanged: input.config.clientSecret !== undefined,
-          },
+          source: "admin_api",
         },
-      });
+        { authority: input.acknowledgeAuthority, allowLastDisable: input.acknowledgeLockout },
+      );
       return loginProviderDto(saved);
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },

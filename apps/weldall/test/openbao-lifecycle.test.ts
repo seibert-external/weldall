@@ -24,6 +24,10 @@ import {
 
 vi.mock("../src/server/policy/resources", () => ({
   effectiveScopesRequiringSystemScopeFor: vi.fn(async () => ["weldall:login"]),
+  prepareEffectiveScopesRequiringSystemScopeFor: vi.fn(async () => {
+    expect(inTransaction).toBe(false);
+    return async () => ["weldall:login"];
+  }),
 }));
 vi.mock("../src/server/connectors/audit", async (original) => ({
   ...(await original<typeof import("../src/server/connectors/audit")>()),
@@ -70,7 +74,6 @@ let race: (() => void) | undefined;
 const fetcher = vi.fn<typeof fetch>();
 const matches = (row: Row, where: Row) =>
   Object.entries(where).every(([key, value]) => {
-    if (key === "ownerId_name") return matches(row, value);
     if (value && typeof value === "object" && "in" in value) return value.in.includes(row[key]);
     return row[key] === value;
   });
@@ -172,6 +175,7 @@ beforeEach(() => {
       inTransaction = false;
     }
   }) as never);
+  vi.spyOn(db.user, "findUnique").mockResolvedValue({ id: actor.id, email: actor.email } as never);
   vi.spyOn(db.connectionAuthorization, "findUnique").mockImplementation((async ({
     where,
     include,
@@ -214,6 +218,10 @@ beforeEach(() => {
   }) as never);
   vi.spyOn(db.connection, "create").mockImplementation((async ({ data }: Row) => {
     connection = {
+      key: null,
+      accessMode: "OWNER_ONLY",
+      enabled: true,
+      useScopes: [],
       ...data,
       version: 1,
       status: "READY",
@@ -625,6 +633,7 @@ describe("OpenBao configuration without deployment variables", () => {
       return structuredClone(connector);
     }) as never);
     vi.spyOn(db.connector, "delete").mockResolvedValue(connector as never);
+    const skillCount = vi.spyOn(db.skill, "count").mockResolvedValue(0);
     await saveConnectorConfiguration({
       tx: db,
       value: { ...config, enabled: false },
@@ -650,6 +659,12 @@ describe("OpenBao configuration without deployment variables", () => {
       actor,
     });
     await deleteConnectorConfiguration({ tx: db, id: connector.id, version: 3, actor });
+    expect(skillCount).toHaveBeenCalledExactlyOnceWith({
+      where: { mcpDependencies: { array_contains: [{ connectorKey: config.key }] } },
+    });
+    expect(db.connector.delete).toHaveBeenCalledExactlyOnceWith({
+      where: { id: connector.id, version: 3 },
+    });
     expect(fetcher).not.toHaveBeenCalled();
   });
 });

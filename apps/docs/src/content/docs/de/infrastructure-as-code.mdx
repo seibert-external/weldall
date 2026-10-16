@@ -104,7 +104,7 @@ groupAssignments:
 
 `scope.expenses_read`, `emailAssignment.alice` und `groupAssignment.finance` sind Namen, die IaC nur innerhalb dieses Workspaces verwendet. Der Teil hinter dem Punkt stammt jeweils aus dem Map-Key im YAML. Diese IaC-internen Namen ändern nichts am eigentlichen Objekt in Weldall: Dort wird ein Scope zum Beispiel weiterhin durch `expenses:read` und eine Person durch `alice@example.com` identifiziert.
 
-Der Group Provider muss zuvor in Weldall konfiguriert sein. Ob die angegebene Gruppen-ID tatsächlich existiert, prüft die CLI nicht.
+Der Group Provider muss bereits existieren oder im selben Workspace deklariert werden. Deaktivierte Entwürfe dürfen referenziert werden, gewähren aber keine Rechte. Ob die angegebene Gruppen-ID tatsächlich existiert, prüft die CLI nicht.
 
 Ressourcen und Machine Clients verwenden dasselbe Format:
 
@@ -151,7 +151,7 @@ connectors:
     key: google
     name: Google Workspace
     type: google
-    enabled: true
+    enabled: false
     envelopeProvider: LOCAL_ENV
     requiredScopes: []
     provider:
@@ -164,7 +164,7 @@ connectors:
     key: company-jira
     name: Company Jira
     type: atlassian
-    enabled: true
+    enabled: false
     envelopeProvider: OPENBAO
     requiredScopes:
       - jira:use
@@ -222,6 +222,55 @@ skills:
 `meta.appearance.icon` akzeptiert kanonische Namen in Kebab-Case aus dem [Lucide-Icon-Katalog](https://lucide.dev/icons/). Gradient-Overrides werden nur verwendet, wenn beide Farben eines hellen oder dunklen Paars sechsstellige Hex-Farben sind; andernfalls verwendet Weldall den deterministischen Slug-basierten Fallback.
 
 Der Slug ist die Identität des Skills; eine Änderung ersetzt den Skill. Ein über IaC verwalteter Skill bleibt in der Admin-Oberfläche bearbeitbar. Solche Änderungen gelten als Drift und werden beim nächsten Apply auf den YAML-Zustand zurückgesetzt. Administrativ verwaltete Skills dürfen einen von einer Ressource veröffentlichten Skill mit derselben kanonischen ID überschreiben. Entdeckte Skills und Kataloge können weder importiert noch verwaltet werden.
+
+## Öffentliche Konfiguration, Secrets nur in der UI
+
+IaC unterstützt außerdem diese öffentlichen Deklarationen; Pflichtfelder und Defaults stehen im [Manifest-Schema](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1.schema.json):
+
+| Sektion             | Identität                                             | Credential hinterlegen  |
+| ------------------- | ----------------------------------------------------- | ----------------------- |
+| `sharedConnections` | Stabiler `key`; nur Scope-basierte Service-Accounts   | Admin → Connections     |
+| `groupProviders`    | Stabiler `key`; Adapter `management-api-v1`           | Admin → Group Providers |
+| `loginProviders`    | Stabile Provider-`id` (UUID); erhält die Callback-URL | Admin → Login Providers |
+
+Mit `enabled: false` anlegen und anwenden, Credential in der UI hinterlegen, danach ausdrücklich aktivieren und erneut anwenden. Secrets gehören nie in YAML/State; Provisionierung/Rotation aktiviert nichts, Deaktivieren erhält das Credential. Connector und Verbindung müssen aktiv sein. Deaktivierte Group-/Login-Provider gewähren keine Gruppenrechte/starten keine Logins.
+
+Geteilte Verbindungen benötigen einen vorhandenen Connector, einen bestehenden Benutzer als Credential-Verantwortlichen und eine nichtleere Liste von Nicht-System-Nutzungsscopes (Scopes dürfen im selben Workspace deklariert werden). Alle Connector-/Nutzungsscopes gelten auch für Administratoren und Credential-Manager. Persönliches OAuth kann nicht importiert werden.
+
+Pläne prüfen Credential-Präsenz und bekannte Voraussetzungen, nicht die Upstream-Gültigkeit; Planung/Import entschlüsseln keine Secrets und kontaktieren OpenBao nicht. Aktivierung/Credential-Operationen behalten Provider-Prüfungen und Fail-closed-Verhalten. Der Login-Issuer ist unveränderlich; credential-gebundene Client-IDs oder Directory-URLs benötigen ausdrückliche Reprovisionierung in der UI statt stiller Wiederverwendung.
+
+### Identity-Administration und Bestätigung
+
+`weldall:iac` erlaubt öffentliche Login-/Group-Policy-Änderungen, kein Lesen/Provisionieren von Secrets. Login-Aktivierung und Authority-Änderungen aktiver Provider benötigen die Bestätigung dieses konkreten Plans:
+
+```sh
+weldall plan --json
+# Aktionen mit requiresAuthorityConfirmation prüfen und digest dieses Plans übernehmen:
+weldall up --yes --acknowledge-authority <digest>
+```
+
+`--yes` allein genügt nicht; geänderte Pläne benötigen eine neue Freigabe, auch für API-Aufrufe. IaC kann weder den letzten aktiven Login-Provider deaktivieren/löschen noch die Installation zurücksetzen; der bestätigte UI-Recovery-Weg bleibt separat.
+
+### Import und Wiederherstellung
+
+```sh
+weldall import connector company-jira --as connector.company_jira
+weldall import sharedConnection atlassian-bot --as sharedConnection.bot
+weldall import groupProvider company-directory --as groupProvider.directory
+weldall import loginProvider <bestehende-provider-uuid> --as loginProvider.sso
+```
+
+Import schreibt öffentliche Konfiguration/Bindungen und erhält Identität, Callback, Aktivierung, Credential-Verantwortlichen und Ciphertext; der nächste Plan ist ein No-op. State-Move/Unmanage erhalten ebenfalls Credentials. Öffentliche UI-Änderungen sind Drift, Secret-Rotation nicht; sie kann aber einen gespeicherten Plan ungültig machen.
+
+Gelöschte Objekte deaktiviert wiederherstellen, Credentials erneut hinterlegen, dann ausdrücklich aktivieren: IaC kann gelöschte Secrets nicht zurückholen. Unverwaltete/fremde Abhängigkeiten blockieren Connector-/Group-Provider-Löschung. Lokales Löschen widerruft keine Upstream-Tokens.
+
+### Rollout und Kompatibilität
+
+Datenbank sichern, Migrationen bis `0021_iac_secret_primitives` anwenden und den passenden Server mit neu generiertem Prisma-Client ausrollen, danach Clients aktualisieren. Credentials/Verschlüsselungsformate bleiben erhalten. Alte Server-Binaries gegen das migrierte Schema sind nicht unterstützt; Rollback benötigt ein kompatibles Backup.
+
+Neue Sektionen/Importe benötigen das Discovery-Feature `iac-ui-secrets-v1`; bisherige Workflows unterstützen ältere Server weiter. Fehlende Sektionen unterscheiden sich von leeren Maps: zum Löschen des letzten verwalteten Objekts z. B. `groupProviders: {}` beibehalten. Unvollständige inkompatible Snapshots scheitern vor Änderungen, statt unbekannte Objekte zu löschen.
+
+Nur wer vor dem Upgrade eine Anmeldung begonnen, aber noch nicht abgeschlossen hat, muss erneut auf „Anmelden“ klicken; bestehende Sitzungen bleiben gültig. Callbacks sind an Erstellungszeitpunkt und Version gebunden, damit das Neuanlegen einer UUID keinen alten Vorgang reaktiviert.
 
 ## Die wichtigsten CLI-Befehle
 

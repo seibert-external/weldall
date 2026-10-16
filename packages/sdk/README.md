@@ -133,6 +133,30 @@ Store private keys in deployment secrets, KMS, Vault, or another credential syst
 
 When a `ReplayStore` is configured, every request needs a fresh DPoP proof. `replayStore: "disabled"` skips that check and accepts the resulting replay risk.
 
+### Call shared MCP connections as a machine
+
+Provision a shared service-account key in the admin UI and assign `weldall:mcp` plus every connector/use scope. Request a token for Weldall itself, not a downstream resource:
+
+```ts
+import { requestMachineToken, createWeldallMcpClient } from "@weldall/sdk";
+const token = await requestMachineToken({
+  issuer,
+  clientId,
+  kid,
+  key,
+  resource: `${issuer}/api`,
+  scopes: ["weldall:mcp", "atlassian-mcp:use-shared"],
+});
+const mcp = createWeldallMcpClient({ issuer, accessToken: token.accessToken, key });
+const target = { connectorKey: "atlassian-mcp", connection: "production-bot" };
+await mcp.listTools(target);
+await mcp.callTool({ ...target, name: "TOOL_NAME", arguments: {} });
+```
+
+Use a stable shared connection key and discovered tool names/arguments. Also available: `listConnectors`, `listConnections`, `listResources` and `readResource({ connectorKey, connection, uri })`. The MCP API is also exported from `@weldall/sdk/mcp`.
+
+All methods accept `signal`, use fresh DPoP proofs and validate bounded contracts: discovery 20 seconds, operations 30 seconds, requests/definitions 1 MiB, results 10 MiB. No automatic retries, including timeouts/401s: writes may already have executed. `WeldallMcpError` exposes sanitized code/status, not upstream bodies. Tokens/keys stay in memory; authorization is checked live. Machines cannot start OAuth or provision secrets. See the [MCP reference](https://github.com/seibert-external/weldall/blob/main/apps/docs/src/content/docs/mcp.md) for setup and limitations.
+
 ## Publishing skills
 
 Skills can live next to the API they describe. Configure a static catalog or load one from a local source:

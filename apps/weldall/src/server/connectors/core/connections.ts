@@ -13,7 +13,7 @@ import {
 import { readConnectorSecrets, runConnectorTransaction } from "../configuration";
 import { getConnectorProvider } from "../registry";
 import { ProviderTokenError, RejectedProviderCredentials } from "../errors";
-import type { ProviderGrant } from "../provider";
+import { connectorCapabilities, type ProviderGrant } from "../provider";
 import {
   prepareSecretEnvelope,
   prepareSecretEncryption,
@@ -31,6 +31,14 @@ import {
 } from "../access";
 import { effectiveScopesRequiringSystemScopeFor } from "../../policy/resources";
 import { deleteConnectionState } from "./deletion";
+import {
+  connectionUseInclude,
+  prepareConnectionAccess,
+  canUseConnection,
+  liveConnectorActor,
+} from "./connection-access";
+import { ensureConnectorRegistration } from "./registration";
+import { managementBindingInclude, managementMetadata } from "../../domain/configuration";
 
 type Tx = Prisma.TransactionClient;
 
@@ -52,6 +60,7 @@ function assertConnectionUnchanged(
     "credentialId",
     "version",
     "status",
+    "enabled",
     "refreshStartedAt",
     "providerSelection",
     "providerGrant",
@@ -90,6 +99,11 @@ const attemptPayload = z
   })
   .strict();
 export const metadataSelect = {
+  key: true,
+  accessMode: true,
+  enabled: true,
+  credentialId: true,
+  useScopes: { include: { scope: { select: { key: true } } } },
   id: true,
   ownerId: true,
   connectorId: true,
@@ -123,15 +137,40 @@ export function buildConnectionMetadata({
 }) {
   return {
     id: row.id,
+    key: row.key,
+    accessMode: row.accessMode,
+    useScopes: row.useScopes.map(({ scope }) => scope.key).sort(),
     ownerId: row.ownerId,
     connectorId: row.connectorId,
     name: row.name,
     accountId: row.accountId,
     accountName: row.accountName,
-    ...getConnectorProvider(connector.providerType).describeConnection({
-      selection: row.providerSelection,
-      grant: row.providerGrant,
-    }),
+    ...(row.credentialId
+      ? getConnectorProvider(connector.providerType).describeConnection({
+          selection: row.providerSelection,
+          grant: row.providerGrant,
+        })
+      : {
+          selectedScopes: [],
+          grantedScopes: [],
+          scopeLabels: {},
+          details: [],
+          usage: {
+            instructions: [
+              "Provision a credential in the admin UI before enabling this connection.",
+            ],
+            examples: [],
+          },
+        }),
+    enabled: row.enabled,
+    hasCredential: Boolean(row.credentialId),
+    readiness: !row.credentialId
+      ? "MISSING_CREDENTIAL"
+      : !row.enabled
+        ? "DISABLED"
+        : !connector.enabled
+          ? "CONNECTOR_DISABLED"
+          : row.status,
     status: row.status,
     version: row.version,
     lastUsedAt: row.lastUsedAt,
@@ -141,6 +180,7 @@ export function buildConnectionMetadata({
     updatedAt: row.updatedAt,
     connectorKey: connector.key,
     connectorEnabled: connector.enabled,
+    capabilities: connectorCapabilities(getConnectorProvider(connector.providerType)),
   };
 }
 /** Resolves an owner-scoped connection by stable ID first and then by owner-unique name. */
@@ -156,12 +196,12 @@ export async function findOwnedConnection({
   // Stable IDs take precedence over names; a second connection's name cannot shadow an ID.
   const row =
     (await tx.connection.findFirst({
-      where: { ownerId: actor.id, id: selector },
-      include: { connector: { include: connectorScopeInclude } },
+      where: { ownerId: actor.id, id: selector, accessMode: "OWNER_ONLY" },
+      include: connectionUseInclude,
     })) ??
-    (await tx.connection.findUnique({
-      where: { ownerId_name: { ownerId: actor.id, name: selector } },
-      include: { connector: { include: connectorScopeInclude } },
+    (await tx.connection.findFirst({
+      where: { ownerId: actor.id, name: selector, accessMode: "OWNER_ONLY" },
+      include: connectionUseInclude,
     }));
   if (!row) throw new ConnectorError("not_found", "Connection not found.", 404);
   assertConnectionOwner({ ownerId: row.ownerId, actorId: actor.id });
@@ -175,24 +215,79 @@ export async function listConnections(actor?: ConnectorActor) {
       ...metadataSelect,
       connector: true,
       owner: { select: { name: true, email: true } },
+      iacBinding: managementBindingInclude,
     },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  return rows.map(({ connector, owner, ...row }) => ({
+  return rows.map(({ connector, owner, iacBinding, ...row }) => ({
     ...buildConnectionMetadata({ row, connector }),
     owner,
+    management: managementMetadata(iacBinding),
   }));
+}
+/** Runtime projection deliberately excludes manager identity and internal lifecycle metadata. */
+export async function listAccessibleConnections(
+  actor: AuthorizedConnectorActor,
+  connectorKey?: string,
+) {
+  const live = await liveConnectorActor(actor);
+  const rows = await db.connection.findMany({
+    where: {
+      enabled: true,
+      credentialId: { not: null },
+      connector: {
+        enabled: true,
+        ...(connectorKey ? { key: connectorKey } : {}),
+        requiredScopes: { every: { scope: { key: { in: [...live.scopeKeys] } } } },
+      },
+      OR: [
+        ...(actor.type !== "machine"
+          ? [{ ownerId: actor.id, accessMode: "OWNER_ONLY" as const }]
+          : []),
+        {
+          accessMode: "SCOPED" as const,
+          status: "READY" as const,
+          useScopes: { some: {}, every: { scope: { key: { in: [...live.scopeKeys] } } } },
+        },
+      ],
+    },
+    select: { ...metadataSelect, connector: { include: connectorScopeInclude } },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+  return rows
+    .filter(
+      (row) =>
+        canUseConnection(row, live) &&
+        canAccessConnector({ connector: row.connector, actor: live }),
+    )
+    .map((row) => {
+      const { ownerId: _ownerId, ...metadata } = buildConnectionMetadata({
+        row,
+        connector: row.connector,
+      });
+      return row.accessMode === "OWNER_ONLY" ? { ...metadata, ownerId: row.ownerId } : metadata;
+    });
 }
 /** Reads one connection for the admin detail page, independently of the bounded overview. */
 export async function getConnectionDetails(id: string) {
   const result = await db.connection.findUnique({
     where: { id },
-    select: { ...metadataSelect, connector: true, owner: { select: { name: true, email: true } } },
+    select: {
+      ...metadataSelect,
+      connector: true,
+      owner: { select: { name: true, email: true } },
+      iacBinding: managementBindingInclude,
+    },
   });
   if (!result) throw new ConnectorError("not_found", "Connection not found.", 404);
-  const { connector, owner, ...row } = result;
-  return { ...buildConnectionMetadata({ row, connector }), owner };
+  const { connector, owner, iacBinding, ...row } = result;
+  return {
+    ...buildConnectionMetadata({ row, connector }),
+    owner,
+    management: managementMetadata(iacBinding),
+  };
 }
 /** Lists enabled connector catalogs and setup metadata exposed to authenticated CLI users. */
 export async function listConnectors(actor: AuthorizedConnectorActor) {
@@ -208,6 +303,7 @@ export async function listConnectors(actor: AuthorizedConnectorActor) {
       key: connector.key,
       name: connector.name,
       type: getConnectorProvider(connector.providerType).type,
+      capabilities: connectorCapabilities(getConnectorProvider(connector.providerType)),
       requiredScopes: getConnectorRequiredScopeKeys(connector),
       ...getConnectorProvider(connector.providerType).describeSetup({
         config: connector.providerConfig,
@@ -283,7 +379,9 @@ export async function startConnection({
     const name = prior?.name ?? connectionName.parse(input.name);
     if (
       !prior &&
-      (await tx.connection.findUnique({ where: { ownerId_name: { ownerId: actor.id, name } } }))
+      (await tx.connection.findFirst({
+        where: { ownerId: actor.id, name, accessMode: "OWNER_ONLY" },
+      }))
     )
       throw new ConnectorError("name_exists", "Connection name already exists.", 409);
     if (
@@ -416,6 +514,7 @@ export async function submitScopeSelection({
     secrets: readConnectorSecrets(a.connector),
     selection: validated,
     callbackUrl: buildCallbackUrl(a.connector),
+    registration: await ensureConnectorRegistration(a.connector, buildCallbackUrl(a.connector)),
   });
   const envelope = await prepareSecretEnvelope({
     provider: a.connector.envelopeProvider,
@@ -601,7 +700,7 @@ export async function completeConnection({
         phase: "provider_authorization",
         authorizationId: a.id,
         connectorId: a.connectorId,
-        error: { code: error instanceof ConnectorError ? error.code : "provider_error" },
+        errorCode: error instanceof ConnectorError ? error.code : "provider_error",
       },
       "Connector provider authorization failed",
     );
@@ -784,7 +883,7 @@ export async function completeConnection({
         phase: "grant_validation_or_persistence",
         authorizationId: a.id,
         connectorId: a.connectorId,
-        error: { code: error instanceof ConnectorError ? error.code : "persistence_error" },
+        errorCode: error instanceof ConnectorError ? error.code : "persistence_error",
       },
       "Connector grant validation or persistence failed",
     );
@@ -936,7 +1035,8 @@ export async function accessCredentials({
   actor: AuthorizedConnectorActor;
   selector: string;
 }) {
-  const observed = await findOwnedConnection({ tx: db, selector, actor });
+  const resolve = await prepareConnectionAccess(actor);
+  const { row: observed } = await resolve(db, selector);
   assertConnectorEnabled(observed.connector);
   assertConnectorAccess({ connector: observed.connector, actor });
   const provider = getConnectorProvider(observed.connector.providerType);
@@ -959,7 +1059,7 @@ export async function accessCredentials({
       : null;
   try {
     const claim = await runConnectorTransaction(async (tx) => {
-      const row = await findOwnedConnection({ tx, selector, actor });
+      const { row } = await resolve(tx, observed.id);
       assertConnectionUnchanged(observed, row);
       assertConnectorEnabled(row.connector);
       assertConnectorAccess({ connector: row.connector, actor });
@@ -994,7 +1094,7 @@ export async function accessCredentials({
         data: { status: "REFRESHING", refreshStartedAt: new Date(), version: { increment: 1 } },
       });
       return {
-        row: { ...updated, connector: row.connector },
+        row: { ...row, ...updated },
         credentials,
         refresh: true as const,
         secrets: readConnectorSecrets(row.connector),
@@ -1029,7 +1129,7 @@ export async function accessCredentials({
       const refreshed = await runConnectorTransaction(async (tx) => {
         const row = await tx.connection.findUniqueOrThrow({
           where: { id: claim.row.id },
-          include: { connector: { include: connectorScopeInclude } },
+          include: connectionUseInclude,
         });
         // Disconnect can block the account while refresh is in flight. Retain a rotated token solely for manual revocation.
         const pending =
@@ -1068,7 +1168,7 @@ export async function accessCredentials({
         });
         return tx.connection.findUniqueOrThrow({
           where: { id: row.id },
-          include: { connector: { include: connectorScopeInclude } },
+          include: connectionUseInclude,
         });
       });
       return { row: refreshed, credentials, refresh: false as const };

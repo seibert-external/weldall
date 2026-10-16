@@ -307,7 +307,9 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
           {provider ? (
             <Text color="secondary">
               Version {provider.version} · Validated{" "}
-              {new Date(provider.validatedAt).toLocaleString()}
+              {provider.validatedAt
+                ? new Date(provider.validatedAt).toLocaleString()
+                : "Not validated — provision a client secret"}
             </Text>
           ) : (
             <Text color="secondary">
@@ -362,8 +364,17 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
             {field(
               "clientSecret",
               editing ? "Client secret (write-only; blank keeps existing)" : "Client secret",
-              ({ value }) => validateClientSecret(value, editing),
-              { type: "password", optional: editing },
+              ({ value }) =>
+                validateClientSecret(
+                  value,
+                  Boolean(provider?.hasClientSecret) || !form.state.values.enabled,
+                ),
+              {
+                type: "password",
+                optional: true,
+                description:
+                  "Optional for disabled drafts. IaC manages public configuration, never this secret.",
+              },
             )}
             <form.Field
               name="tokenEndpointAuthMethod"

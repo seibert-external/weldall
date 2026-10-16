@@ -1,21 +1,28 @@
 """Static consumer checks for the shipped public type surface."""
 
-from typing import assert_type
+from typing import Any, assert_type
+
+import httpx
 
 from weldall import (
     AuthContext,
     CreateDpopProofInput,
     IdJagClaims,
     MachineAuthContext,
+    MachineKey,
     MachineToken,
     MachineTokenRequestInput,
+    PublishedSkill,
     Signing,
+    SkillMcpDependency,
     SkillProvider,
     SkillVisibility,
     UserAuthContext,
     VerifyResult,
+    WeldallMcpClient,
     WeldallOptions,
     create_dpop_proof,
+    create_weldall_mcp_client,
     init_weldall,
     request_machine_token,
 )
@@ -55,6 +62,41 @@ def typed_inputs(
     assert_type(skills, SkillProvider)
     assert_type(visibility, SkillVisibility)
     assert_type(claims["urn:weldall:id-jag-draft"], str)
+
+
+def typed_skill() -> PublishedSkill:
+    dependency: SkillMcpDependency = {
+        "connectorKey": "atlassian-mcp",
+        "tools": ["search"],
+        "includeResources": False,
+    }
+    return {
+        "id": "recent",
+        "title": "Recent issues",
+        "content": "# Recent issues",
+        "requiredScopes": [],
+        "visibility": "DEFAULT",
+        "mcpDependencies": [dependency],
+    }
+
+
+async def typed_mcp(key: MachineKey, http: httpx.AsyncClient) -> None:
+    client = create_weldall_mcp_client(
+        issuer="https://weldall.example.com", access_token="token", key=key, http_client=http
+    )
+    assert_type(client, WeldallMcpClient)
+    assert_type(await client.list_connectors(), list[dict[str, Any]])
+    assert_type(await client.list_connections(connector_key="work"), list[dict[str, Any]])
+    assert_type(await client.list_tools(connector_key="work", connection="bot"), dict[str, Any])
+    assert_type(await client.list_resources(connector_key="work", connection="bot"), dict[str, Any])
+    assert_type(
+        await client.call_tool(connector_key="work", connection="bot", name="read", arguments={}),
+        dict[str, Any],
+    )
+    assert_type(
+        await client.read_resource(connector_key="work", connection="bot", uri="fixture:///text"),
+        dict[str, Any],
+    )
 
 
 def public_constructors(

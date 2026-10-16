@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -26,7 +27,14 @@ import {
   ResizableTableHeader,
   TableRowAction,
 } from "../resizable-table";
-import { connectionStatuses, filterConnections, type ConnectionRow } from "./connection-view";
+import {
+  connectionBadge,
+  connectionStatuses,
+  filterConnections,
+  type ConnectionRow,
+} from "./connection-view";
+
+import { SharedConnectionForm } from "./shared-connection-form";
 
 const emptyConnections: ConnectionRow[] = [];
 const statusOptions = Object.entries(connectionStatuses).map(([value, { label }]) => ({
@@ -41,6 +49,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 /** Compact connection overview; inspection and destructive actions live on the detail page. */
 export function ConnectionsTable() {
   const router = useRouter();
+  const [adding, setAdding] = useState(false);
   const trpc = useTRPC();
   const connectionsQuery = useQuery(trpc.admin.managed.connections.queryOptions());
   const data = connectionsQuery.data ?? emptyConnections;
@@ -49,6 +58,7 @@ export function ConnectionsTable() {
       search: parseAsString.withDefault(""),
       status: parseAsString.withDefault(""),
       connector: parseAsString.withDefault(""),
+      access: parseAsString.withDefault(""),
     },
     { history: "replace", shallow: true },
   );
@@ -61,7 +71,9 @@ export function ConnectionsTable() {
         .map((value) => ({ value, label: value })),
     [data],
   );
-  const hasFilters = Boolean(filters.search || filters.status || filters.connector);
+  const hasFilters = Boolean(
+    filters.search || filters.status || filters.connector || filters.access,
+  );
   const columns = useMemo<ColumnDef<ConnectionRow>[]>(
     () => [
       {
@@ -70,19 +82,34 @@ export function ConnectionsTable() {
         size: 300,
         minSize: 180,
         maxSize: 440,
-        cell: ({ row }) => (
-          <OverflowFade title={`${row.original.name} · ${row.original.accountName}`}>
-            <div className="grid w-max gap-0.5 whitespace-nowrap">
-              <span className="font-medium">{row.original.name}</span>
-              <span className="text-secondary text-xs">{row.original.accountName}</span>
-            </div>
-          </OverflowFade>
-        ),
+        cell: ({ row }) => {
+          const detail =
+            row.original.accessMode === "OWNER_ONLY" ? row.original.accountName : row.original.key;
+          return (
+            <OverflowFade title={detail ? `${row.original.name} · ${detail}` : row.original.name}>
+              <div className="flex w-max gap-2 whitespace-nowrap">
+                <span>{row.original.name}</span>
+                {row.original.management ? (
+                  <ManagementBadge management={row.original.management} />
+                ) : null}
+                {detail ? <span className="text-secondary">{detail}</span> : null}
+              </div>
+            </OverflowFade>
+          );
+        },
+      },
+      {
+        id: "accessMode",
+        accessorFn: (row) => (row.accessMode === "SCOPED" ? "Shared" : "Personal"),
+        header: "Type",
+        size: 120,
+        minSize: 100,
+        maxSize: 180,
       },
       {
         id: "owner",
         accessorFn: (row) => row.owner.name ?? row.owner.email,
-        header: "Owner",
+        header: "Credential manager",
         size: 250,
         minSize: 170,
         maxSize: 360,
@@ -112,7 +139,7 @@ export function ConnectionsTable() {
         maxSize: 270,
         cell: ({ row }) => (
           <div className="flex flex-wrap gap-1">
-            <Badge {...connectionStatuses[row.original.status]} />
+            <Badge {...connectionBadge(row.original)} />
             {!row.original.connectorEnabled ? (
               <Badge label="Connector disabled" variant="warning" />
             ) : null}
@@ -148,9 +175,25 @@ export function ConnectionsTable() {
     getSortedRowModel: getSortedRowModel(),
   });
 
+  if (adding) {
+    return (
+      <>
+        <HerocrumbsActions>
+          <Button
+            label="Back to connections"
+            variant="secondary"
+            onClick={() => setAdding(false)}
+          />
+        </HerocrumbsActions>
+        <SharedConnectionForm onSaved={() => setAdding(false)} />
+      </>
+    );
+  }
+
   return (
     <>
       <HerocrumbsActions>
+        <Button label="Add shared connection" onClick={() => setAdding(true)} />
         <div className="admin-table-action-row">
           <TextInput
             hasClear
@@ -170,6 +213,19 @@ export function ConnectionsTable() {
         role="group"
         aria-label="Connection filters"
       >
+        <Selector
+          hasClear
+          isLabelHidden
+          label="Access"
+          placeholder="All access types"
+          width={220}
+          value={filters.access || null}
+          options={[
+            { value: "OWNER_ONLY", label: "Personal" },
+            { value: "SCOPED", label: "Shared" },
+          ]}
+          onChange={(access) => void setFilters({ access })}
+        />
         <Selector
           hasClear
           isLabelHidden
@@ -194,7 +250,9 @@ export function ConnectionsTable() {
           <Button
             label="Clear filters"
             variant="secondary"
-            onClick={() => void setFilters({ search: null, status: null, connector: null })}
+            onClick={() =>
+              void setFilters({ search: null, status: null, connector: null, access: null })
+            }
           />
         ) : null}
       </div>

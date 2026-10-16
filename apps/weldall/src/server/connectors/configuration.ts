@@ -9,6 +9,7 @@ import {
   type ConnectorConfig,
 } from "./contracts";
 import { getConnectorProvider } from "./registry";
+import { connectorCapabilities } from "./provider";
 import { encrypt } from "./encryption";
 import { writeConnectorAuditLog } from "./audit";
 import { getConnectorRequiredScopeKeys, connectorScopeInclude } from "./access";
@@ -73,6 +74,7 @@ async function resolveRequiredScopes({
 /** Reads fixed application encryption, never the connector envelope provider. */
 export function readConnectorSecrets(connector: Connector) {
   const provider = getConnectorProvider(connector.providerType);
+  if (provider.registration) return provider.parseSecrets({});
   if (!connector.encryptedProviderSecrets)
     throw new ConnectorError("unavailable", "Connector is not configured.", 503);
   try {
@@ -125,6 +127,18 @@ export async function saveConnectorConfiguration({
     );
   if (current && current.providerType !== config.type)
     throw new ConnectorError("immutable_provider", "Connector provider type cannot change.", 409);
+  if (
+    current &&
+    !config.enabled &&
+    (await tx.skill.count({
+      where: { mcpDependencies: { array_contains: [{ connectorKey: current.key }] } },
+    }))
+  )
+    throw new ConnectorError(
+      "in_use",
+      "Remove skill MCP dependencies before disabling this connector.",
+      409,
+    );
   const clientIdChanged = Boolean(
     current &&
     provider.getConfigurationIdentity(current.providerConfig) !==
@@ -141,7 +155,7 @@ export async function saveConnectorConfiguration({
       "Disconnect and delete connections and attempts before changing the OAuth client.",
       409,
     );
-  if (clientIdChanged && config.enabled && providerSecrets === undefined)
+  if (clientIdChanged && config.enabled && providerSecrets === undefined && !provider.registration)
     throw new ConnectorError(
       "missing_secret",
       "Provision the new OAuth client secret before enabling the connector.",
@@ -161,7 +175,7 @@ export async function saveConnectorConfiguration({
       : clientIdChanged
         ? null
         : (current?.encryptedProviderSecrets ?? null);
-  if (config.enabled) {
+  if (config.enabled && !provider.registration) {
     if (!encryptedProviderSecrets)
       throw new ConnectorError(
         "missing_secret",
@@ -281,6 +295,16 @@ export async function deleteConnectorConfiguration({
 }) {
   const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
   assertConfigurationVersion({ current: connector, expected: version });
+  if (
+    await tx.skill.count({
+      where: { mcpDependencies: { array_contains: [{ connectorKey: connector.key }] } },
+    })
+  )
+    throw new ConnectorError(
+      "in_use",
+      "Remove skill MCP dependencies before deleting this connector.",
+      409,
+    );
   await deleteConnectionState({ tx, target: { connectorId: id }, actor });
   await tx.connector.delete({ where: { id, version } });
   await writeConnectorAuditLog({
@@ -303,6 +327,8 @@ export async function listManagedConnectorConfiguration() {
       id: row.id,
       version: row.version,
       config: buildConnectorState(row),
+      capabilities: connectorCapabilities(getConnectorProvider(row.providerType)),
+      staticProvisioning: Boolean(getConnectorProvider(row.providerType).staticConnection),
       managed: Boolean(row.iacBinding),
       secretConfigured: Boolean(row.encryptedProviderSecrets),
     })),

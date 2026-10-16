@@ -10,7 +10,7 @@ export function fingerprintConnectorRequest({
   requestedUrl,
 }: {
   method: string;
-  requestedUrl: URL;
+  requestedUrl: Pick<URL, "href">;
 }) {
   const encoded = process.env.WELDALL_CREDENTIAL_ENCRYPTION_KEY ?? "";
   const key = Buffer.from(encoded, "base64");

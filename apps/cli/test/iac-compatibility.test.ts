@@ -123,6 +123,35 @@ describe.each(["legacy", "connectors"] as const)("IaC against a %s server", (ser
   );
 });
 
+it.each(["connector", "skill"] as const)(
+  "rejects MCP %s configuration on a shipped server without MCP support",
+  async (kind) => {
+    const { manifest } = await loadWorkspace(root);
+    if (kind === "connector") manifest.connectors = { work: { type: "atlassian-mcp" } };
+    else
+      manifest.skills = {
+        work: {
+          mcpDependencies: [{ connectorKey: "work", tools: ["read"], includeResources: false }],
+        },
+      };
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        issuer: manifest.workspace.issuer,
+        token_endpoint: `${manifest.workspace.issuer}/api/auth/oauth2/token`,
+        weldall_iac: {
+          endpoint: `${manifest.workspace.issuer}/api/iac/v1`,
+          installationId,
+          scope: "weldall:iac",
+        },
+      }),
+    );
+    await expect(IacClient.connect(manifest, null)).rejects.toThrow(
+      "does not support MCP connectors",
+    );
+    expect(fetcher).toHaveBeenCalledOnce();
+  },
+);
+
 it("does not unmanage or update the lockfile if obtaining the server digest fails", async () => {
   const originalLock = await readFile(join(root, "weldall.lock.yml"), "utf8");
   const request = vi.fn(async (path: string) => {

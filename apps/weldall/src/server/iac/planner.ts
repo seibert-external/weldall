@@ -1,4 +1,14 @@
 import type { Prisma } from "@weldall/db";
+import {
+  publicSharedConnection,
+  publicGroupProvider,
+  publicLoginProvider,
+  sameLoginAuthority,
+} from "../domain/secret-primitive-contracts";
+import { sharedConfigInclude } from "../connectors/core/shared-connections";
+import { secretPrimitiveBlockers } from "./secret-primitives";
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
+import type { ConnectorConfig } from "../connectors/contracts";
 import { buildConnectorState } from "../connectors/configuration";
 import { connectorScopeInclude } from "../connectors/access";
 import { getConnectorProvider } from "../connectors/registry";
@@ -39,6 +49,24 @@ export function desiredObjects(manifest: DesiredState): Array<{
   state: unknown;
 }> {
   return [
+    ...Object.entries(manifest.sharedConnections ?? {}).map(([name, state]) => ({
+      address: `sharedConnection.${name}`,
+      kind: "sharedConnection" as const,
+      identity: state.key,
+      state,
+    })),
+    ...Object.entries(manifest.groupProviders ?? {}).map(([name, state]) => ({
+      address: `groupProvider.${name}`,
+      kind: "groupProvider" as const,
+      identity: state.key,
+      state,
+    })),
+    ...Object.entries(manifest.loginProviders ?? {}).map(([name, state]) => ({
+      address: `loginProvider.${name}`,
+      kind: "loginProvider" as const,
+      identity: state.id,
+      state,
+    })),
     ...Object.entries(manifest.connectors).map(([name, state]) => ({
       address: `connector.${name}`,
       kind: "connector" as const,
@@ -203,7 +231,16 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
       });
     }
   }
-  const orderedActions = actions.sort(compareActions);
+  for (const action of actions.filter(
+    (a) => a.kind === "loginProvider" && a.action !== "noop" && a.action !== "delete",
+  )) {
+    const after = desired.find((o) => o.address === action.address)?.state as any;
+    const before = byAddress.get(action.address)?.state as any;
+    if (after?.enabled && (!before?.enabled || !sameLoginAuthority(before, after)))
+      action.requiresAuthorityConfirmation = true;
+  }
+  blockers.push(...mcpGraphBlockers(manifest, current.objects));
+  const orderedActions = orderMcpActions(actions.sort(compareActions), desired, current.objects);
   const planWithoutDigest = {
     version: 1 as const,
     workspaceId: manifest.workspace.id,
@@ -260,6 +297,9 @@ const actionRank: Record<IacAction["action"], number> = {
 };
 const kindRank: Record<IacKind, number> = {
   connector: 2,
+  groupProvider: 2,
+  loginProvider: 2,
+  sharedConnection: 3,
   scope: 1,
   resource: 2,
   machine: 3,
@@ -319,6 +359,11 @@ export async function loadPlanningState({
       ...connectorScopeInclude,
     },
   });
+  const [sharedConnections, groupProviders, loginProviders] = await Promise.all([
+    tx.connection.findMany({ where: { accessMode: "SCOPED" }, include: sharedConfigInclude }),
+    tx.groupProvider.findMany(),
+    tx.loginProvider.findMany(),
+  ]);
   const bindingTargets = new Map<string, (typeof bindings)[number]>();
   for (const binding of bindings) {
     for (const id of [
@@ -329,11 +374,38 @@ export async function loadPlanningState({
       binding.groupAssignmentId,
       binding.skillId,
       binding.connectorId,
+      binding.sharedConnectionId,
+      binding.groupProviderId,
+      binding.loginProviderId,
     ])
       if (id) bindingTargets.set(id, binding);
   }
   const ownership = (id: string) => bindingTargets.get(id);
   const objects: CurrentObject[] = [
+    ...sharedConnections.map((item) => ({
+      kind: "sharedConnection" as const,
+      id: item.id,
+      identity: item.key!,
+      version: item.version,
+      state: publicSharedConnection(item),
+      ...bindingInfo(ownership(item.id)),
+    })),
+    ...groupProviders.map((item) => ({
+      kind: "groupProvider" as const,
+      id: item.id,
+      identity: item.key,
+      version: item.version,
+      state: publicGroupProvider(item),
+      ...bindingInfo(ownership(item.id)),
+    })),
+    ...loginProviders.map((item) => ({
+      kind: "loginProvider" as const,
+      id: item.id,
+      identity: item.id,
+      version: item.version,
+      state: publicLoginProvider(item),
+      ...bindingInfo(ownership(item.id)),
+    })),
     ...connectors.map((item) => ({
       kind: "connector" as const,
       id: item.id,
@@ -418,6 +490,7 @@ export async function loadPlanningState({
         title: item.title,
         content: item.content,
         requiredScopes: [...item.requiredScopes].sort(),
+        ...skillMcpState(item.mcpDependencies),
         visibility: item.visibility,
         ...(item.meta !== null ? { meta: item.meta } : {}),
         ...(item.lastUpdatedAt !== null ? { lastUpdatedAt: item.lastUpdatedAt } : {}),
@@ -433,7 +506,10 @@ export async function loadPlanningState({
       !item.emailAssignmentId &&
       !item.groupAssignmentId &&
       !item.skillId &&
-      !item.connectorId,
+      !item.connectorId &&
+      !item.sharedConnectionId &&
+      !item.groupProviderId &&
+      !item.loginProviderId,
   )) {
     objects.push({
       address: binding.address,
@@ -466,7 +542,14 @@ export async function loadPlanningState({
       .map((object) => object.address!),
   );
   const bindingByTarget = new Map(objects.map((object) => [object.id, object]));
-  const externalBlockers: IacBlocker[] = [];
+  const externalBlockers: IacBlocker[] = await secretPrimitiveBlockers({
+    tx,
+    manifest,
+    objects,
+    sharedConnections,
+    groupProviders,
+    loginProviders,
+  });
   for (const [address, config] of Object.entries(manifest.connectors)) {
     try {
       getConnectorProvider(config.type).parseConfiguration(config.provider);
@@ -488,7 +571,11 @@ export async function loadPlanningState({
         address: `connector.${address}`,
         message: "Connector envelope provider cannot change.",
       });
-    if (config.enabled && !current?.encryptedProviderSecrets)
+    if (
+      config.enabled &&
+      !current?.encryptedProviderSecrets &&
+      !getConnectorProvider(config.type).registration
+    )
       externalBlockers.push({
         code: "MISSING_SECRET",
         address: `connector.${address}`,
@@ -513,7 +600,12 @@ export async function loadPlanningState({
     desiredReferencesTarget: (state: any) => boolean,
     message: string,
   ) => {
-    if (!target.address || !deletingAddresses.has(target.address)) return;
+    if (
+      target.ownerWorkspaceId !== manifest.workspace.id ||
+      !target.address ||
+      !deletingAddresses.has(target.address)
+    )
+      return;
     const source = bindingByTarget.get(sourceId);
     const desiredSource = source?.address ? desiredByAddress.get(source.address) : undefined;
     if (
@@ -524,6 +616,21 @@ export async function loadPlanningState({
     )
       externalBlockers.push({ code: "EXTERNAL_REFERENCE", address: target.address, message });
   };
+  const sharedReferences = await tx.connectionUseScope.findMany({
+    include: { connection: { select: { key: true, name: true } } },
+  });
+  for (const reference of sharedReferences) {
+    const target = objects.find(
+      (object) => object.kind === "scope" && object.id === reference.scopeId,
+    );
+    if (target)
+      addReferenceBlocker(
+        target,
+        reference.connectionId,
+        (state) => state.useScopes.includes(target.identity),
+        `Scope ${target.identity} is in use by shared connection ${reference.connection.name} (${reference.connection.key}).`,
+      );
+  }
   for (const connector of connectors)
     for (const requiredScope of connector.requiredScopes) {
       const target = objects.find(
@@ -629,6 +736,94 @@ export async function loadPlanningState({
   };
 }
 
+/** Empty fields are omitted for compatibility with the shipped manifest contract only. */
+export function skillMcpState(value: unknown) {
+  const dependencies = skillMcpDependenciesSchema.parse(value);
+  return dependencies.length ? { mcpDependencies: dependencies } : {};
+}
+
+function mcpGraphBlockers(manifest: DesiredState, current: CurrentObject[]): IacBlocker[] {
+  const desired = desiredObjects(manifest);
+  const retained = current.filter(
+    (o) => !o.tombstone && o.ownerWorkspaceId !== manifest.workspace.id,
+  );
+  const final = [...retained, ...desired];
+  const connectors = new Map(
+    final
+      .filter((o) => o.kind === "connector")
+      .map((o) => [o.identity, o.state as ConnectorConfig]),
+  );
+  const blockers: IacBlocker[] = [];
+  for (const object of final.filter((o) => o.kind === "skill")) {
+    const deps = skillMcpDependenciesSchema.parse((object.state as any).mcpDependencies ?? []);
+    for (const dep of deps) {
+      const connector = connectors.get(dep.connectorKey);
+      const isDesired = desired.includes(object as (typeof desired)[number]);
+      const wasResolved = current.some(
+        (o) =>
+          o.kind === "connector" &&
+          o.identity === dep.connectorKey &&
+          (o.state as ConnectorConfig).enabled &&
+          getConnectorProvider((o.state as ConnectorConfig).type).mcp,
+      );
+      if (
+        (!connector?.enabled || !getConnectorProvider(connector.type).mcp) &&
+        (isDesired || wasResolved)
+      )
+        blockers.push({
+          code: "UNRESOLVED_MCP_DEPENDENCY",
+          ...(object.address ? { address: object.address } : {}),
+          message: `Skill ${object.identity} requires enabled MCP connector ${dep.connectorKey}.`,
+        });
+    }
+  }
+  return blockers;
+}
+
+/** Stable topological ordering adds only MCP graph edges to the existing action ordering. */
+function orderMcpActions(
+  actions: IacAction[],
+  desired: ReturnType<typeof desiredObjects>,
+  current: CurrentObject[],
+) {
+  const before = new Map<IacAction, Set<IacAction>>(actions.map((a) => [a, new Set()]));
+  const edge = (parentKind: IacKind, parentIdentity: string, child: IacAction) => {
+    const parent = actions.find(
+      (a) => a.kind === parentKind && a.identity === parentIdentity && a.action !== "noop",
+    );
+    if (!parent || child.action === "noop") return;
+    if (child.action === "delete" && parent.action === "delete") before.get(parent)!.add(child);
+    else if (child.action !== "delete" && parent.action !== "delete")
+      before.get(child)!.add(parent);
+  };
+  for (const action of actions) {
+    const object = (action.action === "delete" ? current : desired).find(
+      (o) => o.address === action.address,
+    );
+    if (!object?.state) continue;
+    if (action.kind === "skill")
+      for (const dep of (object.state as any).mcpDependencies ?? [])
+        edge("connector", dep.connectorKey, action);
+    if (action.kind === "sharedConnection") {
+      edge("connector", (object.state as any).connectorKey, action);
+      for (const scope of (object.state as any).useScopes) edge("scope", scope, action);
+    }
+    if (action.kind === "groupAssignment")
+      edge("groupProvider", (object.state as any).provider, action);
+  }
+  const ordered: IacAction[] = [];
+  const remaining = new Set(actions);
+  while (remaining.size) {
+    const next = actions.find(
+      (a) => remaining.has(a) && [...before.get(a)!].every((p) => !remaining.has(p)),
+    );
+    if (!next) throw new Error("Invalid MCP dependency graph");
+    ordered.push(next);
+    remaining.delete(next);
+  }
+  return ordered;
+}
+
 function bindingInfo(binding: { address: string; workspaceId: string } | undefined) {
   return binding ? { address: binding.address, ownerWorkspaceId: binding.workspaceId } : {};
 }
@@ -642,6 +837,9 @@ function fromPrismaKind(kind: string): IacKind {
       GROUP_ASSIGNMENT: "groupAssignment",
       SKILL: "skill",
       CONNECTOR: "connector",
+      SHARED_CONNECTION: "sharedConnection",
+      GROUP_PROVIDER: "groupProvider",
+      LOGIN_PROVIDER: "loginProvider",
     } as Record<string, IacKind>
   )[kind]!;
 }

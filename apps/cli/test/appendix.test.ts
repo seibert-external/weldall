@@ -55,6 +55,22 @@ describe("CLI appendix cache", () => {
     }
   });
 
+  it("retains capabilities in cached connector and connection previews", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
+    try {
+      const cache = new AppendixCache(directory);
+      const metadata = {
+        connectors: [{ key: "work", name: "Work", groups: [], capabilities: ["mcp" as const] }],
+        connections: [
+          { name: "work", connectorKey: "work", status: "READY", capabilities: ["mcp" as const] },
+        ],
+      };
+      await cache.writeSnapshot(issuer, { appendix: "", scopes: [], skills: [], ...metadata });
+      await expect(cache.readSnapshot(issuer)).resolves.toMatchObject(metadata);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it("only returns account-specific previews to their verified subject", async () => {
     const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
     try {

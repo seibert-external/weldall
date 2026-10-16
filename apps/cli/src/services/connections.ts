@@ -1,4 +1,8 @@
-import { createDpopProof } from "@weldall/sdk";
+import {
+  createDpopProof,
+  connectorCapabilitiesSchema,
+  type ConnectorCapability,
+} from "@weldall/sdk";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
 import { successfulResponse, successfulResponseStream, isRecord } from "../http.js";
@@ -15,6 +19,8 @@ export interface ConnectorScopeSummary {
 }
 
 export interface ConnectorSummary {
+  /** Absent only on shipped servers predating capability metadata. */
+  capabilities?: ConnectorCapability[];
   key: string;
   name: string;
   type: string;
@@ -29,8 +35,12 @@ export interface ConnectionUsage {
 }
 
 export interface ConnectionSummary {
+  capabilities?: ConnectorCapability[];
   id: string;
-  ownerId: string;
+  ownerId?: string;
+  accessMode?: "OWNER_ONLY" | "SCOPED";
+  key?: string | null;
+  useScopes?: string[];
   connectorId: string;
   name: string;
   accountId: string;
@@ -110,11 +120,14 @@ export const isConnectionUsage = (value: unknown): value is ConnectionUsage =>
 export const isConnectionSummary = (value: unknown): value is ConnectionSummary =>
   isRecord(value) &&
   typeof value.id === "string" &&
-  typeof value.ownerId === "string" &&
+  (typeof value.ownerId === "string" ||
+    (value.accessMode === "SCOPED" && value.ownerId === undefined)) &&
   typeof value.connectorId === "string" &&
   typeof value.name === "string" &&
   typeof value.accountId === "string" &&
   typeof value.accountName === "string" &&
+  (value.capabilities === undefined ||
+    connectorCapabilitiesSchema.safeParse(value.capabilities).success) &&
   (value.details === undefined ||
     (Array.isArray(value.details) &&
       value.details.every(
@@ -149,6 +162,8 @@ const isConnectorSummary = (value: unknown): value is ConnectorSummary =>
   typeof value.key === "string" &&
   typeof value.name === "string" &&
   typeof value.type === "string" &&
+  (value.capabilities === undefined ||
+    connectorCapabilitiesSchema.safeParse(value.capabilities).success) &&
   isStringArray(value.requiredScopes) &&
   Array.isArray(value.scopes) &&
   value.scopes.every(isConnectorScopeSummary) &&
@@ -372,6 +387,12 @@ export async function requestConnection({
 }) {
   validateConnectionTarget(input.url);
   const connection = await showConnection({ config, selector });
+  if (connection.capabilities && !connection.capabilities.includes("http"))
+    throw new CliError("This connection does not support HTTP requests.", {
+      hint: connection.capabilities.includes("mcp")
+        ? "Use weldall mcp tools or weldall mcp call with this connection."
+        : "Inspect weldall connections show for supported capabilities.",
+    });
   if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(connection.connectorKey))
     throw new CliError("Invalid connector key");
   const url = new URL(`/connectors/${connection.connectorKey}`, config.issuer);

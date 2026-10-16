@@ -2,12 +2,14 @@ import type { Prisma } from "@prisma/client";
 
 export const ADMIN_SCOPE_KEY = "weldall:administer";
 export const LOGIN_SCOPE_KEY = "weldall:login";
+export const MCP_SCOPE_KEY = "weldall:mcp";
 export const IAC_SCOPE_KEY = "weldall:iac";
 export const SUBJECT_SCOPES_CHECK_SCOPE_KEY = "weldall:subject-scopes-check";
 export const STATISTICS_SCOPE_KEY = "weldall:statistics";
 
 export const MACHINE_ONLY_SYSTEM_SCOPE_KEYS = [
   IAC_SCOPE_KEY,
+  MCP_SCOPE_KEY,
   SUBJECT_SCOPES_CHECK_SCOPE_KEY,
 ] as const;
 
@@ -16,6 +18,11 @@ export function isMachineOnlySystemScope(key: string): boolean {
 }
 
 export const SYSTEM_SCOPE_DEFINITIONS = [
+  {
+    id: "scope-weldall-mcp",
+    key: MCP_SCOPE_KEY,
+    description: "Use shared Weldall MCP connections.",
+  },
   {
     id: "scope-weldall-administer",
     key: ADMIN_SCOPE_KEY,

@@ -1,6 +1,11 @@
 import { ADMIN_SCOPE_KEY, db } from "@weldall/db";
+import { canAccessConnector, connectorScopeInclude } from "../connectors/access";
+import { connectorCapabilities } from "../connectors/provider";
+import { connectorProviders } from "../connectors/registry";
 import { logger } from "../observability/logger";
 import { effectiveScopesFor } from "../policy/resources";
+
+import { skillMcpDependenciesSchema, type SkillMcpDependency } from "@weldall/sdk/mcp";
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 export type SkillSource = { type: "admin" } | { type: "resource"; key: string; name: string };
@@ -30,6 +35,7 @@ export interface VisibleSkillResource {
 }
 
 export interface VisibleSkillDetail extends VisibleSkill {
+  mcpDependencies: SkillMcpDependency[];
   content: string;
   document: string;
   involvedResources: VisibleSkillResource[];
@@ -85,6 +91,7 @@ export async function listVisibleSkillsForScopes(
         title: true,
         content: true,
         requiredScopes: true,
+        mcpDependencies: true,
         visibility: true,
         meta: true,
         lastUpdatedAt: true,
@@ -110,6 +117,7 @@ export async function listVisibleSkillsForScopes(
                 title: true,
                 content: true,
                 requiredScopes: true,
+                mcpDependencies: true,
                 visibility: true,
                 meta: true,
                 lastUpdatedAt: true,
@@ -122,6 +130,15 @@ export async function listVisibleSkillsForScopes(
     }),
     db.scope.findMany({ select: { key: true } }),
   ]);
+  const accessibleConnectors = await accessibleMcpConnectorKeys(
+    [
+      ...manualSkills.map((skill) => skill.mcpDependencies),
+      ...resources.flatMap((resource) =>
+        (resource.discoveredCatalog?.skills ?? []).map((skill) => skill.mcpDependencies),
+      ),
+    ],
+    grants,
+  );
   const grantedScopes = new Set<string>(grants);
   const canViewCatalogIssues = grantedScopes.has(ADMIN_SCOPE_KEY);
   const scopes = new Set(scopeRows.map((scope) => scope.key));
@@ -171,6 +188,7 @@ export async function listVisibleSkillsForScopes(
         );
         continue;
       }
+      if (!hasAccessibleMcpDependencies(skill.mcpDependencies, accessibleConnectors)) continue;
       const visible = skillVisibility(
         {
           slug: skill.canonicalId,
@@ -196,7 +214,10 @@ export async function listVisibleSkillsForScopes(
       { ...skill, source: { type: "admin" } as const },
       grantedScopes,
     );
-    if (visible.visibility === "HIDDEN_IF_UNALLOWED" && !visible.available) {
+    if (
+      (visible.visibility === "HIDDEN_IF_UNALLOWED" && !visible.available) ||
+      !hasAccessibleMcpDependencies(skill.mcpDependencies, accessibleConnectors)
+    ) {
       bySlug.delete(skill.slug);
     } else {
       bySlug.set(skill.slug, visible);
@@ -221,6 +242,8 @@ export async function getVisibleSkill(
   const grantedScopes = new Set<string>(grants);
   const canViewCatalogIssues = grantedScopes.has(ADMIN_SCOPE_KEY);
   if (manual) {
+    const accessibleConnectors = await accessibleMcpConnectorKeys([manual.mcpDependencies], grants);
+    if (!hasAccessibleMcpDependencies(manual.mcpDependencies, accessibleConnectors)) return null;
     const metadata = skillVisibility(
       { ...manual, source: { type: "admin" } as const },
       grantedScopes,
@@ -230,6 +253,7 @@ export async function getVisibleSkill(
       metadata,
       manual.content,
       await involvedResourcesForScopes(metadata.requiredScopes),
+      manual.mcpDependencies,
     );
   }
 
@@ -274,6 +298,8 @@ export async function getVisibleSkill(
     );
     return null;
   }
+  const accessibleConnectors = await accessibleMcpConnectorKeys([skill.mcpDependencies], grants);
+  if (!hasAccessibleMcpDependencies(skill.mcpDependencies, accessibleConnectors)) return null;
   const metadata = skillVisibility(
     {
       slug: skill.canonicalId,
@@ -293,7 +319,47 @@ export async function getVisibleSkill(
     metadata,
     skill.content,
     await involvedResourcesForScopes(metadata.requiredScopes),
+    skill.mcpDependencies,
   );
+}
+
+async function accessibleMcpConnectorKeys(
+  dependencies: readonly unknown[],
+  grants: readonly string[],
+): Promise<ReadonlySet<string>> {
+  const keys = new Set(
+    dependencies.flatMap((value) =>
+      skillMcpDependenciesSchema.parse(value).map((dependency) => dependency.connectorKey),
+    ),
+  );
+  if (!keys.size) return new Set();
+  const connectors = await db.connector.findMany({
+    where: {
+      key: { in: [...keys] },
+      enabled: true,
+      providerType: {
+        in: connectorProviders
+          .filter((provider) => connectorCapabilities(provider).includes("mcp"))
+          .map((provider) => provider.type),
+      },
+    },
+    include: connectorScopeInclude,
+  });
+  const actor = { scopeKeys: grants };
+  return new Set(
+    connectors
+      .filter((connector) => canAccessConnector({ connector, actor }))
+      .map((connector) => connector.key),
+  );
+}
+
+function hasAccessibleMcpDependencies(
+  dependencies: unknown,
+  accessibleConnectors: ReadonlySet<string>,
+): boolean {
+  return skillMcpDependenciesSchema
+    .parse(dependencies)
+    .every((dependency) => accessibleConnectors.has(dependency.connectorKey));
 }
 
 function ineligibleScopes(requiredScopes: string[], scopes: ReadonlySet<string>): string[] {
@@ -373,13 +439,17 @@ function skillDetail(
   metadata: VisibleSkill,
   content: string,
   involvedResources: VisibleSkillResource[],
+  dependencies: unknown,
 ): VisibleSkillDetail {
+  const mcpDependencies = skillMcpDependenciesSchema.parse(dependencies);
   return {
+    mcpDependencies,
     ...metadata,
     content,
     involvedResources,
     document: renderSkillDocument({
       title: metadata.title,
+      mcpDependencies,
       requiredScopes: metadata.requiredScopes,
       visibility: metadata.visibility,
       content,
@@ -396,6 +466,7 @@ export function renderSkillDocument(input: {
   content: string;
   meta?: SkillMeta;
   lastUpdatedAt?: string;
+  mcpDependencies?: SkillMcpDependency[];
 }): string {
   const scopeLines = input.requiredScopes.length
     ? ["requiredScopes:", ...input.requiredScopes.map((scope) => `  - ${JSON.stringify(scope)}`)]
@@ -425,6 +496,11 @@ export function renderSkillDocument(input: {
     "---",
     `title: ${JSON.stringify(input.title)}`,
     ...scopeLines,
+    ...(input.mcpDependencies?.length
+      ? [
+          `mcpDependencies: ${JSON.stringify(skillMcpDependenciesSchema.parse(input.mcpDependencies))}`,
+        ]
+      : []),
     `visibility: ${input.visibility}`,
     ...metaLines,
     ...(input.lastUpdatedAt !== undefined

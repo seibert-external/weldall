@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import {
@@ -51,6 +52,7 @@ export function LoginProvidersPage() {
             <OverflowFade title={name}>
               <div className="flex w-max flex-nowrap items-center gap-2 whitespace-nowrap">
                 <span>{name}</span>
+                <ManagementBadge management={row.original.management} />
                 <span
                   className="rounded px-2 py-1"
                   style={{

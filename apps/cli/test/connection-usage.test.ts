@@ -102,6 +102,44 @@ describe("provider-neutral connection usage", () => {
       "weldall connections show my-service --agentic",
     );
   });
+  it("uses MCP capabilities in every detail format without HTTP hints or name heuristics", () => {
+    const mcp: ConnectionSummary = {
+      ...connection,
+      connectorKey: "not-a-provider-name",
+      name: "work",
+      capabilities: ["mcp"],
+      usage: { instructions: [], examples: connection.usage!.examples },
+    };
+    const usage = connectionUsage(mcp);
+    expect(usage.instructions.join(" ")).toContain(
+      "weldall mcp tools not-a-provider-name --connection work --json",
+    );
+    expect(usage.instructions.join(" ")).not.toContain("weldall request");
+    expect(usage.examples).toEqual([]);
+    expect(withConnectionUsage(mcp)).toMatchObject({ capabilities: ["mcp"], usage });
+    expect(
+      decode(encodeConnectionDetailToon({ connection: mcp, issuer }), { delimiter: "\t" }),
+    ).toMatchObject({ capabilities: ["mcp"], usage });
+    expect(
+      decode(encodeConnectionsToon({ connections: [mcp], issuer }), { delimiter: "\t" }),
+    ).toMatchObject({ connections: [{ capabilities: ["mcp"] }] });
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      printConnectionDetails(mcp);
+      const text = output.mock.calls.flat().join("\n");
+      expect(text).toContain("Capabilities");
+      expect(text).toContain("weldall mcp tools");
+      expect(text).not.toContain("weldall request");
+    } finally {
+      output.mockRestore();
+    }
+  });
+  it.each([null, "mcp", ["mcp", "mcp"], ["invalid"], [1]].map((capabilities) => [capabilities]))(
+    "rejects malformed capability metadata %j",
+    (capabilities) => {
+      expect(isConnectionSummary({ ...connection, capabilities })).toBe(false);
+    },
+  );
   it("shows provider details, guidance, and commands in human output", () => {
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {

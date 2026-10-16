@@ -78,6 +78,8 @@ import {
 } from "../src/server/auth/login-service";
 import { providerConfigSchema } from "../src/server/auth/oidc-config";
 import { digest, seal } from "../src/server/auth/oidc-credentials";
+import { deleteLoginProviderConfiguration } from "../src/server/domain/login-provider-configuration";
+import { lockSkillScopeChanges } from "../src/server/domain/configuration";
 
 const server = process.env.OIDC_TEST_SERVER_URL;
 if (process.env.CI && process.env.CI !== "false" && !server)
@@ -747,6 +749,88 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       fixture.pauseExchange = null;
     }
   });
+  it("rejects an in-flight callback after same-UUID, same-version provider recreation and clears pending attempts", async () => {
+    await freshInstallation(async () => {
+      const setup = await beginSetup("setup");
+      fixture.nonce = setup.nonce;
+      expect((await request(setup.path)).headers.get("location")).toBe(`${origin}/`);
+      const provider = await fixture.prisma.loginProvider.findFirstOrThrow();
+      const backupId = randomUUID();
+      await fixture.prisma.loginProvider.create({
+        data: {
+          ...provider,
+          id: backupId,
+          encryptedClientSecret: seal("provider", backupId, config.clientSecret),
+        },
+      });
+      const queued = new URL(
+        (await (await request("/oidc/start", { providerId: provider.id })).json()).url,
+      );
+      const flow = new URL(
+        (await (await request("/oidc/start", { providerId: provider.id })).json()).url,
+      );
+      fixture.nonce = flow.searchParams.get("nonce")!;
+      const entered = barrier(),
+        resume = barrier();
+      fixture.pauseExchange = async () => {
+        entered.release();
+        await resume.promise;
+      };
+      const pending = request(
+        `/callback/${provider.id}?state=${flow.searchParams.get("state")}&code=test`,
+      );
+      try {
+        await entered.promise;
+        await fixture.prisma.$transaction(async (tx) => {
+          await lockSkillScopeChanges(tx);
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(181923, 3)`;
+          await deleteLoginProviderConfiguration(tx, provider.id, {
+            type: "machine",
+            id: "test",
+            requestId: randomUUID(),
+            source: "weldall_up",
+          });
+          const { createdAt: _createdAt, updatedAt: _updatedAt, ...restored } = provider;
+          await tx.loginProvider.create({ data: restored });
+        });
+        const restored = await fixture.prisma.loginProvider.findUniqueOrThrow({
+          where: { id: provider.id },
+        });
+        expect(restored.version).toBe(provider.version);
+        expect(restored.createdAt).not.toEqual(provider.createdAt);
+        const before = await snapshot();
+        resume.release();
+        expect((await pending).headers.get("location")).toContain("provider_changed");
+        expect(await snapshot()).toEqual(before);
+        expect(
+          await fixture.prisma.loginAttempt.count({ where: { providerId: provider.id } }),
+        ).toBe(0);
+        expect(
+          (
+            await request(
+              `/callback/${provider.id}?state=${queued.searchParams.get("state")}&code=test`,
+            )
+          ).headers.get("location"),
+        ).toContain("invalid_attempt");
+        fixture.pauseExchange = null;
+        const fresh = new URL(
+          (await (await request("/oidc/start", { providerId: provider.id })).json()).url,
+        );
+        fixture.nonce = fresh.searchParams.get("nonce")!;
+        expect(
+          (
+            await request(
+              `/callback/${provider.id}?state=${fresh.searchParams.get("state")}&code=test`,
+            )
+          ).headers.get("location"),
+        ).toBe(`${origin}/`);
+      } finally {
+        resume.release();
+        await pending;
+        fixture.pauseExchange = null;
+      }
+    });
+  });
   it("blocks alternate upstream linking, local signup, and verification routes in real auth configuration", async () => {
     const before = [
       await fixture.prisma.user.count(),
@@ -884,6 +968,125 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       Array.from({ length: 8 }, () => consumeAttempt(providerId, state, "browser")),
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  });
+  it("upgrades populated secret primitives without losing credentials or activation semantics", async () => {
+    const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
+    const url = new URL(server!);
+    url.pathname = `/${name}`;
+    execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `CREATE DATABASE "${name}"`]);
+    const databaseUrl = url.toString();
+    const upgrade = new PrismaClient({ datasourceUrl: databaseUrl });
+    try {
+      withMigrationSubset(
+        (migration) => migration < "0021_",
+        (schema) => deployMigrations(databaseUrl, schema),
+      );
+      const userId = randomUUID(),
+        connectorId = randomUUID(),
+        providerId = randomUUID();
+      await upgrade.user.create({
+        data: {
+          id: userId,
+          name: "Migration fixture",
+          email: "migration@example.com",
+          emailVerified: true,
+        },
+      });
+      const connector = await upgrade.connector.create({
+        data: {
+          id: connectorId,
+          key: "migration",
+          name: "Migration",
+          providerType: "google",
+          enabled: true,
+          providerConfig: {},
+          envelopeProvider: "LOCAL_ENV",
+          encryptedProviderSecrets: "unchanged-connector-ciphertext",
+          version: 7,
+          createdBy: "test",
+          updatedBy: "test",
+        },
+      });
+      const group = await upgrade.groupProvider.create({
+        data: {
+          key: "migration",
+          name: "Migration",
+          adapterType: "management-api-v1",
+          baseUrl: "https://directory.example.com",
+          encryptedToken: "unchanged-group-ciphertext",
+          encryptionKeyVersion: 1,
+          enabled: false,
+          version: 8,
+          createdBy: "test",
+          updatedBy: "test",
+        },
+      });
+      const login = await upgrade.loginProvider.create({
+        data: {
+          id: providerId,
+          name: "Migration",
+          buttonLabel: "Login",
+          buttonColor: "#112233",
+          issuer: "https://id.example.com",
+          clientId: "client",
+          encryptedClientSecret: seal("provider", providerId, "fixture-secret"),
+          tokenEndpointAuthMethod: "client_secret_post",
+          scopes: ["openid", "email"],
+          enabled: true,
+          validatedAt: new Date(),
+          version: 9,
+          createdBy: "test",
+          updatedBy: "test",
+        },
+      });
+      const states = ["READY", "RECONNECT_REQUIRED", "DISABLED"] as const;
+      for (const status of states) {
+        const credential = await upgrade.encryptedValue.create({
+          data: {
+            provider: "LOCAL_ENV",
+            wrappedDek: { ciphertext: "wrapped-fixture" },
+            context: `connection:${status}:credentials`,
+            nonce: "fixture-nonce",
+            ciphertext: "unchanged-credential-ciphertext",
+            tag: "fixture-tag",
+          },
+        });
+        // The generated client already has enabled; raw SQL intentionally targets the prior schema.
+        await upgrade.$executeRaw`INSERT INTO "Connection" ("id", "key", "connectorId", "ownerId", "accessMode", "name", "accountId", "accountName", "providerSelection", "providerGrant", "status", "version", "credentialId", "updatedAt")
+          VALUES (${status}, ${status.toLowerCase().replaceAll("_", "-")}, ${connectorId}, ${userId}, 'SCOPED', 'Migration', ${status}, 'Fixture', '{}'::jsonb, '{}'::jsonb, ${status}::"ConnectionStatus", 10, ${credential.id}, NOW())`;
+      }
+      const connections = await upgrade.$queryRaw<
+        Array<Record<string, unknown>>
+      >`SELECT * FROM "Connection" ORDER BY "id"`;
+      const credentials = await upgrade.encryptedValue.findMany({ orderBy: { id: "asc" } });
+      deployMigrations(databaseUrl);
+      deployMigrations(databaseUrl);
+      expect(await upgrade.connector.findUniqueOrThrow({ where: { id: connector.id } })).toEqual(
+        connector,
+      );
+      expect(await upgrade.groupProvider.findUniqueOrThrow({ where: { id: group.id } })).toEqual(
+        group,
+      );
+      expect(await upgrade.loginProvider.findUniqueOrThrow({ where: { id: login.id } })).toEqual(
+        login,
+      );
+      expect(await upgrade.encryptedValue.findMany({ orderBy: { id: "asc" } })).toEqual(
+        credentials,
+      );
+      for (const before of connections) {
+        const migrated = await upgrade.connection.findUniqueOrThrow({
+          where: { id: before.id as string },
+        });
+        expect(migrated).toEqual({
+          ...before,
+          enabled: before.status !== "DISABLED",
+          status: before.status === "DISABLED" ? "READY" : before.status,
+        });
+      }
+    } finally {
+      await upgrade.$disconnect();
+      execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
+    }
   });
   it("populated upgrade removes only exact legacy Google account bindings", async () => {
     const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;

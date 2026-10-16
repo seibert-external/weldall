@@ -8,6 +8,13 @@ import { ConnectionSummary } from "../src/app/admin/connections/connection-detai
 
 const connection: ConnectionRow = {
   id: "connection-1",
+  accessMode: "OWNER_ONLY",
+  enabled: true,
+  hasCredential: true,
+  readiness: "READY",
+  key: null,
+  useScopes: [],
+  capabilities: ["http"],
   ownerId: "owner-1",
   connectorId: "connector-1",
   connectorKey: "workspace",
@@ -39,7 +46,7 @@ const second: ConnectionRow = {
   status: "RECONNECT_REQUIRED",
   owner: { name: "Bob", email: "bob@example.com" },
 };
-const clear = { search: "", status: "", connector: "" };
+const clear = { search: "", status: "", connector: "", access: "" };
 
 describe("connection overview filters", () => {
   it.each(["  ALICE  ", "alice@example.com", "Work calendar", "workspace"])(
@@ -74,6 +81,53 @@ describe("connection overview filters", () => {
 });
 
 describe("connection detail rendering", () => {
+  it("renders shared metadata without claiming verified grants and composes access filters", () => {
+    const shared: ConnectionRow = {
+      ...connection,
+      accessMode: "SCOPED",
+      key: "production-bot",
+      useScopes: ["jira:shared"],
+    };
+    expect(
+      filterConnections([connection, shared], {
+        ...clear,
+        access: "SCOPED",
+        search: "production-bot",
+        status: "READY",
+        connector: "workspace",
+      }),
+    ).toEqual([shared]);
+    expect(filterConnections([shared], { ...clear, search: "jira:shared" })).toEqual([shared]);
+    expect(filterConnections([connection, shared], { ...clear, access: "OWNER_ONLY" })).toEqual([
+      connection,
+    ]);
+    const html = renderToStaticMarkup(<ConnectionSummary connection={shared} />);
+    expect(html).toContain("Shared");
+    expect(html).not.toContain(shared.accountName);
+    expect(html).toContain("production-bot");
+    expect(html).toContain("Credential manager");
+    expect(html).toContain("jira:shared");
+    expect(html).toContain("Connection identifier");
+    expect(html).toContain("Token permissions are managed in Atlassian");
+    expect(html).not.toContain("Configured permissions");
+    expect(html).not.toContain("Selected permissions");
+    expect(html).not.toContain("Granted permissions");
+  });
+  it("shows Disabled distinctly from Reconnect required", () => {
+    const disabled: ConnectionRow = {
+      ...connection,
+      accessMode: "SCOPED",
+      key: "bot",
+      status: "DISABLED",
+    };
+    const html = renderToStaticMarkup(<ConnectionSummary connection={disabled} />);
+    expect(html).toContain("Disabled");
+    expect(html).toContain("No access is currently available");
+    expect(html).not.toContain("Reconnect required");
+    expect(filterConnections([connection, disabled], { ...clear, status: "DISABLED" })).toEqual([
+      disabled,
+    ]);
+  });
   it("shows identity, usage and distinct selected/granted permissions", () => {
     const html = renderToStaticMarkup(<ConnectionSummary connection={connection} />);
     expect(html).toContain("Work calendar");

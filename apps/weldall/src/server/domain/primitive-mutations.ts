@@ -1,3 +1,4 @@
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import { createHash, randomUUID } from "node:crypto";
 import { ADMIN_SCOPE_KEY, isMachineOnlySystemScope, Prisma } from "@weldall/db";
 import {
@@ -148,6 +149,17 @@ export async function mutateScope({
     await scopeAudit(tx, actor, "resource_scopes.replaced", current, updated);
     return updated;
   }
+  const shared = await tx.connectionUseScope.findMany({
+    where: { scopeId: current.id },
+    include: { connection: { select: { key: true, name: true } } },
+    take: 20,
+  });
+  if (shared.length)
+    throw new PrimitiveMutationError(
+      "CONFLICT",
+      `Scope is in_use by shared connections: ${shared.map(({ connection }) => `${connection.name} (${connection.key})`).join(", ")}. Replace their use scopes or delete those connections first.`,
+      { reason: "in_use" },
+    );
   const [skill, connector, resource, machine] = await Promise.all([
     tx.skill.findFirst({ where: { requiredScopes: { has: current.key } }, select: { slug: true } }),
     tx.connectorRequiredScope.findFirst({
@@ -264,6 +276,7 @@ export type SkillMetaInput = {
 };
 
 export type SkillMutableInput = {
+  mcpDependencies?: import("@weldall/sdk/mcp").SkillMcpDependency[] | undefined;
   title: string;
   content: string;
   requiredScopes: string[];
@@ -324,6 +337,8 @@ export async function mutateSkill(
     current.content === parsed.content &&
     current.visibility === parsed.visibility &&
     same([...current.requiredScopes].sort(), parsed.requiredScopes) &&
+    (parsed.mcpDependencies === undefined ||
+      JSON.stringify(current.mcpDependencies) === JSON.stringify(parsed.mcpDependencies)) &&
     JSON.stringify(skillMetaFromStoredValue(current.meta)) === JSON.stringify(parsed.meta) &&
     (current.lastUpdatedAt ?? undefined) === parsed.lastUpdatedAt
   )
@@ -913,6 +928,10 @@ function parseSkill(input: SkillMutableInput & { slug?: string }, create: boolea
     content,
     requiredScopes,
     visibility: input.visibility,
+    mcpDependencies:
+      input.mcpDependencies === undefined
+        ? undefined
+        : skillMcpDependenciesSchema.parse(input.mcpDependencies),
     ...(input.meta !== undefined
       ? {
           meta: {
@@ -957,6 +976,7 @@ function skillMutationData(parsed: ReturnType<typeof parseSkill>) {
     title: parsed.title,
     content: parsed.content,
     requiredScopes: parsed.requiredScopes,
+    ...(parsed.mcpDependencies === undefined ? {} : { mcpDependencies: parsed.mcpDependencies }),
     visibility: parsed.visibility,
     meta: parsed.meta === undefined ? Prisma.DbNull : parsed.meta,
     lastUpdatedAt: parsed.lastUpdatedAt ?? null,
@@ -1147,6 +1167,7 @@ async function skillAudit(
     meta: item.meta,
     lastUpdatedAt: item.lastUpdatedAt,
     contentSha256: createHash("sha256").update(item.content).digest("hex"),
+    mcpDependencies: skillMcpDependenciesSchema.parse(item.mcpDependencies),
     version: item.version,
   });
   const metadata =

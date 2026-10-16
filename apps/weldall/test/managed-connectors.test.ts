@@ -358,6 +358,9 @@ describe("managed provider boundaries", () => {
     const value = buildConnectionMetadata({
       row: {
         id: "c",
+        key: null,
+        accessMode: "OWNER_ONLY",
+        useScopes: [],
         providerSelection: selection,
         providerGrant: grant,
         credentialId: "private",

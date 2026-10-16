@@ -34,7 +34,7 @@ export function firstProviderId(): string {
 /** Returns up to 100 enabled providers' public button details, ordered for the login page. */
 export async function publicLoginProviders() {
   return db.loginProvider.findMany({
-    where: { enabled: true },
+    where: { enabled: true, encryptedClientSecret: { not: null }, validatedAt: { not: null } },
     orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     select: { id: true, buttonLabel: true, buttonColor: true, sortOrder: true },
     take: 100,
@@ -46,7 +46,8 @@ export async function publicLoginProviders() {
  */
 export async function currentProvider(id: string) {
   const row = await db.loginProvider.findUnique({ where: { id } });
-  if (!row?.enabled) throw new LoginError("provider_unavailable");
+  if (!row?.enabled || !row.encryptedClientSecret || !row.validatedAt)
+    throw new LoginError("provider_unavailable");
   const config = providerConfigSchema.parse({
     name: row.name,
     buttonLabel: row.buttonLabel,
@@ -64,6 +65,7 @@ export async function currentProvider(id: string) {
 }
 const payloadSchema = z.object({
   config: providerConfigSchema,
+  providerCreatedAt: z.iso.datetime().optional(),
   nonce: z.string(),
   verifier: z.string(),
   returnTo: z.string(),
@@ -86,7 +88,13 @@ export function safeReturnTo(value: string): string {
 export async function startLogin(input: { providerId: string; browser: string; returnTo: string }) {
   if (!(await installationCompleted())) throw new LoginError("setup_required");
   const { row, config } = await currentProvider(input.providerId);
-  return createAttempt({ ...input, config, mode: "login", providerVersion: row.version });
+  return createAttempt({
+    ...input,
+    config,
+    mode: "login",
+    providerVersion: row.version,
+    providerCreatedAt: row.createdAt.toISOString(),
+  });
 }
 /**
  * Starts installation or an optional setup test using draft provider values and a valid operator token.
@@ -151,6 +159,7 @@ async function createAttempt(input: {
   adminEmail?: string;
   setupTokenHash?: string;
   providerVersion?: number;
+  providerCreatedAt?: string;
   testAdminId?: string;
   testSessionId?: string;
   testId?: string;
@@ -196,6 +205,7 @@ async function createAttempt(input: {
           id,
           JSON.stringify({
             config: input.config,
+            providerCreatedAt: input.providerCreatedAt,
             nonce,
             verifier,
             returnTo,
@@ -241,13 +251,24 @@ export async function consumeAttempt(providerId: string, state: string, browser:
 /** A claimed attempt with authenticated state and a secret-bearing decrypted configuration. */
 export type ConsumedAttempt = Awaited<ReturnType<typeof consumeAttempt>>;
 
-/** Locks the provider through completion and rejects disabled or changed configurations. */
+/** Versions can repeat after IaC recreates a provider with the same UUID. */
+function assertAttemptProvider(
+  row: { enabled: boolean; version: number; createdAt: Date } | undefined,
+  attempt: ConsumedAttempt,
+) {
+  if (
+    !row?.enabled ||
+    row.version !== attempt.providerVersion ||
+    row.createdAt.toISOString() !== attempt.payload.providerCreatedAt
+  )
+    throw new LoginError("provider_changed");
+}
+/** Locks the provider through completion and rejects disabled, changed or recreated configurations. */
 async function assertCurrent(tx: Prisma.TransactionClient, attempt: ConsumedAttempt) {
   const rows = await tx.$queryRaw<
-    Array<{ enabled: boolean; version: number }>
-  >`SELECT "enabled", "version" FROM "LoginProvider" WHERE "id" = ${attempt.providerId} FOR UPDATE`;
-  if (!rows[0]?.enabled || rows[0].version !== attempt.providerVersion)
-    throw new LoginError("provider_changed");
+    Array<{ enabled: boolean; version: number; createdAt: Date }>
+  >`SELECT "enabled", "version", "createdAt" FROM "LoginProvider" WHERE "id" = ${attempt.providerId} FOR UPDATE`;
+  assertAttemptProvider(rows[0], attempt);
 }
 /**
  * Links an already-verified identity to a user within the caller's transaction.
@@ -382,7 +403,7 @@ export async function completeVerifiedAttempt(
 export async function verifyAttempt(attempt: ConsumedAttempt, query: string) {
   if (attempt.mode === "login") {
     const { row } = await currentProvider(attempt.providerId);
-    if (row.version !== attempt.providerVersion) throw new LoginError("provider_changed");
+    assertAttemptProvider(row, attempt);
   } else if (attempt.mode === "setup" || attempt.mode === "setup-test")
     await assertSetupOpen(attempt);
   // Only the query is received from the browser; origin/path and expected state are authenticated.

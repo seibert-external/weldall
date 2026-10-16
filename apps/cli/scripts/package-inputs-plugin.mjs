@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 const sdkEntry = fileURLToPath(new URL("../../../packages/sdk/src/index.ts", import.meta.url));
+const mcpEntry = fileURLToPath(new URL("../../../packages/sdk/src/mcp/index.ts", import.meta.url));
 
 // Injects build-time constants for the CLI bundle: the package version (baked
 // where the source imports ../package.json) and the install mode (baked where
@@ -12,6 +13,7 @@ export function packageInputsPlugin(version, installation) {
     name: "weldall-package-inputs",
     setup(build) {
       build.onResolve({ filter: /^@weldall\/sdk$/ }, () => ({ path: sdkEntry }));
+      build.onResolve({ filter: /^@weldall\/sdk\/mcp$/ }, () => ({ path: mcpEntry }));
       build.onResolve({ filter: /^\.\.\/package\.json$/ }, () => ({
         path: "package-version",
         namespace: "weldall",

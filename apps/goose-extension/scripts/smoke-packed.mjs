@@ -4,12 +4,24 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  ToolListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { fixture, organizationInstructions } from "../test/fixture.mjs";
 if (process.platform === "win32")
   throw new Error("Packed fake-CLI smoke requires POSIX; Windows needs the local native .exe.");
 const root = fileURLToPath(new URL("../", import.meta.url));
 const f = await fixture();
 const client = new Client({ name: "packed-smoke", version: "1" });
+let toolChanges = 0,
+  resourceChanges = 0;
+client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+  toolChanges++;
+});
+client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
+  resourceChanges++;
+});
 try {
   const [packed] = JSON.parse(
     execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", f.root], {
@@ -84,6 +96,7 @@ try {
             id: "connection-1",
             name: "work",
             connectorKey: "google",
+            capabilities: ["mcp"],
             connectorEnabled: true,
             status: "READY",
             accountName: "Test account",
@@ -97,8 +110,27 @@ try {
       });
     }
   }
+  const loaded = await client.callTool({
+    name: "read_skill_document",
+    arguments: { slug: "mcp.review" },
+  });
+  assert.notEqual(loaded.isError, true);
+  assert.equal(toolChanges, 1);
+  assert.equal(resourceChanges, 1);
+  const activated = (await client.listTools()).tools;
+  assert.equal(activated.length, 7);
+  const tool = activated.find((tool) => tool.name.endsWith("__fixture.read"));
+  assert.ok(tool);
+  const called = await client.callTool({ name: tool.name, arguments: {} });
+  assert.deepEqual(called.structuredContent, { complete: true });
+  const listed = await client.listResources();
+  assert.ok(listed.resources[0].uri.startsWith("weldall-mcp://google/"));
+  const read = await client.readResource({ uri: listed.resources[0].uri });
+  assert.equal(read.contents[0].text, "Packed fixture result");
   assert.equal(stderr, "");
-  console.log("Installed tarball + npx + stdio MCP: initialize, tools/list, all six tools passed.");
+  console.log(
+    "Installed tarball + npx + stdio: six stable tools, dynamic activation, list-change notifications, tool call and resource read passed (fake CLI; not Stock Goose acceptance).",
+  );
 } finally {
   await client.close();
   await f.cleanup();

@@ -143,12 +143,14 @@ const connectorPreview = (connector: ConnectorSummary): CachedConnectorPreview =
   key: connector.key,
   name: connector.name,
   groups: [...new Set(connector.scopes.map((scope) => scope.group))],
+  ...(connector.capabilities ? { capabilities: connector.capabilities } : {}),
 });
 
 const connectionPreview = (connection: ConnectionSummary): CachedConnectionPreview => ({
   name: connection.name,
   connectorKey: connection.connectorKey,
   status: connection.status,
+  ...(connection.capabilities ? { capabilities: connection.capabilities } : {}),
 });
 
 const cacheConnectorState = (
@@ -737,6 +739,7 @@ const connectionColumns = [
   { header: "Status" },
   { header: "Last used" },
   { header: "Requests", align: "right" },
+  { header: "Capabilities" },
 ] satisfies readonly TableColumn[];
 
 /** Formats server timestamps for compact human-readable connection tables. */
@@ -750,7 +753,8 @@ const formatShortTimestamp = (value: string | null) => {
 /** Maps managed-connection lifecycle states onto the shared terminal palette. */
 const getConnectionStatusColor = (status: string) => {
   if (status === "READY") return palette.success;
-  if (status === "RECONNECT_REQUIRED" || status === "REVOCATION_PENDING") return palette.warning;
+  if (["DISABLED", "RECONNECT_REQUIRED", "REVOCATION_PENDING"].includes(status))
+    return palette.warning;
   if (status === "DISCONNECTED") return palette.danger;
   return undefined;
 };
@@ -764,6 +768,7 @@ const buildConnectionRows = (connections: readonly ConnectionSummary[]) =>
     connection.status,
     formatShortTimestamp(connection.lastUsedAt),
     String(connection.requestCount),
+    connection.capabilities?.join(", ") ?? "—",
   ]);
 
 const connectorScopeGroups = (connector: ConnectorSummary) =>
@@ -788,6 +793,9 @@ export function ConnectorCard({
         {terminalText(connector.key)}
         <Text dimColor> · Type </Text>
         {terminalText(connector.type)}
+        {connector.capabilities && (
+          <Text> · Capabilities {connector.capabilities.join(", ") || "none"}</Text>
+        )}
       </Text>
       <Box flexDirection="column" marginTop={1}>
         <Text bold>Connection status</Text>
@@ -841,7 +849,13 @@ export function ConnectorCard({
   );
 }
 
-function ConnectionRequestGuide({ includeSetup = false }: { includeSetup?: boolean }) {
+function ConnectionRequestGuide({
+  includeSetup = false,
+  capabilities = ["http", "mcp"],
+}: {
+  includeSetup?: boolean;
+  capabilities?: readonly string[];
+}) {
   return (
     <Card title="Make provider requests" accent={palette.accent}>
       {includeSetup && (
@@ -850,16 +864,26 @@ function ConnectionRequestGuide({ includeSetup = false }: { includeSetup?: boole
           weldall connections connect &lt;connector-key&gt; --name &lt;connection-name&gt;
         </Text>
       )}
-      <Text>
-        <Text dimColor>Request: </Text>
-        weldall request --connection &lt;connection-name-or-id&gt; &lt;provider-https-url&gt;
-      </Text>
-      <Text>{terminalText(CONNECTION_USAGE_DISCOVERY_HINT)}</Text>
-      {CONNECTION_REQUEST_INSTRUCTIONS.slice(1).map((instruction) => (
-        <Text key={instruction} dimColor>
-          {instruction}
+      {capabilities.includes("http") && (
+        <Text>
+          <Text dimColor>Request: </Text>
+          weldall request --connection &lt;connection-name-or-id&gt; &lt;provider-https-url&gt;
         </Text>
-      ))}
+      )}
+      {capabilities.includes("mcp") && (
+        <Text>
+          <Text dimColor>MCP tools: </Text>
+          weldall mcp tools &lt;connector-key&gt; --connection &lt;connection-name-or-id&gt; --json
+        </Text>
+      )}
+      <Text>{terminalText(CONNECTION_USAGE_DISCOVERY_HINT)}</Text>
+      {(capabilities.includes("http") ? CONNECTION_REQUEST_INSTRUCTIONS.slice(1) : []).map(
+        (instruction) => (
+          <Text key={instruction} dimColor>
+            {instruction}
+          </Text>
+        ),
+      )}
     </Card>
   );
 }
@@ -870,6 +894,9 @@ export const printConnectionDetails = (connection: ConnectionSummary) => {
     ["Name", connection.name],
     ["Connection ID", connection.id],
     ["Connector", connection.connectorKey],
+    ...(connection.capabilities
+      ? [["Capabilities", connection.capabilities.join(", ") || "none"] as const]
+      : []),
     ["Status", connection.status],
     ["Account", connection.accountName],
     ["Account ID", connection.accountId],
@@ -954,7 +981,9 @@ export const printConnections = async ({
           columnIndex === 3 ? getConnectionStatusColor(value) : undefined
         }
       />
-      <ConnectionRequestGuide />
+      <ConnectionRequestGuide
+        capabilities={connections.flatMap((connection) => connection.capabilities ?? ["http"])}
+      />
     </Box>,
   );
 };
@@ -1015,7 +1044,10 @@ export const connectorsCommand = define({
             )}
           />
         ))}
-        <ConnectionRequestGuide includeSetup />
+        <ConnectionRequestGuide
+          includeSetup
+          capabilities={connectors.flatMap((connector) => connector.capabilities ?? ["http"])}
+        />
       </Box>,
     );
   },

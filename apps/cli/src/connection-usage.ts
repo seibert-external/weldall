@@ -17,17 +17,37 @@ const quoteArgument = (value: string) =>
 export const connectionShowCommand = (name: string) =>
   `weldall connections show ${quoteArgument(name)}`;
 
+export const connectionMcpToolsCommand = (
+  connection: Pick<ConnectionSummary, "connectorKey" | "name">,
+) =>
+  `weldall mcp tools ${quoteArgument(connection.connectorKey)} --connection ${quoteArgument(connection.name)} --json`;
+
 /** Format structured examples using the selected connection, without any provider-specific logic. */
 export function connectionUsage(connection: ConnectionSummary) {
+  // Only shipped HTTP servers omit capabilities; new MCP contracts always declare them.
+  const capabilities = connection.capabilities ?? ["http"];
   return {
-    instructions: [...CONNECTION_REQUEST_INSTRUCTIONS, ...(connection.usage?.instructions ?? [])],
-    examples: (connection.usage?.examples ?? []).map((example) => ({
-      ...example,
-      command: `weldall request --connection ${quoteArgument(connection.name)} --method ${quoteArgument(example.method)} ${quoteArgument(example.url)}`,
-    })),
+    instructions: [
+      ...(capabilities.includes("http") ? CONNECTION_REQUEST_INSTRUCTIONS : []),
+      ...(capabilities.includes("mcp")
+        ? [
+            `Discover tools: ${connectionMcpToolsCommand(connection)}`,
+            "Invoke a discovered tool with weldall mcp call; use its inputSchema for arguments. Run weldall mcp call --help for syntax.",
+          ]
+        : []),
+      ...(connection.usage?.instructions ?? []),
+    ],
+    examples: (capabilities.includes("http") ? (connection.usage?.examples ?? []) : []).map(
+      (example) => ({
+        ...example,
+        command: `weldall request --connection ${quoteArgument(connection.name)} --method ${quoteArgument(example.method)} ${quoteArgument(example.url)}`,
+      }),
+    ),
   };
 }
 
 /** Preserve legacy response shape when the server does not provide usage metadata. */
 export const withConnectionUsage = (connection: ConnectionSummary) =>
-  connection.usage ? { ...connection, usage: connectionUsage(connection) } : connection;
+  connection.usage || connection.capabilities
+    ? { ...connection, usage: connectionUsage(connection) }
+    : connection;

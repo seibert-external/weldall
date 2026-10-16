@@ -1,5 +1,9 @@
 # @weldall/sdk
 
+## Unreleased
+
+- Add a bounded, non-retrying DPoP MCP client for shared connections, with connector/connection discovery, tools, resources, calls and reads.
+
 ## 0.9.0
 
 ### Minor Changes

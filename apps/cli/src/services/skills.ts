@@ -37,6 +37,7 @@ export interface SkillList {
 }
 
 export interface SkillDetail extends SkillSummary {
+  mcpDependencies?: import("@weldall/sdk/mcp").SkillMcpDependency[];
   content: string;
   document: string;
 }
@@ -147,6 +148,13 @@ export async function showSkillWithSubject(
     typeof value.document !== "string"
   ) {
     throw new CliError("Weldall returned an invalid skill document");
+  }
+  if ("mcpDependencies" in value) {
+    const { skillMcpDependenciesSchema } = await import("@weldall/sdk/mcp");
+    const dependencies = skillMcpDependenciesSchema.safeParse(value.mcpDependencies);
+    if (!dependencies.success)
+      throw new CliError("Weldall returned invalid skill MCP dependencies");
+    return { result: { ...value, mcpDependencies: dependencies.data } as SkillDetail, subject };
   }
   return { result: value as SkillDetail, subject };
 }

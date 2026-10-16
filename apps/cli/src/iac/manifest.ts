@@ -4,7 +4,9 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { parseDocument } from "yaml";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
+import { skillMcpDependenciesSchema, atlassianMcpConfigSchema } from "@weldall/sdk/mcp";
 import { CliError } from "../errors.js";
+import { secretSections, secretPrimitiveSchemas } from "./secret-primitives.js";
 import { isRecord } from "../http.js";
 import { validateAtlassianConfiguration, canonicalAtlassianConfiguration } from "./atlassian.js";
 
@@ -19,6 +21,9 @@ export interface Manifest {
   workspace: { name: string; issuer: string };
   include?: string[];
   cli?: { logoUrl: string; darkLogoUrl?: string };
+  sharedConnections?: Record<string, unknown>;
+  groupProviders?: Record<string, unknown>;
+  loginProviders?: Record<string, unknown>;
   connectors?: Record<string, unknown>;
   scopes?: Record<string, unknown>;
   resources?: Record<string, unknown>;
@@ -38,6 +43,7 @@ export interface Lockfile {
 }
 
 const objectSections = [
+  ...secretSections,
   "connectors",
   "scopes",
   "resources",
@@ -62,7 +68,9 @@ export async function loadWorkspace(
   const manifest = parseYaml(await readFile(rootFile, "utf8"), rootFile) as Manifest;
   validateRoot(manifest);
   const merged: Manifest = structuredClone(manifest);
-  for (const section of objectSections) merged[section] = { ...(merged[section] ?? {}) };
+  for (const section of objectSections)
+    if (!secretSections.includes(section as any) || merged[section] !== undefined)
+      merged[section] = { ...(merged[section] ?? {}) };
   const includes = manifest.include ?? [];
   if (includes.length > MAX_INCLUDES)
     throw new CliError(`At most ${MAX_INCLUDES} includes are allowed`);
@@ -82,6 +90,7 @@ export async function loadWorkspace(
         throw new CliError(`Unknown fragment field ${field}`);
     for (const section of objectSections) {
       const additions = fragment[section] === undefined ? {} : record(fragment[section]);
+      if (fragment[section] !== undefined) merged[section] ??= {};
       for (const [address, value] of Object.entries(additions)) {
         if (address in (merged[section] ?? {}))
           throw new CliError(`Duplicate logical address ${section}.${address}`);
@@ -168,7 +177,8 @@ function validateManifest(value: Manifest) {
         throw new CliError("Private JWK member d is forbidden in Weldall YAML");
       validatePrimitive({ section, object });
       const identity = String(
-        object.key ??
+        object.id ??
+          object.key ??
           object.slug ??
           object.clientId ??
           object.email ??
@@ -180,14 +190,19 @@ function validateManifest(value: Manifest) {
     }
   if (count > MAX_OBJECTS) throw new CliError(`At most ${MAX_OBJECTS} objects are allowed`);
   for (const scope of Object.values(value.scopes ?? {}).map(record))
-    if (["weldall:login", "weldall:administer", "weldall:iac"].includes(String(scope.key)))
+    if (
+      ["weldall:login", "weldall:administer", "weldall:iac", "weldall:mcp"].includes(
+        String(scope.key),
+      )
+    )
       throw new CliError(`System scope ${scope.key} cannot be declared`);
   for (const assignment of [
     ...Object.values(value.emailAssignments ?? {}),
     ...Object.values(value.groupAssignments ?? {}),
   ].map(record))
-    if (Array.isArray(assignment.scopes) && assignment.scopes.includes("weldall:iac"))
-      throw new CliError("weldall:iac is machine-only");
+    for (const scope of ["weldall:iac", "weldall:mcp"])
+      if (Array.isArray(assignment.scopes) && assignment.scopes.includes(scope))
+        throw new CliError(`${scope} is machine-only`);
 }
 /** Rejects secrets and unknown provider policy fields before declarative state is submitted. */
 function validateGoogleConfiguration(value: unknown) {
@@ -233,7 +248,20 @@ function validatePrimitive({
   section: (typeof objectSections)[number];
   object: Record<string, unknown>;
 }) {
+  if (secretSections.includes(section as any)) {
+    if (
+      !secretPrimitiveSchemas[section as keyof typeof secretPrimitiveSchemas].safeParse(object)
+        .success
+    )
+      throw new CliError(
+        `Invalid public ${section} configuration; secrets and unknown fields are forbidden`,
+      );
+    return;
+  }
   const fields: Record<typeof section, string[]> = {
+    sharedConnections: [],
+    groupProviders: [],
+    loginProviders: [],
     connectors: [
       "key",
       "name",
@@ -255,7 +283,16 @@ function validatePrimitive({
       "requestPrefixes",
       "scopes",
     ],
-    skills: ["slug", "title", "content", "requiredScopes", "visibility", "meta", "lastUpdatedAt"],
+    skills: [
+      "slug",
+      "title",
+      "content",
+      "requiredScopes",
+      "visibility",
+      "meta",
+      "lastUpdatedAt",
+      "mcpDependencies",
+    ],
     machines: ["clientId", "name", "enabled", "publicKeys", "resources", "scopes"],
     emailAssignments: ["email", "scopes"],
     groupAssignments: ["provider", "groupId", "scopes"],
@@ -263,7 +300,10 @@ function validatePrimitive({
   for (const field of Object.keys(object))
     if (!fields[section].includes(field)) throw new CliError(`Unknown ${section} field ${field}`);
   const required = fields[section].filter(
-    (field) => !["skillDiscoveryEnabled", "publicKeys", "meta", "lastUpdatedAt"].includes(field),
+    (field) =>
+      !["skillDiscoveryEnabled", "publicKeys", "meta", "lastUpdatedAt", "mcpDependencies"].includes(
+        field,
+      ),
   );
   for (const field of required)
     if (!(field in object)) throw new CliError(`${section}.${field} is required`);
@@ -312,7 +352,7 @@ function validatePrimitive({
     if (object.envelopeProvider !== "LOCAL_ENV" && object.envelopeProvider !== "OPENBAO")
       throw new CliError("Envelope provider must be LOCAL_ENV or OPENBAO");
     if (
-      !["google", "atlassian"].includes(String(object.type)) ||
+      !["google", "atlassian", "atlassian-mcp"].includes(String(object.type)) ||
       typeof object.enabled !== "boolean"
     )
       throw new CliError("Invalid connector type or enabled flag");
@@ -320,7 +360,10 @@ function validatePrimitive({
     if (!requiredScopes.every((scope) => /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/.test(scope)))
       throw new CliError("Invalid connectors.requiredScopes");
     if (object.type === "atlassian") validateAtlassianConfiguration(object.provider);
-    else validateGoogleConfiguration(object.provider);
+    else if (object.type === "atlassian-mcp") {
+      if (!atlassianMcpConfigSchema.safeParse(object.provider).success)
+        throw new CliError("Invalid Atlassian MCP scope policy");
+    } else validateGoogleConfiguration(object.provider);
   } else if (section === "scopes") {
     validateText({
       field: "key",
@@ -360,6 +403,11 @@ function validatePrimitive({
         throw new CliError("requestPrefixes must be canonical HTTPS URLs");
     validateStringList({ field: "scopes" });
   } else if (section === "skills") {
+    if (
+      object.mcpDependencies !== undefined &&
+      !skillMcpDependenciesSchema.safeParse(object.mcpDependencies).success
+    )
+      throw new CliError("Invalid skills.mcpDependencies");
     validateText({
       field: "slug",
       max: 120,
@@ -559,6 +607,14 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
           })),
         }
       : {}),
+    ...Object.fromEntries(
+      secretSections
+        .filter((section) => manifest[section] !== undefined)
+        .map((section) => [
+          section,
+          canonicalRecords(section, (value) => secretPrimitiveSchemas[section].parse(value)),
+        ]),
+    ),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({
       ...value,
@@ -566,8 +622,11 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
       requestPrefixes: canonicalSet(value.requestPrefixes),
       scopes: canonicalSet(value.scopes),
     })),
-    skills: canonicalRecords("skills", (value) => ({
+    skills: canonicalRecords("skills", ({ mcpDependencies, ...value }) => ({
       ...value,
+      ...(mcpDependencies?.length
+        ? { mcpDependencies: skillMcpDependenciesSchema.parse(mcpDependencies) }
+        : {}),
       content: value.content.trim(),
       requiredScopes: canonicalSet(value.requiredScopes),
     })),

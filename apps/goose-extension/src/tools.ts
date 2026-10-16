@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  connectorCapabilitiesSchema,
+  skillMcpDependenciesSchema,
+  type SkillMcpDependency,
+} from "@weldall/sdk/mcp";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { REQUEST_TIMEOUT, type CliRunner } from "./cli.js";
 import { ExtensionError, safeError } from "./errors.js";
@@ -46,6 +51,7 @@ const cachedSummary = z.object({
   sourceName: text.optional(),
 });
 const detail = summary.extend({
+  mcpDependencies: skillMcpDependenciesSchema.optional(),
   document: z.string().min(1).max(256_000),
   involvedResources: z
     .array(z.object({ key: text, name: text }))
@@ -59,6 +65,7 @@ const connections = z
       name: text,
       connectorKey: text,
       connectorEnabled: z.boolean(),
+      capabilities: connectorCapabilitiesSchema.optional(),
       status: text,
       accountName: text.optional(),
       selectedScopes: z.array(text).max(256),
@@ -270,6 +277,7 @@ export async function callTool(
   name: string,
   input: unknown,
   signal?: AbortSignal,
+  activate?: (dependencies: SkillMcpDependency[], signal?: AbortSignal) => Promise<unknown>,
 ): Promise<CallToolResult> {
   try {
     const definition = definitions.find((tool) => tool.name === name);
@@ -286,9 +294,20 @@ export async function callTool(
       const skill = parsed(detail, await cli.run(["skills", "show", args.slug, "--json"], signal));
       if (skill.slug !== args.slug) throw new ExtensionError("invalid_response");
       const { document, involvedResources, ...metadata } = skill;
+      const activation = skill.mcpDependencies?.length
+        ? skill.available && activate
+          ? await activate(skill.mcpDependencies, signal)
+          : [
+              {
+                status: "unavailable",
+                reason: skill.available ? "host_activation_unsupported" : "skill_unavailable",
+              },
+            ]
+        : undefined;
       return result(
         {
           ...summarize(metadata),
+          ...(activation === undefined ? {} : { mcpActivation: activation }),
           ...(involvedResources === undefined ? {} : { involvedResources }),
         },
         document,

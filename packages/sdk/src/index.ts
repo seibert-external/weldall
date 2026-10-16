@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./errors.js";
 export * from "./constants.js";
+export * from "./connectors.js";
 export * from "./crypto.js";
 export * from "./scope.js";
 export * from "./replay.js";
@@ -9,6 +10,7 @@ export * from "./jwt.js";
 export * from "./id-jag.js";
 export * from "./resource-as.js";
 export * from "./machine.js";
+export { createWeldallMcpClient, WeldallMcpError } from "./mcp/client.js";
 export * from "./resource-registry.js";
 export * from "./skills.js";
 export * from "./core.js";

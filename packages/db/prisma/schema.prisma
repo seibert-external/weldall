@@ -37,6 +37,7 @@ model Scope {
   resources            ResourceScope[]
   allowedForMachines   MachineAllowedScope[]
   requiredByConnectors ConnectorRequiredScope[]
+  usedByConnections    ConnectionUseScope[]
   iacBinding           IacObjectBinding?
 
   @@index([updatedAt])
@@ -75,7 +76,7 @@ model GroupProvider {
   name                 String
   adapterType          String
   baseUrl              String
-  encryptedToken       String
+  encryptedToken       String?
   encryptionKeyVersion Int
   enabled              Boolean                @default(true)
   version              Int                    @default(1)
@@ -84,6 +85,7 @@ model GroupProvider {
   createdBy            String
   updatedBy            String
   assignments          GroupScopeAssignment[]
+  iacBinding           IacObjectBinding?
 
   @@index([enabled])
   @@index([updatedAt])
@@ -125,20 +127,21 @@ enum SkillVisibility {
 }
 
 model Skill {
-  id             String            @id @default(cuid())
-  slug           String            @unique
-  title          String
-  content        String
-  requiredScopes String[]          @default([])
-  visibility     SkillVisibility   @default(DEFAULT)
-  meta           Json?
-  lastUpdatedAt  String?
-  version        Int               @default(1)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  createdBy      String
-  updatedBy      String
-  iacBinding     IacObjectBinding?
+  id              String            @id @default(cuid())
+  slug            String            @unique
+  title           String
+  content         String
+  requiredScopes  String[]          @default([])
+  mcpDependencies Json              @default("[]")
+  visibility      SkillVisibility   @default(DEFAULT)
+  meta            Json?
+  lastUpdatedAt   String?
+  version         Int               @default(1)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  createdBy       String
+  updatedBy       String
+  iacBinding      IacObjectBinding?
 
   @@index([updatedAt])
 }
@@ -216,19 +219,20 @@ model DiscoveredSkillCatalog {
 }
 
 model DiscoveredSkill {
-  id             String                 @id @default(cuid())
-  catalogId      String
-  localId        String
-  canonicalId    String                 @unique
-  title          String
-  content        String
-  requiredScopes String[]               @default([])
-  visibility     SkillVisibility        @default(DEFAULT)
-  meta           Json?
-  lastUpdatedAt  String?
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
-  catalog        DiscoveredSkillCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  id              String                 @id @default(cuid())
+  catalogId       String
+  localId         String
+  canonicalId     String                 @unique
+  title           String
+  content         String
+  requiredScopes  String[]               @default([])
+  mcpDependencies Json                   @default("[]")
+  visibility      SkillVisibility        @default(DEFAULT)
+  meta            Json?
+  lastUpdatedAt   String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  catalog         DiscoveredSkillCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
 
   @@unique([catalogId, localId])
   @@index([catalogId])
@@ -319,6 +323,9 @@ enum IacPrimitiveKind {
   GROUP_ASSIGNMENT
   SKILL
   CONNECTOR
+  SHARED_CONNECTION
+  GROUP_PROVIDER
+  LOGIN_PROVIDER
 }
 
 enum IacOperationType {
@@ -370,6 +377,9 @@ model IacObjectBinding {
   groupAssignmentId String?               @unique
   skillId           String?               @unique
   connectorId       String?               @unique
+  sharedConnectionId String?              @unique
+  groupProviderId   String?               @unique
+  loginProviderId   String?               @unique
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -380,6 +390,9 @@ model IacObjectBinding {
   groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
   skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
   connector         Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  sharedConnection  Connection?           @relation(fields: [sharedConnectionId], references: [id], onDelete: SetNull)
+  groupProvider     GroupProvider?        @relation(fields: [groupProviderId], references: [id], onDelete: SetNull)
+  loginProvider     LoginProvider?        @relation(fields: [loginProviderId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])
@@ -422,6 +435,19 @@ model Connector {
   attempts                 ConnectionAuthorization[]
   requiredScopes           ConnectorRequiredScope[]
   iacBinding               IacObjectBinding?
+  registration             ConnectorRegistration?
+}
+
+/// Public-client DCR state; contains no client secret or user token. A claimed registration is
+/// never automatically reclaimed after a crash/ambiguous upstream result.
+model ConnectorRegistration {
+  connectorId String    @id
+  status      String
+  binding     String
+  clientId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 }
 
 model ConnectorRequiredScope {
@@ -436,12 +462,31 @@ model ConnectorRequiredScope {
 
 enum ConnectionStatus {
   READY
+  DISABLED
   REFRESHING
   RECONNECT_REQUIRED
   REVOCATION_PENDING
 }
 
+enum ConnectionAccessMode {
+  OWNER_ONLY
+  SCOPED
+}
+
+model ConnectionUseScope {
+  connectionId String
+  scopeId      String
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  scope        Scope      @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([connectionId, scopeId])
+  @@index([scopeId])
+}
+
 model Connection {
+  key               String?                   @unique
+  accessMode        ConnectionAccessMode      @default(OWNER_ONLY)
+  useScopes         ConnectionUseScope[]
   id                String                    @id @default(cuid())
   ownerId           String
   connectorId       String
@@ -450,6 +495,8 @@ model Connection {
   accountName       String
   providerSelection Json
   providerGrant     Json
+  enabled           Boolean                   @default(true)
+  iacBinding        IacObjectBinding?
   status            ConnectionStatus          @default(READY)
   version           Int                       @default(1)
   credentialId      String?                   @unique
@@ -466,7 +513,7 @@ model Connection {
   credential        EncryptedValue?           @relation(fields: [credentialId], references: [id], onDelete: Restrict)
   attempts          ConnectionAuthorization[]
 
-  @@unique([ownerId, name])
+  @@index([ownerId, name])
   @@index([connectorId, status])
 }
 
@@ -564,13 +611,14 @@ model LoginProvider {
   issuer                  String
   discoveryUrl            String?
   clientId                String
-  encryptedClientSecret   String
+  encryptedClientSecret   String?
   tokenEndpointAuthMethod String
   scopes                  String[]
   allowedEmailDomains     String[] @default([])
   enabled                 Boolean  @default(false)
   version                 Int      @default(1)
-  validatedAt             DateTime
+  validatedAt             DateTime?
+  iacBinding              IacObjectBinding?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
   createdBy               String

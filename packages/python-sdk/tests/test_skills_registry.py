@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 
 from weldall import (
@@ -83,6 +85,99 @@ def test_skill_catalog_strict_validation(value):
 def test_skill_tag_caps(tags):
     with pytest.raises(TypeError, match="meta"):
         parse_skill_catalog(catalog(skill(meta={"tags": tags})))
+
+
+def dependency(**patch):
+    value = {"connectorKey": "atlassian-mcp", "tools": ["search"], "includeResources": False}
+    value.update(patch)
+    return value
+
+
+def test_mcp_dependencies_roundtrip_without_mutating_the_publisher():
+    value = catalog(
+        skill(
+            mcpDependencies=[
+                dependency(connectorKey="z", tools=["write", "read", "read"]),
+                dependency(connectorKey="a", tools=[], includeResources=True),
+            ]
+        )
+    )
+    original = deepcopy(value)
+    expected = catalog(
+        skill(
+            mcpDependencies=[
+                dependency(connectorKey="a", tools=[], includeResources=True),
+                dependency(connectorKey="z", tools=["read", "write"]),
+            ]
+        )
+    )
+    assert parse_skill_catalog(value, RESOURCE) == expected
+    assert load_skill_catalog({"items": value["skills"]}, RESOURCE) == expected
+    assert load_skill_catalog({"load": lambda: value["skills"]}, RESOURCE) == expected
+    assert value == original
+
+
+def test_empty_mcp_dependencies_are_omitted():
+    assert parse_skill_catalog(catalog(skill(mcpDependencies=[]))) == catalog()
+
+
+def test_mcp_dependency_limits_accept_the_boundary():
+    dependencies = [
+        dependency(
+            connectorKey=str(i) * 120,
+            tools=[str(j) * 64 for j in range(10)] + [f"tool{j}" for j in range(22)],
+        )
+        for i in range(8)
+    ]
+    assert (
+        len(
+            parse_skill_catalog(catalog(skill(mcpDependencies=dependencies)))["skills"][0][
+                "mcpDependencies"
+            ]
+        )
+        == 8
+    )
+
+
+@pytest.mark.parametrize(
+    "dependencies",
+    [
+        None,
+        {},
+        "atlassian-mcp",
+        [None],
+        [[]],
+        [{}],
+        [dependency(connectorKey="")],
+        [dependency(connectorKey="UPPER")],
+        [dependency(connectorKey="bad/key")],
+        [dependency(connectorKey="a" * 121)],
+        [dependency(connectorKey=1)],
+        [dependency(tools=None)],
+        [dependency(tools="search")],
+        [dependency(tools=[])],
+        [dependency(tools=[""])],
+        [dependency(tools=["*"])],
+        [dependency(tools=["-option"])],
+        [dependency(tools=["read\n"])],
+        [dependency(tools=["ä"])],
+        [dependency(tools=["t" * 65])],
+        [dependency(tools=[1])],
+        [dependency(tools=["read"] * 33)],
+        [dependency(includeResources=1)],
+        [dependency(includeResources="false")],
+        [dependency(includeResources=None)],
+        [dependency(connection="personal")],
+        [dependency(serverKey="legacy")],
+        [{"connectorKey": "work", "tools": ["read"]}],
+        [{"connectorKey": "work", "includeResources": True}],
+        [dependency(), dependency()],
+        [dependency(connectorKey=f"connector-{i}") for i in range(9)],
+    ],
+)
+def test_invalid_mcp_dependencies_are_rejected(dependencies):
+    with pytest.raises(TypeError, match="MCP dependencies"):
+        parse_skill_catalog(catalog(skill(mcpDependencies=dependencies)))
 
 
 def test_skill_catalog_count_and_size_caps():

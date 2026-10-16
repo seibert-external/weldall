@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { connectorCapabilitiesSchema, type ConnectorCapability } from "@weldall/sdk";
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -11,12 +12,14 @@ const MAX_PREVIEW_ITEMS = 10_000;
 const MAX_SKILL_PREVIEW_LENGTH = 1_000;
 
 export interface CachedConnectorPreview {
+  capabilities?: ConnectorCapability[];
   key: string;
   name: string;
   groups: string[];
 }
 
 export interface CachedConnectionPreview {
+  capabilities?: ConnectorCapability[];
   name: string;
   connectorKey: string;
   status: string;
@@ -65,7 +68,11 @@ const validConnectors = (value: unknown): value is CachedConnectorPreview[] =>
       item !== null &&
       typeof (item as Partial<CachedConnectorPreview>).key === "string" &&
       typeof (item as Partial<CachedConnectorPreview>).name === "string" &&
-      validStrings((item as Partial<CachedConnectorPreview>).groups),
+      validStrings((item as Partial<CachedConnectorPreview>).groups) &&
+      ((item as Partial<CachedConnectorPreview>).capabilities === undefined ||
+        connectorCapabilitiesSchema.safeParse(
+          (item as Partial<CachedConnectorPreview>).capabilities,
+        ).success),
   );
 
 const validConnections = (value: unknown): value is CachedConnectionPreview[] =>
@@ -77,7 +84,11 @@ const validConnections = (value: unknown): value is CachedConnectionPreview[] =>
       item !== null &&
       typeof (item as Partial<CachedConnectionPreview>).name === "string" &&
       typeof (item as Partial<CachedConnectionPreview>).connectorKey === "string" &&
-      typeof (item as Partial<CachedConnectionPreview>).status === "string",
+      typeof (item as Partial<CachedConnectionPreview>).status === "string" &&
+      ((item as Partial<CachedConnectionPreview>).capabilities === undefined ||
+        connectorCapabilitiesSchema.safeParse(
+          (item as Partial<CachedConnectionPreview>).capabilities,
+        ).success),
   );
 
 const validSkills = (value: unknown): value is CachedSkillPreview[] =>

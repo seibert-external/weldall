@@ -38,9 +38,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "zod": "4.3.6"
+    "zod": "4.4.3"
   },
   "devDependencies": {
+    "@weldall/sdk": "workspace:*",
     "@types/node": "catalog:",
     "@weldall/tsconfig": "workspace:*",
     "esbuild": "^0.28.2",

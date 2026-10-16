@@ -30,10 +30,21 @@ else if (process.env.FAKE_ERROR) { console.error("\\x1b[31mMissing scope: expens
 else if (process.env.FAKE_LARGE) { process.stdout.write("x".repeat(3 * 1024 * 1024)); }
 else {
   const skill = {slug: "expenses.review", title: "Review expenses", preview: "Review employee expenses", available: true, missingScopes: [], source: {type: "admin"}, meta: {tags: ["expense"]}};
-  if (args[0] === "skills" && args[1] === "show") console.log(JSON.stringify({...skill, document: "# Expenses\\nRead the expense API.", privateKey: "should-not-escape"}));
+  if (args[0] === "skills" && args[1] === "show") console.log(JSON.stringify({...skill, slug: args[2], document: "# Expenses\\nRead the expense API.", ...(args[2] === "mcp.review" ? {mcpDependencies: [{connectorKey: "google", tools: ["fixture.read"], includeResources: true}]} : {}), privateKey: "should-not-escape"}));
   else if (args[0] === "skills" && args[1] === "find") console.log(JSON.stringify([{slug: skill.slug, title: skill.title, preview: skill.preview, available: skill.available, tags: skill.meta.tags, sourceName: "Weldall"}]));
   else if (args[0] === "skills") console.log(JSON.stringify({items: [skill], warnings: []}));
-  else if (args[0] === "connections") console.log(JSON.stringify([{id: "connection-1", name: "work", connectorKey: "google", connectorEnabled: true, status: "READY", accountName: "Test account", selectedScopes: ["mail:read", "mail:send"], grantedScopes: ["mail:read"], details: [{label: "Workspace", value: "example.com", providerToken: "should-not-escape"}], providerToken: "should-not-escape"}]));
+  else if (args[0] === "connections") console.log(JSON.stringify([{id: "connection-1", name: "work", connectorKey: "google", capabilities: ["mcp"], connectorEnabled: true, status: "READY", accountName: "Test account", selectedScopes: ["mail:read", "mail:send"], grantedScopes: ["mail:read"], details: [{label: "Workspace", value: "example.com", providerToken: "should-not-escape"}], providerToken: "should-not-escape"}]));
+  else if (args[0] === "mcp") {
+    const uri = "fixture:///report";
+    const results = {
+      list: [{key: "google", name: "Fixture MCP", capabilities: ["mcp"]}],
+      tools: {tools: [{name: "fixture.read", inputSchema: {type: "object"}}]},
+      resources: {resources: [{uri, name: "Report"}]},
+      call: {content: [{type: "resource_link", uri, name: "Report"}], structuredContent: {complete: true}},
+      "read-resource": {contents: [{uri, text: "Packed fixture result"}]}
+    };
+    console.log(JSON.stringify(results[args[1]]));
+  }
   else console.log(JSON.stringify({ok: true, method: args.find((arg) => arg.startsWith("--method="))}));
 }
 `,

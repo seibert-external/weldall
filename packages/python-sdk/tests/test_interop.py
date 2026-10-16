@@ -10,6 +10,7 @@ from weldall import (
     generate_es256_key_pair,
     issue_access_token,
     normalize_htu,
+    parse_skill_catalog,
     sign_es256,
     verify_access_token,
     verify_es256,
@@ -45,6 +46,33 @@ def test_whatwg_url_normalization_matches_node():
         "https://example.com/a%5Bb%7Cc%5D",
     ]
     assert [normalize_htu(value) for value in urls] == node("normalize", {"urls": urls})["urls"]
+
+
+def test_mcp_skill_catalog_matches_node():
+    value = {
+        "schemaVersion": 1,
+        "resource": RESOURCE,
+        "skills": [
+            {
+                "id": "recent",
+                "title": "Recent issues",
+                "content": "# Recent issues",
+                "visibility": "DEFAULT",
+                "requiredScopes": [],
+                "mcpDependencies": [
+                    {
+                        "connectorKey": "z",
+                        "tools": ["write", "read", "read"],
+                        "includeResources": False,
+                    },
+                    {"connectorKey": "a", "tools": [], "includeResources": True},
+                ],
+            }
+        ],
+    }
+    assert parse_skill_catalog(value) == node("skill-catalog", value)
+    value["skills"][0]["mcpDependencies"] = []
+    assert parse_skill_catalog(value) == node("skill-catalog", value)
 
 
 def test_node_artifacts_verify_in_python():

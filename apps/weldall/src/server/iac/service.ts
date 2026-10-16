@@ -1,6 +1,29 @@
 import { db, IAC_SCOPE_KEY, Prisma, SYSTEM_SCOPE_DEFINITIONS } from "@weldall/db";
+import {
+  saveSharedConnectionConfiguration,
+  sharedConfigInclude,
+} from "../connectors/core/shared-connections";
+import { deleteConnectionState } from "../connectors/core/deletion";
+import {
+  saveGroupProviderConfiguration,
+  removeGroupProviderConfiguration,
+} from "../group-providers/service";
+import {
+  prepareLoginProviderConfiguration,
+  saveLoginProviderConfiguration,
+  deleteLoginProviderConfiguration,
+  type PreparedLoginProvider,
+} from "../domain/login-provider-configuration";
+import {
+  publicSharedConnection,
+  publicGroupProvider,
+  publicLoginProvider,
+} from "../domain/secret-primitive-contracts";
+import { LoginError } from "../auth/oidc-config";
+import { AdminDomainError } from "../admin/service";
 import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
-import { createPlan, desiredObjects, loadPlanningState } from "./planner";
+import { createPlan, desiredObjects, loadPlanningState, skillMcpState } from "./planner";
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import { lockSkillScopeChanges } from "../domain/configuration";
 import { prismaAuditWriter, type AuditEventInput } from "../audit/service";
 import type { AuditReasonCode } from "../../lib/audit";
@@ -20,6 +43,7 @@ import {
   mutateSkill,
   reconcileMachine,
   type MutationActor,
+  type SkillMetaInput,
   PrimitiveMutationError,
 } from "../domain/primitive-mutations";
 
@@ -66,6 +90,7 @@ export async function applyIac(
     plannedRevision: number;
     configDigest: string;
     planDigest: string;
+    authorityConfirmation?: string | undefined;
     operationId: string;
   },
   actor: IacActor,
@@ -83,6 +108,21 @@ export async function applyIac(
           409,
         );
       if (committed.status === "SUCCEEDED") return committed.resultSummary;
+    }
+    const preparedLogins = new Map<string, PreparedLoginProvider>();
+    if (Object.keys(manifest.loginProviders ?? {}).length) {
+      await assertCallerAuthorized(db, actor);
+      const preflightPlan = createPlan(manifest, await loadPlanningState({ tx: db, manifest }));
+      assertDigest(input.planDigest, preflightPlan.digest, "STALE_PLAN");
+      if (preflightPlan.blockers.length)
+        throw new IacError("PLAN_BLOCKED", "Plan contains blockers", 409, {
+          blockers: preflightPlan.blockers,
+        });
+      assertAuthorityConfirmation(preflightPlan, input.authorityConfirmation);
+      for (const config of Object.values(manifest.loginProviders ?? {})) {
+        const row = await db.loginProvider.findUnique({ where: { id: config.id } });
+        preparedLogins.set(config.id, await prepareLoginProviderConfiguration(config, row));
+      }
     }
     return await db.$transaction(
       async (tx) => {
@@ -109,6 +149,7 @@ export async function applyIac(
           throw new IacError("PLAN_BLOCKED", "Plan contains blockers", 409, {
             blockers: freshPlan.blockers,
           });
+        assertAuthorityConfirmation(freshPlan, input.authorityConfirmation);
         await assertCallerSafe(tx, manifest, freshPlan, actor);
         await assertFinalAdministratorSafe(tx, manifest);
         await assertFinalReferencesSafe(tx, manifest);
@@ -121,7 +162,7 @@ export async function applyIac(
             priorRevision: workspace.revision,
           },
         });
-        await executeDesiredState({ tx, manifest, actor });
+        await executeDesiredState({ tx, manifest, actor, preparedLogins });
         const resultingRevision = workspace.revision + 1;
         const summary = {
           operationId: input.operationId,
@@ -155,16 +196,18 @@ export async function applyIac(
     );
   } catch (error) {
     const mapped =
-      error instanceof ConnectorError
-        ? new IacError(error.code, error.message, error.status)
-        : error instanceof PrimitiveMutationError
-          ? new IacError(
-              error.code,
-              error.message,
-              error.code === "NOT_FOUND" ? 404 : 409,
-              error.details,
-            )
-          : error;
+      error instanceof LoginError || error instanceof AdminDomainError
+        ? new IacError(error.code, error.message, 409)
+        : error instanceof ConnectorError
+          ? new IacError(error.code, error.message, error.status)
+          : error instanceof PrimitiveMutationError
+            ? new IacError(
+                error.code,
+                error.message,
+                error.code === "NOT_FOUND" ? 404 : 409,
+                error.details,
+              )
+            : error;
     await writeIacOutcomeAudit(db, actor, manifest.workspace, input, mapped);
     throw mapped;
   }
@@ -175,16 +218,20 @@ async function executeDesiredState({
   tx,
   manifest,
   actor,
+  preparedLogins,
 }: {
   tx: Prisma.TransactionClient;
   manifest: DesiredState;
   actor: IacActor;
+  preparedLogins: Map<string, PreparedLoginProvider>;
 }) {
   const desired = desiredObjects(manifest);
   const desiredAddresses = new Set(desired.map((item) => item.address));
   const bindings = await tx.iacObjectBinding.findMany({
     where: { workspaceId: manifest.workspace.id },
   });
+  await stageMcpRemovals(tx, bindings, desired, actor);
+  const retiredGroupProviderIds: string[] = [];
   const replacementResources = new Set<string>();
   const replacementScopes = new Map<string, string>();
   for (const item of desired) {
@@ -218,30 +265,45 @@ async function executeDesiredState({
     state?: unknown;
   }) => {
     let existing = bindings.find((binding) => binding.address === item.address);
+    const replaceGroupProvider =
+      existing?.kind === "GROUP_PROVIDER" &&
+      item.kind === "groupProvider" &&
+      existing.naturalIdentity !== item.identity;
     if (
       existing &&
       (fromDbKind(existing.kind) !== item.kind || existing.naturalIdentity !== item.identity)
     ) {
-      await deleteBoundObject({ tx, binding: existing, actor: mutationActor(actor) });
-      await tx.iacObjectBinding.delete({ where: { id: existing.id } });
-      existing = undefined;
+      if (replaceGroupProvider) {
+        // Keep the old provider until all desired assignments have moved to its replacement.
+        if (existing.groupProviderId) retiredGroupProviderIds.push(existing.groupProviderId);
+      } else {
+        await deleteBoundObject({ tx, binding: existing, actor: mutationActor(actor) });
+        await tx.iacObjectBinding.delete({ where: { id: existing.id } });
+        bindings.splice(bindings.indexOf(existing), 1);
+        existing = undefined;
+      }
     }
     const objectId = await upsertObject({
       tx,
       kind: item.kind,
       state: state as never,
-      binding: existing,
+      binding: replaceGroupProvider ? undefined : existing,
       actor,
+      preparedLogins,
     });
-    const target = bindingTarget({ kind: item.kind, id: objectId });
-    if (existing) await tx.iacObjectBinding.update({ where: { id: existing.id }, data: target });
-    else {
+    const target = {
+      ...bindingTarget({ kind: item.kind, id: objectId }),
+      naturalIdentity: item.identity,
+    };
+    if (existing) {
+      await tx.iacObjectBinding.update({ where: { id: existing.id }, data: target });
+      Object.assign(existing, target);
+    } else {
       const created = await tx.iacObjectBinding.create({
         data: {
           workspaceId: manifest.workspace.id,
           address: item.address,
           kind: toDbKind(item.kind),
-          naturalIdentity: item.identity,
           ...target,
         },
       });
@@ -255,13 +317,22 @@ async function executeDesiredState({
   for (const kind of [
     "scope",
     "connector",
+    "groupProvider",
+    "loginProvider",
+    "sharedConnection",
     "resource",
     "machine",
     "emailAssignment",
     "groupAssignment",
     "skill",
   ] as const)
-    for (const item of desired.filter((candidate) => candidate.kind === kind)) {
+    for (const item of desired
+      .filter((candidate) => candidate.kind === kind)
+      .sort((a, b) =>
+        kind === "loginProvider"
+          ? Number((b.state as any).enabled) - Number((a.state as any).enabled)
+          : 0,
+      )) {
       if (
         (kind === "scope" &&
           replacementScopes.has(
@@ -273,7 +344,19 @@ async function executeDesiredState({
           ))
       )
         continue;
-      if (kind === "connector" && replacementScopes.size) {
+      if (
+        kind === "sharedConnection" &&
+        (item.state as { useScopes: string[] }).useScopes.some((key) =>
+          replacedScopeIdentities.has(key),
+        )
+      ) {
+        // Stage links directly: the public mutation must always require a nonempty, valid scope list.
+        const binding = bindings.find((candidate) => candidate.address === item.address);
+        if (binding?.sharedConnectionId)
+          await tx.connectionUseScope.deleteMany({
+            where: { connectionId: binding.sharedConnectionId },
+          });
+      } else if (kind === "connector" && replacementScopes.size) {
         const state = item.state as { requiredScopes: string[] };
         await reconcileObject({
           item,
@@ -382,6 +465,7 @@ async function executeDesiredState({
   if (replacementResources.size || replacementScopes.size)
     for (const kind of [
       "connector",
+      "sharedConnection",
       "resource",
       "machine",
       "emailAssignment",
@@ -390,6 +474,54 @@ async function executeDesiredState({
     ] as const)
       for (const item of desired.filter((candidate) => candidate.kind === kind))
         await reconcileObject({ item });
+
+  for (const id of retiredGroupProviderIds) {
+    const provider = await tx.groupProvider.findUniqueOrThrow({ where: { id } });
+    await removeGroupProviderConfiguration(
+      tx,
+      { id, expectedVersion: provider.version },
+      mutationActor(actor),
+    );
+  }
+}
+
+/** Remove outgoing references within the same transaction before disabling/replacing targets.
+ * Existing admin fields are preserved; the final skill write still goes through mutateSkill.
+ */
+async function stageMcpRemovals(
+  tx: Prisma.TransactionClient,
+  bindings: Prisma.IacObjectBindingGetPayload<{}>[],
+  desired: ReturnType<typeof desiredObjects>,
+  actor: IacActor,
+) {
+  const desiredByAddress = new Map(desired.map((item) => [item.address, item]));
+  for (const binding of bindings.filter((b) => b.skillId)) {
+    const current = await tx.skill.findUnique({ where: { id: binding.skillId! } });
+    if (!current) continue;
+    const previous = skillMcpDependenciesSchema.parse(current.mcpDependencies);
+    const next = desiredByAddress.get(binding.address);
+    const desiredDeps = next?.kind === "skill" ? ((next.state as any).mcpDependencies ?? []) : [];
+    const kept = previous.filter((dep) =>
+      desiredDeps.some((d: { connectorKey: string }) => d.connectorKey === dep.connectorKey),
+    );
+    if (kept.length === previous.length) continue;
+    await mutateSkill(
+      tx,
+      {
+        action: "update",
+        id: current.id,
+        expectedVersion: current.version,
+        title: current.title,
+        content: current.content,
+        visibility: current.visibility,
+        requiredScopes: current.requiredScopes,
+        meta: current.meta === null ? undefined : (current.meta as SkillMetaInput),
+        lastUpdatedAt: current.lastUpdatedAt ?? undefined,
+        mcpDependencies: kept,
+      },
+      mutationActor(actor),
+    );
+  }
 }
 
 /** Upserts one manifest object through the product-specific mutation path used by IaC apply. */
@@ -399,12 +531,14 @@ async function upsertObject({
   state,
   binding,
   actor,
+  preparedLogins,
 }: {
   tx: Prisma.TransactionClient;
   kind: ReturnType<typeof desiredObjects>[number]["kind"];
   state: any;
   binding: any;
   actor: IacActor;
+  preparedLogins?: Map<string, PreparedLoginProvider>;
 }): Promise<string> {
   const mutation = mutationActor(actor);
   const connectorActor = {
@@ -412,6 +546,47 @@ async function upsertObject({
     requestId: actor.requestId,
     type: "machine" as const,
   };
+  if (kind === "sharedConnection") {
+    const current = binding?.sharedConnectionId
+      ? await tx.connection.findUnique({ where: { id: binding.sharedConnectionId } })
+      : null;
+    return (
+      await saveSharedConnectionConfiguration({
+        tx,
+        value: state,
+        ...(current ? { id: current.id } : {}),
+        expectedVersion: current?.version ?? null,
+        actor: connectorActor,
+      })
+    ).id;
+  }
+  if (kind === "groupProvider") {
+    const current = binding?.groupProviderId
+      ? await tx.groupProvider.findUnique({ where: { id: binding.groupProviderId } })
+      : null;
+    return (
+      await saveGroupProviderConfiguration(
+        tx,
+        {
+          value: state,
+          ...(current ? { id: current.id } : {}),
+          expectedVersion: current?.version ?? null,
+        },
+        mutation,
+      )
+    ).id;
+  }
+  if (kind === "loginProvider") {
+    const prepared = preparedLogins?.get(state.id);
+    if (!prepared)
+      throw new IacError("PREFLIGHT_REQUIRED", "Login provider preflight is required", 409);
+    return (
+      await saveLoginProviderConfiguration(tx, prepared, mutation, {
+        authority: true,
+        allowLastDisable: false,
+      })
+    ).id;
+  }
   if (kind === "connector") {
     const current = binding?.connectorId
       ? await tx.connector.findUnique({ where: { id: binding.connectorId } })
@@ -496,6 +671,7 @@ async function upsertObject({
               title: state.title,
               content: state.content,
               requiredScopes: state.requiredScopes,
+              mcpDependencies: state.mcpDependencies ?? [],
               visibility: state.visibility,
               meta: state.meta,
               lastUpdatedAt: state.lastUpdatedAt,
@@ -506,6 +682,7 @@ async function upsertObject({
               title: state.title,
               content: state.content,
               requiredScopes: state.requiredScopes,
+              mcpDependencies: state.mcpDependencies ?? [],
               visibility: state.visibility,
               meta: state.meta,
               lastUpdatedAt: state.lastUpdatedAt,
@@ -783,7 +960,10 @@ export async function getIacState(workspaceId: string) {
           item.emailAssignmentId ??
           item.groupAssignmentId ??
           item.skillId ??
-          item.connectorId;
+          item.connectorId ??
+          item.sharedConnectionId ??
+          item.groupProviderId ??
+          item.loginProviderId;
         return {
           address: item.address,
           kind: fromDbKind(item.kind),
@@ -856,6 +1036,27 @@ async function observedVersion(client: typeof db, binding: any): Promise<number>
     return (
       await client.connector.findUniqueOrThrow({
         where: { id: binding.connectorId },
+        select: { version: true },
+      })
+    ).version;
+  if (binding.sharedConnectionId)
+    return (
+      await client.connection.findUniqueOrThrow({
+        where: { id: binding.sharedConnectionId },
+        select: { version: true },
+      })
+    ).version;
+  if (binding.groupProviderId)
+    return (
+      await client.groupProvider.findUniqueOrThrow({
+        where: { id: binding.groupProviderId },
+        select: { version: true },
+      })
+    ).version;
+  if (binding.loginProviderId)
+    return (
+      await client.loginProvider.findUniqueOrThrow({
+        where: { id: binding.loginProviderId },
         select: { version: true },
       })
     ).version;
@@ -1098,7 +1299,30 @@ async function deleteBoundObject({
   binding: any;
   actor: MutationActor;
 }) {
-  if (binding.connectorId) {
+  if (binding.sharedConnectionId) {
+    await deleteConnectionState({
+      tx,
+      target: { connectionId: binding.sharedConnectionId },
+      actor,
+    });
+  } else if (binding.groupProviderId) {
+    const current = await tx.groupProvider.findUniqueOrThrow({
+      where: { id: binding.groupProviderId },
+    });
+    await removeGroupProviderConfiguration(
+      tx,
+      { id: current.id, expectedVersion: current.version },
+      actor,
+    );
+  } else if (binding.loginProviderId) {
+    await deleteLoginProviderConfiguration(tx, binding.loginProviderId, actor);
+  } else if (binding.connectorId) {
+    if (await tx.connection.count({ where: { connectorId: binding.connectorId } }))
+      throw new IacError(
+        "EXTERNAL_REFERENCE",
+        "Remove dependent connections explicitly before deleting a connector",
+        409,
+      );
     const current = await tx.connector.findUniqueOrThrow({ where: { id: binding.connectorId } });
     await deleteConnectorConfiguration({
       tx,
@@ -1162,6 +1386,9 @@ function compareBindingDeletes(left: any, right: any) {
     SKILL: 1,
     MACHINE: 2,
     RESOURCE: 3,
+    SHARED_CONNECTION: 1,
+    GROUP_PROVIDER: 4,
+    LOGIN_PROVIDER: 4,
     CONNECTOR: 4,
     SCOPE: 5,
   };
@@ -1171,6 +1398,15 @@ function compareBindingDeletes(left: any, right: any) {
 }
 async function lockIacConfiguration(tx: Prisma.TransactionClient) {
   await lockSkillScopeChanges(tx);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(181923, 3)`;
+}
+function assertAuthorityConfirmation(plan: IacPlan, confirmation?: string) {
+  if (plan.actions.some((a) => a.requiresAuthorityConfirmation) && confirmation !== plan.digest)
+    throw new IacError(
+      "AUTHORITY_CONFIRMATION_REQUIRED",
+      `Confirm identity authority for this exact plan with --acknowledge-authority ${plan.digest}; --yes is not sufficient.`,
+      409,
+    );
 }
 function assertDigest(received: string, expected: string, code: string) {
   if (received !== expected)
@@ -1186,6 +1422,9 @@ function toDbKind(kind: string): any {
       groupAssignment: "GROUP_ASSIGNMENT",
       skill: "SKILL",
       connector: "CONNECTOR",
+      sharedConnection: "SHARED_CONNECTION",
+      groupProvider: "GROUP_PROVIDER",
+      loginProvider: "LOGIN_PROVIDER",
     } as any
   )[kind];
 }
@@ -1199,6 +1438,9 @@ function fromDbKind(kind: string): any {
       GROUP_ASSIGNMENT: "groupAssignment",
       SKILL: "skill",
       CONNECTOR: "connector",
+      SHARED_CONNECTION: "sharedConnection",
+      GROUP_PROVIDER: "groupProvider",
+      LOGIN_PROVIDER: "loginProvider",
     } as any
   )[kind];
 }
@@ -1213,6 +1455,9 @@ function bindingTarget({ kind, id }: { kind: string; id: string }) {
       groupAssignment: { groupAssignmentId: id },
       skill: { skillId: id },
       connector: { connectorId: id },
+      sharedConnection: { sharedConnectionId: id },
+      groupProvider: { groupProviderId: id },
+      loginProvider: { loginProviderId: id },
     } as any
   )[kind];
 }
@@ -1226,6 +1471,9 @@ function nullBindingTarget(kind: string) {
       groupAssignment: { groupAssignmentId: null },
       skill: { skillId: null },
       connector: { connectorId: null },
+      sharedConnection: { sharedConnectionId: null },
+      groupProvider: { groupProviderId: null },
+      loginProvider: { loginProviderId: null },
     } as any
   )[kind];
 }
@@ -1240,7 +1488,16 @@ async function findNatural({
   identity: string;
 }): Promise<any> {
   let row: any;
-  if (kind === "connector")
+  if (kind === "sharedConnection")
+    row = await tx.connection.findFirst({
+      where: { key: identity, accessMode: "SCOPED" },
+      include: sharedConfigInclude,
+    });
+  else if (kind === "groupProvider")
+    row = await tx.groupProvider.findUnique({ where: { key: identity } });
+  else if (kind === "loginProvider")
+    row = await tx.loginProvider.findUnique({ where: { id: identity } });
+  else if (kind === "connector")
     row = await tx.connector.findUnique({
       where: { key: identity },
       include: connectorScopeInclude,
@@ -1289,58 +1546,68 @@ async function findNatural({
         { groupAssignmentId: row.id },
         { skillId: row.id },
         { connectorId: row.id },
+        { sharedConnectionId: row.id },
+        { groupProviderId: row.id },
+        { loginProviderId: row.id },
       ],
     },
   });
   const state =
-    kind === "connector"
-      ? buildConnectorState(row)
-      : kind === "scope"
-        ? { key: row.key, description: row.description }
-        : kind === "resource"
-          ? {
-              key: row.key,
-              name: row.name,
-              resourceIdentifier: row.resourceIdentifier,
-              authorizationServer: row.authorizationServer,
-              downstreamClientId: row.downstreamClientId,
-              enabled: row.enabled,
-              skillDiscoveryEnabled: row.skillDiscoveryEnabled,
-              requestPrefixes: row.requestPrefixes.map((item: any) => item.urlPrefix).sort(),
-              scopes: row.scopes.map((item: any) => item.scope.key).sort(),
-            }
-          : kind === "machine"
-            ? {
-                clientId: row.clientId,
-                name: row.name,
-                enabled: row.enabled,
-                publicKeys: Object.fromEntries(
-                  row.keys
-                    .filter((item: any) => !item.revokedAt)
-                    .sort((a: any, b: any) => a.kid.localeCompare(b.kid))
-                    .map((item: any) => [item.kid, item.publicJwk]),
-                ),
-                resources: row.allowedResources.map((item: any) => item.resource.key).sort(),
-                scopes: row.allowedScopes.map((item: any) => item.scope.key).sort(),
-              }
-            : kind === "emailAssignment"
-              ? {
-                  email: row.normalizedEmail,
-                  scopes: row.grants.map((item: any) => item.scope.key).sort(),
-                }
-              : kind === "groupAssignment"
+    kind === "sharedConnection"
+      ? publicSharedConnection(row)
+      : kind === "groupProvider"
+        ? publicGroupProvider(row)
+        : kind === "loginProvider"
+          ? publicLoginProvider(row)
+          : kind === "connector"
+            ? buildConnectorState(row)
+            : kind === "scope"
+              ? { key: row.key, description: row.description }
+              : kind === "resource"
                 ? {
-                    provider: row.provider.key,
-                    groupId: row.groupId,
-                    scopes: row.grants.map((item: any) => item.scope.key).sort(),
+                    key: row.key,
+                    name: row.name,
+                    resourceIdentifier: row.resourceIdentifier,
+                    authorizationServer: row.authorizationServer,
+                    downstreamClientId: row.downstreamClientId,
+                    enabled: row.enabled,
+                    skillDiscoveryEnabled: row.skillDiscoveryEnabled,
+                    requestPrefixes: row.requestPrefixes.map((item: any) => item.urlPrefix).sort(),
+                    scopes: row.scopes.map((item: any) => item.scope.key).sort(),
                   }
-                : {
-                    slug: row.slug,
-                    title: row.title,
-                    content: row.content,
-                    requiredScopes: [...row.requiredScopes].sort(),
-                    visibility: row.visibility,
-                  };
+                : kind === "machine"
+                  ? {
+                      clientId: row.clientId,
+                      name: row.name,
+                      enabled: row.enabled,
+                      publicKeys: Object.fromEntries(
+                        row.keys
+                          .filter((item: any) => !item.revokedAt)
+                          .sort((a: any, b: any) => a.kid.localeCompare(b.kid))
+                          .map((item: any) => [item.kid, item.publicJwk]),
+                      ),
+                      resources: row.allowedResources.map((item: any) => item.resource.key).sort(),
+                      scopes: row.allowedScopes.map((item: any) => item.scope.key).sort(),
+                    }
+                  : kind === "emailAssignment"
+                    ? {
+                        email: row.normalizedEmail,
+                        scopes: row.grants.map((item: any) => item.scope.key).sort(),
+                      }
+                    : kind === "groupAssignment"
+                      ? {
+                          provider: row.provider.key,
+                          groupId: row.groupId,
+                          scopes: row.grants.map((item: any) => item.scope.key).sort(),
+                        }
+                      : {
+                          slug: row.slug,
+                          title: row.title,
+                          content: row.content,
+                          requiredScopes: [...row.requiredScopes].sort(),
+                          ...skillMcpState(row.mcpDependencies),
+                          visibility: row.visibility,
+                        };
   return { id: row.id, owned: owned?.workspaceId, state };
 }
 async function writeIacAudit(

@@ -104,7 +104,7 @@ groupAssignments:
 
 `scope.expenses_read`, `emailAssignment.alice`, and `groupAssignment.finance` are names that IaC uses only inside this workspace. The part after the dot comes from the corresponding YAML map key. These IaC-only names do not change the actual objects in Weldall: A scope is still identified there by values such as `expenses:read`, and a person by an email address such as `alice@example.com`.
 
-The group provider must be configured in Weldall first. The CLI does not check whether the specified group ID actually exists.
+The group provider must already exist or be declared in the same workspace. Disabled drafts may be referenced but grant no permissions. The CLI does not check whether the specified group ID actually exists.
 
 Resources and machine clients use the same file format:
 
@@ -151,7 +151,7 @@ connectors:
     key: google
     name: Google Workspace
     type: google
-    enabled: true
+    enabled: false
     envelopeProvider: LOCAL_ENV
     requiredScopes: []
     provider:
@@ -164,7 +164,7 @@ connectors:
     key: company-jira
     name: Company Jira
     type: atlassian
-    enabled: true
+    enabled: false
     envelopeProvider: OPENBAO
     requiredScopes:
       - jira:use
@@ -222,6 +222,55 @@ skills:
 `meta.appearance.icon` accepts canonical kebab-case names from the [Lucide icon catalog](https://lucide.dev/icons/). Gradient overrides are applied only when both colors in a light or dark pair are six-digit hex colors; otherwise Weldall uses the deterministic slug-based fallback.
 
 The slug is the skill identity, so changing it replaces the skill. An IaC-managed skill remains editable in the admin UI; such edits are drift and the next apply restores the YAML state. Administrator-managed skills may override resource-published skills with the same canonical ID. Discovered skills and catalogs cannot be imported or managed.
+
+## Public configuration, UI-only credentials
+
+IaC also supports these public declarations; the [manifest schema](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1.schema.json) lists required fields and defaults:
+
+| Section             | Identity                                                | Credential provisioning |
+| ------------------- | ------------------------------------------------------- | ----------------------- |
+| `sharedConnections` | Stable `key`; scoped service accounts only              | Admin → Connections     |
+| `groupProviders`    | Stable `key`; `management-api-v1` adapter               | Admin → Group Providers |
+| `loginProviders`    | Stable provider `id` (UUID); preserves the callback URL | Admin → Login Providers |
+
+Create with `enabled: false`, apply, provision the credential in the UI, then explicitly enable and apply again. Secrets never enter YAML/state; provisioning/rotation does not activate an object, and disabling preserves its credential. Both connector and connection must be enabled. Disabled group/login providers grant no group access/start no logins.
+
+Shared connections require an existing connector, an existing credential-manager user and a nonempty list of non-system use scopes (scopes may be declared in the same workspace). All connector/use scopes apply even to administrators and credential managers. Personal OAuth cannot be imported.
+
+Plans check credential presence and known prerequisites, not upstream token validity; planning/import neither decrypt secrets nor contact OpenBao. Activation/credential operations retain provider checks and fail closed. The login issuer is immutable; credential-bound client IDs or directory endpoints need explicit UI reprovisioning, not silent credential reuse.
+
+### Identity administration and approval
+
+`weldall:iac` permits public login/group policy changes, not reading or provisioning secrets. Login activation and authority changes to active providers require approval of that specific plan:
+
+```sh
+weldall plan --json
+# Review requiresAuthorityConfirmation actions and copy this plan's digest:
+weldall up --yes --acknowledge-authority <digest>
+```
+
+`--yes` alone is insufficient; changed plans need new approval, also for API callers. IaC cannot disable/delete the last active login provider or reset installation; the confirmed UI recovery path is separate.
+
+### Import and recovery
+
+```sh
+weldall import connector company-jira --as connector.company_jira
+weldall import sharedConnection atlassian-bot --as sharedConnection.bot
+weldall import groupProvider company-directory --as groupProvider.directory
+weldall import loginProvider <existing-provider-uuid> --as loginProvider.sso
+```
+
+Import writes public configuration/bindings and preserves identity, callback, activation, credential manager and ciphertext; the next plan is a no-op. State move/unmanage also retain credentials. Public UI edits are drift; secret rotation is not, but can invalidate a saved plan.
+
+Restore deleted objects disabled, reprovision credentials, then enable explicitly: IaC cannot recover deleted secrets. Unmanaged/foreign dependencies block connector/group-provider deletion. Local deletion does not revoke upstream tokens.
+
+### Rollout and compatibility
+
+Back up the database, apply migrations through `0021_iac_secret_primitives` and deploy the matching server with a regenerated Prisma client before upgrading clients. Stored credentials/encryption formats are retained. Old server binaries against the migrated schema are unsupported; rollback requires a compatible backup.
+
+New sections/imports require discovery feature `iac-ui-secrets-v1`; legacy workflows still support older servers. Omitted sections differ from empty maps: retain e.g. `groupProviders: {}` to delete the last managed object. Incompatible partial snapshots fail before mutation instead of deleting unknown objects.
+
+Only an unfinished sign-in started before this upgrade needs a new click on “Sign in”; existing sessions remain valid. Callbacks are bound to provider creation time and version, so recreating a UUID cannot revive an old attempt.
 
 ## Essential CLI commands
 

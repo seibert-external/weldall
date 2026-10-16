@@ -162,6 +162,21 @@ describe("CLI brand", () => {
     vi.unstubAllEnvs();
   });
 
+  it("shows generic MCP capabilities and an MCP command in the cached header", () => {
+    const heading = helpHeader({
+      issuer: "https://weldall.example.com",
+      identity: null,
+      appendix: "",
+      scopes: [],
+      skills: [],
+      connectors: [{ key: "work", name: "Work", groups: [], capabilities: ["mcp"] }],
+      connections: [{ name: "work", connectorKey: "work", status: "READY", capabilities: ["mcp"] }],
+      columns: 120,
+    });
+    expect(heading).toContain("Work (work) [mcp]");
+    expect(heading).toContain("weldall mcp tools work --connection work --json");
+    expect(heading).not.toContain("weldall request");
+  });
   it("stacks the header and capped scope and skill previews vertically", () => {
     vi.stubEnv("NO_COLOR", "1");
     const heading = helpHeader({

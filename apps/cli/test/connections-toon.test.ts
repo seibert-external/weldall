@@ -89,6 +89,16 @@ describe("managed connection TOON output", () => {
     expect(output).not.toContain("requestPrefix");
   });
 
+  it("exposes capabilities in the generic connector catalog", () => {
+    const output = encodeConnectorsToon({
+      connectors: [connector({ capabilities: ["mcp"], type: "arbitrary-provider" })],
+      connections: [connection({ capabilities: ["mcp"] })],
+    });
+    expect(decode(output, { delimiter: "\t" })).toMatchObject({
+      connectors: [{ type: "arbitrary-provider", capabilities: ["mcp"] }],
+      connections: [{ capabilities: ["mcp"] }],
+    });
+  });
   it("leaves ownership and database plumbing in --json", () => {
     const output = encodeConnectionsToon({
       connections: [connection()],

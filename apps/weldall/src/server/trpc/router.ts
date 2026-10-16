@@ -1,6 +1,17 @@
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { z } from "zod";
+import {
+  createSharedConnection,
+  createSharedConnectionSchema,
+  updateSharedConnectionAccess,
+  updateSharedAccessSchema,
+  rotateSharedConnectionCredential,
+  rotateSharedCredentialSchema,
+  setSharedConnectionEnabled,
+  sharedEnabledSchema,
+} from "../connectors/core/shared-connections";
 import { isTrustedBrowserRequest } from "../auth/browser-request";
 import { AUDIT_EVENT_TYPES, getAuditEvent, listAuditEvents } from "../audit/service";
 import {
@@ -198,6 +209,26 @@ export const appRouter = trpc.router({
   admin: trpc.router({
     managed: trpc.router({
       configuration: adminProcedure.query(() => listManagedConnectorConfiguration()),
+      createSharedConnection: adminProcedure
+        .input(createSharedConnectionSchema)
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => createSharedConnection(input, ctx.adminActor)),
+        ),
+      updateSharedAccess: adminProcedure
+        .input(updateSharedAccessSchema)
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => updateSharedConnectionAccess(input, ctx.adminActor)),
+        ),
+      rotateSharedCredential: adminProcedure
+        .input(rotateSharedCredentialSchema)
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => rotateSharedConnectionCredential(input, ctx.adminActor)),
+        ),
+      setSharedConnectionEnabled: adminProcedure
+        .input(sharedEnabledSchema)
+        .mutation(({ input, ctx }) =>
+          mapDomainErrors(() => setSharedConnectionEnabled(input, ctx.adminActor)),
+        ),
       connections: adminProcedure.query(() => listConnections()),
       connection: adminProcedure
         .input(z.object({ id: z.string().min(1) }).strict())
@@ -576,6 +607,7 @@ export const appRouter = trpc.router({
               visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
               meta: skillMetaInput,
               lastUpdatedAt: z.string().optional(),
+              mcpDependencies: skillMcpDependenciesSchema.optional(),
             })
             .strict(),
         )
@@ -591,6 +623,7 @@ export const appRouter = trpc.router({
               visibility: z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]),
               meta: skillMetaInput,
               lastUpdatedAt: z.string().optional(),
+              mcpDependencies: skillMcpDependenciesSchema.optional(),
               expectedVersion: z.number().int().positive(),
             })
             .strict(),
@@ -620,7 +653,7 @@ export const appRouter = trpc.router({
               name: z.string().max(200),
               adapterType: z.literal("management-api-v1"),
               baseUrl: z.string().max(2_000),
-              token: z.string().min(1).max(10_000),
+              token: z.string().max(10_000).default(""),
               enabled: z.boolean(),
             })
             .strict(),

@@ -63,6 +63,7 @@ describe.skipIf(process.platform === "win32")("real stdio MCP", () => {
                 id: "connection-1",
                 name: "work",
                 connectorKey: "google",
+                capabilities: ["mcp"],
                 connectorEnabled: true,
                 status: "READY",
                 accountName: "Test account",

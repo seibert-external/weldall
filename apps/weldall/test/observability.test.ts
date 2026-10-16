@@ -101,6 +101,8 @@ describe("structured logging", () => {
       {
         authorization: "Bearer secret-value",
         nested: { access_token: "eyJheader.eyJpayload.signature" },
+        code: "oauth-authorization-code-secret",
+        errorCode: "grant_mismatch",
         messageWithCredential: "received DPoP abc.def.ghi",
         diagnostic:
           "user@example.com could not connect to postgresql://database:password@postgres:5432/weldall",
@@ -112,6 +114,8 @@ describe("structured logging", () => {
     expect(records[0]?.[0]).toMatchObject({
       authorization: "[***]",
       nested: { access_token: "[***]" },
+      code: "[***]",
+      errorCode: "grant_mismatch",
       messageWithCredential: "received [***]",
       diagnostic: "[***] could not connect to [***]postgres:5432/weldall",
       error: expect.objectContaining({ message: "request for [***] used [***]" }),

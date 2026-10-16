@@ -164,6 +164,40 @@ The result uses OAuth/Python snake-case keys: `access_token`, `token_type`,
 `at+jwt` tokens and `weldall-machine+jwt` tokens and returns a discriminated
 `auth.identity.type`.
 
+### Call shared MCP connections as a machine
+
+Provision a shared service-account key in the admin UI and assign `weldall:mcp` plus every connector/use scope. Request a token for Weldall itself, not a downstream resource:
+
+```python
+import asyncio
+from weldall import request_machine_token, create_weldall_mcp_client
+
+token = request_machine_token(
+    issuer=issuer,
+    client_id=client_id,
+    kid=kid,
+    key=key,
+    resource=f"{issuer}/api",
+    scopes=["weldall:mcp", "atlassian-mcp:use-shared"],
+)
+
+
+async def main():
+    mcp = create_weldall_mcp_client(issuer=issuer, access_token=token["access_token"], key=key)
+    target = {"connector_key": "atlassian-mcp", "connection": "production-bot"}
+    await mcp.list_tools(**target)
+    await mcp.call_tool(**target, name="TOOL_NAME", arguments={})
+
+
+asyncio.run(main())
+```
+
+Use a stable shared connection key and discovered names/arguments. Also available: `list_connectors`, `list_connections`, `list_resources` and `read_resource(connector_key=..., connection=..., uri=...)`. All MCP methods require `await`; other SDK APIs remain synchronous.
+
+Each request uses a fresh DPoP proof and validates shared contracts (including depth/node/URI/base64 limits): discovery 20 seconds, operations 30 seconds including connection, headers and body; requests/definitions 1 MiB, results 10 MiB. No retries: writes may already have executed. `WeldallMcpError` exposes sanitized code/status. Tokens/keys stay in memory; authorization is checked live. Machines cannot start OAuth or provision secrets. An optional `http_client` must be an `httpx.AsyncClient` on the same event loop, closed by its caller. Cancellation propagates as `asyncio.CancelledError` and closes the active response. See the [MCP reference](https://github.com/seibert-external/weldall/blob/main/apps/docs/src/content/docs/mcp.md) for setup and limitations.
+
+After TypeScript contract changes, regenerate with `pnpm --filter @weldall/sdk exec tsx scripts/export-mcp-contracts.ts`; TypeScript freshness and Python interoperability tests check the shared artifact.
+
 ## Publish instructions for agents
 
 A service can publish the commands that an agent needs for its API. Configure
@@ -186,6 +220,8 @@ exactly one static `items` list or synchronous `load` callable:
 
 Catalogs are strictly validated, limited to 100 skills and 1 MiB, and require
 replay protection because Weldall fetches them with one-use signed assertions.
+
+Skills may include `mcpDependencies` with camelCase wire keys, e.g. `[{"connectorKey": "atlassian-mcp", "tools": ["getJiraIssue"], "includeResources": False}]`; `SkillMcpDependency` is exported for typing. Limit: eight distinct connectors and 32 tools each; empty tools require `includeResources: True`. The SDK sorts connectors/deduplicates and sorts tools without mutating input, and omits empty dependencies. References may precede connector/scope creation; Weldall checks visibility/access, and the SDK does not provision connectors or credentials.
 
 ## Use managed signing keys
 

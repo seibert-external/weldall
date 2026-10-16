@@ -60,7 +60,12 @@ export async function resolveCli(env = process.env, cwd = process.cwd()): Promis
 }
 
 export interface CliRunner {
-  run(args: string[], signal?: AbortSignal, timeout?: number): Promise<string>;
+  run(
+    args: string[],
+    signal?: AbortSignal,
+    timeout?: number,
+    maximumOutput?: number,
+  ): Promise<string>;
 }
 
 export class WeldallCli implements CliRunner {
@@ -97,7 +102,18 @@ export class WeldallCli implements CliRunner {
     return instructions;
   }
 
-  run(args: string[], signal?: AbortSignal, timeout = CATALOG_TIMEOUT): Promise<string> {
+  run(
+    args: string[],
+    signal?: AbortSignal,
+    timeout = CATALOG_TIMEOUT,
+    maximumOutput = MAX_OUTPUT_BYTES,
+  ): Promise<string> {
+    if (
+      !Number.isSafeInteger(maximumOutput) ||
+      maximumOutput < 1 ||
+      maximumOutput > 12 * 1024 * 1024
+    )
+      return Promise.reject(new ExtensionError("invalid_request"));
     if (this.closed || signal?.aborted) return Promise.reject(new ExtensionError("cancelled"));
     if (this.operations.size >= 4) return Promise.reject(new ExtensionError("busy"));
     const controller = new AbortController();
@@ -147,7 +163,7 @@ export class WeldallCli implements CliRunner {
       const timer = setTimeout(() => stop("timeout"), timeout);
       child.stdout.on("data", (chunk: Buffer) => {
         outputBytes += chunk.length;
-        if (outputBytes > MAX_OUTPUT_BYTES) stop("output_limit");
+        if (outputBytes > maximumOutput) stop("output_limit");
         else if (!failure) stdout.push(chunk);
       });
       child.stderr.on("data", (chunk: Buffer) => {

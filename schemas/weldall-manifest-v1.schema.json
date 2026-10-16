@@ -46,6 +46,213 @@
         "type": "string"
       }
     },
+    "sharedConnections": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "connectorKey": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "useScopes": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160,
+              "pattern": "^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$"
+            }
+          },
+          "credentialManagerEmail": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+          },
+          "serviceAccountLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "provider": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "service-account-api-key"
+              },
+              "cloudIds": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": ["kind", "cloudIds"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "key",
+          "connectorKey",
+          "name",
+          "enabled",
+          "useScopes",
+          "credentialManagerEmail",
+          "serviceAccountLabel",
+          "provider"
+        ],
+        "additionalProperties": false
+      },
+      "maxProperties": 1000
+    },
+    "groupProviders": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "adapterType": {
+            "type": "string",
+            "const": "management-api-v1"
+          },
+          "baseUrl": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": ["key", "name", "adapterType", "baseUrl", "enabled"],
+        "additionalProperties": false
+      },
+      "maxProperties": 1000
+    },
+    "loginProviders": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,119}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "buttonLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "buttonColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "sortOrder": {
+            "default": 0,
+            "type": "integer",
+            "minimum": -10000,
+            "maximum": 10000
+          },
+          "issuer": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          },
+          "discoveryUrl": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "tokenEndpointAuthMethod": {
+            "type": "string",
+            "enum": ["client_secret_basic", "client_secret_post"]
+          },
+          "scopes": {
+            "default": ["openid", "profile", "email"],
+            "minItems": 2,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[\\x21\\x23-\\x5b\\x5d-\\x7e]{1,100}$"
+            }
+          },
+          "allowedEmailDomains": {
+            "default": [],
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 253,
+              "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "buttonLabel",
+          "buttonColor",
+          "issuer",
+          "clientId",
+          "tokenEndpointAuthMethod",
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
+      "maxProperties": 1000
+    },
     "connectors": {
       "type": "object",
       "maxProperties": 1000,
@@ -77,7 +284,7 @@
             "maxLength": 200
           },
           "type": {
-            "enum": ["google", "atlassian"]
+            "enum": ["google", "atlassian", "atlassian-mcp"]
           },
           "enabled": {
             "type": "boolean"
@@ -881,6 +1088,47 @@
                     "description": "Must be a subset of allowedScopes. Scope sets are deduplicated and sorted."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "allowedScopes": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "read:jira:agent-interface",
+                        "search:jira:agent-interface",
+                        "write:jira:agent-interface",
+                        "delete:jira:agent-interface",
+                        "manage:jira:agent-interface",
+                        "read:confluence:agent-interface",
+                        "search:confluence:agent-interface",
+                        "write:confluence:agent-interface"
+                      ]
+                    }
+                  },
+                  "defaultScopes": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "read:jira:agent-interface",
+                        "search:jira:agent-interface",
+                        "write:jira:agent-interface",
+                        "delete:jira:agent-interface",
+                        "manage:jira:agent-interface",
+                        "read:confluence:agent-interface",
+                        "search:confluence:agent-interface",
+                        "write:confluence:agent-interface"
+                      ]
+                    }
+                  }
+                },
+                "required": ["allowedScopes", "defaultScopes"],
+                "additionalProperties": false
               }
             ]
           }
@@ -898,6 +1146,7 @@
             "then": {
               "properties": {
                 "provider": {
+                  "required": ["clientId"],
                   "not": {
                     "required": ["grantType"]
                   }
@@ -918,6 +1167,25 @@
               "properties": {
                 "provider": {
                   "required": ["grantType", "products", "allowedCloudIds"]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["type"],
+              "properties": {
+                "type": {
+                  "const": "atlassian-mcp"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "provider": {
+                  "not": {
+                    "required": ["clientId"]
+                  }
                 }
               }
             }
@@ -1092,6 +1360,35 @@
                   "type": "string"
                 }
               }
+            }
+          },
+          "mcpDependencies": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "connectorKey": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+                },
+                "tools": {
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                  }
+                },
+                "includeResources": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["connectorKey", "tools", "includeResources"],
+              "additionalProperties": false
             }
           },
           "lastUpdatedAt": {
