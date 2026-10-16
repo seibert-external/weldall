@@ -1,5 +1,12 @@
 # @weldall/sdk
 
+## 0.10.0
+
+### Minor Changes
+
+- 65e5205: Add Atlassian MCP connections, private DPoP broker APIs, CLI/SDK access and skill-dependency activation. Credentials remain server-side; calls are not retried automatically. Deploy the matching migrations/server before updating clients. Configuration, authorization, host compatibility and limitations are documented in the MCP reference.
+- 65e5205: Add scope-shared Atlassian service-account connections with UI-only encrypted keys, stable identifiers and live user/machine authorization. Personal OAuth remains owner-only. SDK calls use DPoP, enforce bounds and do not retry automatically.
+
 ## Unreleased
 
 - Add a bounded, non-retrying DPoP MCP client for shared connections, with connector/connection discovery, tools, resources, calls and reads.
