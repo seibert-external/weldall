@@ -2,9 +2,7 @@
 
 ## Unreleased
 
-- Add `create_weldall_mcp_client` with async machine MCP discovery, tools/resources, calls and reads, fresh DPoP proofs, shared TypeScript contracts, cancellable total deadlines, sanitized errors and no retries.
-
-- Publish skill `mcpDependencies` with the same validation and normalization as the TypeScript SDK; export the `SkillMcpDependency` type.
+- Add async `create_weldall_mcp_client` for shared connections and `SkillMcpDependency` for skill catalogs, matching TypeScript contracts. Calls use DPoP, bounded deadlines and sanitized errors, with no automatic retries.
 
 ## 0.1.0
 

@@ -7,8 +7,6 @@ description: Die CLI- und SDK-Pakete für angebundene Unternehmensservices.
 
 Weldall veröffentlicht die npm-CLI sowie SDKs für TypeScript und Python. Die CLI läuft auf dem Gerät eines Mitarbeiters. Ein SDK läuft im angebundenen Service.
 
-Beide SDKs können [geteilte MCP-Verbindungen](../mcp/#geteilte-service-account-verbindungen) als Maschine mit `weldall:mcp`, allen Connector-/Nutzungsscopes und frischen DPoP-Proofs verwenden: `createWeldallMcpClient` (TypeScript) bzw. `create_weldall_mcp_client` (Python). Aufrufe sind begrenzt und werden niemals automatisch wiederholt. Es gibt keinen CLI-Maschinenmodus.
-
 ## `@weldall/cli`
 
 [`@weldall/cli`](https://www.npmjs.com/package/@weldall/cli) installiert den Befehl `weldall`. Node.js 22.15 oder neuer ist erforderlich.

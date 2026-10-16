@@ -5,22 +5,11 @@ description: Call Google and Atlassian Cloud APIs on behalf of the signed-in use
 
 Connectors let you call a service **on behalf of the user**. Each person connects their own account and approves access. Weldall keeps the credentials encrypted on the server and makes the calls; provider tokens never reach the CLI.
 
-Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side. REST connectors use personal, user-authorized access. Atlassian MCP additionally supports scope-shared service-account API keys.
+Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side. REST connectors use personal, user-authorized access; [Atlassian MCP](../mcp/) also supports scope-shared service-account keys.
 
-For remote MCP tools instead of REST requests, create an **Atlassian MCP** connector in the admin UI or through [IaC](../mcp/). Its endpoint and OAuth client registration are automatic. Existing Atlassian REST connections are not reused.
+Connectors/shared connections can be created disabled and provisioned in the UI, then explicitly enabled. Provisioning/rotation does not enable them; both must be enabled for use. [IaC](../infrastructure-as-code/#public-configuration-ui-only-credentials) manages public configuration/import, never secrets.
 
-Shared Atlassian MCP credentials are created and rotated in **Admin → Connections**, never in IaC. All connector and connection use scopes are required, including for administrators and credential managers. Personal OAuth cannot be shared. See [shared MCP connections](../mcp/#shared-service-account-connections) for setup, machine SDK access, and upstream revocation guidance.
-
-Connectors and shared connections may be created disabled without a secret. Provisioning or rotating a credential does not enable them; enable explicitly after provisioning. Both the connector and connection must be enabled for use. Public policy and existing-object import are supported through [IaC](../infrastructure-as-code/#public-configuration-ui-only-credentials); secrets remain UI-only.
-
-## Discover capabilities
-
-`weldall connectors --json` and `weldall connections show <name> --json` expose a `capabilities` array derived from the provider implementation. Use it instead of guessing from connector keys, names, or provider types:
-
-- `["http"]`: Google and Atlassian REST connections; use `weldall request --connection …`.
-- `["mcp"]`: MCP tools and resources; use `weldall mcp tools <connector-key> --connection …` to discover the live catalog.
-
-The CLI also includes capabilities in `--agentic` output and cached previews. Capabilities describe supported transports, not permission grants or guaranteed tool availability. They are not configurable fields in IaC or the admin form.
+`weldall connectors --json` and `weldall connections show <name> --json` report provider-derived `capabilities`: `["http"]` for `weldall request`, `["mcp"]` for `weldall mcp`. This also appears in agentic output/cached previews; it is not configurable and grants no permissions or guaranteed tools.
 
 ## Set up Google
 

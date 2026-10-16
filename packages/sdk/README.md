@@ -12,43 +12,6 @@ npm install @weldall/sdk
 
 The SDK requires Node.js 22.15 or newer. Hono, Next.js, and Astro are optional peer dependencies, so only install the framework used by your service. Deployed services must use HTTPS; Next.js route handlers must use the Node.js runtime.
 
-## Call shared MCP connections as a machine
-
-Assign `weldall:mcp` and every connector/connection use scope to the machine. Request a token
-for Weldall's own API resource, then use the stable shared connection key:
-
-```ts
-import { requestMachineToken, createWeldallMcpClient } from "@weldall/sdk";
-
-const token = await requestMachineToken({
-  issuer,
-  clientId,
-  kid,
-  key,
-  resource: `${issuer}/api`,
-  scopes: ["weldall:mcp", "atlassian-mcp:use-shared"],
-});
-const mcp = createWeldallMcpClient({ issuer, accessToken: token.accessToken, key });
-await mcp.listConnectors();
-await mcp.listConnections({ connectorKey: "atlassian-mcp" });
-await mcp.listTools({ connectorKey: "atlassian-mcp", connection: "production-bot" });
-await mcp.callTool({
-  connectorKey: "atlassian-mcp",
-  connection: "production-bot",
-  name: "getJiraIssue",
-  arguments: { cloudId, issueIdOrKey: "OPS-123" },
-});
-```
-
-Also available: `listResources` and `readResource({ connectorKey, connection, uri })`.
-All methods accept an optional `signal`; discovery takes at most 20 seconds and operations
-30 seconds. Requests/definitions are bounded to 1 MiB and results to 10 MiB, with shared
-structural/depth validation. Every request gets a fresh DPoP proof. No call is retried,
-even after a timeout or 401: execution may already have occurred. `WeldallMcpError` exposes
-a sanitized code/status, never upstream bodies. The client stores no tokens or keys on disk.
-Machines cannot start OAuth or provision secrets; configure the service-account key in the
-admin UI. Scope/key revocation and machine disablement are checked live.
-
 ## Hono example
 
 Install the adapter and server packages:
@@ -169,6 +132,30 @@ The SDK verifies the token profile, issuer, audience, subject, client, lifetime,
 Store private keys in deployment secrets, KMS, Vault, or another credential system. Do not put them in Weldall, manifests, repositories, errors, or logs. To rotate a key, register the new public key, deploy the matching private key, and revoke the old key after the rollout.
 
 When a `ReplayStore` is configured, every request needs a fresh DPoP proof. `replayStore: "disabled"` skips that check and accepts the resulting replay risk.
+
+### Call shared MCP connections as a machine
+
+Provision a shared service-account key in the admin UI and assign `weldall:mcp` plus every connector/use scope. Request a token for Weldall itself, not a downstream resource:
+
+```ts
+import { requestMachineToken, createWeldallMcpClient } from "@weldall/sdk";
+const token = await requestMachineToken({
+  issuer,
+  clientId,
+  kid,
+  key,
+  resource: `${issuer}/api`,
+  scopes: ["weldall:mcp", "atlassian-mcp:use-shared"],
+});
+const mcp = createWeldallMcpClient({ issuer, accessToken: token.accessToken, key });
+const target = { connectorKey: "atlassian-mcp", connection: "production-bot" };
+await mcp.listTools(target);
+await mcp.callTool({ ...target, name: "TOOL_NAME", arguments: {} });
+```
+
+Use a stable shared connection key and discovered tool names/arguments. Also available: `listConnectors`, `listConnections`, `listResources` and `readResource({ connectorKey, connection, uri })`. The MCP API is also exported from `@weldall/sdk/mcp`.
+
+All methods accept `signal`, use fresh DPoP proofs and validate bounded contracts: discovery 20 seconds, operations 30 seconds, requests/definitions 1 MiB, results 10 MiB. No automatic retries, including timeouts/401s: writes may already have executed. `WeldallMcpError` exposes sanitized code/status, not upstream bodies. Tokens/keys stay in memory; authorization is checked live. Machines cannot start OAuth or provision secrets. See the [MCP reference](https://github.com/seibert-external/weldall/blob/main/apps/docs/src/content/docs/mcp.md) for setup and limitations.
 
 ## Publishing skills
 

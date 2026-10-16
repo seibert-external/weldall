@@ -225,61 +225,23 @@ Der Slug ist die Identität des Skills; eine Änderung ersetzt den Skill. Ein ü
 
 ## Öffentliche Konfiguration, Secrets nur in der UI
 
-`sharedConnections`, `groupProviders` und `loginProviders` unterstützen deaktivierte Entwürfe ohne Platzhalter-Secrets. Mit `enabled: false` anlegen und anwenden, Credentials in der Admin-UI hinterlegen, danach in YAML ausdrücklich aktivieren und erneut anwenden. Provisionierung/Rotation aktiviert kein deaktiviertes Objekt; Deaktivieren erhält sein Credential.
+IaC unterstützt außerdem diese öffentlichen Deklarationen; Pflichtfelder und Defaults stehen im [Manifest-Schema](https://github.com/seibert-external/weldall/blob/main/schemas/weldall-manifest-v1.schema.json):
 
-```yaml
-connectors:
-  atlassian_mcp:
-    key: atlassian-mcp
-    name: Atlassian MCP
-    type: atlassian-mcp
-    enabled: false
-    envelopeProvider: LOCAL_ENV
-    requiredScopes: []
-    provider:
-      allowedScopes: [read:jira:agent-interface]
-      defaultScopes: []
+| Sektion             | Identität                                             | Credential hinterlegen  |
+| ------------------- | ----------------------------------------------------- | ----------------------- |
+| `sharedConnections` | Stabiler `key`; nur Scope-basierte Service-Accounts   | Admin → Connections     |
+| `groupProviders`    | Stabiler `key`; Adapter `management-api-v1`           | Admin → Group Providers |
+| `loginProviders`    | Stabile Provider-`id` (UUID); erhält die Callback-URL | Admin → Login Providers |
 
-sharedConnections:
-  bot:
-    key: atlassian-bot
-    connectorKey: atlassian-mcp
-    name: Team bot
-    enabled: false
-    useScopes: [jira:use]
-    credentialManagerEmail: alice@example.com
-    serviceAccountLabel: Team service account
-    provider:
-      kind: service-account-api-key
-      cloudIds: []
+Mit `enabled: false` anlegen und anwenden, Credential in der UI hinterlegen, danach ausdrücklich aktivieren und erneut anwenden. Secrets gehören nie in YAML/State; Provisionierung/Rotation aktiviert nichts, Deaktivieren erhält das Credential. Connector und Verbindung müssen aktiv sein. Deaktivierte Group-/Login-Provider gewähren keine Gruppenrechte/starten keine Logins.
 
-groupProviders:
-  directory:
-    key: company-directory
-    name: Company directory
-    adapterType: management-api-v1
-    baseUrl: https://directory.example.com
-    enabled: false
+Geteilte Verbindungen benötigen einen vorhandenen Connector, einen bestehenden Benutzer als Credential-Verantwortlichen und eine nichtleere Liste von Nicht-System-Nutzungsscopes (Scopes dürfen im selben Workspace deklariert werden). Alle Connector-/Nutzungsscopes gelten auch für Administratoren und Credential-Manager. Persönliches OAuth kann nicht importiert werden.
 
-loginProviders:
-  sso:
-    id: 61726b4a-d245-49c5-adb7-80481fd68b13
-    name: Company SSO
-    buttonLabel: Continue with SSO
-    buttonColor: "#2563eb"
-    issuer: https://idp.example.com
-    clientId: weldall
-    tokenEndpointAuthMethod: client_secret_post
-    enabled: false
-```
-
-Das Beispiel setzt voraus, dass `jira:use` existiert oder im selben Workspace deklariert wird und Alice bereits ein Weldall-Benutzer ist. Der Credential-Verantwortliche erhält keine zusätzlichen Aufrufrechte. Nur Scope-basierte Service-Account-Connections sind verwaltbar; persönliche OAuth-Connections können nicht importiert werden. Connector und Connection müssen für die Nutzung aktiviert sein. Deaktivierte Group Provider gewähren keine Gruppenrechte; deaktivierte Login Provider können keine Anmeldung starten.
-
-Ein Plan prüft Credential-Präsenz und bekannte Voraussetzungen, nicht die Gültigkeit beim Upstream. Öffentliche Planung und Import entschlüsseln keine Credentials und kontaktieren OpenBao nicht. Aktivierung und Credential-Operationen behalten provider-spezifische Prüfungen und Fail-closed-Verhalten. Der Issuer ist unveränderlich; ein Wechsel einer credential-gebundenen Client-ID oder Directory-URL erfordert ausdrückliche Reprovisionierung in der UI, statt das alte Credential stillschweigend an eine neue Authority zu binden.
+Pläne prüfen Credential-Präsenz und bekannte Voraussetzungen, nicht die Upstream-Gültigkeit; Planung/Import entschlüsseln keine Secrets und kontaktieren OpenBao nicht. Aktivierung/Credential-Operationen behalten Provider-Prüfungen und Fail-closed-Verhalten. Der Login-Issuer ist unveränderlich; credential-gebundene Client-IDs oder Directory-URLs benötigen ausdrückliche Reprovisionierung in der UI statt stiller Wiederverwendung.
 
 ### Identity-Administration und Bestätigung
 
-`weldall:iac` ist ein privilegierter Konfigurationsadministrator-Scope: Er darf öffentliche Login-/Group-Identity-Policy ändern, aber keine Secrets lesen oder provisionieren. Login-Aktivierung und Authority-Änderungen eines aktiven Login Providers benötigen eine planbezogene Bestätigung:
+`weldall:iac` erlaubt öffentliche Login-/Group-Policy-Änderungen, kein Lesen/Provisionieren von Secrets. Login-Aktivierung und Authority-Änderungen aktiver Provider benötigen die Bestätigung dieses konkreten Plans:
 
 ```sh
 weldall plan --json
@@ -287,9 +249,9 @@ weldall plan --json
 weldall up --yes --acknowledge-authority <digest>
 ```
 
-`--yes` allein genügt nicht. Ein geänderter Plan braucht eine neue Bestätigung; der Server erzwingt das auch für direkte API-Aufrufe. IaC kann den letzten aktiven Login Provider weder deaktivieren/löschen noch die Installation zurücksetzen. Der bestehende bestätigte UI-Recovery-Weg bleibt davon getrennt.
+`--yes` allein genügt nicht; geänderte Pläne benötigen eine neue Freigabe, auch für API-Aufrufe. IaC kann weder den letzten aktiven Login-Provider deaktivieren/löschen noch die Installation zurücksetzen; der bestätigte UI-Recovery-Weg bleibt separat.
 
-### Import, Drift und Wiederherstellung
+### Import und Wiederherstellung
 
 ```sh
 weldall import connector company-jira --as connector.company_jira
@@ -298,31 +260,31 @@ weldall import groupProvider company-directory --as groupProvider.directory
 weldall import loginProvider <bestehende-provider-uuid> --as loginProvider.sso
 ```
 
-Import erhält Identität, Callback-URL, Aktivierung, Credential-Verantwortlichen und verschlüsselte Credentials unverändert. Geschrieben werden nur öffentliche Konfiguration und Bindungen; der nächste Plan ist ein No-op. State-Move und Unmanage erhalten ebenfalls die Credentials. Öffentliche UI-Änderungen sind Drift, Secret-Rotation nicht – sie kann aber einen älteren Plan ungültig machen.
+Import schreibt öffentliche Konfiguration/Bindungen und erhält Identität, Callback, Aktivierung, Credential-Verantwortlichen und Ciphertext; der nächste Plan ist ein No-op. State-Move/Unmanage erhalten ebenfalls Credentials. Öffentliche UI-Änderungen sind Drift, Secret-Rotation nicht; sie kann aber einen gespeicherten Plan ungültig machen.
 
-Ein manuell gelöschtes Objekt mit Credential muss deaktiviert wiederhergestellt, erneut provisioniert und ausdrücklich aktiviert werden. IaC stellt gelöschte Secrets nicht wieder her. Connector-/Group-Provider-Löschung wird durch unverwaltete oder fremd verwaltete Abhängigkeiten blockiert. Löschen in Weldall widerruft keine Upstream-Tokens.
+Gelöschte Objekte deaktiviert wiederherstellen, Credentials erneut hinterlegen, dann ausdrücklich aktivieren: IaC kann gelöschte Secrets nicht zurückholen. Unverwaltete/fremde Abhängigkeiten blockieren Connector-/Group-Provider-Löschung. Lokales Löschen widerruft keine Upstream-Tokens.
 
 ### Rollout und Kompatibilität
 
-Vor diesem Upgrade gestartete, noch laufende Login-Vorgänge müssen neu begonnen werden. Sie sind jetzt zusätzlich zur Version an den Erstellungszeitpunkt des Providers gebunden: Löschen und Wiederanlegen derselben Provider-UUID macht alte Callbacks nicht wieder gültig. Bestehende Sitzungen werden durch diese Prüfung nicht widerrufen.
+Datenbank sichern, Migrationen bis `0021_iac_secret_primitives` anwenden und den passenden Server mit neu generiertem Prisma-Client ausrollen, danach Clients aktualisieren. Credentials/Verschlüsselungsformate bleiben erhalten. Alte Server-Binaries gegen das migrierte Schema sind nicht unterstützt; Rollback benötigt ein kompatibles Backup.
 
-Zuerst Datenbankmigrationen und passenden Server ausrollen, Prisma-Client generieren/Server neu starten, danach die CLI aktualisieren. Die neuen Verträge benötigen das Discovery-Feature `iac-ui-secrets-v1`. Alte Workflows funktionieren weiterhin gegen ältere Server; neue Sektionen/Importe werden dort vor einer Mutation abgewiesen. Eine fehlende neue Sektion ist keine ausdrücklich leere Sektion: Server blockieren unvollständige Snapshots bereits erweiterter Workspaces, statt unbekannte Objekte zu löschen. Beim Entfernen des letzten Objekts einer solchen Sektion die leere Map beibehalten, zum Beispiel `groupProviders: {}`.
+Neue Sektionen/Importe benötigen das Discovery-Feature `iac-ui-secrets-v1`; bisherige Workflows unterstützen ältere Server weiter. Fehlende Sektionen unterscheiden sich von leeren Maps: zum Löschen des letzten verwalteten Objekts z. B. `groupProviders: {}` beibehalten. Unvollständige inkompatible Snapshots scheitern vor Änderungen, statt unbekannte Objekte zu löschen.
 
-Migrationen erhalten Credentials und Verschlüsselungsformate. Alte Server-Binaries gegen das migrierte Schema werden nicht unterstützt; Rollback erfordert ein kompatibles Datenbank-Backup, nicht nur ein CLI-Downgrade.
+Nur wer vor dem Upgrade eine Anmeldung begonnen, aber noch nicht abgeschlossen hat, muss erneut auf „Anmelden“ klicken; bestehende Sitzungen bleiben gültig. Callbacks sind an Erstellungszeitpunkt und Version gebunden, damit das Neuanlegen einer UUID keinen alten Vorgang reaktiviert.
 
 ## Die wichtigsten CLI-Befehle
 
-| Befehl                                             | Zweck                                                                                               |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `weldall init --name … --issuer …`                 | Legt einen neuen Workspace mit Root-Manifest, Lockdatei und Fragmentverzeichnis an.                 |
-| `weldall validate`                                 | Liest und prüft das Root-Manifest sowie alle Fragmente lokal, ohne den Server zu kontaktieren.      |
-| `weldall plan`                                     | Vergleicht die YAML-Konfiguration mit dem aktuellen Serverzustand, ohne etwas zu ändern.            |
-| `weldall up`                                       | Zeigt einen aktuellen Plan, fragt nach Bestätigung und wendet ihn anschließend an.                  |
-| `weldall up --yes`                                 | Ohne allgemeine Rückfrage; Login-Authority-Änderungen benötigen weiterhin planbezogene Bestätigung. |
-| `weldall import <kind> <identity> --as <iac-name>` | Übernimmt ein vorhandenes Objekt und gibt ihm einen Namen für diesen IaC-Workspace.                 |
-| `weldall unmanage <iac-name> --yes`                | Beendet die Verwaltung eines Objekts, ohne das Objekt selbst zu löschen.                            |
-| `weldall state mv <old> <new>`                     | Ändert den Namen, unter dem IaC das Objekt verwaltet; das Weldall-Objekt bleibt unverändert.        |
-| `weldall state pull`                               | Stellt die Zuordnungen in der Lockdatei aus dem Serverzustand wieder her.                           |
+| Befehl                                             | Zweck                                                                                          |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `weldall init --name … --issuer …`                 | Legt einen neuen Workspace mit Root-Manifest, Lockdatei und Fragmentverzeichnis an.            |
+| `weldall validate`                                 | Liest und prüft das Root-Manifest sowie alle Fragmente lokal, ohne den Server zu kontaktieren. |
+| `weldall plan`                                     | Vergleicht die YAML-Konfiguration mit dem aktuellen Serverzustand, ohne etwas zu ändern.       |
+| `weldall up`                                       | Zeigt einen aktuellen Plan, fragt nach Bestätigung und wendet ihn anschließend an.             |
+| `weldall up --yes`                                 | Wendet den Plan ohne Rückfrage an, zum Beispiel in der CI.                                     |
+| `weldall import <kind> <identity> --as <iac-name>` | Übernimmt ein vorhandenes Objekt und gibt ihm einen Namen für diesen IaC-Workspace.            |
+| `weldall unmanage <iac-name> --yes`                | Beendet die Verwaltung eines Objekts, ohne das Objekt selbst zu löschen.                       |
+| `weldall state mv <old> <new>`                     | Ändert den Namen, unter dem IaC das Objekt verwaltet; das Weldall-Objekt bleibt unverändert.   |
+| `weldall state pull`                               | Stellt die Zuordnungen in der Lockdatei aus dem Serverzustand wieder her.                      |
 
 `weldall plan --json` gibt den Plan als maschinenlesbares JSON aus. Mit `weldall plan --detailed-exit-code` signalisiert Exit-Code `2`, dass Änderungen anstehen.
 

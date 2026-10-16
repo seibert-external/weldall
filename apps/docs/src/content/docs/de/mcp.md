@@ -1,69 +1,41 @@
 ---
-title: Governed MCP
-description: Remote-MCP-Tools und Ressourcen über persönliche oder per Scope geteilte Weldall-Verbindungen verwenden.
+title: MCP
+description: Referenz für Konfiguration und Nutzung von Remote-MCP-Verbindungen.
 ---
 
-Weldall vermittelt MCP-Tools und Ressourcen über Streamable HTTP. Die CLI verwendet ausschließlich Weldalls private DPoP-geschützte JSON-API. Provider-Zugangsdaten bleiben verschlüsselt auf dem Server; in Goose bleibt `@weldall/goose` der sichtbare MCP-Server.
+Weldall vermittelt MCP-Tools und Ressourcen über Streamable HTTP. Clients verwenden die private DPoP-geschützte JSON-API; Provider-Zugangsdaten bleiben verschlüsselt auf dem Server. Dies ist kein öffentlicher MCP-Endpunkt.
 
 ## Einrichtung
 
-Lege in der bestehenden Connector-Verwaltung einen **Atlassian MCP**-Connector an oder verwende IaC. Es gibt keine zusätzliche MCP-Server-Konfiguration: Der Connector enthält die Richtlinien, darunter liegen die persönlichen Kontoverbindungen. Endpunkt, OAuth-Client-ID und Client-Secret müssen nicht eingegeben werden.
+Lege unter **Admin → Connectors** einen **Atlassian MCP**-Connector an oder verwende das [IaC-Beispiel](../../mcp/#configure-a-connector). Es gibt keine separate MCP-Server-Konfiguration. Der Endpunkt ist fest `https://mcp.atlassian.com/v2/mcp`; OAuth-Client-ID und Anwendungssecret werden nicht eingegeben. `LOCAL_ENV` oder `OPENBAO` wird beim Anlegen festgelegt und ist unveränderlich; bei OpenBao-Fehlern gibt es keinen lokalen Fallback. Bestehende Atlassian-REST-Verbindungen sind getrennt und werden nicht wiederverwendet. IaC-Apply startet keine Registrierung oder Zustimmung. Vor Deaktivierung/Löschung eines Connectors dessen Skill-Abhängigkeiten entfernen.
 
-Für Atlassian wird ein **separater Connector vom Typ `atlassian-mcp`** angelegt. Er verwendet `https://mcp.atlassian.com/v2/mcp`; bestehende Atlassian-REST-Verbindungen bleiben unverändert. Ein vollständiges Manifest findest du in der [englischen MCP-Referenz](../../mcp/). Lege `LOCAL_ENV` oder `OPENBAO` beim Erstellen fest; ein späterer Wechsel oder stiller Fallback ist nicht vorgesehen.
+```sh
+weldall connections connect atlassian-mcp --name my-atlassian-mcp
+weldall connections show my-atlassian-mcp
+```
 
-Die erste Kontoverbindung registriert bei Bedarf einen öffentlichen OAuth-Client. IaC-Apply führt keine Registrierung aus. PKCE S256 und `token_endpoint_auth_method: none` benötigen kein Client-Secret. Callback: `https://weldall.example.com/api/connectors/atlassian-mcp/callback` mit deiner Weldall-Domain. Zu den ausgewählten MCP-Berechtigungen kommen `read:me`, `read:account` und `offline_access`.
+Die erste Verbindung registriert einen öffentlichen OAuth-Client mit PKCE S256 und `token_endpoint_auth_method: none`. Callback: `https://weldall.example.com/api/connectors/atlassian-mcp/callback` mit deiner Weldall-Domain. Zu den MCP-Berechtigungen kommen `read:me`, `read:account` und `offline_access`.
 
-Atlassian kann weniger Scopes gewähren als angefordert. Weldall akzeptiert und speichert diesen reduzierten Grant, protokolliert fehlende Scopes und zeigt ausgewählte sowie gewährte Scopes in den Verbindungsdetails. Auch ein Refresh darf Scopes reduzieren; fehlt die Scope-Angabe, bleibt der bisher gewährte Umfang erhalten. Nicht angeforderte Scopes sowie ein Konto- oder Site-Wechsel beim Refresh werden weiterhin abgelehnt. Tools mit fehlenden Berechtigungen können nicht verfügbar sein oder von Atlassian abgelehnt werden.
+Tokens sind an eine Site gebunden und repräsentieren ein Atlassian-Systemkonto, nicht zwingend die angemeldete Person. Verbindungsdetails zeigen Cloud-ID sowie ausgewählte/gewährte Scopes. Reduzierte Grants werden akzeptiert; fehlende Berechtigungen können Tools unbenutzbar machen. Refresh verwendet die vom Provider gemeldete Laufzeit und erhält bisherige Scopes, wenn sie in der Antwort fehlen. Nicht angeforderte Scopes oder Konto-/Site-Wechsel werden abgelehnt. Bei Bedarf erneut verbinden.
 
-Der Token ist an eine Site gebunden und repräsentiert ein Atlassian-Systemkonto, nicht zwingend die angemeldete Person. Verbindungsdetails zeigen die Cloud-ID. Access-Tokens laufen derzeit nach acht Stunden ab; die verschlüsselte Verbindung übernimmt den Refresh. Refresh-Tokens gelten ungefähr 90 Tage, abhängig von Atlassians Regeln und Widerruf.
-
-Fehlgeschlagene oder unterbrochene Registrierungen werden nicht automatisch wiederholt. Ein Administrator muss den Zustand prüfen und gegebenenfalls Connector samt abhängiger Konfiguration bewusst entfernen und neu erstellen. Dasselbe gilt bei geändertem Callback-Ursprung. Beim Trennen kann ein zusätzlicher Widerruf in Atlassians Einstellungen erforderlich sein.
+Registrierung ist zwischen Workern koordiniert; parallele Anfragen können einen laufenden Vorgang melden. Fehlgeschlagene/unterbrochene Registrierungen werden nicht automatisch wiederholt. Vor bewusstem Neuanlegen des Connectors samt abhängiger Konfiguration den Fehler prüfen; ein geänderter Callback-Ursprung benötigt ebenfalls diese Wiederherstellung. Lokales Trennen ersetzt nicht den Widerruf in Atlassians Connected-App-Einstellungen.
 
 ## Geteilte Service-Account-Verbindungen
 
-Unter **Admin → Connections → Add shared connection** wählst du einen aktivierten
-Atlassian-MCP-Connector, eine unveränderliche eindeutige Verbindungskennung, einen Anzeigenamen,
-den geheimen API-Token und mindestens einen vorhandenen Weldall-Nutzungsscope.
-Die Kennung ist ein öffentlicher Name zur Auswahl der Verbindung in Apps und SDKs, **nicht der Token**.
-Der geheime API-Token ist nur schreibbar und wird per Envelope-Verschlüsselung gespeichert.
+Unter **Admin → Connections → Add shared connection** einen Atlassian-MCP-Connector, eine global eindeutige unveränderliche Kennung, einen Anzeigenamen und mindestens einen vorhandenen Nicht-System-Nutzungsscope wählen. Die Kennung wählt die Verbindung aus; sie ist **nicht der Token**. Unterstützt werden **Atlassian-Service-Account-API-Keys mit Bearer**, keine persönlichen Basic-Tokens oder geteilten OAuth-Grants. Die Organisation muss API-Token-Authentifizierung erlauben.
 
-Unterstützt werden ausschließlich **Atlassian-Service-Account-API-Keys mit Bearer**,
-keine persönlichen Basic-API-Tokens oder geteilten OAuth-Grants. Die Atlassian-Organisation muss
-API-Token-Authentifizierung erlauben; Weldall verlangt dafür keine Bestätigungs-Checkbox.
-Token-Berechtigungen werden in Atlassian verwaltet, nicht zusätzlich in Weldall konfiguriert
-oder von Weldall überprüft. Weldall-Nutzungsscopes steuern, wer die Verbindung verwenden darf,
-nicht die Atlassian-Berechtigungen des Tokens. Optionale Cloud-IDs sind Anzeigemetadaten und
-werden nicht in Argumente eingefügt. Manche Tools benötigen OAuth, andere explizite `cloudId`-Argumente.
+- Alle Connector-Scopes **und** alle Nutzungsscopes sind erforderlich, auch für Administratoren und Credential-Manager. Persönliches OAuth bleibt eigentümergebunden. Zugriffstyp und Kennung sind unveränderlich; Anzeigenamen dürfen mehrfach vorkommen.
+- Token-Berechtigungen verwaltet Atlassian; Weldall prüft sie nicht. Optionale Cloud-IDs sind Metadaten und werden nicht in Argumente eingefügt. Manche Tools benötigen OAuth, API-Key-Aufrufe gegebenenfalls ein explizites `cloudId`-Argument.
+- Deaktivierte Entwürfe benötigen kein Credential. Provisionierung/Rotation aktiviert sie nicht. Für Aufrufe müssen Connector und Verbindung aktiv sein; Deaktivieren erhält den Token. Die Detailansicht erlaubt versionsgeprüfte Scope-Änderung, Rotation und Löschung. **Reconnect required** ist ein Credential-Fehler, den der Aktivierungsschalter nicht behebt. Vor Ablauf rotieren; Keys separat in Atlassian widerrufen.
+- [IaC](../infrastructure-as-code/#öffentliche-konfiguration-secrets-nur-in-der-ui) verwaltet öffentliche Konfiguration und Import, niemals Secrets. Scope-Ersetzungen sind zusammen mit verwalteten Verbindungen atomar möglich; Referenzen außerhalb des Workspaces blockieren Löschung. Die Scopeliste darf nicht leer sein. Löschung entfernt die eigenen Scope-Zuordnungen und das verschlüsselte Credential, keinen Upstream-Zugriff.
 
-Alle Connector-Scopes **und** alle Nutzungsscopes müssen erfüllt sein; auch Administratoren
-und Credential-Manager erhalten keinen Bypass. Persönliches OAuth bleibt eigentümergebunden.
-Die Übersicht filtert Personal/Shared; die Detailansicht bietet versionsgeprüfte
-Scope-Änderung, Key-Rotation, Deaktivierung und Löschung. Zugriffstyp und Schlüssel bleiben
-unveränderlich. Deaktivieren setzt den Status auf **Disabled** und sperrt alle Aufrufe;
-der Token bleibt verschlüsselt gespeichert. **Enable connection** aktiviert den lokalen Zugriff
-wieder. Token-Rotation aktiviert eine deaktivierte Verbindung nicht automatisch.
-**Reconnect required** bleibt ein separater Fehlerzustand und lässt sich nicht über diesen
-Schalter aufheben. Keys separat in Atlassian
-widerrufen: lokale Löschung oder Deaktivierung ist kein Upstream-Widerruf.
+Maschinen verwenden `createWeldallMcpClient` (TypeScript) oder `create_weldall_mcp_client` (Python) mit `weldall:mcp`, allen Connector-/Nutzungsscopes und einem DPoP-Token für Weldalls eigene Resource (`https://weldall.example.com/api`). Kein CLI-Maschinenmodus, Maschinen-OAuth oder Secret-Provisionierung über die Laufzeit-API. Beispiele und sprachspezifische Details: [TypeScript](https://github.com/seibert-external/weldall/blob/main/packages/sdk/README.md#call-shared-mcp-connections-as-a-machine), [Python](https://github.com/seibert-external/weldall/blob/main/packages/python-sdk/README.md#call-shared-mcp-connections-as-a-machine).
 
-IaC verwaltet Scopes und Zuweisungen, **keine Secrets oder Shared-Connection-Platzhalter**.
-Referenzierte Scopes können nicht gelöscht werden. Zuerst die Verbindung in der UI löschen
-oder ihre Scopes ersetzen, dann den Scope in einem separaten IaC-Apply entfernen.
-
-Maschinen verwenden TypeScript/Python-SDKs mit `weldall:mcp`, allen Connector-/Nutzungsscopes
-und einem DPoP-Token für Weldalls eigene Resource. Es gibt keinen CLI-Maschinenmodus.
-`createWeldallMcpClient` bzw. `create_weldall_mcp_client` unterstützt Discovery, Tools,
-Ressourcen, Aufrufe und Lesezugriffe anhand des stabilen Verbindungsschlüssels.
-Python-MCP-Methoden sind asynchron und werden mit `await` aufgerufen. Das Gesamtzeitlimit
-umfasst Verbindungsaufbau, Header und Antwortinhalt.
-Jede Anfrage erhält einen neuen Proof; aktuelle Maschinenzuweisungen begrenzen die
-Token-Scopes. Kein Aufruf wird automatisch wiederholt. Beispiele:
-[englische MCP-Referenz](../../mcp/) und [SDKs](../sdks/).
+Discovery liefert nur zugängliche geteilte Verbindungen. Jede Anfrage erhält einen frischen Proof; aktuelle Zuweisungen begrenzen Token-Scopes. Scope-/Schlüsselwiderruf und Maschinendeaktivierung sperren folgende Aufrufe. SDK-Anfragen sind begrenzt und werden nicht wiederholt. Python-MCP-Methoden benötigen `await`.
 
 ## CLI
 
 ```sh
-weldall connections connect atlassian-mcp --name my-atlassian-mcp
 weldall mcp list --json
 weldall mcp tools atlassian-mcp --connection my-atlassian-mcp --json
 weldall mcp resources atlassian-mcp --connection my-atlassian-mcp --json
@@ -71,24 +43,20 @@ weldall mcp call atlassian-mcp TOOL_NAME --connection my-atlassian-mcp --argumen
 weldall mcp read-resource atlassian-mcp --connection my-atlassian-mcp --uri 'RESOURCE_URI' --json
 ```
 
-Tool-Namen, Argumente und Ressourcen-URIs müssen aus der tatsächlichen Discovery stammen. JSON-Ausgaben erhalten strukturierte Ergebnisse, fachliche Fehler sowie Text-/Blob-Inhalte. Fehlgeschlagene Aufrufe niemals automatisch wiederholen: Die Aktion könnte bereits ausgeführt worden sein.
+Tool-Namen, Argumente und Ressourcen-URIs aus der tatsächlichen Discovery verwenden. JSON erhält unterstützte Content-Blöcke, strukturierte Ergebnisse, fachliche Fehler und Text-/Blob-Ressourcen, nicht beliebige Upstream-Erweiterungen oder MCP-Apps-Metadaten. Jeder Aufruf prüft Autorisierung, Bereitschaft, Grants, Quota und Konfiguration erneut. Fehlgeschlagene Aufrufe niemals automatisch wiederholen: Die Aktion könnte bereits ausgeführt sein.
 
-## Goose und Skills
+## Skills und Agent-Hosts
 
-Connector- und Verbindungsmetadaten enthalten `capabilities: ["mcp"]`. Goose prüft dieses Feld statt Provider-Namen. `weldall mcp list --json` liefert den nach Fähigkeiten gefilterten Connector-Katalog; konkrete Tools werden weiterhin für das ausgewählte Konto live ermittelt.
+IaC-Skills und SDK-Kataloge können `mcpDependencies` mit `connectorKey`, exakten `tools` und `includeResources` deklarieren; siehe [Beispiel](../../mcp/#skills-and-agent-hosts). Das ist Kontextauswahl, **keine Berechtigung oder Tool-Allowlist**. SDK-Kataloge dürfen noch nicht vorhandene Connectoren/Scopes referenzieren, ohne sie anzulegen. MCP-abhängige Skills sind nur sichtbar/abrufbar, wenn alle Connectoren existieren, aktiviert und MCP-fähig sind und der Aufrufer deren Scopes besitzt. Eine fehlende persönliche Verbindung blendet den Skill nicht aus, unbekannte erforderliche Scopes dagegen schon. Dies gilt auch für veröffentlichte Skills unabhängig von der Sichtbarkeitseinstellung.
 
-SDK-Kataloge dürfen Scopes und Connectoren referenzieren, bevor diese existieren; die Referenzen werden gespeichert, ohne etwas automatisch anzulegen. Skills mit MCP-Abhängigkeiten erscheinen im Nutzerkatalog und sind direkt abrufbar, wenn alle referenzierten Connectoren existieren, aktiviert und MCP-fähig sind und der Nutzer die erforderlichen Connector-Scopes besitzt. Das gilt für manuelle und von Ressourcen veröffentlichte Skills unabhängig von ihrer Sichtbarkeitseinstellung. Eine fehlende persönliche Verbindung blendet den Skill nicht aus. Veröffentlichte Skills mit unbekannten erforderlichen Scopes bleiben bis zur Registrierung dieser Scopes verborgen.
+Hosts mit Weldalls lokaler MCP-Erweiterung müssen List-Changed-Notifications unterstützen. `read_skill_document` aktiviert nur deklarierte Tools/Ressourcen; Connector und Verbindung müssen ausdrücklich `capabilities: ["mcp"]` melden. Eine passende READY-Verbindung wird automatisch gewählt, bei mehreren Konten fragt der Agent und verwendet `select_mcp_connection` mit einer angebotenen ID. Fehlende Konten benötigen Einrichtung; mehrdeutige Namen werden abgewiesen. Beim Kataloglimit von 200 Verbindungen ist die Auswahl explizit. Weder Toolliste noch sitzungsgebundenes Konto sind dadurch austauschbar; für einen Kontowechsel eine neue Sitzung beginnen.
 
-`mcpDependencies` eines Skills enthält `connectorKey` (zum Beispiel `atlassian-mcp`), die exakten `tools` und `includeResources`. Beim Laden aktiviert Goose nur diese Tools. Genau eine passende READY-Verbindung wird automatisch verwendet; persönliche und zugängliche geteilte Verbindungen zählen gemeinsam. Bei mehreren Konten fragt der Agent und verwendet anschließend `select_mcp_connection`. Ohne Konto wird der fehlende Verbindungsaufbau gemeldet. Die Auswahl kann die im Skill festgelegten Tools nicht ersetzen. Erreicht der bestehende Verbindungskatalog sein Limit von 200 Einträgen, wird keine Eindeutigkeit angenommen; dann ist eine explizite Auswahl aus den sichtbaren Konten nötig.
-
-Aktivierung ist sitzungslokal und kumulativ. Ein Connector bleibt an dasselbe Konto gebunden. Tool-Namen verwenden `mcp_<Hash des Connector-Schlüssels>__upstreamName`; verwende die von der Erweiterung angebotenen Namen. Ressourcen verwenden `weldall-mcp://` und können nur über bekannte Sitzungseinträge gelesen werden. Änderungen melden sich über MCP-List-Changed-Notifications. Die sechs bisherigen Tools bleiben erhalten.
-
-Skill-Abhängigkeiten sind **keine Berechtigungen oder Tool-Allowlist**. Jeder Aufruf prüft serverseitig Eigentümer- oder Scope-Autorisierung, Connector-Zugriff, Zustand, Grants, Quota und aktuelle Konfiguration.
+Aktivierung ist kumulativ; vorhandene Tools bleiben erhalten. Angebotene `mcp_<Connector-Key-Hash>__upstreamName`-Namen und sitzungslokale `weldall-mcp://`-URIs verwenden, keine URLs konstruieren. Nur angebotene URIs können gelesen werden. Jeder Aufruf geht über die lokale CLI und wird serverseitig erneut autorisiert.
 
 ## Grenzen und Einführung
 
-Vor dem aktualisierten Server müssen die Migrationen bis einschließlich `0020_connection_disabled_status` eingespielt werden. Die bereits angewendete Migration `0018_mcp` bleibt unverändert; bestehende Konfiguration wird nicht zurückgesetzt. Für MCP-Workflows CLI und Goose-Erweiterung gemeinsam aktualisieren. Pro Skill sind acht Connector-Abhängigkeiten und 32 Tool-Namen je Connector erlaubt; Discovery ist auf 100 Tools/Ressourcen, 20 Seiten und 1 MiB begrenzt, Ergebnisse auf 10 MiB. Goose begrenzt CLI-Argumente zusätzlich auf 24.000 Zeichen.
-
-HTTPS, geprüfte Provider-Endpunkte und öffentliche IPv4-Ziele sind verpflichtend. DNS-Pinning und TLS-Hostname-Prüfung verhindern Zielwechsel. Redirects und automatische Wiederholungen sind deaktiviert. Audits enthalten Metadaten, keine Argumente, Ergebnisse oder Zugangsdaten.
-
-Nicht enthalten: öffentlicher MCP-Endpunkt, Prompts, Resource Templates/Subscriptions, MCP Apps oder Tool-spezifische Autorisierungsregeln. Automatische Fixture-/Pakettests ersetzen nicht die abschließende Atlassian- und Stock-Goose-Abnahme in deiner Umgebung.
+- [Rollout-Reihenfolge](../infrastructure-as-code/#rollout-und-kompatibilität) einschließlich `0021_iac_secret_primitives` beachten; lokale MCP-Erweiterung mit Server/CLI aktualisieren. Ältere HTTP-Workflows bleiben unterstützt. Live-Atlassian-Autorisierung und Host-Verhalten in der eigenen Umgebung prüfen; Fixture-Tests belegen diese Kompatibilität nicht.
+- Pro Skill höchstens 8 Connectoren und 32 Tools je Connector. Discovery: 100 Tools/Ressourcen, 20 Seiten, 1 MiB Definitionen. Ergebnisse: 10 MiB. Die lokale Erweiterung begrenzt CLI-Argumente auf 24.000 Zeichen.
+- Nur geprüfte kanonische HTTPS-Endpunkte mit öffentlichen IPv4-Zielen. DNS-Pinning und TLS-Hostname-Prüfung sind aktiv; Redirects, private Ziele, Proxy-Weiterleitung, automatische Aufrufwiederherstellung und Session-Resumption sind deaktiviert.
+- Audits enthalten Kennungen, Ergebnisse im Sinne von Erfolg/Fehler, Laufzeiten und Ressourcen-Fingerprints, keine Argumente, Inhalte oder Credentials.
+- Nicht enthalten: öffentlicher MCP-Endpunkt, Prompts, Resource Templates/Subscriptions, MCP Apps oder Tool-spezifische Autorisierungsregeln.

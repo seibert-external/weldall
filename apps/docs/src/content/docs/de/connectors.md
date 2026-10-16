@@ -5,22 +5,11 @@ description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person a
 
 Connectors rufen einen Dienst **im Namen der nutzenden Person** auf. Jede Person verbindet ihr eigenes Konto und gibt den Zugriff frei. Weldall speichert die Zugangsdaten verschlüsselt auf dem Server und führt die Aufrufe aus; Provider-Tokens gelangen nie in die CLI.
 
-Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. REST-Connectors verwenden persönliche Freigaben. Atlassian MCP unterstützt zusätzlich per Scope geteilte Service-Account-API-Keys.
+Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. REST-Connectors verwenden persönliche Freigaben; [Atlassian MCP](../mcp/) unterstützt auch per Scope geteilte Service-Account-Keys.
 
-Für Remote-MCP-Tools statt REST-Anfragen erstelle einen **Atlassian MCP**-Connector in der Admin-Oberfläche oder über [IaC](../mcp/). Endpunkt und OAuth-Client-Registrierung sind automatisch. Bestehende Atlassian-REST-Verbindungen werden nicht wiederverwendet.
+Connectoren/geteilte Verbindungen können deaktiviert angelegt, in der UI provisioniert und anschließend ausdrücklich aktiviert werden. Provisionierung/Rotation aktiviert sie nicht; beide müssen für Aufrufe aktiv sein. [IaC](../infrastructure-as-code/#öffentliche-konfiguration-secrets-nur-in-der-ui) verwaltet öffentliche Konfiguration/Import, niemals Secrets.
 
-Geteilte Atlassian-MCP-Zugangsdaten werden unter **Admin → Connections** erstellt und rotiert, niemals in IaC. Alle Connector- und Nutzungsscopes gelten auch für Administratoren und Credential-Manager. Persönliches OAuth bleibt privat. Details zu Einrichtung, Maschinen-SDKs und Upstream-Widerruf: [Geteilte MCP-Verbindungen](../mcp/#geteilte-service-account-verbindungen).
-
-Connectoren und geteilte Connections können deaktiviert ohne Secret angelegt werden. Provisionierung oder Rotation aktiviert sie nicht; die Aktivierung erfolgt anschließend ausdrücklich. Für die Nutzung müssen Connector und Connection aktiviert sein. Öffentliche Policy und Bestandsimport werden durch [IaC](../infrastructure-as-code/#öffentliche-konfiguration-secrets-nur-in-der-ui) unterstützt; Secrets bleiben ausschließlich in der UI.
-
-## Fähigkeiten erkennen
-
-`weldall connectors --json` und `weldall connections show <name> --json` liefern ein aus der Provider-Implementierung abgeleitetes Array `capabilities`. Clients werten dieses Feld aus, statt Connector-Key, Name oder Provider-Typ zu interpretieren:
-
-- `["http"]`: Google und Atlassian REST; Aufrufe über `weldall request --connection …`.
-- `["mcp"]`: MCP-Tools und Ressourcen; den aktuellen Katalog über `weldall mcp tools <connector-key> --connection …` entdecken.
-
-Die CLI zeigt Fähigkeiten auch in `--agentic` und zwischengespeicherten Vorschauen. Sie beschreiben unterstützte Transportwege, keine Berechtigungen oder garantierte Tool-Verfügbarkeit. Es gibt dafür kein konfigurierbares IaC-Feld und keinen Admin-Schalter.
+`weldall connectors --json` und `weldall connections show <name> --json` melden provider-abgeleitete `capabilities`: `["http"]` für `weldall request`, `["mcp"]` für `weldall mcp`. Das gilt auch für Agentic-Ausgabe/gecachte Vorschauen; das Feld ist nicht konfigurierbar und gewährt weder Berechtigungen noch garantierte Tools.
 
 ## Google einrichten
 
