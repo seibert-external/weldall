@@ -142,7 +142,14 @@ export function AtlassianConnectorDialog({
                 <TextInput
                   label="Client secret"
                   type="password"
-                  isRequired={!connector?.secretConfigured}
+                  isRequired={
+                    (value.enabled && !connector?.secretConfigured) ||
+                    Boolean(
+                      connector?.secretConfigured &&
+                      value.provider.clientId !== connector.config.provider.clientId,
+                    )
+                  }
+                  description="Optional for disabled drafts. Provisioning does not enable the connector; IaC manages public configuration only."
                   value={secret}
                   onChange={setSecret}
                   placeholder={

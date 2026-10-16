@@ -53,7 +53,7 @@ describe("MCP connector and skill IaC graph", () => {
         emailAssignments: { user: { email: "user@example.com", scopes: ["weldall:mcp"] } },
       }),
     ).toThrow("machine-only");
-    expect(() => parseDesiredState({ ...source(), sharedConnections: {} })).toThrow();
+    expect(parseDesiredState({ ...source(), sharedConnections: {} }).sharedConnections).toEqual({});
   });
   it("orders connector before skill creation without a separate primitive or client secret", () => {
     const plan = createPlan(parseDesiredState(source()), { revision: 0, objects: [] });

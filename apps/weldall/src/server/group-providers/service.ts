@@ -1,4 +1,10 @@
+import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { db, isMachineOnlySystemScope, Prisma } from "@weldall/db";
+import {
+  groupProviderConfigSchema,
+  publicGroupProvider,
+} from "../domain/secret-primitive-contracts";
 import { z } from "zod";
 import {
   AdminDomainError,
@@ -35,6 +41,8 @@ export interface GroupProviderDto {
   enabled: boolean;
   version: number;
   hasToken: boolean;
+  readiness: string;
+  management: ManagementDto;
   assignmentCount: number;
   createdAt: string;
   updatedAt: string;
@@ -53,7 +61,10 @@ export interface GroupAssignmentDto {
   management: ManagementDto;
 }
 
-const providerInclude = { _count: { select: { assignments: true } } } as const;
+const providerInclude = {
+  _count: { select: { assignments: true } },
+  iacBinding: managementBindingInclude,
+} as const;
 const assignmentInclude = {
   provider: { select: { key: true, name: true } },
   grants: { include: { scope: { select: { key: true } } } },
@@ -74,6 +85,121 @@ export async function getGroupProvider(id: string): Promise<GroupProviderDto> {
   return serializeProvider(provider);
 }
 
+/** Shared public mutation; only the authorized UI entrypoint supplies a replacement token. */
+export async function saveGroupProviderConfiguration(
+  tx: Prisma.TransactionClient,
+  input: {
+    value: unknown;
+    id?: string;
+    expectedVersion: number | null;
+    token?: string | undefined;
+  },
+  actor: MutationActor,
+) {
+  const config = groupProviderConfigSchema.parse(input.value);
+  const current = input.id
+    ? await tx.groupProvider.findUnique({ where: { id: input.id }, include: providerInclude })
+    : null;
+  if ((current?.version ?? null) !== input.expectedVersion) throw conflict("Group provider");
+  if (current && (current.key !== config.key || current.adapterType !== config.adapterType))
+    throw new AdminDomainError("INVALID_PROVIDER", "Provider identity and adapter cannot change.");
+  if (actor.type === "machine" && input.token !== undefined)
+    throw new AdminDomainError(
+      "INVALID_PROVIDER",
+      "Credentials can only be provisioned in the admin UI.",
+    );
+  const token = input.token?.trim() ? parseProviderToken(input.token) : undefined;
+  if (current?.encryptedToken && current.baseUrl !== config.baseUrl && !token)
+    throw new AdminDomainError(
+      "INVALID_PROVIDER",
+      "Changing the token destination requires a replacement token in the UI.",
+    );
+  if (config.enabled && !token && !current?.encryptedToken)
+    throw new AdminDomainError(
+      "INVALID_PROVIDER",
+      "MISSING_CREDENTIAL: provision the token in the admin UI before enabling.",
+    );
+  if (current?.enabled && !config.enabled) await assertGroupProviderAdminSafe(tx, current.id);
+  if (current && !token && isDeepStrictEqual(publicGroupProvider(current), config)) return current;
+  const id = current?.id ?? randomUUID();
+  const credential = token ? encryptProviderToken(id, token) : {};
+  const row = current
+    ? await tx.groupProvider.update({
+        where: { id, version: current.version },
+        data: {
+          ...config,
+          ...credential,
+          version: { increment: 1 },
+          updatedBy: actor.id,
+        },
+        include: providerInclude,
+      })
+    : await tx.groupProvider.create({
+        data: {
+          ...config,
+          ...credential,
+          id,
+          encryptionKeyVersion: 1,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+        include: providerInclude,
+      });
+  await writeProviderAudit(
+    tx,
+    actor,
+    current ? "group_provider.updated" : "group_provider.created",
+    row,
+    Boolean(token),
+  );
+  return row;
+}
+
+async function assertGroupProviderAdminSafe(tx: Prisma.TransactionClient, id: string) {
+  if (
+    !(await tx.groupScopeGrant.count({
+      where: { assignment: { providerId: id }, scope: { key: "weldall:administer" } },
+    }))
+  )
+    return;
+  const users = await tx.user.findMany({ where: { emailVerified: true }, select: { email: true } });
+  if (
+    !(await tx.emailScopeGrant.count({
+      where: {
+        scope: { key: "weldall:administer" },
+        assignment: {
+          normalizedEmail: { in: users.map(({ email }) => email.trim().toLowerCase()) },
+        },
+      },
+    }))
+  )
+    throw new AdminDomainError(
+      "CONFLICT",
+      "Keep a verified direct administrator before disabling this group provider.",
+    );
+}
+
+export async function removeGroupProviderConfiguration(
+  tx: Prisma.TransactionClient,
+  input: { id: string; expectedVersion: number },
+  actor: MutationActor,
+) {
+  const provider = await tx.groupProvider.findUnique({
+    where: { id: input.id },
+    include: providerInclude,
+  });
+  if (!provider) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
+  assertVersion(provider.version, input.expectedVersion, "Group provider");
+  if (provider._count.assignments)
+    throw new AdminDomainError(
+      "CONFLICT",
+      "Remove group assignments before deleting the provider.",
+    );
+  await tx.groupProvider.delete({ where: { id: input.id, version: input.expectedVersion } });
+  await writeProviderAudit(tx, actor, "group_provider.deleted", provider, false);
+  return { id: provider.id };
+}
+
 export async function createGroupProvider(
   input: {
     key: string;
@@ -86,32 +212,20 @@ export async function createGroupProvider(
   actor: AdminActor,
 ): Promise<GroupProviderDto> {
   const parsed = parseProviderInput(input);
-  const token = parseProviderToken(input.token);
   try {
     return await db.$transaction(async (tx) => {
       await lockConfigurationChanges(tx);
-      const pending = await tx.groupProvider.create({
-        data: {
-          ...parsed,
-          encryptedToken: "pending",
-          encryptionKeyVersion: 1,
-          createdBy: actor.id,
-          updatedBy: actor.id,
-        },
-      });
-      const credential = encryptProviderToken(pending.id, token);
-      const provider = await tx.groupProvider.update({
-        where: { id: pending.id },
-        data: credential,
-        include: providerInclude,
-      });
-      await writeProviderAudit(tx, actor, "group_provider.created", provider, true);
-      return serializeProvider(provider);
+      return serializeProvider(
+        await saveGroupProviderConfiguration(
+          tx,
+          { value: parsed, expectedVersion: null, token: input.token },
+          mutationActor(actor),
+        ),
+      );
     });
   } catch (error) {
-    if (isPrismaError(error, "P2002")) {
+    if (isPrismaError(error, "P2002"))
       throw new AdminDomainError("CONFLICT", `Group provider ${parsed.key} already exists.`);
-    }
     throw error;
   }
 }
@@ -127,46 +241,27 @@ export async function updateGroupProvider(
   },
   actor: AdminActor,
 ): Promise<GroupProviderDto> {
-  const name = parseName(input.name);
-  const baseUrl = normalizeProviderBaseUrl(input.baseUrl);
-  const replacementToken = input.token?.trim() ? parseProviderToken(input.token) : undefined;
   return db.$transaction(async (tx) => {
     await lockConfigurationChanges(tx);
     const current = await tx.groupProvider.findUnique({ where: { id: input.id } });
     if (!current) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
-    assertVersion(current.version, input.expectedVersion, "Group provider");
-    const credentialChanged = Boolean(replacementToken);
-    const credential = replacementToken ? encryptProviderToken(current.id, replacementToken) : {};
-    const unchanged =
-      current.name === name &&
-      current.baseUrl === baseUrl &&
-      current.enabled === input.enabled &&
-      !credentialChanged;
-    if (unchanged) {
-      const provider = await tx.groupProvider.findUniqueOrThrow({
-        where: { id: current.id },
-        include: providerInclude,
-      });
-      return serializeProvider(provider);
-    }
-    const write = await tx.groupProvider.updateMany({
-      where: { id: current.id, version: input.expectedVersion },
-      data: {
-        name,
-        baseUrl,
-        enabled: input.enabled,
-        ...credential,
-        version: { increment: 1 },
-        updatedBy: actor.id,
-      },
-    });
-    if (write.count !== 1) throw conflict("Group provider");
-    const provider = await tx.groupProvider.findUniqueOrThrow({
-      where: { id: current.id },
-      include: providerInclude,
-    });
-    await writeProviderAudit(tx, actor, "group_provider.updated", provider, credentialChanged);
-    return serializeProvider(provider);
+    return serializeProvider(
+      await saveGroupProviderConfiguration(
+        tx,
+        {
+          id: current.id,
+          expectedVersion: input.expectedVersion,
+          token: input.token,
+          value: {
+            ...publicGroupProvider(current),
+            name: parseName(input.name),
+            baseUrl: normalizeProviderBaseUrl(input.baseUrl),
+            enabled: input.enabled,
+          },
+        },
+        mutationActor(actor),
+      ),
+    );
   });
 }
 
@@ -176,24 +271,7 @@ export async function deleteGroupProvider(
 ): Promise<{ id: string }> {
   return db.$transaction(async (tx) => {
     await lockConfigurationChanges(tx);
-    const provider = await tx.groupProvider.findUnique({
-      where: { id: input.id },
-      include: providerInclude,
-    });
-    if (!provider) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
-    assertVersion(provider.version, input.expectedVersion, "Group provider");
-    if (provider._count.assignments > 0) {
-      throw new AdminDomainError(
-        "CONFLICT",
-        "Delete the provider's group assignments before deleting the provider.",
-      );
-    }
-    const deleted = await tx.groupProvider.deleteMany({
-      where: { id: provider.id, version: input.expectedVersion },
-    });
-    if (deleted.count !== 1) throw conflict("Group provider");
-    await writeProviderAudit(tx, actor, "group_provider.deleted", provider, false);
-    return { id: provider.id };
+    return removeGroupProviderConfiguration(tx, input, mutationActor(actor));
   });
 }
 
@@ -210,13 +288,22 @@ export async function testGroupProvider(
 ): Promise<{ status: "ok"; latencyMs: number; groupCount: number }> {
   const provider =
     "id" in input
-      ? await loadProviderSecret(input.id).then((stored) => ({
-          ...stored,
-          adapterType: z.literal("management-api-v1").parse(stored.adapterType),
-          ...(input.baseUrl ? { baseUrl: normalizeProviderBaseUrl(input.baseUrl) } : {}),
-          ...(input.token?.trim() ? { token: parseProviderToken(input.token) } : {}),
-          persisted: true,
-        }))
+      ? await db.groupProvider.findUniqueOrThrow({ where: { id: input.id } }).then((stored) => {
+          const baseUrl = input.baseUrl ? normalizeProviderBaseUrl(input.baseUrl) : stored.baseUrl;
+          const replacement = input.token?.trim() ? parseProviderToken(input.token) : undefined;
+          if (baseUrl !== stored.baseUrl && !replacement)
+            throw new AdminDomainError(
+              "INVALID_PROVIDER",
+              "Testing a new destination requires a replacement token.",
+            );
+          return {
+            ...stored,
+            baseUrl,
+            token: replacement ?? decryptProviderToken(stored),
+            adapterType: z.literal("management-api-v1").parse(stored.adapterType),
+            persisted: true,
+          };
+        })
       : {
           id: `configuration:${actor.requestId}`,
           key: parseProviderKey(input.key),
@@ -498,6 +585,11 @@ function parseAssignmentScopeKeys(values: string[]) {
 async function loadProviderSecret(id: string) {
   const provider = await db.groupProvider.findUnique({ where: { id } });
   if (!provider) throw new AdminDomainError("NOT_FOUND", "Group provider not found.");
+  if (!provider.enabled || !provider.encryptedToken)
+    throw new AdminDomainError(
+      "INVALID_PROVIDER",
+      "Group provider is disabled or missing a credential.",
+    );
   return { ...provider, token: decryptProviderToken(provider) };
 }
 
@@ -517,7 +609,8 @@ function serializeProvider(provider: {
   baseUrl: string;
   enabled: boolean;
   version: number;
-  encryptedToken: string;
+  encryptedToken: string | null;
+  iacBinding?: { address: string; workspace: { id: string; name: string } } | null;
   createdAt: Date;
   updatedAt: Date;
   _count: { assignments: number };
@@ -531,6 +624,12 @@ function serializeProvider(provider: {
     enabled: provider.enabled,
     version: provider.version,
     hasToken: Boolean(provider.encryptedToken),
+    readiness: !provider.encryptedToken
+      ? "MISSING_CREDENTIAL"
+      : provider.enabled
+        ? "READY"
+        : "DISABLED",
+    management: managementMetadata(provider.iacBinding),
     assignmentCount: provider._count.assignments,
     createdAt: provider.createdAt.toISOString(),
     updatedAt: provider.updatedAt.toISOString(),
@@ -567,7 +666,7 @@ function serializeAssignment(assignment: {
 
 async function writeProviderAudit(
   tx: Prisma.TransactionClient,
-  actor: AdminActor,
+  actor: AdminActor | MutationActor,
   eventType: "group_provider.created" | "group_provider.updated" | "group_provider.deleted",
   provider: {
     id: string;
@@ -582,7 +681,7 @@ async function writeProviderAudit(
   await prismaAuditWriter.write(
     {
       eventType,
-      actorType: "user",
+      actorType: "type" in actor ? actor.type : "user",
       actorId: actor.id,
       ...(actor.email ? { actorEmail: actor.email } : {}),
       requestId: actor.requestId,

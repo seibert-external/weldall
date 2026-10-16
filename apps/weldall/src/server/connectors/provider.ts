@@ -24,11 +24,6 @@ export type ConnectorProxyRequest = {
 export interface ConnectorProvider {
   readonly type: string;
   readonly staticConnection?: {
-    parseCreateInput(value: unknown): {
-      selection: object;
-      credentials: object;
-      grant: ProviderGrant;
-    };
     parseRotateInput(value: unknown): object;
   };
   /** Public-client registration. Client IDs are public; unused secrets are never retained. */

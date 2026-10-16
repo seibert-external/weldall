@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -26,7 +27,12 @@ import {
   ResizableTableHeader,
   TableRowAction,
 } from "../resizable-table";
-import { connectionStatuses, filterConnections, type ConnectionRow } from "./connection-view";
+import {
+  connectionBadge,
+  connectionStatuses,
+  filterConnections,
+  type ConnectionRow,
+} from "./connection-view";
 
 import { SharedConnectionForm } from "./shared-connection-form";
 
@@ -83,6 +89,9 @@ export function ConnectionsTable() {
             <OverflowFade title={detail ? `${row.original.name} · ${detail}` : row.original.name}>
               <div className="flex w-max gap-2 whitespace-nowrap">
                 <span>{row.original.name}</span>
+                {row.original.management ? (
+                  <ManagementBadge management={row.original.management} />
+                ) : null}
                 {detail ? <span className="text-secondary">{detail}</span> : null}
               </div>
             </OverflowFade>
@@ -130,7 +139,7 @@ export function ConnectionsTable() {
         maxSize: 270,
         cell: ({ row }) => (
           <div className="flex flex-wrap gap-1">
-            <Badge {...connectionStatuses[row.original.status]} />
+            <Badge {...connectionBadge(row.original)} />
             {!row.original.connectorEnabled ? (
               <Badge label="Connector disabled" variant="warning" />
             ) : null}

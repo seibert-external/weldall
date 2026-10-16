@@ -3,6 +3,7 @@ import { createDpopProof, createMachineClientAssertion } from "@weldall/sdk";
 import type { JWK } from "jose";
 import { CliError } from "../errors.js";
 import type { Lockfile, Manifest } from "./manifest.js";
+import { SECRET_PRIMITIVES_FEATURE, secretSections } from "./secret-primitives.js";
 
 interface Discovery {
   issuer: string;
@@ -95,6 +96,13 @@ export class IacClient {
       throw new CliError(
         "This Weldall server does not support MCP connectors or skill dependencies. Upgrade the server before applying MCP configuration.",
       );
+    if (
+      secretSections.some((section) => manifest[section] !== undefined) &&
+      !discovery.weldall_iac.features?.includes(SECRET_PRIMITIVES_FEATURE)
+    )
+      throw new CliError(
+        "This server does not support UI-provisioned IaC primitives. Upgrade the server before using these sections.",
+      );
     return new IacClient(discovery, credentials(), discovery.weldall_iac.installationId);
   }
   private async token(): Promise<string> {
@@ -131,6 +139,14 @@ export class IacClient {
     return value.access_token;
   }
   async request(path: string, method: "GET" | "POST", body?: unknown): Promise<any> {
+    if (
+      path === "/import" &&
+      ["sharedConnection", "groupProvider", "loginProvider"].includes(
+        String((body as { kind?: unknown })?.kind),
+      ) &&
+      !this.discovery.weldall_iac?.features?.includes(SECRET_PRIMITIVES_FEATURE)
+    )
+      throw new CliError("Upgrade the server before importing UI-provisioned IaC primitives.");
     const url = path.startsWith("http") ? path : `${this.discovery.weldall_iac!.endpoint}${path}`;
     const token = await this.token();
     const dpop = await createDpopProof({

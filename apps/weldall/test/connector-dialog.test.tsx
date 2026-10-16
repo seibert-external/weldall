@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ConnectorDialog } from "../src/app/admin/connectors/provider-dialog";
+import { GoogleConnectorDialog } from "../src/app/admin/connectors/configuration-page";
 import { AtlassianConnectorDialog } from "../src/app/admin/connectors/providers/atlassian-dialog";
 import { AtlassianMcpConnectorDialog } from "../src/app/admin/connectors/providers/atlassian-mcp-dialog";
 
@@ -26,6 +27,9 @@ vi.mock("@astryxdesign/core/MultiSelector", () => ({
       data-search-placeholder={searchPlaceholder}
     />
   ),
+}));
+vi.mock("../src/app/_components/use-operation-toast", () => ({
+  useOperationToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 vi.mock("@/trpc/react", () => ({
   useTRPC: () => ({ admin: { managed: { saveConnector: { mutationOptions: () => ({}) } } } }),
@@ -62,6 +66,16 @@ describe("connector dialog presentation", () => {
     expect(html).not.toContain('type="password"');
     expect(html).not.toContain("Endpoint URL");
   });
+  it.each([GoogleConnectorDialog, AtlassianConnectorDialog])(
+    "allows disabled OAuth drafts without a client secret",
+    (Component) => {
+      const html = renderToStaticMarkup(<Component {...props} />);
+      const password = html.match(/<input[^>]*type="password"[^>]*>/)?.[0];
+      expect(password).toBeDefined();
+      expect(password).not.toContain("required");
+      expect(html).toContain("Optional for disabled drafts");
+    },
+  );
   it("uses the standard labeled textarea without presets or the setup paragraph", () => {
     const html = renderToStaticMarkup(<AtlassianConnectorDialog {...props} />);
     expect(html).toContain("Allowed site cloud IDs");

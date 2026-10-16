@@ -6,6 +6,7 @@ import { define } from "gunshi";
 import { stringify } from "yaml";
 import { CliError } from "../errors.js";
 import { IacClient } from "./client.js";
+import { secretSections } from "./secret-primitives.js";
 import {
   expandIncludes,
   loadWorkspace,
@@ -48,6 +49,10 @@ export const printPlan = (plan: any) => {
     ),
   ))
     console.log(`blocked      ${blocker.address ?? "workspace"}: ${blocker.message}`);
+  if (plan.actions.some((item: any) => item.requiresAuthorityConfirmation))
+    console.log(
+      `Identity authority change: explicitly approve this plan with --acknowledge-authority ${plan.digest}`,
+    );
   if (!plan.actions.some((item: any) => item.action !== "noop")) console.log("No changes.");
 };
 const lockWithDiscovery = (lock: Lockfile, installationId: string) => ({
@@ -95,6 +100,9 @@ export async function writeImportedFragment(path: string, content: string) {
 
 export function declaredImportValue(manifest: any, address: string): unknown {
   const sections: Record<string, string> = {
+    sharedConnection: "sharedConnections",
+    groupProvider: "groupProviders",
+    loginProvider: "loginProviders",
     connector: "connectors",
     scope: "scopes",
     resource: "resources",
@@ -169,6 +177,7 @@ export const iacValidateCommand = define({
       valid: true,
       objectCount: [
         "connectors",
+        ...secretSections,
         "scopes",
         "resources",
         "machines",
@@ -209,7 +218,15 @@ export const iacPlanCommand = define({
 export const iacUpCommand = define({
   name: "up",
   description: "Atomically apply one native Weldall YAML snapshot",
-  args: { yes: yesArgument },
+  args: {
+    yes: yesArgument,
+    acknowledgeAuthority: {
+      type: "string",
+      toKebab: true,
+      description:
+        "Explicitly approve login authority changes for this exact plan digest (not implied by --yes)",
+    },
+  },
   run: async (context) => {
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
@@ -220,6 +237,13 @@ export const iacUpCommand = define({
     const changes = plan.actions.filter((item: any) => item.action !== "noop");
     if (plan.blockers.length) throw new CliError("Plan is blocked");
     if (!changes.length) return;
+    if (
+      plan.actions.some((item: any) => item.requiresAuthorityConfirmation) &&
+      context.values.acknowledgeAuthority !== plan.digest
+    )
+      throw new CliError(
+        `Explicit identity authority approval required: --acknowledge-authority ${plan.digest}`,
+      );
     if (!context.values.yes) {
       if (!process.stdin.isTTY || !process.stdout.isTTY)
         throw new CliError("Non-interactive apply requires --yes");
@@ -236,6 +260,9 @@ export const iacUpCommand = define({
       plannedRevision: plan.revision,
       configDigest: plan.configDigest,
       planDigest: plan.digest,
+      ...(context.values.acknowledgeAuthority
+        ? { authorityConfirmation: context.values.acknowledgeAuthority }
+        : {}),
       operationId: randomUUID(),
     });
     const state = await client.request(`/workspaces/${workspace.lock.workspace.id}/state`, "GET");
@@ -252,6 +279,9 @@ const importKinds = [
   "groupAssignment",
   "skill",
   "connector",
+  "sharedConnection",
+  "groupProvider",
+  "loginProvider",
 ];
 export const iacImportCommand = define({
   name: "import",
@@ -270,6 +300,9 @@ export const iacImportCommand = define({
     if (!kind || !name)
       throw new CliError("--as must be a logical address such as scope.expenses_read");
     const sections: Record<string, string> = {
+      sharedConnection: "sharedConnections",
+      groupProvider: "groupProviders",
+      loginProvider: "loginProviders",
       connector: "connectors",
       scope: "scopes",
       resource: "resources",
@@ -336,6 +369,9 @@ export const iacUnmanageCommand = define({
     const workspace = await loadWorkspace();
     if (!workspace.lock) throw new CliError("weldall.lock.yml is required");
     const sections: any = {
+      sharedConnection: "sharedConnections",
+      groupProvider: "groupProviders",
+      loginProvider: "loginProviders",
       connector: "connectors",
       scope: "scopes",
       resource: "resources",

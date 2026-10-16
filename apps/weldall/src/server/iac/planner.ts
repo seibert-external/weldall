@@ -1,4 +1,12 @@
 import type { Prisma } from "@weldall/db";
+import {
+  publicSharedConnection,
+  publicGroupProvider,
+  publicLoginProvider,
+  sameLoginAuthority,
+} from "../domain/secret-primitive-contracts";
+import { sharedConfigInclude } from "../connectors/core/shared-connections";
+import { secretPrimitiveBlockers } from "./secret-primitives";
 import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import type { ConnectorConfig } from "../connectors/contracts";
 import { buildConnectorState } from "../connectors/configuration";
@@ -41,6 +49,24 @@ export function desiredObjects(manifest: DesiredState): Array<{
   state: unknown;
 }> {
   return [
+    ...Object.entries(manifest.sharedConnections ?? {}).map(([name, state]) => ({
+      address: `sharedConnection.${name}`,
+      kind: "sharedConnection" as const,
+      identity: state.key,
+      state,
+    })),
+    ...Object.entries(manifest.groupProviders ?? {}).map(([name, state]) => ({
+      address: `groupProvider.${name}`,
+      kind: "groupProvider" as const,
+      identity: state.key,
+      state,
+    })),
+    ...Object.entries(manifest.loginProviders ?? {}).map(([name, state]) => ({
+      address: `loginProvider.${name}`,
+      kind: "loginProvider" as const,
+      identity: state.id,
+      state,
+    })),
     ...Object.entries(manifest.connectors).map(([name, state]) => ({
       address: `connector.${name}`,
       kind: "connector" as const,
@@ -205,6 +231,14 @@ export function createPlan(manifest: DesiredState, current: PlanningState): IacP
       });
     }
   }
+  for (const action of actions.filter(
+    (a) => a.kind === "loginProvider" && a.action !== "noop" && a.action !== "delete",
+  )) {
+    const after = desired.find((o) => o.address === action.address)?.state as any;
+    const before = byAddress.get(action.address)?.state as any;
+    if (after?.enabled && (!before?.enabled || !sameLoginAuthority(before, after)))
+      action.requiresAuthorityConfirmation = true;
+  }
   blockers.push(...mcpGraphBlockers(manifest, current.objects));
   const orderedActions = orderMcpActions(actions.sort(compareActions), desired, current.objects);
   const planWithoutDigest = {
@@ -263,6 +297,9 @@ const actionRank: Record<IacAction["action"], number> = {
 };
 const kindRank: Record<IacKind, number> = {
   connector: 2,
+  groupProvider: 2,
+  loginProvider: 2,
+  sharedConnection: 3,
   scope: 1,
   resource: 2,
   machine: 3,
@@ -322,6 +359,11 @@ export async function loadPlanningState({
       ...connectorScopeInclude,
     },
   });
+  const [sharedConnections, groupProviders, loginProviders] = await Promise.all([
+    tx.connection.findMany({ where: { accessMode: "SCOPED" }, include: sharedConfigInclude }),
+    tx.groupProvider.findMany(),
+    tx.loginProvider.findMany(),
+  ]);
   const bindingTargets = new Map<string, (typeof bindings)[number]>();
   for (const binding of bindings) {
     for (const id of [
@@ -332,11 +374,38 @@ export async function loadPlanningState({
       binding.groupAssignmentId,
       binding.skillId,
       binding.connectorId,
+      binding.sharedConnectionId,
+      binding.groupProviderId,
+      binding.loginProviderId,
     ])
       if (id) bindingTargets.set(id, binding);
   }
   const ownership = (id: string) => bindingTargets.get(id);
   const objects: CurrentObject[] = [
+    ...sharedConnections.map((item) => ({
+      kind: "sharedConnection" as const,
+      id: item.id,
+      identity: item.key!,
+      version: item.version,
+      state: publicSharedConnection(item),
+      ...bindingInfo(ownership(item.id)),
+    })),
+    ...groupProviders.map((item) => ({
+      kind: "groupProvider" as const,
+      id: item.id,
+      identity: item.key,
+      version: item.version,
+      state: publicGroupProvider(item),
+      ...bindingInfo(ownership(item.id)),
+    })),
+    ...loginProviders.map((item) => ({
+      kind: "loginProvider" as const,
+      id: item.id,
+      identity: item.id,
+      version: item.version,
+      state: publicLoginProvider(item),
+      ...bindingInfo(ownership(item.id)),
+    })),
     ...connectors.map((item) => ({
       kind: "connector" as const,
       id: item.id,
@@ -437,7 +506,10 @@ export async function loadPlanningState({
       !item.emailAssignmentId &&
       !item.groupAssignmentId &&
       !item.skillId &&
-      !item.connectorId,
+      !item.connectorId &&
+      !item.sharedConnectionId &&
+      !item.groupProviderId &&
+      !item.loginProviderId,
   )) {
     objects.push({
       address: binding.address,
@@ -470,7 +542,14 @@ export async function loadPlanningState({
       .map((object) => object.address!),
   );
   const bindingByTarget = new Map(objects.map((object) => [object.id, object]));
-  const externalBlockers: IacBlocker[] = [];
+  const externalBlockers: IacBlocker[] = await secretPrimitiveBlockers({
+    tx,
+    manifest,
+    objects,
+    sharedConnections,
+    groupProviders,
+    loginProviders,
+  });
   for (const [address, config] of Object.entries(manifest.connectors)) {
     try {
       getConnectorProvider(config.type).parseConfiguration(config.provider);
@@ -521,7 +600,12 @@ export async function loadPlanningState({
     desiredReferencesTarget: (state: any) => boolean,
     message: string,
   ) => {
-    if (!target.address || !deletingAddresses.has(target.address)) return;
+    if (
+      target.ownerWorkspaceId !== manifest.workspace.id ||
+      !target.address ||
+      !deletingAddresses.has(target.address)
+    )
+      return;
     const source = bindingByTarget.get(sourceId);
     const desiredSource = source?.address ? desiredByAddress.get(source.address) : undefined;
     if (
@@ -539,12 +623,13 @@ export async function loadPlanningState({
     const target = objects.find(
       (object) => object.kind === "scope" && object.id === reference.scopeId,
     );
-    if (target?.address && deletingAddresses.has(target.address))
-      externalBlockers.push({
-        code: "EXTERNAL_REFERENCE",
-        address: target.address,
-        message: `Scope ${target.identity} is in_use by shared connection ${reference.connection.name} (${reference.connection.key}). Replace its scopes or delete it in the admin UI first.`,
-      });
+    if (target)
+      addReferenceBlocker(
+        target,
+        reference.connectionId,
+        (state) => state.useScopes.includes(target.identity),
+        `Scope ${target.identity} is in use by shared connection ${reference.connection.name} (${reference.connection.key}).`,
+      );
   }
   for (const connector of connectors)
     for (const requiredScope of connector.requiredScopes) {
@@ -719,6 +804,12 @@ function orderMcpActions(
     if (action.kind === "skill")
       for (const dep of (object.state as any).mcpDependencies ?? [])
         edge("connector", dep.connectorKey, action);
+    if (action.kind === "sharedConnection") {
+      edge("connector", (object.state as any).connectorKey, action);
+      for (const scope of (object.state as any).useScopes) edge("scope", scope, action);
+    }
+    if (action.kind === "groupAssignment")
+      edge("groupProvider", (object.state as any).provider, action);
   }
   const ordered: IacAction[] = [];
   const remaining = new Set(actions);
@@ -746,6 +837,9 @@ function fromPrismaKind(kind: string): IacKind {
       GROUP_ASSIGNMENT: "groupAssignment",
       SKILL: "skill",
       CONNECTOR: "connector",
+      SHARED_CONNECTION: "sharedConnection",
+      GROUP_PROVIDER: "groupProvider",
+      LOGIN_PROVIDER: "loginProvider",
     } as Record<string, IacKind>
   )[kind]!;
 }

@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { atlassianMcpProvider as provider } from "../src/server/connectors/providers/atlassian-mcp";
+import { ATLASSIAN_MCP } from "../src/server/connectors/providers/atlassian-mcp/config";
 const config = { allowedScopes: ["read:jira:agent-interface"], defaultScopes: [] };
 const input = {
   kind: "service-account-api-key",
   apiKey: "private-key-sentinel",
   cloudIds: ["00000000-0000-4000-8000-000000000001"],
 };
+const selection = { kind: input.kind, cloudIds: input.cloudIds };
+const parsed = {
+  selection,
+  credentials: provider.parseCredentials({ kind: input.kind, apiKey: input.apiKey }),
+  grant: provider.parseGrant({ ...selection, resource: ATLASSIAN_MCP.resource }),
+};
 describe("Atlassian static credentials", () => {
-  it("creates without permission declarations or organization confirmation and uses fixed Bearer", async () => {
-    const parsed = provider.staticConnection!.parseCreateInput(input);
+  it("uses fixed Bearer without permission declarations or organization confirmation", async () => {
     expect(provider.needsRefresh(parsed.credentials)).toBe(false);
     expect(
       await provider.ensureGrantCurrent({ config, ...parsed, previousGrant: parsed.grant }),
@@ -33,13 +39,7 @@ describe("Atlassian static credentials", () => {
       await provider.disconnectGrant({ config, secrets: {}, credentials: parsed.credentials }),
     ).toMatchObject({ status: "unsupported", remediationUrl: "https://admin.atlassian.com" });
   });
-  it("rejects invalid or mixed credentials, endpoint substitution and secret reflections", () => {
-    for (const patch of [
-      { apiKey: "bad\r\nheader" },
-      { apiKey: "" },
-      { endpoint: "https://evil.example" },
-    ])
-      expect(() => provider.staticConnection!.parseCreateInput({ ...input, ...patch })).toThrow();
+  it("rejects mixed credentials, endpoint substitution and secret reflections", () => {
     expect(() =>
       provider.parseCredentials({ kind: input.kind, apiKey: input.apiKey, accessToken: "mixed" }),
     ).toThrow();
@@ -65,8 +65,6 @@ describe("Atlassian static credentials", () => {
     { apiTokenAuthenticationEnabled: true },
     { unexpected: "field" },
   ])("rejects obsolete or unknown fields: %j", async (extra) => {
-    const parsed = provider.staticConnection!.parseCreateInput(input);
-    expect(() => provider.staticConnection!.parseCreateInput({ ...input, ...extra })).toThrow();
     expect(() =>
       provider.validateSetupInput({ config, value: { ...parsed.selection, ...extra } }),
     ).toThrow();
@@ -81,7 +79,6 @@ describe("Atlassian static credentials", () => {
     ).rejects.toThrow();
   });
   it("checks stored grant consistency independently of personal OAuth permission settings", async () => {
-    const parsed = provider.staticConnection!.parseCreateInput(input);
     await expect(
       provider.ensureGrantCurrent({
         config,

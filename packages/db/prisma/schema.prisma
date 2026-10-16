@@ -76,7 +76,7 @@ model GroupProvider {
   name                 String
   adapterType          String
   baseUrl              String
-  encryptedToken       String
+  encryptedToken       String?
   encryptionKeyVersion Int
   enabled              Boolean                @default(true)
   version              Int                    @default(1)
@@ -85,6 +85,7 @@ model GroupProvider {
   createdBy            String
   updatedBy            String
   assignments          GroupScopeAssignment[]
+  iacBinding           IacObjectBinding?
 
   @@index([enabled])
   @@index([updatedAt])
@@ -322,6 +323,9 @@ enum IacPrimitiveKind {
   GROUP_ASSIGNMENT
   SKILL
   CONNECTOR
+  SHARED_CONNECTION
+  GROUP_PROVIDER
+  LOGIN_PROVIDER
 }
 
 enum IacOperationType {
@@ -373,6 +377,9 @@ model IacObjectBinding {
   groupAssignmentId String?               @unique
   skillId           String?               @unique
   connectorId       String?               @unique
+  sharedConnectionId String?              @unique
+  groupProviderId   String?               @unique
+  loginProviderId   String?               @unique
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -383,6 +390,9 @@ model IacObjectBinding {
   groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
   skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
   connector         Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  sharedConnection  Connection?           @relation(fields: [sharedConnectionId], references: [id], onDelete: SetNull)
+  groupProvider     GroupProvider?        @relation(fields: [groupProviderId], references: [id], onDelete: SetNull)
+  loginProvider     LoginProvider?        @relation(fields: [loginProviderId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])
@@ -485,6 +495,8 @@ model Connection {
   accountName       String
   providerSelection Json
   providerGrant     Json
+  enabled           Boolean                   @default(true)
+  iacBinding        IacObjectBinding?
   status            ConnectionStatus          @default(READY)
   version           Int                       @default(1)
   credentialId      String?                   @unique
@@ -599,13 +611,14 @@ model LoginProvider {
   issuer                  String
   discoveryUrl            String?
   clientId                String
-  encryptedClientSecret   String
+  encryptedClientSecret   String?
   tokenEndpointAuthMethod String
   scopes                  String[]
   allowedEmailDomains     String[] @default([])
   enabled                 Boolean  @default(false)
   version                 Int      @default(1)
-  validatedAt             DateTime
+  validatedAt             DateTime?
+  iacBinding              IacObjectBinding?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
   createdBy               String

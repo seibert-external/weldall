@@ -216,12 +216,6 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
     });
     for (const useScopeKeys of [[], ["missing:scope"], ["weldall:mcp"], ["weldall:login"]])
       await expect(createSharedConnection({ ...input(), useScopeKeys }, manager)).rejects.toThrow();
-    await expect(
-      createSharedConnection(
-        { ...input(), providerInput: { ...providerInput, apiKey: "" } },
-        manager,
-      ),
-    ).rejects.toThrow();
     const value = input();
     const created = await createSharedConnection(value, manager);
     await expect(createSharedConnection(value, manager)).rejects.toMatchObject({
@@ -242,6 +236,27 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
     const stored = await db.encryptedValue.findFirst({ where: { connection: { id: created.id } } });
     expect(stored).not.toBeNull();
     expect(JSON.stringify(stored)).not.toContain(secret);
+  });
+  it.each([
+    { apiKey: "" },
+    { apiKey: "bad\r\nheader" },
+    { apiKey: "x".repeat(32769) },
+    { endpoint: "https://evil.example" },
+    { accountName: "Redundant label" },
+    { configuredScopes: ["read:jira:agent-interface"] },
+    { apiTokenAuthenticationEnabled: true },
+    { unexpected: "field" },
+    { accessToken: "mixed" },
+    { cloudIds: ["invalid-uuid"] },
+  ])("rejects invalid or obsolete creation input at the live boundary (%#)", async (patch) => {
+    const before = await db.connection.count({ where: { connectorId } });
+    await expect(
+      createSharedConnection(
+        { ...input(), providerInput: { ...providerInput, ...patch } },
+        manager,
+      ),
+    ).rejects.toThrow();
+    expect(await db.connection.count({ where: { connectorId } })).toBe(before);
   });
   it("allows all-of use scopes, denies managers, personal names, missing and foreign IDs uniformly", async () => {
     const value = input();
@@ -272,7 +287,10 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
         providerGrant: {},
       },
     });
-    expect((await resolve(personal.id, user)).authorizationSource).toBe("owner");
+    expect(
+      (await findOwnedConnection({ tx: db, selector: personal.id, actor: user })).ownerId,
+    ).toBe(user.id);
+    await expect(resolve(personal.id, user)).rejects.toMatchObject({ code: "connection_denied" });
     for (const actor of [manager, machine])
       await expect(resolve(personal.id, actor)).rejects.toMatchObject({
         code: "connection_denied",
@@ -555,7 +573,8 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
       ).rejects.toMatchObject({ code: "forbidden" });
     await setSharedConnectionEnabled({ ...created, version: 1, enabled: false }, manager);
     expect(await getConnectionDetails(created.id)).toMatchObject({
-      status: "DISABLED",
+      enabled: false,
+      status: "READY",
       version: 2,
     });
     expect(await db.encryptedValue.findUnique({ where: { id: before.credentialId! } })).toEqual(
@@ -578,7 +597,8 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
       manager,
     );
     expect(await getConnectionDetails(created.id)).toMatchObject({
-      status: "DISABLED",
+      enabled: false,
+      status: "READY",
       version: 3,
     });
     await expect(resolve(created.id, user)).rejects.toMatchObject({ code: "connection_denied" });
@@ -596,9 +616,8 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
         await connection.assertCurrent();
       },
     });
-    await expect(
-      setSharedConnectionEnabled({ ...created, version: 4, enabled: true }, manager),
-    ).rejects.toMatchObject({ code: "conflict" });
+    await setSharedConnectionEnabled({ ...created, version: 4, enabled: true }, manager);
+    expect(await getConnectionDetails(created.id)).toMatchObject({ enabled: true, version: 4 });
     const events = await db.auditEvent.findMany({ where: { subjectId: created.id } });
     expect(events.map((event) => (event.metadata as Record<string, unknown>).operation)).toEqual(
       expect.arrayContaining(["connection.shared.disabled", "connection.shared.enabled"]),
@@ -626,11 +645,22 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
     async (status) => {
       const created = await createSharedConnection(input(), manager);
       await db.connection.update({ where: { id: created.id }, data: { status } });
-      for (const enabled of [false, true])
-        await expect(
-          setSharedConnectionEnabled({ ...created, version: 1, enabled }, manager),
-        ).rejects.toMatchObject({ code: "conflict" });
-      expect(await getConnectionDetails(created.id)).toMatchObject({ status, version: 1 });
+      await setSharedConnectionEnabled({ ...created, version: 1, enabled: false }, manager);
+      expect(await getConnectionDetails(created.id)).toMatchObject({
+        status,
+        enabled: false,
+        version: 2,
+      });
+      await setSharedConnectionEnabled({ ...created, version: 2, enabled: true }, manager);
+      expect(await getConnectionDetails(created.id)).toMatchObject({
+        status,
+        enabled: true,
+        version: 3,
+      });
+      if (status !== "REFRESHING")
+        await expect(resolve(created.id, user)).rejects.toMatchObject({
+          code: "connection_denied",
+        });
     },
   );
   it("fences rotation/access edits with CAS and restricts scope deletion until references are removed", async () => {
@@ -681,7 +711,10 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
     await deleteConnection({ actor: manager, id: reference.id });
     await db.scope.delete({ where: { id: isolated.id } });
     const before = await db.connection.findUniqueOrThrow({ where: { id: created.id } });
-    await setSharedConnectionEnabled({ ...created, version: 3, enabled: false }, manager);
+    await setSharedConnectionEnabled(
+      { ...created, version: before.version, enabled: false },
+      manager,
+    );
     await expect(resolve(created.id, user)).rejects.toMatchObject({ code: "connection_denied" });
     await deleteConnection({ actor: manager, id: created.id });
     expect(await db.connectionUseScope.count({ where: { connectionId: created.id } })).toBe(0);

@@ -16,6 +16,13 @@ export const connectionStatuses = {
   REVOCATION_PENDING: { label: "Disconnect pending", variant: "error" },
 } as const satisfies Record<ConnectionRow["status"], { label: string; variant: BadgeVariant }>;
 
+export function connectionBadge(row: Pick<ConnectionRow, "enabled" | "hasCredential" | "status">) {
+  if (!row.hasCredential)
+    return { label: "Disabled — credential missing", variant: "warning" as const };
+  if (!row.enabled) return connectionStatuses.DISABLED;
+  return connectionStatuses[row.status];
+}
+
 export type ConnectionFilters = {
   search: string;
   status: string;
@@ -24,7 +31,16 @@ export type ConnectionFilters = {
 };
 type FilterableConnection = Pick<
   ConnectionRow,
-  "name" | "accountName" | "owner" | "connectorKey" | "status" | "accessMode" | "key" | "useScopes"
+  | "name"
+  | "accountName"
+  | "owner"
+  | "connectorKey"
+  | "status"
+  | "enabled"
+  | "hasCredential"
+  | "accessMode"
+  | "key"
+  | "useScopes"
 >;
 
 /** Combines overview filters; only metadata participates, never credentials. */
@@ -36,7 +52,8 @@ export function filterConnections<T extends FilterableConnection>(
   return rows.filter(
     (row) =>
       (!filters.access || row.accessMode === filters.access) &&
-      (!filters.status || row.status === filters.status) &&
+      (!filters.status ||
+        (!row.enabled || !row.hasCredential ? "DISABLED" : row.status) === filters.status) &&
       (!filters.connector || row.connectorKey === filters.connector) &&
       (!needle ||
         [

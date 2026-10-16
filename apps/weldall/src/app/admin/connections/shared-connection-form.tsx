@@ -7,6 +7,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
+import { Switch } from "@astryxdesign/core/Switch";
 import { ScopeChecklist } from "../../_components/scope-checklist";
 import { useTRPC } from "@/trpc/react";
 import type { ConnectionRow } from "./connection-view";
@@ -27,12 +28,13 @@ export function SharedConnectionForm({
   const scopes = useQuery(trpc.admin.scopes.options.queryOptions());
   const connectors =
     configuration.data?.connectors.filter(
-      (row) => row.config.enabled && row.staticProvisioning && row.config.type === "atlassian-mcp",
+      (row) => row.staticProvisioning && row.config.type === "atlassian-mcp",
     ) ?? [];
   const [connectorId, setConnectorId] = useState("");
   const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [enabled, setEnabled] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
   const [useScopes, setUseScopes] = useState(connection?.useScopes ?? []);
   const [cloudIds, setCloudIds] = useState("");
@@ -88,6 +90,17 @@ export function SharedConnectionForm({
       aria-label={connection ? "Manage shared connection" : "Add shared connection"}
     >
       <Banner status="warning" title="Atlassian service account API key" description={warning} />
+      <Text color="secondary">
+        IaC manages public configuration only and may reset public UI changes. Provisioning a
+        credential does not enable a disabled connection.
+      </Text>
+      {connection && !connection.hasCredential ? (
+        <Banner
+          status="warning"
+          title="Disabled — credential missing"
+          description="Provision an API key here, then explicitly enable the connection."
+        />
+      ) : null}
       {!connection ? (
         <>
           <Selector
@@ -149,7 +162,7 @@ export function SharedConnectionForm({
       {connection ? (
         <div className="flex gap-2">
           <Button
-            label="Rotate API key"
+            label={connection.hasCredential ? "Rotate API key" : "Provision API key"}
             isDisabled={busy || !apiKey}
             onClick={() => {
               rotate.mutate({
@@ -161,40 +174,51 @@ export function SharedConnectionForm({
             }}
           />
           <Button
-            label={connection.status === "DISABLED" ? "Enable connection" : "Disable connection"}
-            variant={connection.status === "DISABLED" ? "primary" : "destructive"}
-            isDisabled={busy || !["READY", "DISABLED"].includes(connection.status)}
+            label={!connection.enabled ? "Enable connection" : "Disable connection"}
+            variant={!connection.enabled ? "primary" : "destructive"}
+            isDisabled={busy || (!connection.enabled && !connection.hasCredential)}
             onClick={() =>
               activation.mutate({
                 id: connection.id,
                 version: connection.version,
-                enabled: connection.status === "DISABLED",
+                enabled: !connection.enabled,
               })
             }
           />
         </div>
       ) : (
-        <Button
-          label="Create shared connection"
-          isDisabled={busy || !connectorId || !key || !name || !apiKey || !useScopes.length}
-          onClick={() => {
-            create.mutate({
-              connectorId,
-              key,
-              name,
-              useScopeKeys: useScopes,
-              providerInput: {
-                kind: "service-account-api-key",
-                apiKey,
-                cloudIds: cloudIds
-                  .split(",")
-                  .map((id) => id.trim())
-                  .filter(Boolean),
-              },
-            });
-            setApiKey("");
-          }}
-        />
+        <>
+          <Switch
+            label="Enabled"
+            value={enabled}
+            onChange={setEnabled}
+            description="Leave disabled to create without a credential."
+          />
+          <Button
+            label="Create shared connection"
+            isDisabled={
+              busy || !connectorId || !key || !name || (enabled && !apiKey) || !useScopes.length
+            }
+            onClick={() => {
+              create.mutate({
+                connectorId,
+                key,
+                name,
+                enabled,
+                useScopeKeys: useScopes,
+                providerInput: {
+                  kind: "service-account-api-key",
+                  ...(apiKey ? { apiKey } : {}),
+                  cloudIds: cloudIds
+                    .split(",")
+                    .map((id) => id.trim())
+                    .filter(Boolean),
+                },
+              });
+              setApiKey("");
+            }}
+          />
+        </>
       )}
       {error || credentialError ? (
         <Banner

@@ -84,7 +84,10 @@ describe("shared connection form", () => {
         accountName: "Bot",
         owner: { name: "Alice", email: "alice@example.com" },
         connectorEnabled: true,
-        status,
+        status: status === "DISABLED" ? "READY" : status,
+        enabled: status !== "DISABLED",
+        hasCredential: true,
+        readiness: status,
         version: 3,
         selectedScopes: [],
         grantedScopes: [],
@@ -101,7 +104,7 @@ describe("shared connection form", () => {
         match[0].includes(label),
       )?.[0];
       expect(button).toBeDefined();
-      expect(button!.includes("disabled=")).toBe(status === "RECONNECT_REQUIRED");
+      expect(button!.includes("disabled=")).toBe(false);
       expect(html).not.toContain(
         status === "DISABLED" ? "Disable connection" : "Enable connection",
       );

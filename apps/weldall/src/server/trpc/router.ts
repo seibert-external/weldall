@@ -653,7 +653,7 @@ export const appRouter = trpc.router({
               name: z.string().max(200),
               adapterType: z.literal("management-api-v1"),
               baseUrl: z.string().max(2_000),
-              token: z.string().min(1).max(10_000),
+              token: z.string().max(10_000).default(""),
               enabled: z.boolean(),
             })
             .strict(),

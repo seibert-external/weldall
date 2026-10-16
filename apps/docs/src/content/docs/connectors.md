@@ -11,6 +11,8 @@ For remote MCP tools instead of REST requests, create an **Atlassian MCP** conne
 
 Shared Atlassian MCP credentials are created and rotated in **Admin → Connections**, never in IaC. All connector and connection use scopes are required, including for administrators and credential managers. Personal OAuth cannot be shared. See [shared MCP connections](../mcp/#shared-service-account-connections) for setup, machine SDK access, and upstream revocation guidance.
 
+Connectors and shared connections may be created disabled without a secret. Provisioning or rotating a credential does not enable them; enable explicitly after provisioning. Both the connector and connection must be enabled for use. Public policy and existing-object import are supported through [IaC](../infrastructure-as-code/#public-configuration-ui-only-credentials); secrets remain UI-only.
+
 ## Discover capabilities
 
 `weldall connectors --json` and `weldall connections show <name> --json` expose a `capabilities` array derived from the provider implementation. Use it instead of guessing from connector keys, names, or provider types:

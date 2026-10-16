@@ -11,6 +11,8 @@ Für Remote-MCP-Tools statt REST-Anfragen erstelle einen **Atlassian MCP**-Conne
 
 Geteilte Atlassian-MCP-Zugangsdaten werden unter **Admin → Connections** erstellt und rotiert, niemals in IaC. Alle Connector- und Nutzungsscopes gelten auch für Administratoren und Credential-Manager. Persönliches OAuth bleibt privat. Details zu Einrichtung, Maschinen-SDKs und Upstream-Widerruf: [Geteilte MCP-Verbindungen](../mcp/#geteilte-service-account-verbindungen).
 
+Connectoren und geteilte Connections können deaktiviert ohne Secret angelegt werden. Provisionierung oder Rotation aktiviert sie nicht; die Aktivierung erfolgt anschließend ausdrücklich. Für die Nutzung müssen Connector und Connection aktiviert sein. Öffentliche Policy und Bestandsimport werden durch [IaC](../infrastructure-as-code/#öffentliche-konfiguration-secrets-nur-in-der-ui) unterstützt; Secrets bleiben ausschließlich in der UI.
+
 ## Fähigkeiten erkennen
 
 `weldall connectors --json` und `weldall connections show <name> --json` liefern ein aus der Provider-Implementierung abgeleitetes Array `capabilities`. Clients werten dieses Feld aus, statt Connector-Key, Name oder Provider-Typ zu interpretieren:

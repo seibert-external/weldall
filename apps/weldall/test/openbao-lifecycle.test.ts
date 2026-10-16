@@ -220,6 +220,7 @@ beforeEach(() => {
     connection = {
       key: null,
       accessMode: "OWNER_ONLY",
+      enabled: true,
       useScopes: [],
       ...data,
       version: 1,

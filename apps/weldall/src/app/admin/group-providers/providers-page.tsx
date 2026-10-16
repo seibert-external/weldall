@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
@@ -73,6 +74,7 @@ export function GroupProvidersPage() {
             <OverflowFade title={`${name} (${row.original.key})`}>
               <div className="flex w-max flex-nowrap items-center gap-2 whitespace-nowrap">
                 <span>{name}</span>
+                <ManagementBadge management={row.original.management} />
                 <code className="text-xs">{row.original.key}</code>
               </div>
             </OverflowFade>
@@ -320,7 +322,7 @@ function ProviderDialog({
       name: provider?.name ?? "",
       baseUrl: provider?.baseUrl ?? "",
       token: "",
-      enabled: provider?.enabled ?? true,
+      enabled: provider?.enabled ?? false,
     },
     onSubmit: async ({ value }) => {
       if (provider) {
@@ -463,14 +465,21 @@ function ProviderDialog({
                 <form.Field
                   name="token"
                   validators={{
-                    onBlur: ({ value }) => validateToken(value, Boolean(provider)),
-                    onSubmit: ({ value }) => validateToken(value, Boolean(provider)),
+                    onBlur: ({ value, fieldApi }) =>
+                      validateToken(
+                        value,
+                        Boolean(provider?.hasToken) || !fieldApi.form.state.values.enabled,
+                      ),
+                    onSubmit: ({ value, fieldApi }) =>
+                      validateToken(
+                        value,
+                        Boolean(provider?.hasToken) || !fieldApi.form.state.values.enabled,
+                      ),
                   }}
                 >
                   {(field) => (
                     <TextInput
-                      isOptional={Boolean(provider)}
-                      isRequired={!provider}
+                      isOptional
                       label={provider ? "Replacement token" : "Token"}
                       onBlur={field.handleBlur}
                       onChange={field.handleChange}
@@ -484,7 +493,7 @@ function ProviderDialog({
                 <form.Field name="enabled">
                   {(field) => (
                     <Switch
-                      description="Disabled providers cannot be used to create new group assignments."
+                      description="Disabled providers grant no group permissions. Drafts may be referenced by IaC assignments. Provisioning a token does not enable the provider."
                       label="Enabled"
                       labelPosition="start"
                       labelSpacing="spread"

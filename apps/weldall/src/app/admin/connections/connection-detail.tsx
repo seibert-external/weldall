@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { ManagementBadge } from "@/components/admin/management-badge";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -11,7 +12,7 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { PlanetLoader } from "../../_components/planet-loader";
 import { useOperationToast } from "../../_components/use-operation-toast";
-import { connectionStatuses, type ConnectionRow } from "./connection-view";
+import { connectionBadge, type ConnectionRow } from "./connection-view";
 
 import { SharedConnectionForm } from "./shared-connection-form";
 
@@ -125,7 +126,8 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge {...connectionStatuses[connection.status]} />
+          <Badge {...connectionBadge(connection)} />
+          {connection.management ? <ManagementBadge management={connection.management} /> : null}
           <Badge
             label={connection.accessMode === "SCOPED" ? "Shared" : "Personal"}
             variant="info"
@@ -197,7 +199,10 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           Effective access
         </h2>
         <Text color="secondary">
-          {connection.connectorEnabled && connection.status === "READY"
+          {connection.enabled &&
+          connection.hasCredential &&
+          connection.connectorEnabled &&
+          connection.status === "READY"
             ? connection.accessMode === "SCOPED"
               ? "Use requires every connector and connection scope. Token permissions are managed in Atlassian; Weldall does not inspect them."
               : "Ready connections may call operations authorized by the provider's granted permissions, within the connector's request restrictions."

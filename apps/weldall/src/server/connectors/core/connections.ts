@@ -38,6 +38,7 @@ import {
   liveConnectorActor,
 } from "./connection-access";
 import { ensureConnectorRegistration } from "./registration";
+import { managementBindingInclude, managementMetadata } from "../../domain/configuration";
 
 type Tx = Prisma.TransactionClient;
 
@@ -59,6 +60,7 @@ function assertConnectionUnchanged(
     "credentialId",
     "version",
     "status",
+    "enabled",
     "refreshStartedAt",
     "providerSelection",
     "providerGrant",
@@ -99,6 +101,8 @@ const attemptPayload = z
 export const metadataSelect = {
   key: true,
   accessMode: true,
+  enabled: true,
+  credentialId: true,
   useScopes: { include: { scope: { select: { key: true } } } },
   id: true,
   ownerId: true,
@@ -141,10 +145,32 @@ export function buildConnectionMetadata({
     name: row.name,
     accountId: row.accountId,
     accountName: row.accountName,
-    ...getConnectorProvider(connector.providerType).describeConnection({
-      selection: row.providerSelection,
-      grant: row.providerGrant,
-    }),
+    ...(row.credentialId
+      ? getConnectorProvider(connector.providerType).describeConnection({
+          selection: row.providerSelection,
+          grant: row.providerGrant,
+        })
+      : {
+          selectedScopes: [],
+          grantedScopes: [],
+          scopeLabels: {},
+          details: [],
+          usage: {
+            instructions: [
+              "Provision a credential in the admin UI before enabling this connection.",
+            ],
+            examples: [],
+          },
+        }),
+    enabled: row.enabled,
+    hasCredential: Boolean(row.credentialId),
+    readiness: !row.credentialId
+      ? "MISSING_CREDENTIAL"
+      : !row.enabled
+        ? "DISABLED"
+        : !connector.enabled
+          ? "CONNECTOR_DISABLED"
+          : row.status,
     status: row.status,
     version: row.version,
     lastUsedAt: row.lastUsedAt,
@@ -189,13 +215,15 @@ export async function listConnections(actor?: ConnectorActor) {
       ...metadataSelect,
       connector: true,
       owner: { select: { name: true, email: true } },
+      iacBinding: managementBindingInclude,
     },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  return rows.map(({ connector, owner, ...row }) => ({
+  return rows.map(({ connector, owner, iacBinding, ...row }) => ({
     ...buildConnectionMetadata({ row, connector }),
     owner,
+    management: managementMetadata(iacBinding),
   }));
 }
 /** Runtime projection deliberately excludes manager identity and internal lifecycle metadata. */
@@ -206,6 +234,8 @@ export async function listAccessibleConnections(
   const live = await liveConnectorActor(actor);
   const rows = await db.connection.findMany({
     where: {
+      enabled: true,
+      credentialId: { not: null },
       connector: {
         enabled: true,
         ...(connectorKey ? { key: connectorKey } : {}),
@@ -244,11 +274,20 @@ export async function listAccessibleConnections(
 export async function getConnectionDetails(id: string) {
   const result = await db.connection.findUnique({
     where: { id },
-    select: { ...metadataSelect, connector: true, owner: { select: { name: true, email: true } } },
+    select: {
+      ...metadataSelect,
+      connector: true,
+      owner: { select: { name: true, email: true } },
+      iacBinding: managementBindingInclude,
+    },
   });
   if (!result) throw new ConnectorError("not_found", "Connection not found.", 404);
-  const { connector, owner, ...row } = result;
-  return { ...buildConnectionMetadata({ row, connector }), owner };
+  const { connector, owner, iacBinding, ...row } = result;
+  return {
+    ...buildConnectionMetadata({ row, connector }),
+    owner,
+    management: managementMetadata(iacBinding),
+  };
 }
 /** Lists enabled connector catalogs and setup metadata exposed to authenticated CLI users. */
 export async function listConnectors(actor: AuthorizedConnectorActor) {

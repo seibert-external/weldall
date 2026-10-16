@@ -6,6 +6,7 @@ import { parseDocument } from "yaml";
 import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { skillMcpDependenciesSchema, atlassianMcpConfigSchema } from "@weldall/sdk/mcp";
 import { CliError } from "../errors.js";
+import { secretSections, secretPrimitiveSchemas } from "./secret-primitives.js";
 import { isRecord } from "../http.js";
 import { validateAtlassianConfiguration, canonicalAtlassianConfiguration } from "./atlassian.js";
 
@@ -20,6 +21,9 @@ export interface Manifest {
   workspace: { name: string; issuer: string };
   include?: string[];
   cli?: { logoUrl: string; darkLogoUrl?: string };
+  sharedConnections?: Record<string, unknown>;
+  groupProviders?: Record<string, unknown>;
+  loginProviders?: Record<string, unknown>;
   connectors?: Record<string, unknown>;
   scopes?: Record<string, unknown>;
   resources?: Record<string, unknown>;
@@ -39,6 +43,7 @@ export interface Lockfile {
 }
 
 const objectSections = [
+  ...secretSections,
   "connectors",
   "scopes",
   "resources",
@@ -63,7 +68,9 @@ export async function loadWorkspace(
   const manifest = parseYaml(await readFile(rootFile, "utf8"), rootFile) as Manifest;
   validateRoot(manifest);
   const merged: Manifest = structuredClone(manifest);
-  for (const section of objectSections) merged[section] = { ...(merged[section] ?? {}) };
+  for (const section of objectSections)
+    if (!secretSections.includes(section as any) || merged[section] !== undefined)
+      merged[section] = { ...(merged[section] ?? {}) };
   const includes = manifest.include ?? [];
   if (includes.length > MAX_INCLUDES)
     throw new CliError(`At most ${MAX_INCLUDES} includes are allowed`);
@@ -83,6 +90,7 @@ export async function loadWorkspace(
         throw new CliError(`Unknown fragment field ${field}`);
     for (const section of objectSections) {
       const additions = fragment[section] === undefined ? {} : record(fragment[section]);
+      if (fragment[section] !== undefined) merged[section] ??= {};
       for (const [address, value] of Object.entries(additions)) {
         if (address in (merged[section] ?? {}))
           throw new CliError(`Duplicate logical address ${section}.${address}`);
@@ -169,7 +177,8 @@ function validateManifest(value: Manifest) {
         throw new CliError("Private JWK member d is forbidden in Weldall YAML");
       validatePrimitive({ section, object });
       const identity = String(
-        object.key ??
+        object.id ??
+          object.key ??
           object.slug ??
           object.clientId ??
           object.email ??
@@ -239,7 +248,20 @@ function validatePrimitive({
   section: (typeof objectSections)[number];
   object: Record<string, unknown>;
 }) {
+  if (secretSections.includes(section as any)) {
+    if (
+      !secretPrimitiveSchemas[section as keyof typeof secretPrimitiveSchemas].safeParse(object)
+        .success
+    )
+      throw new CliError(
+        `Invalid public ${section} configuration; secrets and unknown fields are forbidden`,
+      );
+    return;
+  }
   const fields: Record<typeof section, string[]> = {
+    sharedConnections: [],
+    groupProviders: [],
+    loginProviders: [],
     connectors: [
       "key",
       "name",
@@ -585,6 +607,14 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
           })),
         }
       : {}),
+    ...Object.fromEntries(
+      secretSections
+        .filter((section) => manifest[section] !== undefined)
+        .map((section) => [
+          section,
+          canonicalRecords(section, (value) => secretPrimitiveSchemas[section].parse(value)),
+        ]),
+    ),
     scopes: canonicalRecords("scopes", (value) => value),
     resources: canonicalRecords("resources", (value) => ({
       ...value,

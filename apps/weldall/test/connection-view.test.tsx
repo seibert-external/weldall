@@ -9,6 +9,9 @@ import { ConnectionSummary } from "../src/app/admin/connections/connection-detai
 const connection: ConnectionRow = {
   id: "connection-1",
   accessMode: "OWNER_ONLY",
+  enabled: true,
+  hasCredential: true,
+  readiness: "READY",
   key: null,
   useScopes: [],
   capabilities: ["http"],

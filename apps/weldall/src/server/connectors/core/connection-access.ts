@@ -104,6 +104,8 @@ export async function prepareConnectionAccess(actor: AuthorizedConnectorActor) {
     const live = await readActor(tx);
     if (
       !canUseConnection(row, live) ||
+      !row.enabled ||
+      !row.credentialId ||
       !row.connector.enabled ||
       !["READY", "REFRESHING"].includes(row.status) ||
       !canAccessConnector({ connector: row.connector, actor: live })

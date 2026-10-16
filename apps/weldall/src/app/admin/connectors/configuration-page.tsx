@@ -506,13 +506,17 @@ export function GoogleConnectorDialog({
                     />
                   )}
                 </form.Field>
-                <form.Subscribe selector={(state) => state.values.clientId}>
-                  {(clientId) => {
+                <form.Subscribe
+                  selector={(state) => [state.values.clientId, state.values.enabled] as const}
+                >
+                  {([clientId, enabled]) => {
                     const keepsExistingSecret = Boolean(
                       connector?.secretConfigured && clientId === config?.provider.clientId,
                     );
+                    const requiresSecret =
+                      !keepsExistingSecret && (enabled || Boolean(connector?.secretConfigured));
                     const validateSecret = ({ value }: { value: string }) =>
-                      value || !keepsExistingSecret
+                      value || requiresSecret
                         ? validateRequired({ value, label: "Client secret", max: 10_000 })
                         : undefined;
                     return (
@@ -522,7 +526,8 @@ export function GoogleConnectorDialog({
                       >
                         {(field) => (
                           <TextInput
-                            isRequired={!keepsExistingSecret}
+                            isRequired={requiresSecret}
+                            description="Optional for disabled drafts. Provisioning does not enable the connector; IaC manages public configuration only."
                             label="Client secret"
                             type="password"
                             placeholder={
@@ -657,7 +662,7 @@ export function GoogleConnectorDialog({
                                 ? "Users may create and use connections through this connector."
                                 : "Enter a client secret before enabling this connector."
                             }
-                            isDisabled={!hasSecret}
+                            isDisabled={!hasSecret && !field.state.value}
                             label="Enabled"
                             labelPosition="start"
                             labelSpacing="spread"

@@ -49,6 +49,8 @@ beforeEach(() => {
     ...config,
     id: providerId,
     enabled: true,
+    validatedAt: new Date(),
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
     version: 1,
     encryptedClientSecret: seal("provider", providerId, config.clientSecret),
   });
@@ -67,6 +69,7 @@ beforeEach(() => {
     encryptedPayload: "",
     payload: {
       config,
+      providerCreatedAt: "2026-01-01T00:00:00.000Z",
       nonce: "nonce",
       verifier: "verifier",
       returnTo: "/",
@@ -125,6 +128,16 @@ it("rechecks provider availability/version independently of adapter cache", asyn
   );
   expect(mocks.verify).not.toHaveBeenCalled();
 });
+it.each([undefined, "2025-12-31T00:00:00.000Z"])(
+  "rejects missing or previous provider incarnations before upstream exchange (%s)",
+  async (createdAt) => {
+    attempt.payload.providerCreatedAt = createdAt;
+    await expect(verifyAttempt(attempt, "?state=state&code=code")).rejects.toThrow(
+      "provider_changed",
+    );
+    expect(mocks.verify).not.toHaveBeenCalled();
+  },
+);
 it.each(["setup", "setup-test"])(
   "rechecks %s authorization before and after exchange",
   async (mode) => {

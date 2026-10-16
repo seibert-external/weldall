@@ -1430,6 +1430,26 @@ describe.skipIf(!approvedTarget)(
         workspace,
         emailAssignments: { admin: { email: adminEmail, scopes: ["weldall:administer"] } },
       });
+      const blocked = await planIac(removed);
+      expect(blocked.blockers).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: "EXTERNAL_REFERENCE" })]),
+      );
+      await expect(
+        applyIac(
+          {
+            manifest: removed,
+            plannedRevision: blocked.revision,
+            configDigest: blocked.configDigest,
+            planDigest: blocked.digest,
+            operationId: randomUUID(),
+          },
+          iacActor,
+        ),
+      ).rejects.toMatchObject({ code: "PLAN_BLOCKED" });
+      expect(await db.connection.findUnique({ where: { id: connection.id } })).not.toBeNull();
+      expect(await db.encryptedValue.findUnique({ where: { id: secret.id } })).not.toBeNull();
+      await deleteConnection({ id: connection.id, actor });
+      await db.connectionAuthorization.deleteMany({ where: { connectorId: connector.id } });
       await apply(removed);
       await expect(
         db.connector.findUnique({ where: { key: `${prefix}-iac-delete-google` } }),

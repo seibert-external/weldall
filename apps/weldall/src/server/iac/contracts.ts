@@ -11,6 +11,11 @@ import { z } from "zod";
 import { parseCliLogoUrl } from "../branding";
 import { connectorConfig } from "../connectors/contracts";
 import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
+import {
+  sharedConnectionConfigSchema,
+  groupProviderConfigSchema,
+  loginProviderConfigSchema,
+} from "../domain/secret-primitive-contracts";
 
 export const IAC_MANIFEST_VERSION = "weldall.dev/v1" as const;
 export const IAC_API_VERSION = "v1" as const;
@@ -108,6 +113,9 @@ export const desiredStateSchema = z
       .strict()
       .optional(),
     connectors: z.record(addressKey, connectorConfig).default({}),
+    sharedConnections: z.record(addressKey, sharedConnectionConfigSchema).optional(),
+    groupProviders: z.record(addressKey, groupProviderConfigSchema).optional(),
+    loginProviders: z.record(addressKey, loginProviderConfigSchema).optional(),
     scopes: z
       .record(
         addressKey,
@@ -202,6 +210,15 @@ export const desiredStateSchema = z
   .superRefine((manifest, context) => {
     const identities = new Set<string>();
     const entries: Array<[string, string]> = [
+      ...Object.values(manifest.sharedConnections ?? {}).map(
+        (item) => ["sharedConnection", item.key] as [string, string],
+      ),
+      ...Object.values(manifest.groupProviders ?? {}).map(
+        (item) => ["groupProvider", item.key] as [string, string],
+      ),
+      ...Object.values(manifest.loginProviders ?? {}).map(
+        (item) => ["loginProvider", item.id] as [string, string],
+      ),
       ...Object.values(manifest.connectors).map(
         (item) => ["connector", item.key] as [string, string],
       ),
@@ -254,7 +271,10 @@ export type IacKind =
   | "groupAssignment"
   | "skill"
   | "cli"
-  | "connector";
+  | "connector"
+  | "sharedConnection"
+  | "groupProvider"
+  | "loginProvider";
 export type IacActionType =
   "create" | "update" | "replace" | "delete" | "recreate" | "register_key" | "revoke_key" | "noop";
 export interface IacAction {
@@ -267,6 +287,7 @@ export interface IacAction {
   irreversible?: boolean;
   keyId?: string;
   keyThumbprint?: string;
+  requiresAuthorityConfirmation?: boolean;
 }
 export interface IacBlocker {
   code: string;
@@ -312,7 +333,7 @@ const operationId = z.string().uuid();
 const logicalAddress = z
   .string()
   .regex(
-    /^(scope|resource|machine|emailAssignment|groupAssignment|skill|connector)\.[a-z][a-z0-9_-]{0,119}$/,
+    /^(scope|resource|machine|emailAssignment|groupAssignment|skill|connector|sharedConnection|groupProvider|loginProvider)\.[a-z][a-z0-9_-]{0,119}$/,
   );
 export const planRequestSchema = z.object({ manifest: desiredStateSchema }).strict();
 export const applyRequestSchema = z
@@ -321,6 +342,10 @@ export const applyRequestSchema = z
     plannedRevision: z.number().int().min(0),
     configDigest: z.string().regex(/^[a-f0-9]{64}$/),
     planDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    authorityConfirmation: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     operationId,
   })
   .strict();
@@ -335,6 +360,9 @@ export const importRequestSchema = z
       "groupAssignment",
       "skill",
       "connector",
+      "sharedConnection",
+      "groupProvider",
+      "loginProvider",
     ]),
     identity: key,
     address: logicalAddress,

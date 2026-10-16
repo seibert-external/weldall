@@ -45,9 +45,10 @@ export function encryptProviderToken(
 
 export function decryptProviderToken(input: {
   id: string;
-  encryptedToken: string;
+  encryptedToken: string | null;
   encryptionKeyVersion: number;
 }): string {
+  if (!input.encryptedToken) throw new Error("The group provider credential is missing.");
   try {
     const envelope = envelopeSchema.parse(JSON.parse(input.encryptedToken));
     if (envelope.keyVersion !== input.encryptionKeyVersion) throw new Error("version mismatch");
