@@ -224,6 +224,9 @@ function validateGoogleConfiguration(value: unknown) {
       "calendar.readonly",
       "calendar.events",
       "calendar",
+      "bigquery.readonly",
+      "bigquery.insertdata",
+      "bigquery",
     ].map((scope) => `https://www.googleapis.com/auth/${scope}`),
   );
   const allowed = value.allowedScopes;
