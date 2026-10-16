@@ -328,7 +328,10 @@
                         "https://www.googleapis.com/auth/gmail.modify",
                         "https://www.googleapis.com/auth/calendar.readonly",
                         "https://www.googleapis.com/auth/calendar.events",
-                        "https://www.googleapis.com/auth/calendar"
+                        "https://www.googleapis.com/auth/calendar",
+                        "https://www.googleapis.com/auth/bigquery.readonly",
+                        "https://www.googleapis.com/auth/bigquery.insertdata",
+                        "https://www.googleapis.com/auth/bigquery"
                       ]
                     }
                   },
@@ -342,7 +345,10 @@
                         "https://www.googleapis.com/auth/gmail.modify",
                         "https://www.googleapis.com/auth/calendar.readonly",
                         "https://www.googleapis.com/auth/calendar.events",
-                        "https://www.googleapis.com/auth/calendar"
+                        "https://www.googleapis.com/auth/calendar",
+                        "https://www.googleapis.com/auth/bigquery.readonly",
+                        "https://www.googleapis.com/auth/bigquery.insertdata",
+                        "https://www.googleapis.com/auth/bigquery"
                       ]
                     },
                     "description": "Must be a subset of allowedScopes. Scope sets are deduplicated and sorted."
