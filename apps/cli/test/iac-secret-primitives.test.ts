@@ -6,7 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadWorkspace, newLock, serverManifest, writeLock } from "../src/iac/manifest.js";
 import { IacClient } from "../src/iac/client.js";
 import { iacImportCommand, iacUpCommand } from "../src/iac/commands.js";
-import { parseDesiredState } from "../../weldall/src/server/iac/contracts.js";
+import {
+  sharedConnectionConfigSchema,
+  groupProviderConfigSchema,
+  loginProviderConfigSchema,
+} from "../../weldall/src/server/domain/secret-primitive-contracts.js";
+
+// Compare the public wire contracts without loading the server's database-backed manifest parser.
+const serverSchemas = {
+  sharedConnections: sharedConnectionConfigSchema,
+  groupProviders: groupProviderConfigSchema,
+  loginProviders: loginProviderConfigSchema,
+};
 
 const publicValues = {
   sharedConnections: {
@@ -78,7 +89,10 @@ describe.each(Object.entries(publicValues))("%s public contract", (section, valu
     );
     const loaded = await loadWorkspace(root);
     const wire = serverManifest(loaded.manifest, loaded.lock!);
-    expect(parseDesiredState(wire)).toEqual({ ...wire, connectors: {} });
+    expect(wire).toHaveProperty(
+      `${section}.fixture`,
+      serverSchemas[section as keyof typeof serverSchemas].parse(value),
+    );
   });
   it("rejects a secret locally without printing its value", async () => {
     const secret = "do-not-expose-secret-marker";

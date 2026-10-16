@@ -29,9 +29,14 @@ try {
     ".",
     "./astro",
     "./hono",
+    "./mcp",
     "./next",
     "./starlight",
   ]);
+  assert.deepEqual(packageJson.exports["./mcp"], {
+    types: "./dist/mcp/index.d.ts",
+    default: "./dist/mcp/index.js",
+  });
   assert.equal(packageJson.engines.node, ">=22.15.0");
   assert.equal(JSON.stringify(packageJson).includes("workspace:"), false);
   assert.deepEqual(packageJson.peerDependencies, {
@@ -59,6 +64,18 @@ try {
     "package/dist/index.d.ts",
     "package/dist/machine.js",
     "package/dist/machine.d.ts",
+    "package/dist/mcp/index.js",
+    "package/dist/mcp/index.d.ts",
+    "package/dist/mcp/client.js",
+    "package/dist/mcp/client.d.ts",
+    "package/dist/mcp/contracts.js",
+    "package/dist/mcp/contracts.d.ts",
+    "package/dist/mcp/errors.js",
+    "package/dist/mcp/errors.d.ts",
+    "package/dist/mcp/names.js",
+    "package/dist/mcp/names.d.ts",
+    "package/dist/mcp/atlassian.js",
+    "package/dist/mcp/atlassian.d.ts",
     "package/dist/hono.js",
     "package/dist/next.js",
     "package/dist/astro.js",
