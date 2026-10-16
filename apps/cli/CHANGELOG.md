@@ -1,5 +1,11 @@
 # @weldall/cli
 
+## 0.21.1
+
+### Patch Changes
+
+- 166a650: Accept all three supported BigQuery scopes in Google connector IaC configuration and the manifest JSON schema, fixing validation of imported connectors.
+
 ## 0.21.0
 
 ### Minor Changes
