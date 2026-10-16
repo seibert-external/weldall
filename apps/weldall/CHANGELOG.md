@@ -1,5 +1,19 @@
 # @weldall/weldall
 
+## 0.6.0
+
+### Minor Changes
+
+- 65e5205: Add Atlassian MCP connections, private DPoP broker APIs, CLI/SDK access and skill-dependency activation. Credentials remain server-side; calls are not retried automatically. Deploy the matching migrations/server before updating clients. Configuration, authorization, host compatibility and limitations are documented in the MCP reference.
+- 65e5205: Add public-only IaC configuration/import for shared connections and group/login providers, with UI-only credentials, disabled drafts and plan-bound login-authority approval. Preserve credentials during import and protect the last active login provider. Back up the database and deploy migrations with the matching server before updating clients. An unfinished sign-in from before the upgrade must be started again; existing sessions remain valid.
+- 65e5205: Add scope-shared Atlassian service-account connections with UI-only encrypted keys, stable identifiers and live user/machine authorization. Personal OAuth remains owner-only. SDK calls use DPoP, enforce bounds and do not retry automatically.
+
+### Patch Changes
+
+- Updated dependencies [65e5205]
+- Updated dependencies [65e5205]
+  - @weldall/sdk@0.10.0
+
 ## 0.5.3
 
 ### Patch Changes
