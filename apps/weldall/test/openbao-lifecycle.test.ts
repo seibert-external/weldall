@@ -633,6 +633,7 @@ describe("OpenBao configuration without deployment variables", () => {
       return structuredClone(connector);
     }) as never);
     vi.spyOn(db.connector, "delete").mockResolvedValue(connector as never);
+    const skillCount = vi.spyOn(db.skill, "count").mockResolvedValue(0);
     await saveConnectorConfiguration({
       tx: db,
       value: { ...config, enabled: false },
@@ -658,6 +659,12 @@ describe("OpenBao configuration without deployment variables", () => {
       actor,
     });
     await deleteConnectorConfiguration({ tx: db, id: connector.id, version: 3, actor });
+    expect(skillCount).toHaveBeenCalledExactlyOnceWith({
+      where: { mcpDependencies: { array_contains: [{ connectorKey: config.key }] } },
+    });
+    expect(db.connector.delete).toHaveBeenCalledExactlyOnceWith({
+      where: { id: connector.id, version: 3 },
+    });
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
