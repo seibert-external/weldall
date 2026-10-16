@@ -23,8 +23,6 @@ import { connectorProviders, getConnectorProvider } from "../connectors/registry
 import { connectorCapabilities } from "../connectors/provider";
 
 export async function listMcpConnectors(actor: AuthorizedConnectorActor) {
-  if (actor.type === "machine")
-    throw new ConnectorError("connection_denied", "Owner connections require a user.", 403);
   const rows = await db.connector.findMany({
     where: {
       enabled: true,
@@ -69,12 +67,16 @@ export async function executeMcpOperation(input: {
   const started = Date.now();
   let subjectId = "unknown";
   let ownerId: string | undefined;
+  let connectionKey: string | undefined;
+  let authorizationSource: "owner" | "scope" | undefined;
   let connectorId: string | undefined;
   const operation = `mcp.${input.operation === "call" ? "tool_call" : input.operation === "read-resource" ? "resource_read" : "discovery"}`;
   const details = () => ({
     connectorKey: key,
     ...(connectorId ? { connectorId } : {}),
-    ...(ownerId ? { ownerId, authorizationSource: "owner" as const } : {}),
+    ...(ownerId ? { credentialManagerId: ownerId } : {}),
+    ...(connectionKey ? { connectionKey } : {}),
+    ...(authorizationSource ? { authorizationSource } : {}),
     ...(call ? { toolName: call.name } : {}),
     ...(read
       ? {
@@ -96,6 +98,8 @@ export async function executeMcpOperation(input: {
       async preflight(row, provider) {
         subjectId = row.id;
         ownerId = row.ownerId;
+        connectionKey = row.key ?? undefined;
+        authorizationSource = row.accessMode === "SCOPED" ? "scope" : "owner";
         if (total >= 100 || (active.get(row.id) ?? 0) >= 4)
           throw new ConnectorError("rate_limit", "Too many concurrent MCP operations.", 429);
         connectorId = row.connectorId;

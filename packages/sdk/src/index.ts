@@ -10,6 +10,7 @@ export * from "./jwt.js";
 export * from "./id-jag.js";
 export * from "./resource-as.js";
 export * from "./machine.js";
+export { createWeldallMcpClient, WeldallMcpError } from "./mcp/client.js";
 export * from "./resource-registry.js";
 export * from "./skills.js";
 export * from "./core.js";

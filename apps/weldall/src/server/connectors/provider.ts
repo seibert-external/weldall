@@ -23,6 +23,14 @@ export type ConnectorProxyRequest = {
 /** Provider-owned values remain opaque to lifecycle and transport code. Each adapter parses boundary input. */
 export interface ConnectorProvider {
   readonly type: string;
+  readonly staticConnection?: {
+    parseCreateInput(value: unknown): {
+      selection: object;
+      credentials: object;
+      grant: ProviderGrant;
+    };
+    parseRotateInput(value: unknown): object;
+  };
   /** Public-client registration. Client IDs are public; unused secrets are never retained. */
   readonly registration?: {
     binding(input: { callbackUrl: string; config: unknown }): string;

@@ -37,7 +37,10 @@ export interface ConnectionUsage {
 export interface ConnectionSummary {
   capabilities?: ConnectorCapability[];
   id: string;
-  ownerId: string;
+  ownerId?: string;
+  accessMode?: "OWNER_ONLY" | "SCOPED";
+  key?: string | null;
+  useScopes?: string[];
   connectorId: string;
   name: string;
   accountId: string;
@@ -117,7 +120,8 @@ export const isConnectionUsage = (value: unknown): value is ConnectionUsage =>
 export const isConnectionSummary = (value: unknown): value is ConnectionSummary =>
   isRecord(value) &&
   typeof value.id === "string" &&
-  typeof value.ownerId === "string" &&
+  (typeof value.ownerId === "string" ||
+    (value.accessMode === "SCOPED" && value.ownerId === undefined)) &&
   typeof value.connectorId === "string" &&
   typeof value.name === "string" &&
   typeof value.accountId === "string" &&

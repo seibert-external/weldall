@@ -7,6 +7,8 @@ description: The CLI and SDK packages for connected company services.
 
 Weldall publishes the npm CLI plus TypeScript and Python SDKs. The CLI runs on an employee's device. An SDK runs inside a connected service.
 
+Both SDKs can call [shared MCP connections](../mcp/#machine-sdk-use) as machines using `weldall:mcp`, all connector/use scopes and fresh DPoP proofs. Use `createWeldallMcpClient` (TypeScript) or `create_weldall_mcp_client` (Python). Calls are bounded and never retried automatically; there is no CLI machine mode.
+
 ## `@weldall/cli`
 
 [`@weldall/cli`](https://www.npmjs.com/package/@weldall/cli) installs the `weldall` command. Node.js 22.15 or newer is required.

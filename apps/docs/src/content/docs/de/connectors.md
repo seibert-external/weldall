@@ -5,9 +5,11 @@ description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person a
 
 Connectors rufen einen Dienst **im Namen der nutzenden Person** auf. Jede Person verbindet ihr eigenes Konto und gibt den Zugriff frei. Weldall speichert die Zugangsdaten verschlüsselt auf dem Server und führt die Aufrufe aus; Provider-Tokens gelangen nie in die CLI.
 
-Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. Connectors sind für persönliche, selbst freigegebene Zugriffe gedacht – nicht als Voraussetzung für jede Integration.
+Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. REST-Connectors verwenden persönliche Freigaben. Atlassian MCP unterstützt zusätzlich per Scope geteilte Service-Account-API-Keys.
 
 Für Remote-MCP-Tools statt REST-Anfragen erstelle einen **Atlassian MCP**-Connector in der Admin-Oberfläche oder über [IaC](../mcp/). Endpunkt und OAuth-Client-Registrierung sind automatisch. Bestehende Atlassian-REST-Verbindungen werden nicht wiederverwendet.
+
+Geteilte Atlassian-MCP-Zugangsdaten werden unter **Admin → Connections** erstellt und rotiert, niemals in IaC. Alle Connector- und Nutzungsscopes gelten auch für Administratoren und Credential-Manager. Persönliches OAuth bleibt privat. Details zu Einrichtung, Maschinen-SDKs und Upstream-Widerruf: [Geteilte MCP-Verbindungen](../mcp/#geteilte-service-account-verbindungen).
 
 ## Fähigkeiten erkennen
 

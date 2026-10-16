@@ -720,7 +720,7 @@ describe.skipIf(!approvedTarget)(
         delete process.env.WELDALL_CONNECTOR_KEK;
         await expect(
           accessCredentials({ actor: { ...actor, id: "different-user" }, selector: f.id }),
-        ).rejects.toThrow("not found");
+        ).rejects.toThrow("not available");
         await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("unavailable");
       } finally {
         process.env.WELDALL_CONNECTOR_KEK = original;
@@ -888,7 +888,7 @@ describe.skipIf(!approvedTarget)(
         message: expect.stringContaining("provider account settings"),
       });
       expect(revokeGoogle).toHaveBeenCalledWith("rotated");
-      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not found");
+      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not available");
       expect(await db.connection.findUnique({ where: { id: f.id } })).toBeNull();
       expect(await db.encryptedValue.findUnique({ where: { id: before.id } })).toBeNull();
       expect(
@@ -1035,7 +1035,7 @@ describe.skipIf(!approvedTarget)(
           });
         await refreshing;
         expect(await db.encryptedValue.findUnique({ where: { id: row.credentialId! } })).toBeNull();
-        await expect(execute()).rejects.toMatchObject({ code: "not_found" });
+        await expect(execute()).rejects.toMatchObject({ code: "connection_denied" });
         expect(fetcher).not.toHaveBeenCalled();
         expect(revokeGoogle).not.toHaveBeenCalled();
       },
@@ -1256,7 +1256,7 @@ describe.skipIf(!approvedTarget)(
       expect((await db.connection.findUniqueOrThrow({ where: { id: f.id } })).status).toBe(
         "REVOCATION_PENDING",
       );
-      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not ready");
+      await expect(accessCredentials({ actor, selector: f.id })).rejects.toThrow("not available");
       vi.mocked(revokeGoogle).mockResolvedValueOnce();
       expect((await disconnectConnection({ actor, selector: f.id })).status).toBe("DISCONNECTED");
       expect(revokeGoogle).toHaveBeenCalledWith("rotated-while-disconnecting");
@@ -1479,7 +1479,7 @@ describe.skipIf(!approvedTarget)(
         "Bearer never-public-access",
       );
       expect(fetcher.mock.calls[0]?.[1].headers.get("dpop")).toBeNull();
-      expect(fresh).toHaveBeenCalledTimes(1);
+      expect(fresh).toHaveBeenCalledTimes(2);
       const audit = await db.auditEvent.findMany({
         where: { subjectId: f.id, eventType: "connector.request" },
       });
@@ -1509,7 +1509,7 @@ describe.skipIf(!approvedTarget)(
           actor: { ...actor, id: "different-owner" },
           connectorKey: f.key,
         }),
-      ).rejects.toThrow("not found");
+      ).rejects.toThrow("not available");
       expect(fetcher).toHaveBeenCalledTimes(1);
       fresh.mockRestore();
     });

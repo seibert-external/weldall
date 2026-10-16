@@ -276,7 +276,16 @@ const connectorMetadata = z
     connectorKey: z.string().max(120).optional(),
     toolName: z.string().max(64).optional(),
     ownerId: z.string().max(191).optional(),
-    authorizationSource: z.literal("owner").optional(),
+    authorizationSource: z.enum(["owner", "scope"]).optional(),
+    actorType: z.enum(["user", "machine"]).optional(),
+    actorId: z.string().max(191).optional(),
+    clientId: z.string().max(191).optional(),
+    keyId: z.string().max(191).optional(),
+    keyThumbprint: z.string().max(128).optional(),
+    connectionId: z.string().max(191).optional(),
+    connectionKey: z.string().max(120).optional(),
+    credentialManagerId: z.string().max(191).optional(),
+    outcome: z.enum(["success", "denied", "failed"]).optional(),
     requestFingerprint: z
       .string()
       .regex(/^[a-f0-9]{64}$/)

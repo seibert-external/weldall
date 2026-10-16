@@ -1,0 +1,1 @@
+ALTER TYPE "ConnectionStatus" ADD VALUE 'DISABLED';

@@ -68,6 +68,7 @@ export async function withMcpClient<T>(input: {
         ...(init.body === undefined ? {} : { body: init.body as string }),
         signal: requestSignal,
       });
+      requestSignal.throwIfAborted();
       const response = await fetchFn(endpoint, {
         ...request,
         signal: requestSignal,

@@ -5,9 +5,11 @@ description: Call Google and Atlassian Cloud APIs on behalf of the signed-in use
 
 Connectors let you call a service **on behalf of the user**. Each person connects their own account and approves access. Weldall keeps the credentials encrypted on the server and makes the calls; provider tokens never reach the CLI.
 
-Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side. Connectors are for personal, user-authorized access—not a requirement for every integration.
+Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side. REST connectors use personal, user-authorized access. Atlassian MCP additionally supports scope-shared service-account API keys.
 
 For remote MCP tools instead of REST requests, create an **Atlassian MCP** connector in the admin UI or through [IaC](../mcp/). Its endpoint and OAuth client registration are automatic. Existing Atlassian REST connections are not reused.
+
+Shared Atlassian MCP credentials are created and rotated in **Admin → Connections**, never in IaC. All connector and connection use scopes are required, including for administrators and credential managers. Personal OAuth cannot be shared. See [shared MCP connections](../mcp/#shared-service-account-connections) for setup, machine SDK access, and upstream revocation guidance.
 
 ## Discover capabilities
 

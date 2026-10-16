@@ -23,7 +23,8 @@ const bytes = (maximum: number) =>
   z
     .string()
     .max(maximum)
-    .refine((value) => Buffer.byteLength(value, "utf8") <= maximum);
+    .refine((value) => Buffer.byteLength(value, "utf8") <= maximum)
+    .meta({ "x-weldall-maxBytes": maximum });
 export const mcpConnectorKeySchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,119}$/);
 export const mcpToolNameSchema = z
   .string()
@@ -236,6 +237,27 @@ export const mcpConnectorsSchema = z
     }),
   )
   .max(1000);
+export const mcpConnectionSchema = z
+  .strictObject({
+    id: z.string().min(1).max(160),
+    key: mcpConnectorKeySchema.nullable(),
+    accessMode: z.enum(["OWNER_ONLY", "SCOPED"]),
+    connectorKey: mcpConnectorKeySchema,
+    name: z.string().min(1).max(200),
+    accountName: z.string().min(1).max(200),
+    status: z.enum(["READY", "DISABLED", "REFRESHING", "RECONNECT_REQUIRED", "REVOCATION_PENDING"]),
+    connectorEnabled: z.boolean(),
+    capabilities: connectorCapabilitiesSchema,
+    useScopes: z.array(z.string().min(1).max(160)).max(100),
+  })
+  .refine((row) =>
+    row.accessMode === "SCOPED"
+      ? row.key !== null && row.useScopes.length > 0
+      : row.key === null && row.useScopes.length === 0,
+  );
+export const mcpConnectionsSchema = z.array(mcpConnectionSchema).max(200);
+export type McpConnection = z.output<typeof mcpConnectionSchema>;
+
 export const mcpToolsResponseSchema = z.strictObject({
   tools: z.array(mcpToolSchema).max(MCP_LIMITS.tools),
 });

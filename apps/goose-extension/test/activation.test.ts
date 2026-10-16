@@ -154,6 +154,63 @@ describe("session-local MCP activation", () => {
     expect(activation.listTools().map((t) => t.name)).toEqual(["select_mcp_connection"]);
     expect(cli.run.mock.calls.some(([args]) => args[1] === "tools")).toBe(false);
   });
+  it("requires explicit selection across personal/shared candidates and dispatches the selected ID", async () => {
+    const { activation, state, cli } = fixture();
+    state.connections = [
+      Object.assign({ ...account }, { accessMode: "OWNER_ONLY", key: null }),
+      Object.assign(
+        { ...account, id: "shared-id", name: "Production bot" },
+        { accessMode: "SCOPED", key: "production-bot", useScopes: ["jira:shared"] },
+      ),
+    ];
+    expect(await activation.activate([dependency])).toMatchObject([
+      { status: "selection_required" },
+    ]);
+    expect(cli.run.mock.calls.some(([args]) => args[1] === "tools")).toBe(false);
+    await activation.call("select_mcp_connection", {
+      connectorKey: "work",
+      connection: "shared-id",
+    });
+    await activation.call(localMcpToolName("work", "read"), {});
+    expect(
+      cli.run.mock.calls.some(
+        ([args]) => args[1] === "call" && args.includes("--connection=shared-id"),
+      ),
+    ).toBe(true);
+  });
+  it.each(["production", "Production bot 🌐"])(
+    "offers IDs for duplicate labels %s and rejects ambiguous names",
+    async (name) => {
+      const { activation, state, cli } = fixture();
+      state.connections = [
+        { ...account, id: "bot-a", name, accountName: "Site A" },
+        { ...account, id: "bot-b", name, accountName: "Site B" },
+      ];
+      const statuses = await activation.activate([dependency]);
+      expect(statuses).toMatchObject([
+        {
+          status: "selection_required",
+          choices: [
+            { id: "bot-a", name, accountName: "Site A" },
+            { id: "bot-b", name, accountName: "Site B" },
+          ],
+        },
+      ]);
+      await expect(
+        activation.call("select_mcp_connection", { connectorKey: "work", connection: name }),
+      ).rejects.toMatchObject({
+        code: name === "production" ? "mcp_selection" : "invalid_request",
+      });
+      expect(cli.run.mock.calls.some(([args]) => args[1] === "tools")).toBe(false);
+      await activation.call("select_mcp_connection", { connectorKey: "work", connection: "bot-b" });
+      await activation.call(localMcpToolName("work", "read"), {});
+      expect(
+        cli.run.mock.calls.some(
+          ([args]) => args[1] === "call" && args.includes("--connection=bot-b"),
+        ),
+      ).toBe(true);
+    },
+  );
   it("does not infer uniqueness from the shipped catalog at its truncation limit", async () => {
     const { activation, state } = fixture();
     state.connections.push(

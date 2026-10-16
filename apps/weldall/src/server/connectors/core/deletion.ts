@@ -22,7 +22,7 @@ export async function deleteConnectionState({
   const connections = await tx.connection.findMany({
     where:
       "connectorId" in target ? { connectorId: target.connectorId } : { id: target.connectionId },
-    select: { id: true, connectorId: true, credentialId: true, accountId: true },
+    select: { id: true, connectorId: true, credentialId: true, accountId: true, accessMode: true },
   });
   const attempts = await tx.connectionAuthorization.findMany({
     where: target,
@@ -43,7 +43,8 @@ export async function deleteConnectionState({
       actor,
       event: "lifecycle",
       subjectId: connection.id,
-      operation: "connection.deleted",
+      operation:
+        connection.accessMode === "SCOPED" ? "connection.shared.deleted" : "connection.deleted",
       details: { connectorId: connection.connectorId, accountId: connection.accountId },
     });
   }

@@ -13,6 +13,8 @@ import { PlanetLoader } from "../../_components/planet-loader";
 import { useOperationToast } from "../../_components/use-operation-toast";
 import { connectionStatuses, type ConnectionRow } from "./connection-view";
 
+import { SharedConnectionForm } from "./shared-connection-form";
+
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" });
 const formatDate = (value: string | Date | null) =>
   value ? dateFormatter.format(new Date(value)) : "Never";
@@ -84,7 +86,15 @@ export function ConnectionDetail({ connectionId }: { connectionId: string }) {
           description={connectionQuery.error.message}
         />
       ) : (
-        <ConnectionSummary connection={connectionQuery.data} />
+        <>
+          <ConnectionSummary connection={connectionQuery.data} />
+          {connectionQuery.data.accessMode === "SCOPED" ? (
+            <SharedConnectionForm
+              key={connectionQuery.data.version}
+              connection={connectionQuery.data}
+            />
+          ) : null}
+        </>
       )}
       <AlertDialog
         isOpen={confirmDelete}
@@ -110,10 +120,16 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           <h2 className="m-0 text-xl font-semibold" id="connection-detail-title">
             {connection.name}
           </h2>
-          <Text color="secondary">{connection.accountName}</Text>
+          {connection.accessMode === "OWNER_ONLY" ? (
+            <Text color="secondary">{connection.accountName}</Text>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge {...connectionStatuses[connection.status]} />
+          <Badge
+            label={connection.accessMode === "SCOPED" ? "Shared" : "Personal"}
+            variant="info"
+          />
           {!connection.connectorEnabled ? (
             <Badge label="Connector disabled" variant="warning" />
           ) : null}
@@ -127,7 +143,12 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           />
         ) : null}
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <DetailValue label="Owner">
+          {connection.key ? (
+            <DetailValue label="Connection identifier">
+              <code>{connection.key}</code>
+            </DetailValue>
+          ) : null}
+          <DetailValue label={connection.accessMode === "SCOPED" ? "Credential manager" : "Owner"}>
             <a
               className="underline"
               href={`/admin/users/${encodeURIComponent(connection.ownerId)}`}
@@ -144,9 +165,11 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
           <DetailValue label="Connection ID">
             <code>{connection.id}</code>
           </DetailValue>
-          <DetailValue label="Provider account ID">
-            <code>{connection.accountId}</code>
-          </DetailValue>
+          {connection.accessMode === "OWNER_ONLY" ? (
+            <DetailValue label="Provider account ID">
+              <code>{connection.accountId}</code>
+            </DetailValue>
+          ) : null}
           {connection.details?.map((detail) => (
             <DetailValue key={detail.label} label={detail.label}>
               {detail.value}
@@ -175,21 +198,32 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
         </h2>
         <Text color="secondary">
           {connection.connectorEnabled && connection.status === "READY"
-            ? "Ready connections may call operations authorized by the provider's granted permissions, within the connector's request restrictions."
+            ? connection.accessMode === "SCOPED"
+              ? "Use requires every connector and connection scope. Token permissions are managed in Atlassian; Weldall does not inspect them."
+              : "Ready connections may call operations authorized by the provider's granted permissions, within the connector's request restrictions."
             : "No access is currently available."}
         </Text>
-        <div className="grid gap-6 lg:grid-cols-2">
+        {connection.accessMode === "SCOPED" ? (
           <ScopeList
-            title="Selected permissions"
-            scopes={connection.selectedScopes}
-            labels={connection.scopeLabels}
+            title="Required Weldall use scopes (all required)"
+            scopes={connection.useScopes}
+            labels={{}}
           />
-          <ScopeList
-            title="Granted permissions"
-            scopes={connection.grantedScopes}
-            labels={connection.scopeLabels}
-          />
-        </div>
+        ) : null}
+        {connection.accessMode === "OWNER_ONLY" ? (
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ScopeList
+              title="Selected permissions"
+              scopes={connection.selectedScopes}
+              labels={connection.scopeLabels}
+            />
+            <ScopeList
+              title="Granted permissions"
+              scopes={connection.grantedScopes}
+              labels={connection.scopeLabels}
+            />
+          </div>
+        ) : null}
       </section>
     </>
   );

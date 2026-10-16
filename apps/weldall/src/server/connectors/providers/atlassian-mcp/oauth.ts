@@ -26,6 +26,7 @@ const token = z
   .max(32768)
   .regex(/^[\x21-\x7e]+$/);
 export const credentialsSchema = z.strictObject({
+  kind: z.literal("oauth"),
   accessToken: token,
   refreshToken: token,
   expiresAt: z.number().finite(),
@@ -33,6 +34,7 @@ export const credentialsSchema = z.strictObject({
   grantedScopes: z.array(z.string()).max(40),
 });
 export const grantSchema = z.strictObject({
+  kind: z.literal("oauth"),
   resource: z.literal(target.resource),
   accountId: z.string().min(1).max(500),
   cloudId: z.string().uuid(),
@@ -185,6 +187,7 @@ export function grantFromCredentials(value: unknown) {
   if (sites.size !== 1)
     throw new ConnectorError("grant_mismatch", "Atlassian MCP must grant exactly one site.");
   return grantSchema.parse({
+    kind: "oauth",
     resource: target.resource,
     accountId,
     cloudId: [...sites][0],
@@ -243,6 +246,7 @@ export async function exchangeAtlassianMcpTokens(
       .safeParse(value);
     if (!parsed.success) throw new RejectedProviderCredentials({ credentials: value });
     const normalized = credentialsSchema.safeParse({
+      kind: "oauth",
       accessToken: parsed.data.access_token,
       refreshToken: parsed.data.refresh_token,
       expiresAt: Date.now() + parsed.data.expires_in * 1000,

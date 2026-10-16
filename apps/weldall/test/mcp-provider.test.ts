@@ -127,6 +127,7 @@ describe("Atlassian MCP public-client provider (no live requests)", () => {
       fetcher,
     );
     expect(result.grant).toEqual({
+      kind: "oauth",
       resource: target.resource,
       cloudId: site,
       accountId: "system-account",
@@ -152,6 +153,7 @@ describe("Atlassian MCP public-client provider (no live requests)", () => {
         fetcher,
       );
       const previous = {
+        kind: "oauth",
         accessToken: jwt(),
         refreshToken: "previous-refresh",
         expiresAt: 0,
@@ -212,6 +214,7 @@ describe("Atlassian MCP public-client provider (no live requests)", () => {
     const { fetcher, state } = fixture();
     state.token.scope = undefined;
     const previous = {
+      kind: "oauth",
       accessToken: jwt(),
       refreshToken: "previous-refresh",
       expiresAt: 0,
@@ -227,6 +230,7 @@ describe("Atlassian MCP public-client provider (no live requests)", () => {
     async (changedToken) => {
       const { fetcher, state } = fixture();
       const previous = {
+        kind: "oauth",
         accessToken: jwt(),
         refreshToken: "previous-refresh",
         expiresAt: 0,
@@ -251,6 +255,7 @@ describe("Atlassian MCP public-client provider (no live requests)", () => {
   it("rejects unrequested scopes and unreviewed discovery endpoints", async () => {
     const { fetcher, state } = fixture();
     const previous = {
+      kind: "oauth",
       accessToken: jwt(),
       refreshToken: "previous-refresh",
       expiresAt: 0,
@@ -303,6 +308,7 @@ describe("Atlassian MCP public-client provider (no live requests)", () => {
     async (phase) => {
       const { fetcher, state } = fixture();
       const previous = {
+        kind: "oauth",
         accessToken: jwt(),
         refreshToken: "previous-refresh",
         expiresAt: 0,
@@ -337,6 +343,7 @@ describe("Atlassian MCP public-client provider (no live requests)", () => {
   );
   it("rejects missing site claims, wrong endpoints, REST proxy calls and credential reflections", () => {
     const credentials = {
+      kind: "oauth",
       accessToken: jwt(),
       refreshToken: "refresh-sentinel",
       expiresAt: 0,

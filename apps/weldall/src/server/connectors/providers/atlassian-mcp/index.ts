@@ -22,8 +22,17 @@ import {
   registrationBinding,
 } from "./oauth";
 
+import {
+  staticConnection,
+  serviceCredentialsSchema,
+  serviceSelectionSchema,
+  serviceGrantSchema,
+} from "./static";
+const allCredentials = z.discriminatedUnion("kind", [credentialsSchema, serviceCredentialsSchema]);
+const allGrants = z.discriminatedUnion("kind", [grantSchema, serviceGrantSchema]);
 export const atlassianMcpProvider: ConnectorProvider = {
   type: "atlassian-mcp",
+  staticConnection,
   registration: {
     binding: ({ callbackUrl }) => registrationBinding(callbackUrl),
     register: ({ callbackUrl }) => registerAtlassianMcpClient(callbackUrl),
@@ -57,7 +66,27 @@ export const atlassianMcpProvider: ConnectorProvider = {
     };
   },
   describeConnection({ selection, grant }) {
-    const approved = grantSchema.parse(grant);
+    const approved = allGrants.parse(grant);
+    if (approved.kind === "service-account-api-key") {
+      const selected = serviceSelectionSchema.parse(selection);
+      return {
+        selectedScopes: [],
+        grantedScopes: [],
+        scopeLabels: Object.fromEntries(scopeCatalog.map((scope) => [scope, scope])),
+        details: [
+          { label: "Credential type", value: "Atlassian service account API key" },
+          { label: "Configured cloud IDs", value: selected.cloudIds.join(", ") || "None" },
+        ],
+        usage: {
+          instructions: [
+            "Token permissions are managed in Atlassian and are not inspected by Weldall.",
+            "Some tools require OAuth. API-key calls may require explicit cloudId arguments.",
+            "Revoke this API key in Atlassian administration; Weldall cannot revoke it upstream.",
+          ],
+          examples: [],
+        },
+      };
+    }
     return {
       selectedScopes: selectionSchema.parse(selection).scopes,
       grantedScopes: approved.scopes,
@@ -85,7 +114,10 @@ export const atlassianMcpProvider: ConnectorProvider = {
       ]),
     };
   },
-  validateSetupInput: ({ config, value }) => validateSelection(config, value),
+  validateSetupInput: ({ config, value }) =>
+    serviceSelectionSchema.safeParse(value).success
+      ? serviceSelectionSchema.parse(value)
+      : validateSelection(config, value),
   async beginAuthorization({ config, selection, callbackUrl, registration }) {
     if (!registration)
       throw new ConnectorError(
@@ -113,9 +145,12 @@ export const atlassianMcpProvider: ConnectorProvider = {
       accountName: `Atlassian MCP · ${result.grant.cloudId}`,
     };
   },
-  parseCredentials: (value) => credentialsSchema.parse(value),
-  parseGrant: (value) => grantSchema.parse(value) as ProviderGrant<z.infer<typeof grantSchema>>,
-  needsRefresh: (value) => credentialsSchema.parse(value).expiresAt <= Date.now() + 60_000,
+  parseCredentials: (value) => allCredentials.parse(value),
+  parseGrant: (value) => allGrants.parse(value) as ProviderGrant<z.infer<typeof allGrants>>,
+  needsRefresh: (value) => {
+    const parsed = allCredentials.parse(value);
+    return parsed.kind === "oauth" && parsed.expiresAt <= Date.now() + 60_000;
+  },
   async refreshCredentials({ config, selection, credentials }) {
     const result = await exchangeAtlassianMcpTokens({
       scopes: validateSelection(config, selection).scopes,
@@ -124,6 +159,19 @@ export const atlassianMcpProvider: ConnectorProvider = {
     return { ...result, grant: result.grant as ProviderGrant<typeof result.grant> };
   },
   async ensureGrantCurrent({ config, selection, credentials, previousGrant }) {
+    if (allCredentials.parse(credentials).kind === "service-account-api-key") {
+      const selected = serviceSelectionSchema.parse(selection);
+      const grant = serviceGrantSchema.parse(previousGrant);
+      if (
+        JSON.stringify(selected) !==
+        JSON.stringify({
+          kind: grant.kind,
+          cloudIds: grant.cloudIds,
+        })
+      )
+        throw new ConnectorError("grant_mismatch", "MCP grant no longer matches the connection.");
+      return grant as ProviderGrant<typeof grant>;
+    }
     const selected = validateSelection(config, selection);
     const current = grantFromCredentials(credentials);
     if (
@@ -133,10 +181,13 @@ export const atlassianMcpProvider: ConnectorProvider = {
       throw new ConnectorError("grant_mismatch", "MCP grant no longer matches the connection.");
     return current as ProviderGrant<typeof current>;
   },
-  async disconnectGrant() {
+  async disconnectGrant({ credentials }) {
     return {
       status: "unsupported",
-      remediationUrl: "https://id.atlassian.com/manage-profile/apps",
+      remediationUrl:
+        allCredentials.parse(credentials).kind === "service-account-api-key"
+          ? "https://admin.atlassian.com"
+          : "https://id.atlassian.com/manage-profile/apps",
     };
   },
   resolveUpstreamUrl() {
@@ -151,7 +202,11 @@ export const atlassianMcpProvider: ConnectorProvider = {
     buildAuthenticatedRequest({ endpoint, credentials, method, headers, body, signal }) {
       validateMcpEndpoint(endpoint);
       const output = new Headers(headers);
-      output.set("authorization", `Bearer ${credentialsSchema.parse(credentials).accessToken}`);
+      const parsed = allCredentials.parse(credentials);
+      output.set(
+        "authorization",
+        `Bearer ${parsed.kind === "oauth" ? parsed.accessToken : parsed.apiKey}`,
+      );
       return {
         method,
         headers: output,
@@ -161,13 +216,11 @@ export const atlassianMcpProvider: ConnectorProvider = {
       };
     },
     assertSafeResult(value, credentials) {
-      const tokens = credentialsSchema.parse(credentials);
+      const tokens = allCredentials.parse(credentials);
+      const secrets =
+        tokens.kind === "oauth" ? [tokens.accessToken, tokens.refreshToken] : [tokens.apiKey];
       const output = JSON.stringify(value);
-      if (
-        [tokens.accessToken, tokens.refreshToken].some((secret) =>
-          output.includes(JSON.stringify(secret).slice(1, -1)),
-        )
-      )
+      if (secrets.some((secret) => output.includes(JSON.stringify(secret).slice(1, -1))))
         throw new McpBoundaryError("upstream_protocol_error");
     },
   },

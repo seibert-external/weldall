@@ -11,8 +11,9 @@ export function writeMcpAudit(input: {
   details: {
     connectorKey: string;
     connectorId?: string;
-    ownerId?: string;
-    authorizationSource?: "owner";
+    credentialManagerId?: string;
+    connectionKey?: string;
+    authorizationSource?: "owner" | "scope";
     toolName?: string;
     requestFingerprint?: string;
     durationMs?: number;
@@ -30,7 +31,17 @@ export function writeMcpAudit(input: {
       ...(input.outcome && input.outcome !== "success"
         ? { reasonCode: "invalid_request" as const }
         : {}),
-      metadata: { operation: input.operation, ...input.details },
+      metadata: {
+        operation: input.operation,
+        ...input.details,
+        actorType: input.actor.type ?? "user",
+        actorId: input.actor.id,
+        connectionId: input.subjectId,
+        outcome: input.outcome ?? "success",
+        ...(input.actor.clientId ? { clientId: input.actor.clientId } : {}),
+        ...(input.actor.keyId ? { keyId: input.actor.keyId } : {}),
+        ...(input.actor.keyThumbprint ? { keyThumbprint: input.actor.keyThumbprint } : {}),
+      },
     },
     input.tx,
   );

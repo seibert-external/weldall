@@ -149,6 +149,17 @@ export async function mutateScope({
     await scopeAudit(tx, actor, "resource_scopes.replaced", current, updated);
     return updated;
   }
+  const shared = await tx.connectionUseScope.findMany({
+    where: { scopeId: current.id },
+    include: { connection: { select: { key: true, name: true } } },
+    take: 20,
+  });
+  if (shared.length)
+    throw new PrimitiveMutationError(
+      "CONFLICT",
+      `Scope is in_use by shared connections: ${shared.map(({ connection }) => `${connection.name} (${connection.key})`).join(", ")}. Replace their use scopes or delete those connections first.`,
+      { reason: "in_use" },
+    );
   const [skill, connector, resource, machine] = await Promise.all([
     tx.skill.findFirst({ where: { requiredScopes: { has: current.key } }, select: { slug: true } }),
     tx.connectorRequiredScope.findFirst({

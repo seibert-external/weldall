@@ -4,23 +4,24 @@ import { assertConnectorAccess } from "../access";
 import { runConnectorTransaction } from "../configuration";
 import { getConnectorProvider } from "../registry";
 import type { ConnectorProvider, ProviderGrant } from "../provider";
-import { accessCredentials, findOwnedConnection } from "./connections";
+import { accessCredentials } from "./connections";
+import { prepareConnectionAccess, resolveUsableConnection } from "./connection-access";
 
-type Row = Awaited<ReturnType<typeof findOwnedConnection>>;
+type Row = Awaited<ReturnType<typeof resolveUsableConnection>>["row"];
 export interface AuthorizedConnectionUse {
   row: Row;
   credentials: object;
   grant: ProviderGrant;
   provider: ConnectorProvider;
-  authorizationSource: "owner";
+  authorizationSource: "owner" | "scope";
+  credentialManagerId: string;
+  actor: AuthorizedConnectorActor;
   signal: AbortSignal;
   /** Fresh state checks immediately before each upstream dispatch; never a cache authorization. */
   assertCurrent(): Promise<void>;
 }
 
-/** The sole owner-use seam shared by HTTP proxy and MCP. Future sharing must extend this
- * authorization decision explicitly, not relax an owner query inside a transport.
- */
+/** The sole credential-use seam shared by HTTP proxy and MCP. */
 export async function authorizeConnectionUse<T>(input: {
   actor: AuthorizedConnectorActor;
   selector: string;
@@ -30,14 +31,17 @@ export async function authorizeConnectionUse<T>(input: {
   run: (context: AuthorizedConnectionUse) => Promise<T>;
 }): Promise<T> {
   const { actor, signal } = input;
-  if (actor.type === "machine" || !input.selector || input.selector.length > 160)
+  if (!input.selector || input.selector.length > 160)
     throw new ConnectorError(
       "connection_denied",
       "Connection is not available to this caller.",
       403,
     );
   signal.throwIfAborted();
-  const initial = await findOwnedConnection({ tx: db, selector: input.selector, actor });
+  const { row: initial, authorizationSource } = await resolveUsableConnection({
+    selector: input.selector,
+    actor,
+  });
   const provider = getConnectorProvider(initial.connector.providerType);
   const authorize = (row: Row, allowRefreshing = false) => {
     assertConnectorAccess({ connector: row.connector, actor });
@@ -59,8 +63,9 @@ export async function authorizeConnectionUse<T>(input: {
   authorize(initial, true);
   await input.preflight?.(initial, provider);
   signal.throwIfAborted();
+  const resolve = await prepareConnectionAccess(actor);
   await runConnectorTransaction(async (tx) => {
-    const row = await findOwnedConnection({ tx, selector: initial.id, actor });
+    const { row } = await resolve(tx, initial.id);
     authorize(row, true);
     const reset = row.rateWindow.getTime() <= Date.now() - 60_000;
     if (!reset && row.rateCount >= 60)
@@ -106,7 +111,7 @@ export async function authorizeConnectionUse<T>(input: {
       );
   };
   await runConnectorTransaction(async (tx) => {
-    check(await findOwnedConnection({ tx, selector: initial.id, actor }));
+    check((await resolve(tx, initial.id)).row);
     await tx.connection.update({
       where: { id: row.id, version: row.version },
       data: {
@@ -121,9 +126,18 @@ export async function authorizeConnectionUse<T>(input: {
     credentials,
     grant,
     provider,
-    authorizationSource: "owner",
+    authorizationSource,
+    credentialManagerId: row.ownerId,
+    actor,
     signal,
-    assertCurrent: async () =>
-      check(await findOwnedConnection({ tx: db, selector: row.id, actor })),
+    assertCurrent: async () => {
+      check((await resolveUsableConnection({ selector: row.id, actor })).row);
+      await provider.ensureGrantCurrent({
+        config: row.connector.providerConfig,
+        selection: row.providerSelection,
+        credentials,
+        previousGrant: grant,
+      });
+    },
   });
 }

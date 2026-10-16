@@ -24,7 +24,7 @@ const connectionsSchema = z
   .array(
     z.object({
       id: z.string().min(1).max(160),
-      name: z.string().min(1).max(160),
+      name: z.string().min(1).max(200),
       connectorKey: z.string().min(1).max(120),
       connectorEnabled: z.boolean(),
       capabilities: connectorCapabilitiesSchema,
@@ -44,7 +44,7 @@ const selectionTool: Tool = {
   name: "select_mcp_connection",
   title: "Select account for skill tools",
   description:
-    "Continue a pending skill dependency after the user explicitly chooses an account. Never pick the first account. A connector cannot switch accounts in this session.",
+    "Continue a pending skill dependency after the user explicitly chooses an account. Pass its ID from the offered choices. Never pick the first account. A connector cannot switch accounts in this session.",
   inputSchema: {
     type: "object",
     properties: { connectorKey: { type: "string" }, connection: { type: "string" } },
@@ -173,10 +173,11 @@ export class McpActivation {
           c.connectorEnabled &&
           c.status === "READY",
       );
+      const named = candidates.filter((c) => c.name === selected?.connection);
       const explicit =
         selected?.connectorKey === dependency.connectorKey
           ? (candidates.find((c) => c.id === selected.connection) ??
-            candidates.find((c) => c.name === selected.connection))
+            (named.length === 1 ? named[0] : undefined))
           : undefined;
       if (selected?.connectorKey === dependency.connectorKey && !explicit)
         throw new ExtensionError("mcp_selection");
@@ -193,7 +194,8 @@ export class McpActivation {
           status:
             candidates.length || !completeCatalog ? "selection_required" : "connection_required",
           ...(!completeCatalog ? { catalogComplete: false } : {}),
-          choices: candidates.map(({ name, accountName, details }) => ({
+          choices: candidates.map(({ id, name, accountName, details }) => ({
+            id,
             name,
             accountName,
             ...(details ? { details } : {}),

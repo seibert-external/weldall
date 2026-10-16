@@ -164,6 +164,56 @@ The result uses OAuth/Python snake-case keys: `access_token`, `token_type`,
 `at+jwt` tokens and `weldall-machine+jwt` tokens and returns a discriminated
 `auth.identity.type`.
 
+## Call shared MCP connections as a machine
+
+Assign `weldall:mcp` plus every connector/use scope, then request a token for Weldall itself:
+
+```python
+import asyncio
+from weldall import request_machine_token, create_weldall_mcp_client
+
+token = request_machine_token(
+    issuer=issuer,
+    client_id=client_id,
+    kid=kid,
+    key=key,
+    resource=f"{issuer}/api",
+    scopes=["weldall:mcp", "atlassian-mcp:use-shared"],
+)
+
+
+async def main():
+    mcp = create_weldall_mcp_client(issuer=issuer, access_token=token["access_token"], key=key)
+    connections = await mcp.list_connections(connector_key="atlassian-mcp")
+    result = await mcp.call_tool(
+        connector_key="atlassian-mcp",
+        connection="production-bot",
+        name="getJiraIssue",
+        arguments={"cloudId": cloud_id, "issueIdOrKey": "OPS-123"},
+    )
+
+
+asyncio.run(main())
+```
+
+The async MCP client also provides `list_connectors`, `list_tools`, `list_resources` and
+`read_resource(connector_key=..., connection=..., uri=...)`. It creates a fresh DPoP proof
+for every request, bounds requests/definitions to 1 MiB and results to 10 MiB, and checks
+the TypeScript-exported structural contracts plus depth, node, byte, URI and base64 limits.
+Discovery uses a 20-second total deadline; operations use 30 seconds, including connection,
+headers and body reads. No request is retried. All MCP methods must be awaited; other SDK APIs
+remain synchronous. An optional `http_client` must be an `httpx.AsyncClient` used on the same
+event loop and closed by its caller. Task cancellation propagates as `asyncio.CancelledError`
+and closes the active response.
+`WeldallMcpError` has sanitized `code`/`status`; never automatically retry ambiguous writes.
+Tokens and private keys are kept in memory only. Scope/key revocation applies immediately.
+Shared API keys are provisioned in Weldall's admin UI, not through this client or IaC.
+
+Regenerate the checked-in structural contract after TypeScript MCP contract changes:
+`pnpm --filter @weldall/sdk exec tsx scripts/export-mcp-contracts.ts`.
+TypeScript's MCP client test checks that this artifact is current; Python interoperability
+tests compare validation and safe field projection.
+
 ## Publish instructions for agents
 
 A service can publish the commands that an agent needs for its API. Configure

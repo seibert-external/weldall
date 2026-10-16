@@ -40,6 +40,21 @@ const source = () => ({
   },
 });
 describe("MCP connector and skill IaC graph", () => {
+  it("reserves weldall:mcp for machines and rejects secret shells", () => {
+    expect(() =>
+      parseDesiredState({
+        ...source(),
+        scopes: { mcp: { key: "weldall:mcp", description: "Reserved" } },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseDesiredState({
+        ...source(),
+        emailAssignments: { user: { email: "user@example.com", scopes: ["weldall:mcp"] } },
+      }),
+    ).toThrow("machine-only");
+    expect(() => parseDesiredState({ ...source(), sharedConnections: {} })).toThrow();
+  });
   it("orders connector before skill creation without a separate primitive or client secret", () => {
     const plan = createPlan(parseDesiredState(source()), { revision: 0, objects: [] });
     expect(plan.blockers).toEqual([]);

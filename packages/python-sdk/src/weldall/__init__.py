@@ -66,6 +66,7 @@ from .machine import (
     create_machine_client_assertion,
     request_machine_token,
 )
+from .mcp import WeldallMcpClient, WeldallMcpError, create_weldall_mcp_client
 from .replay import InMemoryReplayStore, consume_replay, in_memory
 from .resource_as import (
     IssueAccessTokenInput,
@@ -198,6 +199,8 @@ __all__ = [
     "WeldallAuthError",
     "WeldallDiscovery",
     "WeldallHandlers",
+    "WeldallMcpClient",
+    "WeldallMcpError",
     "WeldallOptions",
     "__version__",
     "assert_public_p256",
@@ -208,6 +211,7 @@ __all__ = [
     "create_dpop_proof",
     "create_machine_client_assertion",
     "create_signing_provider",
+    "create_weldall_mcp_client",
     "decode_jwt",
     "decode_protected_header",
     "generate_es256_key_pair",

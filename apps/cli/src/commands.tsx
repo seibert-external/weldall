@@ -753,7 +753,8 @@ const formatShortTimestamp = (value: string | null) => {
 /** Maps managed-connection lifecycle states onto the shared terminal palette. */
 const getConnectionStatusColor = (status: string) => {
   if (status === "READY") return palette.success;
-  if (status === "RECONNECT_REQUIRED" || status === "REVOCATION_PENDING") return palette.warning;
+  if (["DISABLED", "RECONNECT_REQUIRED", "REVOCATION_PENDING"].includes(status))
+    return palette.warning;
   if (status === "DISCONNECTED") return palette.danger;
   return undefined;
 };

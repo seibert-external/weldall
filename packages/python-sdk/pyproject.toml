@@ -25,6 +25,7 @@ dependencies = [
   "httpx>=0.27.0,<1",
   "idna>=3.10,<4",
   "joserfc>=1.2.0,<2",
+  "jsonschema>=4.23,<5",
 ]
 
 [project.urls]
@@ -49,6 +50,7 @@ dev = [
   "ruff>=0.9.0",
   "starlette>=0.40.0",
   "twine>=6.0.0",
+  "types-jsonschema>=4.26.0.20261006",
 ]
 
 [tool.hatch.build.targets.wheel]

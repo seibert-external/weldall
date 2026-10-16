@@ -328,6 +328,7 @@ export async function listManagedConnectorConfiguration() {
       version: row.version,
       config: buildConnectorState(row),
       capabilities: connectorCapabilities(getConnectorProvider(row.providerType)),
+      staticProvisioning: Boolean(getConnectorProvider(row.providerType).staticConnection),
       managed: Boolean(row.iacBinding),
       secretConfigured: Boolean(row.encryptedProviderSecrets),
     })),

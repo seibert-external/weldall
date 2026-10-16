@@ -12,6 +12,43 @@ npm install @weldall/sdk
 
 The SDK requires Node.js 22.15 or newer. Hono, Next.js, and Astro are optional peer dependencies, so only install the framework used by your service. Deployed services must use HTTPS; Next.js route handlers must use the Node.js runtime.
 
+## Call shared MCP connections as a machine
+
+Assign `weldall:mcp` and every connector/connection use scope to the machine. Request a token
+for Weldall's own API resource, then use the stable shared connection key:
+
+```ts
+import { requestMachineToken, createWeldallMcpClient } from "@weldall/sdk";
+
+const token = await requestMachineToken({
+  issuer,
+  clientId,
+  kid,
+  key,
+  resource: `${issuer}/api`,
+  scopes: ["weldall:mcp", "atlassian-mcp:use-shared"],
+});
+const mcp = createWeldallMcpClient({ issuer, accessToken: token.accessToken, key });
+await mcp.listConnectors();
+await mcp.listConnections({ connectorKey: "atlassian-mcp" });
+await mcp.listTools({ connectorKey: "atlassian-mcp", connection: "production-bot" });
+await mcp.callTool({
+  connectorKey: "atlassian-mcp",
+  connection: "production-bot",
+  name: "getJiraIssue",
+  arguments: { cloudId, issueIdOrKey: "OPS-123" },
+});
+```
+
+Also available: `listResources` and `readResource({ connectorKey, connection, uri })`.
+All methods accept an optional `signal`; discovery takes at most 20 seconds and operations
+30 seconds. Requests/definitions are bounded to 1 MiB and results to 10 MiB, with shared
+structural/depth validation. Every request gets a fresh DPoP proof. No call is retried,
+even after a timeout or 401: execution may already have occurred. `WeldallMcpError` exposes
+a sanitized code/status, never upstream bodies. The client stores no tokens or keys on disk.
+Machines cannot start OAuth or provision secrets; configure the service-account key in the
+admin UI. Scope/key revocation and machine disablement are checked live.
+
 ## Hono example
 
 Install the adapter and server packages:

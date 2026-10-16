@@ -1,0 +1,748 @@
+{
+  "limits": {
+    "tools": 100,
+    "resources": 100,
+    "pages": 20,
+    "definitionsBytes": 1048576,
+    "requestBytes": 1048576,
+    "resultBytes": 10485760,
+    "descriptionBytes": 16384,
+    "uriBytes": 8192,
+    "cursorBytes": 1024,
+    "jsonDepth": 16,
+    "jsonNodes": 20000,
+    "initializeMs": 10000,
+    "discoveryMs": 20000,
+    "operationMs": 30000
+  },
+  "schemas": {
+    "connectors": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "capabilities": {
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["http", "mcp"]
+            }
+          }
+        },
+        "required": ["key", "name", "capabilities"],
+        "additionalProperties": false
+      }
+    },
+    "connections": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessMode": {
+            "type": "string",
+            "enum": ["OWNER_ONLY", "SCOPED"]
+          },
+          "connectorKey": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "accountName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": ["READY", "DISABLED", "REFRESHING", "RECONNECT_REQUIRED", "REVOCATION_PENDING"]
+          },
+          "connectorEnabled": {
+            "type": "boolean"
+          },
+          "capabilities": {
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["http", "mcp"]
+            }
+          },
+          "useScopes": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "accessMode",
+          "connectorKey",
+          "name",
+          "accountName",
+          "status",
+          "connectorEnabled",
+          "capabilities",
+          "useScopes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tools": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "tools": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "x-weldall-maxBytes": 512
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 16384,
+                "x-weldall-maxBytes": 16384
+              },
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "object"
+                  },
+                  "properties": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["type"],
+                "additionalProperties": {}
+              },
+              "outputSchema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "object"
+                  },
+                  "properties": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["type"],
+                "additionalProperties": {}
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "x-weldall-maxBytes": 512
+                  },
+                  "readOnlyHint": {
+                    "type": "boolean"
+                  },
+                  "destructiveHint": {
+                    "type": "boolean"
+                  },
+                  "idempotentHint": {
+                    "type": "boolean"
+                  },
+                  "openWorldHint": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "required": ["name", "inputSchema"]
+          }
+        }
+      },
+      "required": ["tools"],
+      "additionalProperties": false
+    },
+    "resources": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "resources": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uri": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192,
+                "x-weldall-maxBytes": 8192
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "x-weldall-maxBytes": 512
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "x-weldall-maxBytes": 512
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 16384,
+                "x-weldall-maxBytes": 16384
+              },
+              "mimeType": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "x-weldall-maxBytes": 255
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10485760
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "audience": {
+                    "maxItems": 2,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["user", "assistant"]
+                    }
+                  },
+                  "priority": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "lastModified": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                }
+              }
+            },
+            "required": ["uri", "name"]
+          }
+        }
+      },
+      "required": ["resources"],
+      "additionalProperties": false
+    },
+    "call": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "content": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "text"
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 10485760,
+                    "x-weldall-maxBytes": 10485760
+                  },
+                  "annotations": {
+                    "type": "object",
+                    "properties": {
+                      "audience": {
+                        "maxItems": 2,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["user", "assistant"]
+                        }
+                      },
+                      "priority": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "lastModified": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    }
+                  }
+                },
+                "required": ["type", "text"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "image"
+                  },
+                  "data": {
+                    "type": "string",
+                    "maxLength": 10485760,
+                    "x-weldall-maxBytes": 10485760
+                  },
+                  "mimeType": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "x-weldall-maxBytes": 255
+                  },
+                  "annotations": {
+                    "type": "object",
+                    "properties": {
+                      "audience": {
+                        "maxItems": 2,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["user", "assistant"]
+                        }
+                      },
+                      "priority": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "lastModified": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    }
+                  }
+                },
+                "required": ["type", "data", "mimeType"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "audio"
+                  },
+                  "data": {
+                    "type": "string",
+                    "maxLength": 10485760,
+                    "x-weldall-maxBytes": 10485760
+                  },
+                  "mimeType": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "x-weldall-maxBytes": 255
+                  },
+                  "annotations": {
+                    "type": "object",
+                    "properties": {
+                      "audience": {
+                        "maxItems": 2,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["user", "assistant"]
+                        }
+                      },
+                      "priority": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "lastModified": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    }
+                  }
+                },
+                "required": ["type", "data", "mimeType"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "resource_link"
+                  },
+                  "uri": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "x-weldall-maxBytes": 8192
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "x-weldall-maxBytes": 512
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "x-weldall-maxBytes": 512
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 16384,
+                    "x-weldall-maxBytes": 16384
+                  },
+                  "mimeType": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "x-weldall-maxBytes": 255
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10485760
+                  },
+                  "annotations": {
+                    "type": "object",
+                    "properties": {
+                      "audience": {
+                        "maxItems": 2,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["user", "assistant"]
+                        }
+                      },
+                      "priority": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "lastModified": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    }
+                  }
+                },
+                "required": ["type", "uri", "name"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "resource"
+                  },
+                  "resource": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "uri": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 8192,
+                            "x-weldall-maxBytes": 8192
+                          },
+                          "mimeType": {
+                            "type": "string",
+                            "maxLength": 255,
+                            "x-weldall-maxBytes": 255
+                          },
+                          "text": {
+                            "type": "string",
+                            "maxLength": 10485760,
+                            "x-weldall-maxBytes": 10485760
+                          },
+                          "blob": {
+                            "not": {}
+                          }
+                        },
+                        "required": ["uri", "text"]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "uri": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 8192,
+                            "x-weldall-maxBytes": 8192
+                          },
+                          "mimeType": {
+                            "type": "string",
+                            "maxLength": 255,
+                            "x-weldall-maxBytes": 255
+                          },
+                          "blob": {
+                            "type": "string",
+                            "maxLength": 10485760,
+                            "x-weldall-maxBytes": 10485760
+                          },
+                          "text": {
+                            "not": {}
+                          }
+                        },
+                        "required": ["uri", "blob"]
+                      }
+                    ]
+                  },
+                  "annotations": {
+                    "type": "object",
+                    "properties": {
+                      "audience": {
+                        "maxItems": 2,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["user", "assistant"]
+                        }
+                      },
+                      "priority": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "lastModified": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    }
+                  }
+                },
+                "required": ["type", "resource"]
+              }
+            ]
+          }
+        },
+        "structuredContent": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "isError": {
+          "type": "boolean"
+        }
+      },
+      "required": ["content"]
+    },
+    "read-resource": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "contents": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "uri": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "x-weldall-maxBytes": 8192
+                  },
+                  "mimeType": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "x-weldall-maxBytes": 255
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 10485760,
+                    "x-weldall-maxBytes": 10485760
+                  },
+                  "blob": {
+                    "not": {}
+                  }
+                },
+                "required": ["uri", "text"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "uri": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "x-weldall-maxBytes": 8192
+                  },
+                  "mimeType": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "x-weldall-maxBytes": 255
+                  },
+                  "blob": {
+                    "type": "string",
+                    "maxLength": 10485760,
+                    "x-weldall-maxBytes": 10485760
+                  },
+                  "text": {
+                    "not": {}
+                  }
+                },
+                "required": ["uri", "blob"]
+              }
+            ]
+          }
+        }
+      },
+      "required": ["contents"]
+    },
+    "selection": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$"
+        }
+      },
+      "required": ["connection"],
+      "additionalProperties": false
+    },
+    "toolCall": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+        },
+        "arguments": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": ["connection", "name", "arguments"],
+      "additionalProperties": false
+    },
+    "resourceRead": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "x-weldall-maxBytes": 8192
+        }
+      },
+      "required": ["connection", "uri"],
+      "additionalProperties": false
+    }
+  }
+}

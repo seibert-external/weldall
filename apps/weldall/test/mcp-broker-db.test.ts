@@ -51,6 +51,7 @@ const scopes = canonicalScopes([
 const cloudId = "00000000-0000-4000-8000-000000000001";
 const accessToken = `${Buffer.from('{"alg":"RS256"}').toString("base64url")}.${Buffer.from(JSON.stringify({ sub: "system-account", aud: [`ari:cloud:jira::site/${cloudId}`] })).toString("base64url")}.fake-signature`;
 const credentials = {
+  kind: "oauth",
   accessToken,
   refreshToken: "backend-only-refresh",
   expiresAt: Date.now() + 28800000,
@@ -131,6 +132,15 @@ describe.skipIf(!approved)(
       vi.stubEnv("WELDALL_CONNECTOR_KEK", randomBytes(32).toString("base64"));
       await db.user.create({
         data: { id: actor.id, name: "Fixture", email: actor.email, emailVerified: true },
+      });
+      await ensureSystemScopes(db, actor.id);
+      await db.emailScopeAssignment.create({
+        data: {
+          normalizedEmail: actor.email,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+          grants: { create: { scopeId: "scope-weldall-login", createdBy: actor.id } },
+        },
       });
       upstream = await startMcpFixture();
       network.fetch.mockImplementation((url, init) => {
@@ -426,16 +436,20 @@ describe.skipIf(!approved)(
       const systemScopes = await db.scope.findMany({
         where: { key: { in: ["weldall:iac", "weldall:administer"] } },
       });
+      await db.emailScopeAssignment.deleteMany({ where: { normalizedEmail: actor.email } });
       await db.emailScopeAssignment.create({
         data: {
           normalizedEmail: actor.email,
           createdBy: actor.id,
           updatedBy: actor.id,
           grants: {
-            create: {
-              scopeId: systemScopes.find((s) => s.key === "weldall:administer")!.id,
-              createdBy: actor.id,
-            },
+            create: [
+              {
+                scopeId: systemScopes.find((s) => s.key === "weldall:administer")!.id,
+                createdBy: actor.id,
+              },
+              { scopeId: "scope-weldall-login", createdBy: actor.id },
+            ],
           },
         },
       });

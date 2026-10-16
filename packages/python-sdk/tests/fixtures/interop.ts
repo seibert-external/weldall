@@ -12,6 +12,13 @@ import {
   verifyStrictDpop,
 } from "../../../sdk/src/index.ts";
 
+import {
+  mcpToolsResponseSchema,
+  mcpCallResultSchema,
+  mcpReadResultSchema,
+  mcpConnectionsSchema,
+  parseMcpResponse,
+} from "../../../sdk/src/mcp/contracts.ts";
 const issuer = "https://interop.example";
 const resource = "https://interop.example/api";
 const clientId = "interop-client";
@@ -64,6 +71,24 @@ if (process.argv[2] === "generate") {
   process.stdout.write(JSON.stringify({ urls: input.urls.map((value) => normalizeHtu(value)) }));
 } else if (process.argv[2] === "skill-catalog") {
   process.stdout.write(JSON.stringify(parseSkillCatalog(JSON.parse(readFileSync(0, "utf8")))));
+} else if (process.argv[2] === "mcp-contract") {
+  const input = JSON.parse(readFileSync(0, "utf8"));
+  const schemas = {
+    tools: mcpToolsResponseSchema,
+    call: mcpCallResultSchema,
+    "read-resource": mcpReadResultSchema,
+    connections: mcpConnectionsSchema,
+  };
+  try {
+    process.stdout.write(
+      JSON.stringify({
+        valid: true,
+        value: parseMcpResponse(schemas[input.kind as keyof typeof schemas], input.value),
+      }),
+    );
+  } catch {
+    process.stdout.write(JSON.stringify({ valid: false }));
+  }
 } else if (process.argv[2] === "verify") {
   const input = JSON.parse(readFileSync(0, "utf8")) as Record<string, any>;
   const generic = await verifyEs256(input.genericJwt, {

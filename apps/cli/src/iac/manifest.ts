@@ -181,14 +181,19 @@ function validateManifest(value: Manifest) {
     }
   if (count > MAX_OBJECTS) throw new CliError(`At most ${MAX_OBJECTS} objects are allowed`);
   for (const scope of Object.values(value.scopes ?? {}).map(record))
-    if (["weldall:login", "weldall:administer", "weldall:iac"].includes(String(scope.key)))
+    if (
+      ["weldall:login", "weldall:administer", "weldall:iac", "weldall:mcp"].includes(
+        String(scope.key),
+      )
+    )
       throw new CliError(`System scope ${scope.key} cannot be declared`);
   for (const assignment of [
     ...Object.values(value.emailAssignments ?? {}),
     ...Object.values(value.groupAssignments ?? {}),
   ].map(record))
-    if (Array.isArray(assignment.scopes) && assignment.scopes.includes("weldall:iac"))
-      throw new CliError("weldall:iac is machine-only");
+    for (const scope of ["weldall:iac", "weldall:mcp"])
+      if (Array.isArray(assignment.scopes) && assignment.scopes.includes(scope))
+        throw new CliError(`${scope} is machine-only`);
 }
 /** Rejects secrets and unknown provider policy fields before declarative state is submitted. */
 function validateGoogleConfiguration(value: unknown) {

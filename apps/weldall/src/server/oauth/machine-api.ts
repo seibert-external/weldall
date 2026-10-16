@@ -12,6 +12,8 @@ import { getWeldallSigningKey } from "./jwt";
 import { postgresReplayStore } from "./replay";
 
 export interface WeldallMachineActor {
+  id: string;
+  scopeKeys: string[];
   clientId: string;
   keyId: string;
   keyThumbprint: string;
@@ -102,6 +104,10 @@ export async function authenticateWeldallMachineApiRequest(
     throw new WeldallAuthError("invalid_token", "machine authorization is no longer active", 401);
   }
   return {
+    id: machine.id,
+    scopeKeys: machine.allowedScopes
+      .map(({ scope }) => scope.key)
+      .filter((scope) => granted.includes(scope)),
     clientId: machine.clientId,
     keyId: key.kid,
     keyThumbprint: key.thumbprint,

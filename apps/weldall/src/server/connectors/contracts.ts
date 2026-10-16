@@ -33,6 +33,10 @@ export interface ConnectorActor {
   email?: string | null;
   requestId: string;
   type?: "user" | "machine";
+  clientId?: string;
+  keyId?: string;
+  keyThumbprint?: string;
+  correlationId?: string;
 }
 export interface AuthorizedConnectorActor extends ConnectorActor {
   scopeKeys: readonly ScopeKey[];

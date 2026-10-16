@@ -74,24 +74,38 @@ export async function effectiveScopesRequiringSystemScopeFor({
   email: string;
   requiredSystemScope: string;
 }): Promise<ScopeKey[] | null> {
+  const readScopes = await prepareEffectiveScopesRequiringSystemScopeFor({
+    email,
+    requiredSystemScope,
+  });
+  return db.$transaction(readScopes, {
+    isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+  });
+}
+
+/** Resolve remote memberships before opening a transaction; read current grants on its connection. */
+export async function prepareEffectiveScopesRequiringSystemScopeFor({
+  email,
+  requiredSystemScope,
+}: {
+  email: string;
+  requiredSystemScope: string;
+}) {
   const normalizedEmail = normalizePolicyEmail(email);
   const { memberships } = await resolveProviderMemberships(normalizedEmail);
-  return db.$transaction(
-    async (tx) => {
-      const [scope, effectiveScopes] = await Promise.all([
-        tx.scope.findUnique({
-          where: { key: requiredSystemScope },
-          select: { key: true, isSystem: true },
-        }),
-        loadEffectiveScopes(tx, normalizedEmail, memberships),
-      ]);
-      return isProtectedSystemScope(scope, requiredSystemScope) &&
-        effectiveScopes.includes(scopeKeySchema.parse(requiredSystemScope))
-        ? effectiveScopes
-        : null;
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-  );
+  return async (tx: Prisma.TransactionClient): Promise<ScopeKey[] | null> => {
+    const [scope, effectiveScopes] = await Promise.all([
+      tx.scope.findUnique({
+        where: { key: requiredSystemScope },
+        select: { key: true, isSystem: true },
+      }),
+      loadEffectiveScopes(tx, normalizedEmail, memberships),
+    ]);
+    return isProtectedSystemScope(scope, requiredSystemScope) &&
+      effectiveScopes.includes(scopeKeySchema.parse(requiredSystemScope))
+      ? effectiveScopes
+      : null;
+  };
 }
 
 export async function hasEffectiveSystemScopeFor(

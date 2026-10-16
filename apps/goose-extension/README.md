@@ -19,7 +19,7 @@ Keep Code Mode disabled in Goose 1.51 so organization instructions reach the mod
 
 ## Skill-driven remote MCP tools
 
-With an MCP-capable Weldall server and CLI, loading a skill activates its declared remote tools and optional resources. The six stable tools remain unchanged. A single compatible READY connection is selected automatically; multiple accounts require an explicit user choice using the dynamically advertised `select_mcp_connection` tool. Account binding cannot change during the session, and the model cannot substitute the skill's declared tools.
+With an MCP-capable Weldall server and CLI, loading a skill activates its declared remote tools and optional resources. The six stable tools remain unchanged. A single compatible READY connection is selected automatically; multiple accounts require an explicit user choice using the dynamically advertised `select_mcp_connection` tool. Pass the ID from the offered choices; display names may repeat and ambiguous names are rejected. Account binding cannot change during the session, and the model cannot substitute the skill's declared tools.
 
 MCP activation requires explicit `capabilities: ["mcp"]` on both the connector catalog entry and selected connection; it never infers support from provider names. `list_connections` also exposes capabilities when supplied by the server. Older shipped HTTP-only responses may omit that metadata, but cannot activate MCP tools.
 

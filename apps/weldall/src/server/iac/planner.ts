@@ -532,6 +532,20 @@ export async function loadPlanningState({
     )
       externalBlockers.push({ code: "EXTERNAL_REFERENCE", address: target.address, message });
   };
+  const sharedReferences = await tx.connectionUseScope.findMany({
+    include: { connection: { select: { key: true, name: true } } },
+  });
+  for (const reference of sharedReferences) {
+    const target = objects.find(
+      (object) => object.kind === "scope" && object.id === reference.scopeId,
+    );
+    if (target?.address && deletingAddresses.has(target.address))
+      externalBlockers.push({
+        code: "EXTERNAL_REFERENCE",
+        address: target.address,
+        message: `Scope ${target.identity} is in_use by shared connection ${reference.connection.name} (${reference.connection.key}). Replace its scopes or delete it in the admin UI first.`,
+      });
+  }
   for (const connector of connectors)
     for (const requiredScope of connector.requiredScopes) {
       const target = objects.find(

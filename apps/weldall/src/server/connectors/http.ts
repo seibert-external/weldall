@@ -1,4 +1,7 @@
-import { WeldallAuthError } from "@weldall/sdk";
+import { decodeProtectedHeader } from "jose";
+import { authenticateWeldallMachineApiRequest } from "../oauth/machine-api";
+import { scopeKeySchema } from "../policy/scope-key";
+import { MACHINE_TOKEN_TYP, WeldallAuthError } from "@weldall/sdk";
 import { z } from "zod";
 import { auth } from "../auth/auth";
 import { isTrustedBrowserRequest } from "../auth/browser-request";
@@ -27,6 +30,29 @@ export async function authenticateConnectorActor({
       requiredScope: "weldall:scopes",
     }),
   });
+}
+/** Token type selects a verifier, never a fallback after failed authentication. */
+export async function authenticateConnectorRuntimeActor({
+  request,
+}: {
+  request: Request;
+}): Promise<AuthorizedConnectorActor> {
+  const authorization = request.headers.get("authorization");
+  let machine = false;
+  try {
+    machine =
+      authorization?.startsWith("DPoP ") === true &&
+      decodeProtectedHeader(authorization.slice(5)).typ === MACHINE_TOKEN_TYP;
+  } catch {
+    throw new ConnectorError("unauthorized", "Weldall authentication failed.", 401);
+  }
+  if (!machine) return authenticateConnectorActor({ request });
+  const actor = await authenticateWeldallMachineApiRequest(request, "weldall:mcp");
+  return {
+    ...actor,
+    type: "machine",
+    scopeKeys: actor.scopeKeys.map((key) => scopeKeySchema.parse(key)),
+  };
 }
 /** Uses the signed Weldall session for both setup and the returning OAuth callback. */
 export async function authenticateConnectorBrowserActor({
@@ -63,7 +89,13 @@ async function authorizeConnectorActor({
       "Sign in to Weldall with an active login permission.",
       401,
     );
-  return { id: user.id, email: user.email, scopeKeys, ...auditRequestIdentifiers(request) };
+  return {
+    type: "user",
+    id: user.id,
+    email: user.email,
+    scopeKeys,
+    ...auditRequestIdentifiers(request),
+  };
 }
 /** Parses a bounded JSON body for connector routes and applies the route's Zod contract. */
 export async function parseJsonRequestBody<T extends z.ZodType>({

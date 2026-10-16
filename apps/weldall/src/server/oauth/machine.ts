@@ -191,9 +191,10 @@ export async function issueMachineToken(
 
     const internalWeldallRequest =
       resourceIdentifier === WELDALL_RESOURCE &&
-      scopes.every((scope) =>
-        (MACHINE_ONLY_SYSTEM_SCOPE_KEYS as readonly string[]).includes(scope),
-      );
+      (scopes.includes("weldall:mcp") ||
+        scopes.every((scope) =>
+          (MACHINE_ONLY_SYSTEM_SCOPE_KEYS as readonly string[]).includes(scope),
+        ));
     const lockedResources = internalWeldallRequest
       ? [{ resourceId: "weldall-api" }]
       : await tx.$queryRaw<Array<{ resourceId: string }>>`
@@ -250,7 +251,14 @@ export async function issueMachineToken(
       throw new WeldallAuthError("invalid_target");
     const allowedScopes = new Set(client.allowedScopes.map(({ scope }) => scope.key));
     const supportedScopes = internalWeldallRequest
-      ? new Set<string>(MACHINE_ONLY_SYSTEM_SCOPE_KEYS)
+      ? new Set<string>([
+          ...MACHINE_ONLY_SYSTEM_SCOPE_KEYS,
+          ...(scopes.includes("weldall:mcp")
+            ? client.allowedScopes
+                .filter(({ scope }) => !scope.isSystem)
+                .map(({ scope }) => scope.key)
+            : []),
+        ])
       : new Set(allowedResource!.resource.scopes.map(({ scope }) => scope.key));
     if (scopes.some((scope) => !allowedScopes.has(scope) || !supportedScopes.has(scope)))
       throw new WeldallAuthError("invalid_scope");

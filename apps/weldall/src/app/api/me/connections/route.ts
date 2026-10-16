@@ -1,16 +1,19 @@
 import { z } from "zod";
 import {
   authenticateConnectorActor,
+  authenticateConnectorRuntimeActor,
   createConnectorErrorResponse,
   createJsonResponse,
   parseJsonRequestBody,
 } from "@/server/connectors/http";
-import { listConnections, startConnection } from "@/server/connectors/core/connections";
+import { listAccessibleConnections, startConnection } from "@/server/connectors/core/connections";
 
 /** Lists the authenticated CLI caller's managed connections without provider credentials. */
 export async function GET(request: Request) {
   try {
-    return createJsonResponse(await listConnections(await authenticateConnectorActor({ request })));
+    return createJsonResponse(
+      await listAccessibleConnections(await authenticateConnectorRuntimeActor({ request })),
+    );
   } catch (error) {
     return createConnectorErrorResponse(error);
   }
