@@ -224,11 +224,22 @@ jobs:
         run: |
           pnpm --filter @weldall/sdk typecheck
           pnpm --filter @weldall/sdk test
-          pnpm --filter @weldall/sdk pack:check
+          pnpm --filter @weldall/sdk build
+          pnpm --filter @weldall/sdk exec node scripts/verify-package.mjs
           pnpm --filter @weldall/goose typecheck
           pnpm --filter @weldall/goose test
           pnpm --filter @weldall/goose pack:check
           pnpm --filter @weldall/goose smoke:packed
+
+      # Fresh framework releases can require newer Node than the core SDK (Astro requires >=22.22).
+      - name: Set up Node.js for current framework examples
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Verify SDK tarball in current framework examples
+        run: pnpm --filter @weldall/sdk exec node scripts/verify-tarball-examples.mjs
 
   cli-native:
     # Share setup across source, packed npm, and standalone checks on each platform.
