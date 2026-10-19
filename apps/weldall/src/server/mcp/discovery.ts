@@ -6,9 +6,14 @@ import {
   MCP_LIMITS,
   mcpResourcesPageSchema,
   mcpToolsPageSchema,
+  mcpToolsResponseSchema,
   parseMcpResponse,
 } from "@weldall/sdk/mcp";
 import { McpBoundaryError } from "@weldall/sdk/mcp";
+import type { AuthorizedConnectionUse } from "../connectors/core/authorization";
+import { logger } from "../observability/logger";
+import { withMcpClient } from "./transport";
+import { toolCatalogKey, type McpToolCache, type ToolCacheStatus } from "./tool-cache";
 
 /** Requires an already authorized, initialized client with a size-bounded HTTP transport. */
 async function collect<T>(input: {
@@ -80,6 +85,70 @@ export async function discoverMcpTools(client: Client, signal?: AbortSignal) {
       signal,
     }),
   };
+}
+
+/** Cache entries are definitions, never permission; every waiter rechecks its own live access. */
+export async function cachedMcpTools(
+  connection: AuthorizedConnectionUse,
+  cache: McpToolCache,
+  onStatus: (status: ToolCacheStatus) => void,
+) {
+  const catalog = await cache.getOrLoad({
+    key: toolCatalogKey(connection),
+    signal: connection.signal,
+    onStatus,
+    async load(signal) {
+      // The flight owns cancellation, but retains the initiating actor's live dispatch checks.
+      const shared = {
+        ...connection,
+        signal,
+        assertCurrent: () => connection.assertCurrent(signal),
+      };
+      const timings: { initializationMs?: number; discoveryMs?: number } = {};
+      let outcome = "failed";
+      try {
+        const result = await withMcpClient({
+          connection: shared,
+          onInitialize: (ms) => {
+            timings.initializationMs = ms;
+          },
+          async run(client) {
+            const started = performance.now();
+            try {
+              return parseMcpResponse(
+                mcpToolsResponseSchema,
+                client.getServerCapabilities()?.tools
+                  ? await discoverMcpTools(client, signal)
+                  : { tools: [] },
+                MCP_LIMITS.definitionsBytes,
+              );
+            } finally {
+              timings.discoveryMs = performance.now() - started;
+            }
+          },
+        });
+        // withMcpClient has checked credential leakage before this can be published.
+        await shared.assertCurrent();
+        outcome = "success";
+        return result;
+      } finally {
+        logger.info(
+          {
+            event: "mcp.tool_catalog.load",
+            requestId: connection.actor.requestId,
+            connectionId: connection.row.id,
+            outcome,
+            ...timings,
+          },
+          "MCP tool catalog discovery completed",
+        );
+      }
+    },
+  });
+  await connection.assertCurrent();
+  connection.signal.throwIfAborted();
+  connection.provider.mcp!.assertSafeResult(catalog, connection.credentials);
+  return catalog;
 }
 
 export async function discoverMcpResources(client: Client, signal?: AbortSignal) {

@@ -17,8 +17,8 @@ export interface AuthorizedConnectionUse {
   credentialManagerId: string;
   actor: AuthorizedConnectorActor;
   signal: AbortSignal;
-  /** Fresh state checks immediately before each upstream dispatch; never a cache authorization. */
-  assertCurrent(): Promise<void>;
+  /** Fresh state checks before dispatch/return. Shared discovery supplies its own lifetime signal. */
+  assertCurrent(signal?: AbortSignal): Promise<void>;
 }
 
 /** The sole credential-use seam shared by HTTP proxy and MCP. */
@@ -102,8 +102,8 @@ export async function authorizeConnectionUse<T>(input: {
       });
     throw error;
   }
-  const check = (current: Row) => {
-    signal.throwIfAborted();
+  const check = (current: Row, dispatchSignal = signal) => {
+    dispatchSignal.throwIfAborted();
     authorize(current);
     if (current.version !== row.version || current.connector.version !== row.connector.version)
       throw new ConnectorError(
@@ -132,8 +132,8 @@ export async function authorizeConnectionUse<T>(input: {
     credentialManagerId: row.ownerId,
     actor,
     signal,
-    assertCurrent: async () => {
-      check((await resolveUsableConnection({ selector: row.id, actor })).row);
+    assertCurrent: async (dispatchSignal = signal) => {
+      check((await resolveUsableConnection({ selector: row.id, actor })).row, dispatchSignal);
       await provider.ensureGrantCurrent({
         config: row.connector.providerConfig,
         selection: row.providerSelection,

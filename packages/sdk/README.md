@@ -155,7 +155,7 @@ await mcp.callTool({ ...target, name: "TOOL_NAME", arguments: {} });
 
 Use a stable shared connection key and discovered tool names/arguments. Also available: `listConnectors`, `listConnections`, `listResources` and `readResource({ connectorKey, connection, uri })`. The MCP API is also exported from `@weldall/sdk/mcp`.
 
-All methods accept `signal`, use fresh DPoP proofs and validate bounded contracts: discovery 20 seconds, operations 30 seconds, requests/definitions 1 MiB, results 10 MiB. No automatic retries, including timeouts/401s: writes may already have executed. `WeldallMcpError` exposes sanitized code/status, not upstream bodies. Tokens/keys stay in memory; authorization is checked live. Machines cannot start OAuth or provision secrets. See the [MCP reference](https://github.com/seibert-external/weldall/blob/main/apps/docs/src/content/docs/mcp.md) for setup and limitations.
+All methods accept `signal`, use fresh DPoP proofs and validate bounded contracts: discovery 20 seconds, operations 30 seconds, requests/definitions 1 MiB, results 10 MiB. No automatic retries, including timeouts/401s: writes may already have executed. `WeldallMcpError` exposes sanitized code/status, not upstream bodies. Tokens/keys stay in memory; authorization is checked live. Machines cannot start OAuth or provision secrets.
 
 ## Publishing skills
 

@@ -9,13 +9,14 @@ import { createPinnedFetch } from "../connectors/core/secure-fetch";
 import { ConnectorError } from "../connectors/errors";
 import type { AuthorizedConnectionUse } from "../connectors/core/authorization";
 
-/** A fresh SDK session per operation. No SDK authProvider (it can replay POST after 401),
+/** A fresh SDK session per upstream use. No SDK authProvider (it can replay POST after 401),
  * SSE reconnection, resumption tokens or pooling. Test fixtures may supply the network adapter.
  */
 export async function withMcpClient<T>(input: {
   connection: AuthorizedConnectionUse;
   run(client: Client): Promise<T>;
   fetch?: typeof fetch;
+  onInitialize?: (durationMs: number) => void;
 }): Promise<T> {
   const { connection } = input;
   const capability = connection.provider.mcp;
@@ -84,11 +85,16 @@ export async function withMcpClient<T>(input: {
   client.onerror = () => {}; // SDK error text may contain upstream bodies; never log it.
   try {
     // SDK 1.32 declares sessionId as string | undefined but Transport uses an exact optional.
-    await client.connect(transport as Parameters<Client["connect"]>[0], {
-      timeout: MCP_LIMITS.initializeMs,
-      signal,
-      resetTimeoutOnProgress: false,
-    });
+    const initializeStarted = performance.now();
+    try {
+      await client.connect(transport as Parameters<Client["connect"]>[0], {
+        timeout: MCP_LIMITS.initializeMs,
+        signal,
+        resetTimeoutOnProgress: false,
+      });
+    } finally {
+      input.onInitialize?.(performance.now() - initializeStarted);
+    }
     assertMcpJson(client.getServerCapabilities(), MCP_LIMITS.definitionsBytes);
     const result = await input.run(client);
     capability.assertSafeResult(result, connection.credentials);

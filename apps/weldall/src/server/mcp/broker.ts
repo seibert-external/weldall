@@ -15,7 +15,9 @@ import { ConnectorError, type AuthorizedConnectorActor } from "../connectors/con
 import { canAccessConnector, connectorScopeInclude } from "../connectors/access";
 import { authorizeConnectionUse } from "../connectors/core/authorization";
 import { fingerprintConnectorRequest } from "../connectors/audit";
-import { discoverMcpResources, discoverMcpTools } from "./discovery";
+import { cachedMcpTools, discoverMcpResources } from "./discovery";
+import { mcpToolCache, type McpToolCache, type ToolCacheStatus } from "./tool-cache";
+import { logger } from "../observability/logger";
 import { resolvePublicIpv4 } from "../connectors/core/secure-fetch";
 import { withMcpClient } from "./transport";
 import { writeMcpAudit } from "./audit";
@@ -49,13 +51,16 @@ export async function listMcpConnectors(actor: AuthorizedConnectorActor) {
 const active = new Map<string, number>();
 let total = 0;
 export type McpOperation = "tools" | "resources" | "call" | "read-resource";
-export async function executeMcpOperation(input: {
-  actor: AuthorizedConnectorActor;
-  connectorKey: string;
-  operation: McpOperation;
-  body: unknown;
-  signal: AbortSignal;
-}) {
+export async function executeMcpOperation(
+  input: {
+    actor: AuthorizedConnectorActor;
+    connectorKey: string;
+    operation: McpOperation;
+    body: unknown;
+    signal: AbortSignal;
+  },
+  toolCache: McpToolCache = mcpToolCache,
+) {
   const key = mcpConnectorKeySchema.parse(input.connectorKey);
   assertMcpJson(input.body, MCP_LIMITS.requestBytes);
   const selection = mcpConnectionSelectionSchema.parse({
@@ -65,6 +70,16 @@ export async function executeMcpOperation(input: {
   const read =
     input.operation === "read-resource" ? mcpResourceReadSchema.parse(input.body) : undefined;
   const started = Date.now();
+  const phaseStarted = performance.now();
+  const timings: {
+    authorizationMs?: number;
+    initializationMs?: number;
+    cacheWaitMs?: number;
+    invocationMs?: number;
+    discoveryMs?: number;
+    cacheStatus?: ToolCacheStatus;
+  } = {};
+  let outcome = "failed";
   let subjectId = "unknown";
   let ownerId: string | undefined;
   let connectionKey: string | undefined;
@@ -112,38 +127,62 @@ export async function executeMcpOperation(input: {
         await resolvePublicIpv4(provider.mcp.getEndpoint(row.connector.providerConfig).hostname);
       },
       async run(connection) {
+        timings.authorizationMs = performance.now() - phaseStarted;
         if (total >= 100 || (active.get(connection.row.id) ?? 0) >= 4)
           throw new ConnectorError("rate_limit", "Too many concurrent MCP operations.", 429);
         active.set(connection.row.id, (active.get(connection.row.id) ?? 0) + 1);
         total++;
         try {
+          if (input.operation === "tools" || call) {
+            let tools;
+            const cacheStarted = performance.now();
+            try {
+              tools = await cachedMcpTools(connection, toolCache, (status) => {
+                timings.cacheStatus = status;
+              });
+            } finally {
+              timings.cacheWaitMs = performance.now() - cacheStarted;
+            }
+            if (input.operation === "tools") return tools;
+            if (call && !tools.tools.some((tool) => tool.name === call.name))
+              throw new ConnectorError("tool_unavailable", "MCP tool is unavailable.", 404);
+          }
           return await withMcpClient({
             connection,
+            onInitialize: (ms) => {
+              timings.initializationMs = ms;
+            },
             async run(client) {
               const capabilities = client.getServerCapabilities();
-              if (input.operation === "tools")
-                return capabilities?.tools ? discoverMcpTools(client, signal) : { tools: [] };
-              if (input.operation === "resources")
-                return capabilities?.resources
-                  ? discoverMcpResources(client, signal)
-                  : { resources: [] };
+              if (input.operation === "resources") {
+                const discoveryStarted = performance.now();
+                try {
+                  return capabilities?.resources
+                    ? await discoverMcpResources(client, signal)
+                    : { resources: [] };
+                } finally {
+                  timings.discoveryMs = performance.now() - discoveryStarted;
+                }
+              }
               if (call) {
-                if (
-                  !capabilities?.tools ||
-                  !(await discoverMcpTools(client, signal)).tools.some((t) => t.name === call.name)
-                )
+                if (!capabilities?.tools)
                   throw new ConnectorError("tool_unavailable", "MCP tool is unavailable.", 404);
-                return parseMcpResponse(
-                  mcpCallResultSchema,
-                  await client.request(
-                    {
-                      method: "tools/call",
-                      params: { name: call.name, arguments: call.arguments },
-                    },
-                    z.unknown(),
-                    { signal, timeout: MCP_LIMITS.operationMs, resetTimeoutOnProgress: false },
-                  ),
-                );
+                const invocationStarted = performance.now();
+                try {
+                  return parseMcpResponse(
+                    mcpCallResultSchema,
+                    await client.request(
+                      {
+                        method: "tools/call",
+                        params: { name: call.name, arguments: call.arguments },
+                      },
+                      z.unknown(),
+                      { signal, timeout: MCP_LIMITS.operationMs, resetTimeoutOnProgress: false },
+                    ),
+                  );
+                } finally {
+                  timings.invocationMs = performance.now() - invocationStarted;
+                }
               }
               if (!capabilities?.resources || !read)
                 throw new ConnectorError(
@@ -151,14 +190,19 @@ export async function executeMcpOperation(input: {
                   "MCP resource is unavailable.",
                   404,
                 );
-              return parseMcpResponse(
-                mcpReadResultSchema,
-                await client.request(
-                  { method: "resources/read", params: { uri: read.uri } },
-                  z.unknown(),
-                  { signal, timeout: MCP_LIMITS.operationMs, resetTimeoutOnProgress: false },
-                ),
-              );
+              const invocationStarted = performance.now();
+              try {
+                return parseMcpResponse(
+                  mcpReadResultSchema,
+                  await client.request(
+                    { method: "resources/read", params: { uri: read.uri } },
+                    z.unknown(),
+                    { signal, timeout: MCP_LIMITS.operationMs, resetTimeoutOnProgress: false },
+                  ),
+                );
+              } finally {
+                timings.invocationMs = performance.now() - invocationStarted;
+              }
             },
           });
         } finally {
@@ -178,8 +222,10 @@ export async function executeMcpOperation(input: {
       subjectId,
       details: details(),
     });
+    outcome = businessError ? "failed" : "success";
     return output;
   } catch (error) {
+    timings.authorizationMs ??= performance.now() - phaseStarted;
     await writeMcpAudit({
       tx: db,
       actor: input.actor,
@@ -190,5 +236,18 @@ export async function executeMcpOperation(input: {
       details: details(),
     });
     throw error;
+  } finally {
+    logger.info(
+      {
+        event: "mcp.operation",
+        requestId: input.actor.requestId,
+        connectionId: subjectId,
+        operation: input.operation,
+        outcome,
+        durationMs: Date.now() - started,
+        ...timings,
+      },
+      "MCP operation completed",
+    );
   }
 }
