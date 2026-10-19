@@ -37,6 +37,8 @@ import { mutateScope } from "../src/server/domain/primitive-mutations";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "../src/server/oauth/constants";
 import { authenticateConnectorRuntimeActor } from "../src/server/connectors/http";
 import { startMcpFixture, FIXTURE_AUTHORIZATION, type McpFixture } from "./fixtures/mcp-server";
+import { executeMcpOperation } from "../src/server/mcp/broker";
+import { createMemoryMcpToolCache, type McpToolCache } from "../src/server/mcp/tool-cache";
 
 const network = vi.hoisted(() => ({ fetch: vi.fn<typeof fetch>() }));
 vi.mock("../src/server/connectors/core/secure-fetch", () => ({
@@ -469,6 +471,93 @@ describe.skipIf(!approved)("shared connections on approved disposable PostgreSQL
       where: { machineClientId: machineId },
       data: { revokedAt: null },
     });
+  });
+  it("shares only definitions across actors, rechecks warm user/machine access and fences credential rotation", async () => {
+    const created = await createSharedConnection(input(), manager);
+    const cache = createMemoryMcpToolCache();
+    const machine = await machineActor((await token()).accessToken);
+    const discover = (actor: typeof machine, selectedCache: McpToolCache = cache) =>
+      executeMcpOperation(
+        {
+          actor,
+          connectorKey: prefix,
+          operation: "tools",
+          body: { connection: created.id },
+          signal: AbortSignal.timeout(5000),
+        },
+        selectedCache,
+      );
+    await discover(user);
+    const warm = network.fetch.mock.calls.length;
+    await discover(machine);
+    expect(network.fetch).toHaveBeenCalledTimes(warm);
+    await expect(discover(manager)).rejects.toThrow();
+
+    const assignment = await db.emailScopeAssignment.findUniqueOrThrow({
+      where: { normalizedEmail: user.email },
+    });
+    const scope = await db.scope.findUniqueOrThrow({ where: { key: user.scopeKeys[0] } });
+    // Revoke after cache lookup, not just before the initial authorization.
+    try {
+      await expect(
+        discover(user, {
+          getOrLoad: async (input) => {
+            const catalog = await cache.getOrLoad(input);
+            await db.emailScopeGrant.delete({
+              where: { assignmentId_scopeId: { assignmentId: assignment.id, scopeId: scope.id } },
+            });
+            return catalog;
+          },
+        }),
+      ).rejects.toMatchObject({ code: "connection_denied" });
+      await expect(discover(user)).rejects.toThrow();
+    } finally {
+      await db.emailScopeGrant.create({
+        data: { assignmentId: assignment.id, scopeId: scope.id, createdBy: manager.id },
+      });
+    }
+    await db.machineClientKey.updateMany({
+      where: { machineClientId: machineId },
+      data: { revokedAt: new Date() },
+    });
+    try {
+      await expect(discover(machine)).rejects.toThrow();
+    } finally {
+      await db.machineClientKey.updateMany({
+        where: { machineClientId: machineId },
+        data: { revokedAt: null },
+      });
+    }
+    expect(network.fetch).toHaveBeenCalledTimes(warm);
+
+    await rotateSharedConnectionCredential(
+      {
+        id: created.id,
+        version: 1,
+        providerInput: { apiKey: "rotated-cache-fixture-key" },
+      },
+      manager,
+    );
+    const forward = network.fetch.getMockImplementation()!;
+    network.fetch.mockImplementation((url, init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer rotated-cache-fixture-key");
+      headers.set("authorization", `Bearer ${secret}`);
+      return forward(url, { ...init, headers });
+    });
+    try {
+      await discover(user);
+      expect(network.fetch.mock.calls.length).toBeGreaterThan(warm);
+      const rotated = network.fetch.mock.calls.length;
+      await discover(machine);
+      expect(network.fetch).toHaveBeenCalledTimes(rotated);
+      await setSharedConnectionEnabled({ id: created.id, version: 2, enabled: false }, manager);
+      await expect(discover(user)).rejects.toMatchObject({ code: "connection_denied" });
+      await expect(discover(machine)).rejects.toMatchObject({ code: "connection_denied" });
+      expect(network.fetch).toHaveBeenCalledTimes(rotated);
+    } finally {
+      network.fetch.mockImplementation(forward);
+    }
   });
   it("reads current user grants inside the transaction, not at preparation time", async () => {
     const created = await createSharedConnection(input(), manager);

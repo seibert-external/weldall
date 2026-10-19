@@ -24,7 +24,15 @@ import {
   ATLASSIAN_MCP,
   canonicalScopes,
 } from "../src/server/connectors/providers/atlassian-mcp/config";
-import { startMcpFixture, FIXTURE_AUTHORIZATION, type McpFixture } from "./fixtures/mcp-server";
+import {
+  startMcpFixture,
+  FIXTURE_AUTHORIZATION,
+  fixtureTools,
+  type McpFixture,
+  type FixtureOptions,
+} from "./fixtures/mcp-server";
+import { createMemoryMcpToolCache, type McpToolCache } from "../src/server/mcp/tool-cache";
+import { logger } from "../src/server/observability/logger";
 const network = vi.hoisted(() => ({ fetch: vi.fn<typeof fetch>() }));
 vi.mock("../src/server/connectors/core/secure-fetch", () => ({
   resolvePublicIpv4: vi.fn(async () => "93.184.216.34"),
@@ -61,7 +69,7 @@ const credentials = {
 const transaction = runConnectorTransaction;
 const encryptedIds: string[] = [];
 let sequence = 0;
-async function setup() {
+async function setup(cache?: McpToolCache) {
   const key = `${prefix}-${++sequence}`;
   const connector = await transaction((tx) =>
     saveConnectorConfiguration({
@@ -114,14 +122,18 @@ async function setup() {
       operation: "call" | "tools" | "resources" | "read-resource",
       extra: object = {},
       caller = actor,
+      signal = AbortSignal.timeout(5000),
     ) =>
-      executeMcpOperation({
-        actor: caller,
-        connectorKey: key,
-        operation,
-        body: { connection: id, ...extra },
-        signal: AbortSignal.timeout(5000),
-      }),
+      executeMcpOperation(
+        {
+          actor: caller,
+          connectorKey: key,
+          operation,
+          body: { connection: id, ...extra },
+          signal,
+        },
+        cache,
+      ),
   };
 }
 let upstream: McpFixture;
@@ -222,9 +234,16 @@ describe.skipIf(!approved)(
         }
         return upstreamFetch(url, init);
       });
+      const listCount = () =>
+        upstream.requests.filter(
+          (r) => r.message && "method" in r.message && r.message.method === "tools/list",
+        ).length;
+      const beforeRefresh = listCount();
       try {
         await expect(f.call("tools")).resolves.toHaveProperty("tools");
+        expect(listCount() - beforeRefresh).toBe(2);
         await expect(f.call("tools")).resolves.toHaveProperty("tools");
+        expect(listCount() - beforeRefresh).toBe(2);
         expect(refreshes).toBe(1);
         expect(
           await db.connection.findUniqueOrThrow({ where: { id: f.connection.id } }),
@@ -269,9 +288,11 @@ describe.skipIf(!approved)(
       expect(audits).not.toContain(credentials.refreshToken);
       expect(audits).toContain("mcp.tool_call.succeeded");
     });
-    it("enforces owner, connector match, READY status and live connector disable before dispatch", async () => {
+    it("enforces owner, connector match, READY status and live connector disable with warm catalogs", async () => {
       const f = await setup(),
         other = await setup();
+      await f.call("tools");
+      await other.call("tools");
       const before = network.fetch.mock.calls.length;
       await expect(f.call("tools", {}, { ...actor, id: "not-owner" })).rejects.toThrow();
       await expect(f.call("tools", { connection: other.connection.id })).rejects.toThrow();
@@ -284,46 +305,50 @@ describe.skipIf(!approved)(
       await expect(other.call("tools")).rejects.toThrow();
       expect(network.fetch).toHaveBeenCalledTimes(before);
     });
-    it.each(["connection", "connector"] as const)(
-      "rechecks %s versions immediately before dispatching tools/call",
-      async (target) => {
-        const f = await setup();
-        const forward = network.fetch.getMockImplementation()!;
-        let changed = false;
-        network.fetch.mockImplementation(async (url, init) => {
-          const response = await forward(url, init);
-          if (
-            typeof init?.body === "string" &&
-            JSON.parse(init.body).method === "tools/list" &&
-            !changed
-          ) {
-            changed = true;
-            if (target === "connection")
-              await db.connection.update({
-                where: { id: f.connection.id },
-                data: { version: { increment: 1 } },
-              });
-            else
-              await db.connector.update({
-                where: { id: f.connector.id },
-                data: { enabled: false, version: { increment: 1 } },
-              });
-          }
-          return response;
-        });
-        const before = upstream.effects;
-        try {
-          await expect(f.call("call", { name: "fixture.write", arguments: {} })).rejects.toThrow();
-        } finally {
-          network.fetch.mockImplementation(forward);
+    it.each([
+      ["connection", false],
+      ["connector", false],
+      ["connection", true],
+      ["connector", true],
+    ] as const)("rechecks %s versions before tools/call (warm cache: %s)", async (target, warm) => {
+      const f = await setup();
+      if (warm) await f.call("tools");
+      const forward = network.fetch.getMockImplementation()!;
+      let changed = false;
+      network.fetch.mockImplementation(async (url, init) => {
+        const response = await forward(url, init);
+        if (
+          typeof init?.body === "string" &&
+          JSON.parse(init.body).method === (warm ? "initialize" : "tools/list") &&
+          !changed
+        ) {
+          changed = true;
+          if (target === "connection")
+            await db.connection.update({
+              where: { id: f.connection.id },
+              data: { version: { increment: 1 } },
+            });
+          else
+            await db.connector.update({
+              where: { id: f.connector.id },
+              data: { enabled: false, version: { increment: 1 } },
+            });
         }
-        expect(upstream.effects).toBe(before);
-      },
-    );
+        return response;
+      });
+      const before = upstream.effects;
+      try {
+        await expect(f.call("call", { name: "fixture.write", arguments: {} })).rejects.toThrow();
+      } finally {
+        network.fetch.mockImplementation(forward);
+      }
+      expect(upstream.effects).toBe(before);
+    });
     it.each(["http-error", "drop-after-dispatch"] as const)(
       "never replays tools/call after %s",
       async (kind) => {
         const f = await setup();
+        await f.call("tools");
         const previous = upstream;
         upstream = await startMcpFixture({ fault: { method: "tools/call", kind, status: 401 } });
         try {
@@ -340,8 +365,9 @@ describe.skipIf(!approved)(
         }
       },
     );
-    it("uses request quota before upstream access", async () => {
+    it("uses request quota even with a warm catalog", async () => {
       const f = await setup();
+      await f.call("tools");
       await db.connection.update({
         where: { id: f.connection.id },
         data: { rateWindow: new Date(), rateCount: 60 },
@@ -349,6 +375,217 @@ describe.skipIf(!approved)(
       const before = network.fetch.mock.calls.length;
       await expect(f.call("tools")).rejects.toMatchObject({ code: "rate_limit" });
       expect(network.fetch).toHaveBeenCalledTimes(before);
+    });
+    it("avoids warm discovery sessions and repeated tools/list, retaining quotas, audits and safe timings", async () => {
+      const f = await setup(createMemoryMcpToolCache());
+      const log = vi.spyOn(logger, "info");
+      const count = (method: string) =>
+        upstream.requests.filter(
+          (r) => r.message && "method" in r.message && r.message.method === method,
+        ).length;
+      const initializations = count("initialize");
+      const lists = count("tools/list");
+      try {
+        await f.call("tools");
+        expect(count("initialize") - initializations).toBe(1);
+        expect(count("tools/list") - lists).toBe(2);
+        const before = network.fetch.mock.calls.length;
+        await f.call("tools");
+        expect(network.fetch).toHaveBeenCalledTimes(before);
+        await f.call("call", {
+          name: "fixture.read",
+          arguments: { key: "private-cache-argument" },
+        });
+        expect(count("initialize") - initializations).toBe(2);
+        expect(count("tools/list") - lists).toBe(2);
+        await expect(f.call("call", { name: "not.present", arguments: {} })).rejects.toMatchObject({
+          code: "tool_unavailable",
+        });
+        expect(count("initialize") - initializations).toBe(2);
+        const row = await db.connection.findUniqueOrThrow({ where: { id: f.connection.id } });
+        expect(row.requestCount).toBe(4);
+        expect(row.rateCount).toBe(4);
+        expect(
+          await db.auditEvent.count({
+            where: { subjectId: row.id, eventType: "connector.request" },
+          }),
+        ).toBe(4);
+        const records = log.mock.calls.map(([fields]) => fields);
+        expect(records).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              event: "mcp.tool_catalog.load",
+              initializationMs: expect.any(Number),
+              discoveryMs: expect.any(Number),
+            }),
+            expect.objectContaining({
+              event: "mcp.operation",
+              operation: "tools",
+              cacheStatus: "hit",
+              authorizationMs: expect.any(Number),
+              cacheWaitMs: expect.any(Number),
+            }),
+            expect.objectContaining({
+              event: "mcp.operation",
+              operation: "call",
+              cacheStatus: "hit",
+              initializationMs: expect.any(Number),
+              invocationMs: expect.any(Number),
+            }),
+          ]),
+        );
+        const serialized = JSON.stringify(records);
+        for (const secret of [accessToken, credentials.refreshToken, "private-cache-argument"])
+          expect(serialized).not.toContain(secret);
+      } finally {
+        log.mockRestore();
+      }
+    });
+    it("invalidates catalogs on configuration versions and isolates connections", async () => {
+      const cache = createMemoryMcpToolCache();
+      const f = await setup(cache);
+      await f.call("tools");
+      const other = await setup(cache);
+      const before = network.fetch.mock.calls.length;
+      await other.call("tools");
+      expect(network.fetch.mock.calls.length).toBeGreaterThan(before);
+      const current = await db.connector.findUniqueOrThrow({
+        where: { id: f.connector.id },
+        include: { requiredScopes: { include: { scope: true } } },
+      });
+      await transaction((tx) =>
+        saveConnectorConfiguration({
+          tx,
+          id: current.id,
+          expectedVersion: current.version,
+          value: { ...buildConnectorState(current), name: "Updated MCP" },
+          actor,
+        }),
+      );
+      const changed = network.fetch.mock.calls.length;
+      await f.call("tools");
+      expect(network.fetch.mock.calls.length).toBeGreaterThan(changed);
+      const warm = network.fetch.mock.calls.length;
+      await f.call("tools");
+      expect(network.fetch).toHaveBeenCalledTimes(warm);
+    });
+    it("coalesces real discovery while independently cancelling the initiating caller", async () => {
+      const cache = createMemoryMcpToolCache();
+      let started!: () => void;
+      const loading = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let joined!: () => void;
+      const coalesced = new Promise<void>((resolve) => {
+        joined = resolve;
+      });
+      const f = await setup({
+        getOrLoad: (input) =>
+          cache.getOrLoad({
+            ...input,
+            onStatus: (status) => {
+              input.onStatus(status);
+              if (status === "miss") started();
+              if (status === "coalesced") joined();
+            },
+          }),
+      });
+      const previous = upstream;
+      upstream = await startMcpFixture({ delayMethod: "tools/list", delayMs: 250 });
+      try {
+        const controller = new AbortController();
+        const first = Promise.allSettled([f.call("tools", {}, actor, controller.signal)]);
+        // Authorization updates use repeatable-read transactions; overlap discovery, not those writes.
+        await Promise.race([
+          loading,
+          first.then(() => {
+            throw new Error("Discovery did not start");
+          }),
+        ]);
+        const second = Promise.allSettled([f.call("tools")]);
+        await Promise.race([
+          coalesced,
+          second.then(() => {
+            throw new Error("Discovery did not coalesce");
+          }),
+        ]);
+        controller.abort();
+        expect(await first).toMatchObject([{ status: "rejected", reason: { code: "cancelled" } }]);
+        expect(await second).toMatchObject([
+          { status: "fulfilled", value: { tools: expect.any(Array) } },
+        ]);
+        expect(
+          upstream.requests.filter(
+            (r) => r.message && "method" in r.message && r.message.method === "initialize",
+          ),
+        ).toHaveLength(1);
+        const before = network.fetch.mock.calls.length;
+        await f.call("tools");
+        expect(network.fetch).toHaveBeenCalledTimes(before);
+      } finally {
+        await upstream.close();
+        upstream = previous;
+      }
+    });
+    it.each([
+      "leaked-credential",
+      "oversized",
+      "duplicate",
+      "pagination",
+      "invalid-result",
+      "http-error",
+    ] as const)(
+      "never publishes %s discovery, including partially collected catalogs",
+      async (fault) => {
+        const f = await setup(createMemoryMcpToolCache());
+        const options: FixtureOptions =
+          fault === "leaked-credential"
+            ? { tools: [{ ...fixtureTools[0]!, description: accessToken }] }
+            : fault === "oversized"
+              ? { tools: [{ ...fixtureTools[0]!, description: "x".repeat(16 * 1024 + 1) }] }
+              : fault === "duplicate"
+                ? { tools: [fixtureTools[0]!, fixtureTools[0]!] }
+                : fault === "pagination"
+                  ? { repeatCursor: true }
+                  : { fault: { method: "tools/list", kind: fault, status: 401 } };
+        const previous = upstream;
+        upstream = await startMcpFixture(options);
+        try {
+          await expect(f.call("tools")).rejects.toThrow();
+          await expect(f.call("tools")).rejects.toThrow();
+          expect(
+            upstream.requests.filter(
+              (r) => r.message && "method" in r.message && r.message.method === "initialize",
+            ),
+          ).toHaveLength(2);
+        } finally {
+          await upstream.close();
+          upstream = previous;
+        }
+      },
+    );
+    it("does not serve expired catalogs after an upstream failure", async () => {
+      let now = 0;
+      const f = await setup(createMemoryMcpToolCache({ now: () => now, ttlMs: 100 }));
+      await f.call("tools");
+      now = 100;
+      const previous = upstream;
+      upstream = await startMcpFixture({
+        fault: { method: "tools/list", kind: "http-error", status: 503 },
+      });
+      try {
+        await expect(f.call("tools")).rejects.toThrow();
+        await expect(f.call("call", { name: "fixture.write", arguments: {} })).rejects.toThrow();
+        expect(upstream.effects).toBe(0);
+        expect(
+          upstream.requests.filter(
+            (r) => r.message && "method" in r.message && r.message.method === "initialize",
+          ),
+        ).toHaveLength(2);
+      } finally {
+        await upstream.close();
+        upstream = previous;
+      }
     });
     it("creates reusable registration lazily, coordinates competing workers and never reclaims ambiguous state", async () => {
       const f = await setup();
