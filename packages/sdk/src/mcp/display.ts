@@ -4,7 +4,7 @@ import { z } from "zod";
 import { MCP_LIMITS, assertMcpJson } from "./contracts.js";
 import { MCP_APP_MIME_TYPE, mcpAppAssetUrlSchema, mcpAppOriginSchema } from "./apps.js";
 import { mountMcpApp, type McpAppDisplayOptions } from "./browser.js";
-import { nativeMcpScopesSchema } from "./native.js";
+import { nativeMcpScopesSchema, nativeMcpResourceDefinitionSchema } from "./native.js";
 import type { NativeMcpContext, NativeMcpResource } from "./server.js";
 
 /**
@@ -44,7 +44,7 @@ const bootstrapCode = () =>
  * not modify a document. {@link createMcpAppResource} already includes it automatically.
  * @param options Display modes and optional public, same-origin ES modules.
  * @returns Configuration and bootstrap script tags. Resource modules load only after the host
- * confirms that it blocks UI-initiated business operations; older hosts keep static content.
+ * confirms a compatible Weldall bridge; unsupported hosts keep static content.
  */
 export function renderMcpAppBootstrapHtml(options: McpAppDisplayOptions = {}): string {
   const config = JSON.stringify(displayOptionsSchema.parse(options)).replace(/</g, "\\u003c");
@@ -54,7 +54,7 @@ export function renderMcpAppBootstrapHtml(options: McpAppDisplayOptions = {}): s
 /**
  * Rebuild a native UI document with sanitized markup, a restricted CSP and the SDK bootstrap.
  * Removes provider inline scripts, event handlers, forms and undeclared external assets.
- * This is not the host-side bridge permission check: the host must enforce display-only access.
+ * This is not the host-side authorization check: the host must enforce resource-bound access.
  * @param html Provider HTML, optionally containing a display bootstrap or external ES module tags.
  * @param resourceOrigin Trusted registered origin (scheme + host + port), never provider-declared
  * CSP. Omit to disallow external assets. HTTPS is required except for explicit loopback hosts.
@@ -135,7 +135,7 @@ export function sanitizeMcpDisplayHtml(html: string, resourceOrigin?: string): s
 }
 
 /**
- * Create an authenticated, display-only HTML resource for a native MCP tool.
+ * Create an authenticated HTML view with optional same-resource tool calls for a native MCP tool.
  * Add it to `createNativeMcp({ resources: [view], ... })` and link the tool with
  * `_meta: { ui: { resourceUri: view.uri } }`. Creation alone does not register an endpoint.
  * @param options Resource identity, required scopes, renderer and optional display/assets settings.
@@ -148,6 +148,9 @@ export function createMcpAppResource(
     name: string;
     /** Nonempty list of scopes ALL required to read this view, in addition to discovery scopes. */
     scopes: readonly string[];
+    /** Original names of tools in this same catalog that this view may call. Defaults to none.
+     * This grants no scopes; the current caller must still be authorized for each operation. */
+    allowedTools?: readonly string[];
     /** Public stylesheet URLs on `resourceOrigin`; absolute URLs, no credentials or CDN origins. */
     styleUrls?: readonly string[];
     /**
@@ -170,6 +173,9 @@ export function createMcpAppResource(
     .parse(options.styleUrls ?? []);
   if (styles.some((url) => new URL(url).origin !== config.resourceOrigin))
     throw new TypeError("Stylesheets must use the resource origin");
+  const ui = nativeMcpResourceDefinitionSchema.shape._meta.unwrap().parse({
+    ui: { allowedTools: options.allowedTools ?? [] },
+  }).ui!;
   const uri = `ui://weldall/${name}`;
   const links = styles
     .map((url) => `<link rel="stylesheet" href="${escapeMcpAppText(url)}">`)
@@ -179,6 +185,7 @@ export function createMcpAppResource(
     uri,
     mimeType: MCP_APP_MIME_TYPE,
     scopes,
+    ...(ui.allowedTools.length ? { _meta: { ui } } : {}),
     async handler(context) {
       return {
         contents: [

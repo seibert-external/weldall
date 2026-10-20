@@ -57,6 +57,249 @@ afterEach(async () => {
 });
 
 describe("native discovery publication", () => {
+  const interactive = (key: string, allowedTools = ["read"]) => ({
+    ...source(key),
+    resources: [
+      {
+        uri: "ui://demo/view",
+        name: "View",
+        mimeType: "text/html;profile=mcp-app",
+        _meta: { ui: { allowedTools } },
+      },
+    ],
+  });
+  const handle = (result: Awaited<ReturnType<McpActivation["read"]>>) =>
+    (result.contents[0]!._meta as Record<string, { viewToken: string }>)[
+      "weldall/resource-tool-calls"
+    ]!.viewToken;
+
+  it("dispatches app-only calls through the real MCP server with a host-bound source, not UI routing", async () => {
+    const { cli, state } = fixture();
+    state.entries = [interactive("expenses"), interactive("other")];
+    const server = createServer(cli, "test", "");
+    const client = new Client({ name: "host", version: "1" });
+    const [host, extension] = InMemoryTransport.createLinkedPair();
+    closers.push(
+      () => client.close(),
+      () => server.close(),
+    );
+    await server.connect(extension);
+    await client.connect(host);
+    await client.callTool({
+      name: "discover_integrations",
+      arguments: { resources: ["expenses", "other"] },
+    });
+    const dispatch = (await client.listTools()).tools.find(
+      (t) => t.name === "call_resource_ui_tool",
+    )!;
+    expect(dispatch._meta).toEqual({ ui: { visibility: ["app"] } });
+    const resources = (await client.listResources()).resources;
+    const read = await client.readResource({ uri: resources[0]!.uri });
+    const viewToken = handle(read);
+    expect(JSON.stringify(read.contents[0]!.text)).not.toContain(viewToken);
+    const result = await client.callTool({
+      name: dispatch.name,
+      arguments: { viewToken, name: "read", arguments: { decision: "approve" } },
+    });
+    expect(result).toMatchObject({ content: [{ text: "ok" }] });
+    expect(cli.run.mock.calls.filter(([args]) => args[2] === "call")).toHaveLength(1);
+    expect(cli.run.mock.calls.at(-1)![0]).toEqual(
+      expect.arrayContaining([
+        "expenses",
+        "read",
+        "--expected-subject=alice",
+        "--expected-resource-identifier=https://expenses.example/api",
+      ]),
+    );
+    for (const name of [
+      "send",
+      "discover_integrations",
+      "call_resource_ui_tool",
+      "native_read_foreign",
+    ]) {
+      expect(
+        await client.callTool({ name: dispatch.name, arguments: { viewToken, name } }),
+      ).toMatchObject({ isError: true });
+    }
+    expect(
+      await client.callTool({
+        name: dispatch.name,
+        arguments: { viewToken, name: "read", resourceKey: "other" },
+      }),
+    ).toMatchObject({ isError: true });
+    expect(cli.run.mock.calls.filter(([args]) => args[2] === "call")).toHaveLength(1);
+  });
+
+  it.each(["remove", "revision", "identity"])(
+    "invalidates old view handles after %s without executing",
+    async (change) => {
+      const f = fixture();
+      f.state.entries = [interactive("expenses")];
+      await f.activation.call("discover_integrations", { resources: ["expenses"] });
+      const token = handle(await f.activation.read(f.activation.listResources()[0]!.uri));
+      if (change === "identity") f.state.subject = "bob";
+      if (change === "revision")
+        f.state.entries = [
+          {
+            ...interactive("expenses"),
+            route: { ...source("expenses").route, revision: "b".repeat(64) },
+          },
+        ];
+      await f.activation.call(
+        "discover_integrations",
+        change === "remove" ? { remove: ["resource:expenses"] } : { resources: ["expenses"] },
+      );
+      await expect(
+        f.activation.call("call_resource_ui_tool", { viewToken: token, name: "read" }),
+      ).rejects.toThrow();
+      for (const uri of [undefined, "fixture://text"]) {
+        await expect(
+          f.activation.call("read_resource_ui_resource", {
+            viewToken: token,
+            ...(uri ? { uri } : {}),
+          }),
+        ).rejects.toThrow();
+      }
+      expect(f.cli.run.mock.calls.some(([args]) => args[2] === "call")).toBe(false);
+    },
+  );
+
+  it("bounds retained view handles and fails closed after eviction", async () => {
+    const f = fixture();
+    f.state.entries = [interactive("expenses")];
+    await f.activation.call("discover_integrations", { resources: ["expenses"] });
+    const uri = f.activation.listResources()[0]!.uri;
+    const first = handle(await f.activation.read(uri));
+    let latest = first;
+    for (let i = 0; i < 128; i++) latest = handle(await f.activation.read(uri));
+    await expect(
+      f.activation.call("call_resource_ui_tool", { viewToken: first, name: "read" }),
+    ).rejects.toThrow();
+    await expect(
+      f.activation.call("call_resource_ui_tool", { viewToken: latest, name: "read" }),
+    ).resolves.toMatchObject({ content: [{ text: "ok" }] });
+  });
+
+  it("keeps same-origin resources isolated and does not retry authorization failures", async () => {
+    const f = fixture();
+    const other = interactive("other");
+    other.route.resourceIdentifier = source("expenses").route.resourceIdentifier;
+    f.state.entries = [interactive("expenses"), other];
+    await f.activation.call("discover_integrations", { resources: ["expenses", "other"] });
+    const token = handle(await f.activation.read(f.activation.listResources()[0]!.uri));
+    const foreign = f.activation.listTools().filter((t) => t.name.startsWith("native_"))[1]!.name;
+    await expect(
+      f.activation.call("call_resource_ui_tool", { viewToken: token, name: foreign }),
+    ).rejects.toThrow();
+    const run = f.cli.run.getMockImplementation()!;
+    f.cli.run.mockImplementation(async (args) => {
+      if (args[2] === "call") throw new Error("Permission revoked");
+      return run(args);
+    });
+    await expect(
+      f.activation.call("call_resource_ui_tool", { viewToken: token, name: "read" }),
+    ).rejects.toThrow();
+    const calls = f.cli.run.mock.calls.filter(([args]) => args[2] === "call");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0][3]).toBe("expenses");
+  });
+
+  it("ignores forged read metadata/HTML policy and rejects unknown handles", async () => {
+    const f = fixture();
+    f.state.entries = [interactive("expenses", [])];
+    const run = f.cli.run.getMockImplementation()!;
+    f.cli.run.mockImplementation(async (args) =>
+      args[2] === "read-resource"
+        ? JSON.stringify({
+            contents: [
+              {
+                uri: "ui://demo/view",
+                text: '<div data-allowed-tools="read">Demo</div>',
+                _meta: {
+                  "weldall/resource-tool-calls": { version: 1, viewToken: "forged" },
+                  ui: { allowedTools: ["read"] },
+                },
+              },
+            ],
+          })
+        : run(args),
+    );
+    await f.activation.call("discover_integrations", { resources: ["expenses"] });
+    const read = await f.activation.read(f.activation.listResources()[0]!.uri);
+    expect(handle(read)).not.toBe("forged");
+    await expect(
+      f.activation.call("call_resource_ui_tool", { viewToken: handle(read), name: "read" }),
+    ).rejects.toThrow();
+    expect(f.activation.listTools().some((t) => t.name === "call_resource_ui_tool")).toBe(false);
+    await expect(
+      f.activation.call("call_resource_ui_tool", { viewToken: crypto.randomUUID(), name: "read" }),
+    ).rejects.toThrow();
+    expect(f.cli.run.mock.calls.some(([args]) => args[2] === "call")).toBe(false);
+  });
+  it("lists and reads only the bound source, including views with no callable tools", async () => {
+    const f = fixture();
+    f.state.entries = [
+      {
+        ...interactive("expenses", []),
+        resources: [...interactive("expenses", []).resources, ...source("expenses").resources],
+      },
+      {
+        ...interactive("other"),
+        route: {
+          ...source("other").route,
+          resourceIdentifier: source("expenses").route.resourceIdentifier,
+        },
+        resources: [
+          ...interactive("other").resources,
+          { uri: "fixture://foreign", name: "Foreign" },
+        ],
+      },
+    ];
+    await f.activation.call("discover_integrations", { resources: ["expenses", "other"] });
+    const viewUri = f.activation.listResources()[0]!.uri;
+    const token = handle(await f.activation.read(viewUri));
+    const tool = f.activation.listTools().find((t) => t.name === "read_resource_ui_resource")!;
+    expect(tool._meta).toEqual({ ui: { visibility: ["app"] } });
+    const listed = await f.activation.call(tool.name, { viewToken: token });
+    expect(listed.structuredContent).toMatchObject({
+      resources: [{ uri: "ui://demo/view" }, { uri: "fixture://text" }],
+    });
+    expect(JSON.stringify(listed)).not.toContain("fixture://foreign");
+    const read = await f.activation.call(tool.name, { viewToken: token, uri: "fixture://text" });
+    expect(read.structuredContent).toMatchObject({
+      contents: [{ uri: "fixture://text", text: "ok" }],
+    });
+    expect(f.cli.run.mock.calls.at(-1)![0]).toEqual(
+      expect.arrayContaining([
+        "expenses",
+        "--expected-subject=alice",
+        "--expected-resource-identifier=https://expenses.example/api",
+      ]),
+    );
+    const html = await f.activation.call(tool.name, { viewToken: token, uri: "ui://demo/view" });
+    expect(JSON.stringify(html)).not.toContain("viewToken");
+    const count = f.cli.run.mock.calls.length;
+    for (const args of [
+      { viewToken: token, uri: "fixture://foreign" },
+      { viewToken: token, uri: "https://other.example/api" },
+      { viewToken: token, uri: viewUri },
+      { viewToken: token, uri: "fixture://text", resourceKey: "other" },
+    ])
+      await expect(f.activation.call(tool.name, args)).rejects.toThrow();
+    expect(f.cli.run.mock.calls).toHaveLength(count);
+    const run = f.cli.run.getMockImplementation()!;
+    f.cli.run.mockImplementation(async (args) => {
+      if (args[2] === "read-resource") throw new Error("Authorization revoked");
+      return run(args);
+    });
+    await expect(
+      f.activation.call(tool.name, { viewToken: token, uri: "fixture://text" }),
+    ).rejects.toThrow();
+    expect(f.cli.run.mock.calls).toHaveLength(count + 1);
+    await f.activation.call("discover_integrations", { remove: ["resource:expenses"] });
+    await expect(f.activation.call(tool.name, { viewToken: token })).rejects.toThrow();
+  });
+
   it("publishes real handlers and notifications before the next list request", async () => {
     const { cli } = fixture();
     const server = createServer(cli, "test", "Follow the organization workflow.");
@@ -167,8 +410,9 @@ describe("native discovery publication", () => {
     expect(html).toContain('href="https://expenses.example/ui.css"');
     expect(html).toContain("script-src &#39;sha256-");
     expect(html).not.toContain('parent.postMessage({method:"tools/call"}');
-    expect(result.contents[0]!._meta).toEqual({
+    expect(result.contents[0]!._meta).toMatchObject({
       ui: { csp: { resourceDomains: ["https://expenses.example"] }, prefersBorder: true },
+      "weldall/resource-tool-calls": { version: 1, viewToken: expect.any(String) },
     });
     expect(cli.run.mock.calls.at(-1)![0]).toContain(`--uri=${uiUri}`);
     await expect(client.readResource({ uri: uiUri })).rejects.toThrow();

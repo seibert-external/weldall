@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Tool, CallToolResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   MCP_LIMITS,
@@ -19,6 +19,7 @@ import {
   mcpCallResultSchema,
   mcpReadResultSchema,
   nativeMcpReadResultSchema,
+  nativeMcpResourceDefinitionSchema,
   MCP_APP_MIME_TYPE,
   localMcpAppResourceUri,
   mcpConnectorKeySchema,
@@ -100,7 +101,45 @@ const discoveryTool: Tool = {
   },
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 };
-type Resource = z.output<typeof mcpResourcesResponseSchema>["resources"][number];
+const uiCallSchema = z.strictObject({
+  viewToken: z.uuid(),
+  name: z.string().min(1).max(64),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+const uiCallTool: Tool = {
+  name: "call_resource_ui_tool",
+  description:
+    "Host-only dispatch for a bound native Resource view. Never select a source from UI arguments.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      viewToken: { type: "string" },
+      name: { type: "string" },
+      arguments: { type: "object" },
+    },
+    required: ["viewToken", "name"],
+    additionalProperties: false,
+  },
+  _meta: { ui: { visibility: ["app"] } },
+};
+const uiReadSchema = z.strictObject({
+  viewToken: z.uuid(),
+  uri: z.string().min(1).max(8192).optional(),
+});
+const uiReadTool: Tool = {
+  name: "read_resource_ui_resource",
+  description:
+    "Host-only resource access for a bound native view. Omit uri to list its own catalog.",
+  inputSchema: {
+    type: "object",
+    properties: { viewToken: { type: "string" }, uri: { type: "string" } },
+    required: ["viewToken"],
+    additionalProperties: false,
+  },
+  _meta: { ui: { visibility: ["app"] } },
+  annotations: { readOnlyHint: true, destructiveHint: false },
+};
+type Resource = z.output<typeof nativeMcpResourceDefinitionSchema>;
 type Binding = {
   connectionId: string;
   dependency: ExactMcpDependency;
@@ -132,6 +171,8 @@ export class McpActivation {
   >();
   private tools = new Map<string, ToolBinding>();
   private resources = new Map<string, ResourceBinding>();
+  // Opaque host-only handles. Never inserted into HTML or supplied by the iframe.
+  private uiViews = new Map<string, { uri: string; binding: ResourceBinding }>();
   private nativeIdentity: string | undefined;
   private tail: Promise<unknown> = Promise.resolve();
   private queued = 0;
@@ -150,6 +191,8 @@ export class McpActivation {
   listTools(): Tool[] {
     return [
       ...(this.cli.nativeDiscoveryVersion === 1 ? [discoveryTool] : []),
+      ...(this.hasInteractiveViews() ? [uiCallTool] : []),
+      ...(this.hasNativeViews() ? [uiReadTool] : []),
       ...(this.pending.size || this.pendingDiscovery.size ? [selectionTool] : []),
       ...[...this.tools.values()].map((t) => t.definition),
     ];
@@ -160,6 +203,8 @@ export class McpActivation {
   hasTool(name: string) {
     return (
       this.tools.has(name) ||
+      (name === uiCallTool.name && this.hasInteractiveViews()) ||
+      (name === uiReadTool.name && this.hasNativeViews()) ||
       (name === selectionTool.name && (this.pending.size > 0 || this.pendingDiscovery.size > 0)) ||
       (name === discoveryTool.name && this.cli.nativeDiscoveryVersion === 1)
     );
@@ -725,7 +770,82 @@ export class McpActivation {
     if (resourcesChanged) await this.changed.resources();
     return statuses;
   }
+  private hasNativeViews() {
+    return (
+      this.cli.nativeDiscoveryVersion === 1 &&
+      [...this.resources.values()].some(
+        (binding) => binding.native && binding.definition?.mimeType === MCP_APP_MIME_TYPE,
+      )
+    );
+  }
+  private getUiView(viewToken: string) {
+    const view = this.uiViews.get(viewToken);
+    if (!view || this.resources.get(view.uri) !== view.binding || !view.binding.native)
+      throw new ExtensionError("invalid_request");
+    return view;
+  }
+  private async readFromUi(input: unknown, signal?: AbortSignal): Promise<CallToolResult> {
+    assertMcpJson(input, MCP_LIMITS.requestBytes);
+    const args = uiReadSchema.parse(input);
+    const view = this.getUiView(args.viewToken);
+    const own = [...this.resources.entries()].filter(
+      ([, candidate]) =>
+        candidate.native === view.binding.native && candidate.namespace === view.binding.namespace,
+    );
+    let result: Record<string, unknown>;
+    if (args.uri !== undefined) {
+      const match = own.find(([, candidate]) => candidate.upstreamUri === args.uri);
+      if (!match) throw new ExtensionError("invalid_request");
+      const read = await this.read(match[0], signal, false);
+      this.getUiView(args.viewToken);
+      result = {
+        contents: read.contents.map((item) => ({
+          ...item,
+          uri: this.resources.get(item.uri)?.upstreamUri ?? args.uri,
+        })),
+      };
+    } else {
+      result = {
+        resources: own.flatMap(([, candidate]) =>
+          candidate.definition ? [{ ...candidate.definition, uri: candidate.upstreamUri }] : [],
+        ),
+      };
+    }
+    const output = { content: [], structuredContent: result };
+    assertMcpJson(output, MCP_LIMITS.resultBytes);
+    return output;
+  }
+  private hasInteractiveViews() {
+    return (
+      this.cli.nativeDiscoveryVersion === 1 &&
+      [...this.resources.values()].some(
+        (binding) =>
+          binding.native &&
+          binding.definition?.mimeType === MCP_APP_MIME_TYPE &&
+          binding.definition._meta?.ui?.allowedTools.length,
+      )
+    );
+  }
+  private async callFromUi(input: unknown, signal?: AbortSignal): Promise<CallToolResult> {
+    assertMcpJson(input, MCP_LIMITS.requestBytes);
+    const args = uiCallSchema.parse(input);
+    const view = this.getUiView(args.viewToken);
+    if (!view.binding.definition?._meta?.ui?.allowedTools.includes(args.name))
+      throw new ExtensionError("invalid_request");
+    const tool = [...this.tools.entries()].find(
+      ([, candidate]) =>
+        candidate.native &&
+        candidate.namespace === view.binding.namespace &&
+        candidate.upstreamName === args.name &&
+        candidate.native === view.binding.native,
+    );
+    if (!tool) throw new ExtensionError("invalid_request");
+    // Reuse exact issuer/subject/revision/resource guards and live scope authorization. Never retry.
+    return this.call(tool[0], args.arguments, signal);
+  }
   async call(name: string, args: unknown, signal?: AbortSignal): Promise<CallToolResult> {
+    if (name === uiCallTool.name) return this.callFromUi(args, signal);
+    if (name === uiReadTool.name) return this.readFromUi(args, signal);
     if (name === discoveryTool.name && this.cli.nativeDiscoveryVersion === 1)
       return this.discoverShared(args, signal);
     if (name === selectionTool.name) {
@@ -841,7 +961,7 @@ export class McpActivation {
     }
     return uri;
   }
-  async read(uri: string, signal?: AbortSignal): Promise<ReadResourceResult> {
+  async read(uri: string, signal?: AbortSignal, bindView = true): Promise<ReadResourceResult> {
     const binding = this.resources.get(uri);
     if (!binding) throw new ExtensionError("invalid_request");
     const result = await this.run(
@@ -900,10 +1020,28 @@ export class McpActivation {
         return result;
       }
       const map = new Map(this.resources);
+      let viewToken: string | undefined;
+      if (bindView && binding.native && binding.definition?.mimeType === MCP_APP_MIME_TYPE) {
+        for (const [token, view] of this.uiViews)
+          if (this.resources.get(view.uri) !== view.binding) this.uiViews.delete(token);
+        if (this.uiViews.size >= 128) this.uiViews.delete(this.uiViews.keys().next().value!);
+        viewToken = randomUUID();
+        this.uiViews.set(viewToken, { uri, binding });
+      }
       const output = {
         contents: contents.map((item) => ({
           ...item,
           uri: this.mapUri(map, binding, item.uri),
+          ...(viewToken && item.mimeType === MCP_APP_MIME_TYPE
+            ? {
+                _meta: {
+                  ...("_meta" in item && typeof item._meta === "object" && item._meta !== null
+                    ? item._meta
+                    : {}),
+                  "weldall/resource-tool-calls": { version: 1, viewToken },
+                },
+              }
+            : {}),
         })),
       };
       assertMcpJson(output, MCP_LIMITS.resultBytes);

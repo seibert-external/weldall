@@ -52,22 +52,39 @@ The in-memory MCP tests verify notification ordering and immediate tool-list ref
 Goose, the white-label adapter, Code Mode and packaged-host behavior still need manual acceptance;
 do not infer host/model refresh guarantees from the protocol tests alone.
 
-## Native resource display Apps (development branch)
+## Native resource MCP Apps (development branch)
 
 Native tools may reference an HTML/CSS view in `_meta.ui.resourceUri`. The extension checks that
 the view exists in that source's catalog, preserves a source/session-local `ui://` URI, and routes
 resource reads through the existing direct CLI path. Connector/connection UI metadata is still
 stripped. Hosts without MCP Apps support continue to receive normal text tool results.
 
-Before returning native UI HTML to Goose, the extension applies the SDK's display-only sanitizer
+Before returning native UI HTML to Goose, the extension applies the SDK's HTML sanitizer
 and restrictive document CSP. This covers text and base64 content, even when the provider changes
 the MIME type. The asset origin comes from the bound resource identifier, never provider CSP.
 Provider inline code is removed and replaced with the SDK\'s CSP-hashed display bootstrap. Public
-ES modules are queued and loaded only after the host advertises its enforced
-`weldall/display-only` capability (version 1); older hosts receive static content and sizing only.
-The updated Goose host rejects UI business RPC, additional resource reads, chat messages and
-external links for Weldall views. UI-linked tools remain model-only. Authentication/scopes are
-still enforced on every native read. Source-bound interactive tool access remains deferred.
+ES modules load only after a compatible host advertises `weldall/app-bridge`,
+`weldall/display-only` or `weldall/resource-tool-calls` (version 1).
+A catalog-level `_meta.ui.allowedTools` opts a view into calls to named tools of that same registered resource.
+Every registered native HTML view receives an opaque handle for its own resource access, even when
+its tool allowlist is empty. The extension generates the handle; provider metadata/HTML cannot supply it.
+
+The host keeps the handle out of the iframe and injects it into `call_resource_ui_tool`, an app-only
+dispatcher hidden from the model. Every tool dispatch checks the current resource binding and allowlist,
+then uses the existing CLI issuer/subject/revision/resource guards and live scope authorization.
+The app-only `read_resource_ui_resource` dispatcher lists the bound catalog (no URI) or reads a known
+upstream URI of that exact binding. Foreign/local-routed URIs and caller-supplied routing are rejected.
+UI-initiated reads never mint or expose new host handles.
+At most 128 view handles are retained; evicted or replaced bindings require a fresh view read.
+Calls are never retried. Goose's existing Auto-mode requirement remains in force; no Rust changes
+or general-purpose App permission changes are needed.
+
+Ordinary UI-linked tools remain model-only. The desktop enables chat, future-turn context, resource reads,
+links, user-confirmed downloads, logs and lifecycle actions through the SDK. Direct discovery/connector/
+foreign-resource calls and arbitrary HTTP fetching remain unavailable. Chat messages can trigger model
+actions using any of the chat's tools: the UI allowlist does not constrain subsequent model actions.
+Older extensions/clients have no usable resource binding and fail closed. Other Goose extensions retain
+their existing bridge. See the SDK README for capability negotiation and host-specific limitations.
 
 See [the Expenses demo](../expenses/README.md#show-the-demo-ui-in-goose) for the first UI.
 Restart the branch extension after rebuilding. The MCP integration tests cover metadata and HTML

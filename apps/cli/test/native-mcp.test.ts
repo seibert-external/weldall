@@ -77,6 +77,7 @@ beforeEach(async () => {
   const ui = createMcpAppResource({
     name: "expenses",
     scopes: ["read"],
+    allowedTools: ["write"],
     resourceOrigin: origin,
     styleUrls: [`${origin}/ui.css`],
     render: ({ auth }) => `<h1>${auth.subject}</h1>`,
@@ -191,7 +192,12 @@ describe("native CLI resource transport", () => {
     expect(discovered.results[0]).toMatchObject({
       tools: [{ _meta: { ui: { resourceUri: "ui://weldall/expenses" } } }],
       resources: expect.arrayContaining([
-        { name: "expenses", uri: "ui://weldall/expenses", mimeType: "text/html;profile=mcp-app" },
+        {
+          name: "expenses",
+          uri: "ui://weldall/expenses",
+          mimeType: "text/html;profile=mcp-app",
+          _meta: { ui: { allowedTools: ["write"] } },
+        },
       ]),
     });
     fetched = [];

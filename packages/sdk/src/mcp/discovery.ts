@@ -7,7 +7,7 @@ import {
   skillMcpDependenciesSchema,
 } from "./contracts.js";
 
-import { nativeMcpToolDefinitionSchema } from "./native.js";
+import { nativeMcpToolDefinitionSchema, nativeMcpResourceDefinitionSchema } from "./native.js";
 
 export const DISCOVERY_LIMITS = Object.freeze({
   sources: 8,
@@ -86,6 +86,7 @@ export const nativeDiscoveryEntrySchema = z.union([
     route: nativeMcpRouteSchema,
     ...definitions,
     tools: z.array(nativeMcpToolDefinitionSchema).max(MCP_LIMITS.tools),
+    resources: z.array(nativeMcpResourceDefinitionSchema).max(MCP_LIMITS.resources),
   }),
   z.strictObject({
     ...summary,

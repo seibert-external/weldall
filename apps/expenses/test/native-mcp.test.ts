@@ -129,6 +129,45 @@ const rpc = (method: string, params: Record<string, unknown> = {}) => ({
 });
 
 describe("Expenses Task 1 demo", () => {
+  it("previews approve/deny through authenticated tools without changing expenses", async () => {
+    const token = await tokenFor("user", ["expenses:read"]);
+    await withClient(token, async (client) => {
+      const view = (await client.listResources()).resources.find(
+        (r) => r.uri === "ui://weldall/expenses",
+      )!;
+      expect(view._meta).toMatchObject({ ui: { allowedTools: ["preview_expense_decision"] } });
+      const before = await client.callTool({ name: "list_expenses" });
+      for (const decision of ["approve", "deny"]) {
+        expect(
+          await client.callTool({
+            name: "preview_expense_decision",
+            arguments: { expenseId: "expense-1", decision },
+          }),
+        ).toMatchObject({
+          structuredContent: {
+            expenseId: "expense-1",
+            decision,
+            simulated: true,
+            persisted: false,
+          },
+        });
+      }
+      expect(await client.callTool({ name: "list_expenses" })).toEqual(before);
+      await expect(
+        client.callTool({
+          name: "preview_expense_decision",
+          arguments: { expenseId: "someone-elses-expense", decision: "approve" },
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+    });
+    for (const path of ["/mcp-ui/expenses.js", "/mcp-ui/sdk.js"]) {
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/javascript");
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(await response.text()).toContain("callMcpAppTool");
+    }
+  });
   it("advertises the native endpoint, discovery scope and stable revision alongside HTTP", async () => {
     const metadata = await app.request("/.well-known/oauth-protected-resource");
     expect(metadata.status).toBe(200);
@@ -189,6 +228,7 @@ describe("Expenses Task 1 demo", () => {
         expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
           "create_expense",
           "list_expenses",
+          "preview_expense_decision",
         ]);
         expect((await client.listResources()).resources.map((resource) => resource.uri)).toEqual([
           "ui://weldall/expenses",
@@ -208,7 +248,7 @@ describe("Expenses Task 1 demo", () => {
   );
 
   it.each(["user", "machine"] as const)(
-    "links the tool to an authenticated HTML view for a %s, with public CSS only",
+    "links the tool to an authenticated HTML view for a %s, with public display assets",
     async (identity) => {
       const token = await tokenFor(identity, ["expenses:read"]);
       await withClient(token, async (client) => {

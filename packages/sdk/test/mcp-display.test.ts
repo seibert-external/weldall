@@ -7,7 +7,11 @@ import {
 import { createNativeMcp, type NativeMcpContext } from "../src/mcp/server.js";
 import { MCP_APP_MIME_TYPE, mcpAppOriginSchema } from "../src/mcp/apps.js";
 import { nativeMcpReadResultSchema, nativeMcpToolDefinitionSchema } from "../src/mcp/native.js";
-import { mcpReadResultSchema, mcpToolsResponseSchema } from "../src/mcp/contracts.js";
+import {
+  mcpReadResultSchema,
+  mcpToolsResponseSchema,
+  mcpResourcesResponseSchema,
+} from "../src/mcp/contracts.js";
 
 const context: NativeMcpContext = {
   auth: {
@@ -63,7 +67,7 @@ describe("display-only MCP Apps", () => {
       <link rel="stylesheet" href="https://evil.example/evil.css">
       <link rel="preload" as="script" href="${origin}/evil.js">
       </head><body onload="evil()"><main class="card"><h1>Safe</h1>
-      <script>parent.postMessage({method: 'tools/call'}, '*')</script>
+      <script>parent.postMessage({method: 'tools/call', id: 'untrusted-request'}, '*')</script>
       <iframe srcdoc="&lt;script&gt;evil()&lt;/script&gt;"></iframe>
       <object data="https://evil.example"></object><embed src="https://evil.example">
       <svg><a href="javascript:evil()"><text>SVG</text></a></svg>
@@ -79,7 +83,7 @@ describe("display-only MCP Apps", () => {
     expect(html).not.toMatch(/<(iframe|svg|math|object|embed|base|form|input|button|style)\b/i);
     expect(html).not.toMatch(/\b(onload|onerror|srcdoc|ping|target|style)=/i);
     expect(html).not.toContain("evil.example");
-    expect(html).not.toContain("tools/call");
+    expect(html).not.toContain("untrusted-request");
     expect(html).not.toContain('http-equiv="refresh"');
     expect(html).not.toContain("javascript:");
   });
@@ -182,6 +186,48 @@ describe("display-only MCP Apps", () => {
       ui: { csp: { resourceDomains: [origin] } },
     });
     expect(mcpReadResultSchema.parse(value).contents[0]).not.toHaveProperty("_meta");
+  });
+
+  it("validates per-view allowlists against the local catalog and includes policy in the revision", () => {
+    const tool = {
+      name: "approve",
+      scopes: ["write"],
+      inputSchema: { type: "object" as const },
+      handler: async () => ({ content: [] }),
+    };
+    const view = (allowedTools: string[]) =>
+      createMcpAppResource({
+        name: "view",
+        scopes: ["read"],
+        allowedTools,
+        render: () => "<h1>Demo</h1>",
+      });
+    const provider = (allowedTools: string[]) =>
+      createNativeMcp({
+        path: "/mcp",
+        description: "Demo",
+        discoveryScopes: ["read"],
+        tools: [tool],
+        resources: [view(allowedTools)],
+      });
+    expect(provider(["approve"]).metadata(origin).revision).not.toBe(
+      provider([]).metadata(origin).revision,
+    );
+    expect(view(["approve"])._meta).toEqual({ ui: { allowedTools: ["approve"] } });
+    expect(
+      mcpResourcesResponseSchema.parse({ resources: [view(["approve"])] }).resources[0],
+    ).not.toHaveProperty("_meta");
+    expect(() => provider(["foreign_tool"])).toThrow("allowedTools");
+    expect(() => view(["approve", "approve"])).toThrow();
+    expect(() =>
+      createNativeMcp({
+        path: "/mcp",
+        description: "Demo",
+        discoveryScopes: ["read"],
+        tools: [tool],
+        resources: [{ ...view(["approve"]), mimeType: "text/plain" }],
+      }),
+    ).toThrow("allowedTools");
   });
 
   it("requires a registered HTML resource for each tool UI and includes its reference in the revision", () => {

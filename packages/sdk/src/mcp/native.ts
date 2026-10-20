@@ -5,7 +5,13 @@ import {
   requestPrefixAccepts,
   type ResourceRegistryEntry,
 } from "../resource-registry.js";
-import { MCP_LIMITS, mcpToolSchema, mcpResourceSchema, mcpReadResultSchema } from "./contracts.js";
+import {
+  MCP_LIMITS,
+  mcpToolSchema,
+  mcpToolNameSchema,
+  mcpResourceSchema,
+  mcpReadResultSchema,
+} from "./contracts.js";
 import { mcpAppToolMetaSchema, mcpAppResourceMetaSchema } from "./apps.js";
 
 export const nativeMcpScopesSchema = z
@@ -67,6 +73,22 @@ export function validateNativeMcpMetadata(
 export const nativeMcpToolDefinitionSchema = mcpToolSchema.extend({
   _meta: mcpAppToolMetaSchema.optional(),
 });
+/** Per-view opt-in, declared in the catalog (never inferred from HTML or tool hints). */
+export const nativeMcpResourceDefinitionSchema = mcpResourceSchema.extend({
+  _meta: z
+    .object({
+      ui: z
+        .object({
+          allowedTools: z
+            .array(mcpToolNameSchema)
+            .max(MCP_LIMITS.tools)
+            .refine((names) => new Set(names).size === names.length)
+            .default([]),
+        })
+        .optional(),
+    })
+    .optional(),
+});
 const operationMetadata = z.object({ "weldall/scopes": nativeMcpScopesSchema });
 export const nativeMcpToolsSchema = z.object({
   tools: z
@@ -90,7 +112,13 @@ export const nativeMcpReadResultSchema = z.object({
 });
 export const nativeMcpResourcesSchema = z.object({
   resources: z
-    .array(mcpResourceSchema.extend({ _meta: operationMetadata }))
+    .array(
+      nativeMcpResourceDefinitionSchema.extend({
+        _meta: operationMetadata.extend({
+          ui: nativeMcpResourceDefinitionSchema.shape._meta.unwrap().shape.ui,
+        }),
+      }),
+    )
     .max(MCP_LIMITS.resources),
 });
 

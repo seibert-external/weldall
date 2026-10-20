@@ -14,15 +14,10 @@ import {
 import { z } from "zod";
 import { WeldallAuthError } from "../errors.js";
 import type { AuthContext } from "../types.js";
-import {
-  MCP_LIMITS,
-  assertMcpJson,
-  mcpCallResultSchema,
-  mcpResourceSchema,
-  parseMcpResponse,
-} from "./contracts.js";
+import { MCP_LIMITS, assertMcpJson, mcpCallResultSchema, parseMcpResponse } from "./contracts.js";
 import {
   nativeMcpScopesSchema,
+  nativeMcpResourceDefinitionSchema,
   nativeMcpToolDefinitionSchema,
   nativeMcpReadResultSchema,
   type NativeMcpProvider,
@@ -81,7 +76,7 @@ export interface NativeMcpTool extends z.input<typeof nativeMcpToolDefinitionSch
   /** Descriptive behavior hints only. Required scopes, not these hints, enforce authorization. */
   annotations?: NativeMcpToolAnnotations | undefined;
   /**
-   * Link a display-only view with `{ ui: { resourceUri: view.uri } }`.
+   * Link a native MCP App view with `{ ui: { resourceUri: view.uri } }`.
    * The referenced HTML resource must also be in `resources`; this does not permit UI tool calls.
    */
   _meta?: z.input<typeof nativeMcpToolDefinitionSchema>["_meta"];
@@ -100,7 +95,7 @@ export interface NativeMcpTool extends z.input<typeof nativeMcpToolDefinitionSch
 }
 
 /** A fixed-URI resource read through the authenticated MCP endpoint, not a public HTTP URL. */
-export interface NativeMcpResource extends z.input<typeof mcpResourceSchema> {
+export interface NativeMcpResource extends z.input<typeof nativeMcpResourceDefinitionSchema> {
   /** Stable, unique URI within this catalog; use `createMcpAppResource` to generate a UI URI. */
   uri: string;
   /** Human-readable resource name for discovery. */
@@ -170,10 +165,14 @@ export function createNativeMcp(options: {
   });
   const resources = (options.resources ?? []).map(({ scopes, handler, ...definition }) => {
     assertMcpJson(definition, MCP_LIMITS.definitionsBytes);
+    const parsed = nativeMcpResourceDefinitionSchema.parse(structuredClone(definition));
     return {
       definition: {
-        ...mcpResourceSchema.parse(structuredClone(definition)),
-        _meta: { "weldall/scopes": nativeMcpScopesSchema.parse(scopes).sort() },
+        ...parsed,
+        _meta: {
+          ...(parsed._meta?.ui ? { ui: parsed._meta.ui } : {}),
+          "weldall/scopes": nativeMcpScopesSchema.parse(scopes).sort(),
+        },
       },
       handler,
     };
@@ -188,6 +187,16 @@ export function createNativeMcp(options: {
     throw new TypeError(
       "Native MCP catalog exceeds limits or has duplicate entries/invalid handlers",
     );
+  for (const resource of resources) {
+    const allowed = resource.definition._meta.ui?.allowedTools ?? [];
+    if (
+      allowed.length &&
+      (resource.definition.mimeType !== MCP_APP_MIME_TYPE ||
+        !resource.definition.uri.startsWith("ui://") ||
+        allowed.some((name) => !tools.some((tool) => tool.definition.name === name)))
+    )
+      throw new TypeError("UI allowedTools must reference tools in this resource catalog");
+  }
   for (const tool of tools) {
     const uri = tool.definition._meta.ui?.resourceUri;
     if (

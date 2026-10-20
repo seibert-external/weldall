@@ -149,7 +149,7 @@ definitions or policies.
 - Ordinary tools and fixed resources are supported; resource-template listing is empty.
   Transport is stateless Streamable HTTP with JSON responses, no sessions/reconnection.
   Only the native `_meta["weldall/scopes"]` field is used for operation policy. Native tools can
-  additionally link a display-only MCP App as described below; connector UI metadata stays stripped.
+  additionally link a native MCP App as described below; connector UI metadata stays stripped.
 - Resource owners must audit execution at the handler/business layer without recording tokens or
   sensitive arguments. Central token/discovery activity does not audit direct MCP execution.
   Locally verified user tokens can remain valid for their ten-minute lifetime (machine tokens:
@@ -185,7 +185,7 @@ is derived, not another independently editable IaC policy.
 The executable local fixture is `apps/expenses/src/app.ts`; its `create_expense` tool is a
 demonstration only and does not persist records. It is not an approved real-service pilot.
 
-## Display-only MCP Apps (TypeScript preview)
+## Native MCP Apps (TypeScript preview)
 
 Native resource tools can link a server-rendered HTML/CSS view. Keep the normal tool result:
 text-only hosts and older CLIs still receive it. There is no central HTML proxy or additional
@@ -237,7 +237,7 @@ development. No CDNs, credentials or wildcards. At the extension boundary the or
 from the registered resource identifier, never trusted from provider metadata. The document CSP
 blocks direct fetch/WebSocket connections, frames and form submissions. Provider inline scripts,
 event handlers and static navigation/form markup are removed. JavaScript can implement local UI
-interactions, but receives neither provider credentials nor authority to invoke business tools.
+interactions without receiving provider credentials. Tool access requires the explicit per-view opt-in below.
 
 ### HTML templates and React/Vue
 
@@ -265,13 +265,101 @@ The returned cleanup removes observers/listeners after the last mount. An existi
 and framework effects share one handshake; the first mount owns its configuration. When using
 `createMcpAppResource`, its automatic bootstrap already handles sizing, so this effect is optional.
 
-**Host boundary:** resource modules are queued, not emitted as immediately executable script tags.
-They load only after the host advertises `hostCapabilities.experimental["weldall/display-only"]`
-with `{ version: 1 }`. The updated Goose host enforces this for the Weldall extension: UI tool calls,
-additional resource reads, chat messages, external links and unhandled RPC are rejected. Other
-Goose apps retain their existing behavior. Older hosts still render the static content and fixed
-sizing bootstrap but do not load resource modules. This is not source-bound interactive tool access;
-that remains deferred. Connector/connection Apps remain unsupported.
+### Calling this resource's tools from a view
+
+Add `allowedTools: ["preview_expense_decision"]` to `createMcpAppResource` to opt in.
+Names must belong to the **same** `createNativeMcp` catalog; unknown or duplicate names are rejected.
+The default is no tool calls. The policy is catalog metadata (included in its revision), not HTML.
+
+In a public browser module, for example a React button handler:
+
+```ts
+import { callMcpAppTool } from "@weldall/sdk/mcp/browser";
+
+const result = await callMcpAppTool("preview_expense_decision", {
+  expenseId: "expense-1",
+  decision: "approve",
+});
+if (result.isError) showError("The tool rejected the request.");
+else showDecision(result.structuredContent);
+```
+
+The HTML bootstrap initializes the connection; otherwise mount it with `mountMcpApp`.
+The promise waits for initialization and returns the standard MCP result. Protocol/transport errors,
+unsupported hosts, teardown and timeouts reject it. Tool-level errors retain `isError`.
+Calls are bounded to 16 in flight and a 30-second response deadline. **Never retry automatically**:
+a timeout or closed view cannot undo an operation that already completed.
+
+**Host boundary:** modules load only after the host advertises
+`hostCapabilities.experimental["weldall/app-bridge"]`, `["weldall/display-only"]` or
+`["weldall/resource-tool-calls"]`, with `{ version: 1 }`. The last is offered only after a fresh
+resource read supplies an extension-owned view binding. The host keeps that opaque handle out of
+the iframe, supplies it itself on each call, and routes through an app-only dispatcher. The extension
+checks the live source binding and per-view allowlist before using the existing CLI authorization path.
+Same origin, name prefixes, HTML metadata and tool hints are **not** authorization.
+
+All caller scopes and business-level checks still apply. Direct calls to discovery, connector or foreign-resource
+tools remain unavailable. Removed/replaced bindings invalidate existing handles; reload the view rather than
+replaying calls. **Goose currently permits App tool calls (including the resource-access dispatcher) only in
+Auto mode**; this feature does not change that policy. Other Goose apps retain their existing bridge.
+Older clients/extensions without the binding protocol deny resource operations; older display-only hosts
+can still run display scripts, and hosts without a recognized bridge capability get static content.
+Connector/connection Apps remain unsupported.
+
+### Chat, context, resources and host actions
+
+`@weldall/sdk/mcp/browser` is framework-independent and has no browser runtime imports. Its protocol
+types use the existing optional `@modelcontextprotocol/sdk` peer. The bootstrap and imported helpers share
+one connection; do not mount a second protocol client on the same iframe.
+
+| Function                                                | Purpose                                                                                                                |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `sendMcpAppMessage({ role: "user", content })`          | Send a chat message and let the model respond.                                                                         |
+| `updateMcpAppContext({ content?, structuredContent? })` | Replace this app's context for future turns, without starting a turn.                                                  |
+| `listMcpAppResources()` / `readMcpAppResource({ uri })` | List/read this view's own resource catalog, using original upstream URIs. No browser `fetch()`.                        |
+| `openMcpAppLink({ url })`                               | Open a link through the host's existing external-link policy.                                                          |
+| `downloadMcpAppFile({ contents })`                      | Save embedded text/base64 data or an authorized MCP resource link, with a host save dialog.                            |
+| `requestMcpAppDisplayMode({ mode })`                    | Request inline/fullscreen/PiP; returns the actual accepted mode.                                                       |
+| `sendMcpAppLog({ level, data })`                        | Send diagnostics to the host, not the chat. Never include secrets.                                                     |
+| `subscribeMcpAppEvents(listener)`                       | Observe/replay tool input, partial input, result, cancellation, host-context and teardown events. Returns unsubscribe. |
+| `getMcpAppHost()`                                       | Read initialized capabilities and presentation context.                                                                |
+| `requestMcpAppTeardown()`                               | Ask the host to close the view.                                                                                        |
+| `createMcpAppSamplingMessage(params)`                   | Request a completion on hosts advertising sampling. Goose currently does not offer it.                                 |
+
+`requestMcpApp` and `notifyMcpApp` expose the corresponding typed protocol requests/notifications,
+including manual size reporting. Unsupported capabilities reject explicitly. Requests retain the 16-call,
+1 MiB input and 30-second limits; no automatic retries. Action results can carry `isError: true`, including
+user cancellation. Notifications only acknowledge sending, not host acceptance.
+
+Goose advertises text chat messages and text/structured context. Context is session/view-local, included
+as assistant-audience app data on the next prompt or steer, and cleared when the view closes; it is not
+persisted as a separate visible chat message. The total live context budget is 256 KiB per session.
+Downloads have a 1 MiB per-file limit and require a user-selected destination; linked files go through the
+same resource-bound reader, never arbitrary HTTP fetching. UI logs go to the renderer console.
+
+**A tool result does not automatically start a model turn.** Do that explicitly when desired:
+
+```ts
+import { callMcpAppTool, sendMcpAppMessage } from "@weldall/sdk/mcp/browser";
+
+const result = await callMcpAppTool("preview_expense_decision", {
+  expenseId: "expense-1",
+  decision: "approve",
+});
+if (!result.isError) {
+  await sendMcpAppMessage({
+    role: "user",
+    content: [
+      { type: "text", text: `Expense preview result: ${JSON.stringify(result.structuredContent)}` },
+    ],
+  });
+}
+```
+
+**Chat is a separate authority path:** a message can make the model use any tools available to the chat,
+not just the view's own tools. The per-view tool allowlist restricts direct UI calls, not subsequent model
+actions. Authentication, scopes and business authorization still apply to those actions. Public assets remain
+same-origin, provider inline code is removed, and `connect-src 'none'` still prevents direct network access.
 
 The runnable example is [Expenses](../../apps/expenses/README.md). Protocol tests do not prove
 that an installed desktop host has loaded the branch extension; verify the iframe in that host
