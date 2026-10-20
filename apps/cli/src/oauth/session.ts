@@ -39,13 +39,16 @@ const verifyWeldallJwt = async (
   token: string,
   options: JWTVerifyOptions,
   cache: WeldallJwksCache = weldallJwksCache,
+  signal?: AbortSignal,
 ) => {
-  let loaded = await cache.get(config);
+  signal?.throwIfAborted();
+  let loaded = await cache.get(config, false, signal);
+  signal?.throwIfAborted();
   const kid = decodeProtectedHeader(token).kid;
   if (typeof kid !== "string" || !kid) throw new CliError("The token has no signing-key ID");
   let refreshed = false;
   if (!loaded.kids.has(kid)) {
-    loaded = await cache.get(config, true);
+    loaded = await cache.get(config, true, signal);
     refreshed = true;
   }
   try {
@@ -56,7 +59,7 @@ const verifyWeldallJwt = async (
       !refreshed &&
       (code === "ERR_JWKS_NO_MATCHING_KEY" || code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED")
     ) {
-      return jwtVerify(token, (await cache.get(config, true)).set, options);
+      return jwtVerify(token, (await cache.get(config, true, signal)).set, options);
     }
     throw error;
   }
@@ -67,6 +70,7 @@ export async function validateAccessToken(
   token: string,
   publicJwk: JWK,
   cache: WeldallJwksCache = weldallJwksCache,
+  signal?: AbortSignal,
 ): Promise<JWTPayload & { sub: string }> {
   const result = await verifyWeldallJwt(
     config,
@@ -80,6 +84,7 @@ export async function validateAccessToken(
       clockTolerance: 5,
     },
     cache,
+    signal,
   );
   const audiences =
     typeof result.payload.aud === "string"
@@ -277,7 +282,13 @@ export async function refresh(
     throw new CliError("Weldall returned an invalid refresh response");
   const rotatedCredentials = { ...credentials, refreshToken: result.refresh_token };
   await onRotation(rotatedCredentials);
-  const claims = await validateAccessToken(config, result.access_token, credentials.publicJwk);
+  const claims = await validateAccessToken(
+    config,
+    result.access_token,
+    credentials.publicJwk,
+    weldallJwksCache,
+    signal,
+  );
   if (!Number.isInteger(claims.exp)) throw new CliError("Weldall returned an invalid access token");
   return {
     credentials: rotatedCredentials,

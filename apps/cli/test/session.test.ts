@@ -216,6 +216,59 @@ describe("refresh rotation", () => {
     expect(persist.mock.invocationCallOrder[0]).toBeLessThan(fetcher.mock.invocationCallOrder[1]!);
   });
 
+  it("cancels signing-key validation when refresh deadline expires", async () => {
+    const issuer = await generateEs256KeyPair();
+    const device = await generateEs256KeyPair();
+    const accessToken = await issueAccessToken({
+      issuer: config.issuer,
+      subject: "user",
+      email: "user@example.com",
+      resource: config.resource,
+      clientId: WELDALL_CLIENT_ID,
+      scopes: ["weldall:scopes"],
+      jkt: device.jkt,
+      kid: "refresh-signal",
+      privateJwk: issuer.privateJwk,
+    });
+    const credentials = {
+      version: 1 as const,
+      issuer: config.issuer,
+      privateJwk: device.privateJwk,
+      publicJwk: device.publicJwk,
+      refreshToken: "old-refresh-token",
+    };
+    const controller = new AbortController();
+    let signalJwksFetch!: () => void;
+    const jwksFetchStarted = new Promise<void>((resolve) => {
+      signalJwksFetch = resolve;
+    });
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url) === config.token)
+        return Response.json({
+          token_type: "DPoP",
+          access_token: accessToken,
+          refresh_token: "new-refresh-token",
+        });
+      signalJwksFetch();
+      const signal = init?.signal;
+      if (!signal) throw new Error("JWKS fetch was not cancellable");
+      return new Promise<Response>((_, reject) => {
+        if (signal.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const persist = vi.fn(async () => undefined);
+
+    const pending = refresh(config, credentials, persist, controller.signal);
+    await jwksFetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("does not persist malformed refresh responses", async () => {
     const device = await generateEs256KeyPair();
     const credentials = {

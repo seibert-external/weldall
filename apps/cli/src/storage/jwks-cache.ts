@@ -139,19 +139,28 @@ export class WeldallJwksCache {
     await atomicWriteFile(path, JSON.stringify(record), { temporary });
   }
 
-  private async refresh(config: WeldallConfig): Promise<LoadedJwks> {
+  private async refresh(config: WeldallConfig, signal?: AbortSignal): Promise<LoadedJwks> {
+    signal?.throwIfAborted();
     const response = await (this.fetcher ?? fetch)(config.jwks, {
       headers: { accept: "application/json" },
       redirect: "error",
+      ...(signal ? { signal } : {}),
     });
+    signal?.throwIfAborted();
     if (!response.ok)
       throw new CliError("Unable to load Weldall signing keys", {
         ...(response.status === 404 || response.status === 410
           ? { hint: CONFIG_REFRESH_HINT }
           : {}),
       });
-    const jwks = validateJwks((await response.json().catch(() => null)) as unknown);
+    const body = await response.json().catch(() => {
+      signal?.throwIfAborted();
+      return null;
+    });
+    const jwks = validateJwks(body as unknown);
+    signal?.throwIfAborted();
     await validateKeyMaterial(jwks);
+    signal?.throwIfAborted();
     const record: CachedJwks = {
       version: CACHE_VERSION,
       issuer: config.issuer,
@@ -165,19 +174,21 @@ export class WeldallJwksCache {
     return loaded;
   }
 
-  async get(config: WeldallConfig, force = false): Promise<LoadedJwks> {
-    if (force) return this.refresh(config);
+  async get(config: WeldallConfig, force = false, signal?: AbortSignal): Promise<LoadedJwks> {
+    signal?.throwIfAborted();
+    if (force) return this.refresh(config, signal);
     const key = this.key(config);
     const memory = this.parsed.get(key);
     if (memory && this.now() - memory.record.fetchedAt <= JWKS_CACHE_TTL_MS)
       return { ...memory.loaded, cached: true };
     const disk = await this.read(config);
+    signal?.throwIfAborted();
     if (disk && this.now() - disk.fetchedAt <= JWKS_CACHE_TTL_MS) {
       const loaded = this.parse(disk, true);
       this.parsed.set(key, { record: disk, loaded });
       return loaded;
     }
-    return this.refresh(config);
+    return this.refresh(config, signal);
   }
 }
 

@@ -279,7 +279,7 @@ describe("shared CLI discovery publication", () => {
     finish(
       JSON.stringify({ content: [{ type: "resource_link", name: "late", uri: "jira://late" }] }),
     );
-    await pending;
+    await expect(pending).rejects.toMatchObject({ code: "cancelled" });
     expect(activation.listResources()).toEqual([]);
     await expect(activation.call(tool, {})).rejects.toThrow();
     entries.splice(0, entries.length, connector());
