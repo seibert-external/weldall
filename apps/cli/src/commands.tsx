@@ -349,6 +349,7 @@ export const statusCommand = define({
         grants: permissions.resources,
         // null means the live load failed; an empty string means none are configured.
         organizationInstructions: appendix ?? null,
+        nativeDiscoveryVersion: 1,
       });
     else printStatus(identity, permissions);
   },

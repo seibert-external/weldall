@@ -104,7 +104,45 @@ export async function responseValue(response: Response): Promise<unknown> {
   }
 }
 
+/** Discovery catalogs must be bounded while reading, not after allocating/parsing the body. */
+export async function boundedJsonResponse(
+  response: Response,
+  signal: AbortSignal,
+  maximum = 1024 * 1024,
+): Promise<unknown> {
+  const reader = response.body?.getReader();
+  const cancel = () => {
+    void reader?.cancel().catch(() => {});
+  };
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    if (!response.ok) throw new CliError(`Discovery request failed with HTTP ${response.status}`);
+    if (Number(response.headers.get("content-length") ?? 0) > maximum)
+      throw new CliError("Discovery catalog exceeds the size limit");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      signal.throwIfAborted();
+      const part = await reader?.read();
+      if (!part || part.done) break;
+      size += part.value.byteLength;
+      if (size > maximum) throw new CliError("Discovery catalog exceeds the size limit");
+      chunks.push(part.value);
+    }
+    signal.throwIfAborted();
+    try {
+      return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+    } catch {
+      throw new CliError("Invalid discovery catalog JSON");
+    }
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    await reader?.cancel().catch(() => {});
+  }
+}
+
 const MAX_ERROR_DETAIL_CHARS = 400;
+const MAX_ERROR_BODY_BYTES = 64 * 1024;
 
 const errorBodyText = (value: Record<string, unknown>): string | undefined => {
   for (const key of ["error_description", "message", "detail", "title", "reason"]) {
@@ -164,7 +202,21 @@ const throwResponseError = async (
   label: string,
   configurationHint?: string,
 ): Promise<never> => {
-  const value = await responseValue(response);
+  const reader = response.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (reader && size < MAX_ERROR_BODY_BYTES) {
+      const part = await reader.read();
+      if (part.done) break;
+      const chunk = part.value.slice(0, MAX_ERROR_BODY_BYTES - size);
+      chunks.push(chunk);
+      size += chunk.byteLength;
+    }
+  } finally {
+    await reader?.cancel().catch(() => {});
+  }
+  const value = await responseValue(new Response(Buffer.concat(chunks)));
   const detail = describeResponseError(value);
   throw new CliError(
     `${label} failed with HTTP ${response.status}${detail ? `: ${detail.slice(0, MAX_ERROR_DETAIL_CHARS)}` : ""}`,

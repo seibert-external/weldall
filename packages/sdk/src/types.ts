@@ -1,5 +1,6 @@
 import type { JWK, JWTPayload } from "jose";
 import type { SkillProvider } from "./skills.js";
+import type { NativeMcpProvider } from "./mcp/native.js";
 
 export type DpopKeyPair = { privateJwk: JWK; publicJwk: JWK; jkt: string };
 export type VerifiedDpop = {
@@ -106,4 +107,5 @@ export type WeldallOptions = {
   discoveryProxyOrigin?: string;
   allowInsecureLoopback?: boolean;
   skills?: SkillProvider;
+  mcp?: NativeMcpProvider;
 };

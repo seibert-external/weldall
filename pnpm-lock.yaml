@@ -63,6 +63,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.1
+        version: 1.32.1(supports-color@7.2.0)(zod@4.4.3)
       '@toon-format/toon':
         specifier: ^4.1.1
         version: 4.1.1
@@ -231,9 +234,15 @@ importers:
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.5)
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.1
+        version: 1.32.1(supports-color@7.2.0)(zod@4.4.3)
       '@weldall/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       hono:
         specifier: ^4.13.5
         version: 4.13.5
@@ -550,6 +559,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.1
+        version: 1.32.1(supports-color@7.2.0)(zod@4.4.3)
       '@orama/orama':
         specifier: ^3.1.6
         version: 3.1.18
@@ -565,6 +577,9 @@ importers:
       '@weldall/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/typescript
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       astro:
         specifier: ^7.2.7
         version: 7.2.7(@astrojs/markdown-remark@7.2.4(supports-color@7.2.0))(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)

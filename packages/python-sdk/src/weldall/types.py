@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from .errors import WeldallAuthError
-from .http import Response
+from .http import Request, Response
 
 JWK = dict[str, Any]
 JWTPayload = dict[str, Any]
@@ -55,10 +55,23 @@ class SkillMeta(TypedDict, total=False):
     appearance: dict[str, str]
 
 
-class SkillMcpDependency(TypedDict):
+class ExactMcpDependency(TypedDict):
     connectorKey: str
     tools: list[str]
     includeResources: bool
+
+
+class ResourceMcpDependency(TypedDict):
+    kind: Literal["resource"]
+    resourceKey: str
+
+
+class ConnectorTypeMcpDependency(TypedDict):
+    kind: Literal["connector"]
+    connectorType: str
+
+
+SkillMcpDependency = ExactMcpDependency | ResourceMcpDependency | ConnectorTypeMcpDependency
 
 
 class PublishedSkill(TypedDict):
@@ -187,6 +200,21 @@ class VerifyFailure:
 VerifyResult = VerifySuccess | VerifyFailure
 
 
+class NativeMcpProvider(Protocol):
+    @property
+    def path(self) -> str: ...
+
+    @property
+    def discovery_scopes(self) -> Sequence[str]: ...
+
+    @property
+    def operation_scopes(self) -> Sequence[str]: ...
+
+    def metadata(self, public_origin: str) -> dict[str, Any]: ...
+
+    async def handle(self, request: Request, auth: AuthContext) -> Response: ...
+
+
 class WeldallOptions(TypedDict):
     resource: str
     public_origin: str
@@ -198,6 +226,7 @@ class WeldallOptions(TypedDict):
     discovery_proxy_origin: NotRequired[str]
     allow_insecure_loopback: NotRequired[bool]
     skills: NotRequired[SkillProvider]
+    mcp: NotRequired[NativeMcpProvider]
 
 
 @dataclass(frozen=True, slots=True)

@@ -36,9 +36,13 @@ export async function requestMcp(
     name?: string;
     arguments?: unknown;
     uri?: string;
+    expectedSubject?: string;
+    expectedIssuer?: string;
   },
   abort?: AbortSignal,
 ) {
+  if (input.expectedIssuer !== undefined && input.expectedIssuer !== config.issuer)
+    throw new CliError("Weldall origin changed; discover again.");
   let path: string;
   let body: unknown;
   try {
@@ -67,6 +71,8 @@ export async function requestMcp(
   try {
     return await withAccess(config, async (session) => {
       signal.throwIfAborted();
+      if (input.expectedSubject !== undefined && session.subject !== input.expectedSubject)
+        throw new CliError("Signed-in identity changed; discover again.");
       const response = await fetch(url, {
         method,
         redirect: "error",

@@ -6,14 +6,14 @@ import type { discoverMcpTools } from "./discovery";
 
 export type ToolCatalog = Awaited<ReturnType<typeof discoverMcpTools>>;
 export type ToolCacheStatus = "hit" | "miss" | "coalesced";
-export interface McpToolCache {
+export interface McpToolCache<T = ToolCatalog> {
   getOrLoad(input: {
     key: string;
     signal: AbortSignal;
     /** Must return a complete, schema/size-validated and credential-safe catalog. */
-    load(signal: AbortSignal): Promise<ToolCatalog>;
+    load(signal: AbortSignal): Promise<T>;
     onStatus(status: ToolCacheStatus): void;
-  }): Promise<ToolCatalog>;
+  }): Promise<T>;
 }
 
 /** Usage counters/timestamps do not invalidate catalogs; lifecycle writes increment versions. */
@@ -40,7 +40,7 @@ function cancelled(signal: AbortSignal) {
 type Entry = { json: string; bytes: number; expiresAt: number };
 type Flight = { controller: AbortController; promise: Promise<string>; waiters: number };
 
-export function createMemoryMcpToolCache({
+export function createMemoryMcpToolCache<T = ToolCatalog>({
   ttlMs = 5 * 60_000,
   maxEntries = 128,
   maxBytes = 16 * 1024 * 1024,
@@ -52,7 +52,7 @@ export function createMemoryMcpToolCache({
   maxBytes?: number;
   maxInFlight?: number;
   now?: () => number;
-} = {}): McpToolCache {
+} = {}): McpToolCache<T> {
   for (const value of [ttlMs, maxEntries, maxBytes, maxInFlight])
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error("Invalid MCP cache bound.");
   const entries = new Map<string, Entry>();
@@ -75,7 +75,7 @@ export function createMemoryMcpToolCache({
         entries.set(input.key, cached);
         input.onStatus("hit");
         // Keep a serialized snapshot, never a shared mutable object or a credential/session closure.
-        return JSON.parse(cached.json) as ToolCatalog;
+        return JSON.parse(cached.json) as T;
       }
       let flight = flights.get(input.key);
       input.onStatus(flight ? "coalesced" : "miss");
@@ -121,7 +121,7 @@ export function createMemoryMcpToolCache({
         if (input.signal.aborted) abort();
         shared.promise.then(resolve, reject);
       })
-        .then((json) => JSON.parse(json) as ToolCatalog)
+        .then((json) => JSON.parse(json) as T)
         .finally(() => {
           input.signal.removeEventListener("abort", abort);
           shared.waiters--;

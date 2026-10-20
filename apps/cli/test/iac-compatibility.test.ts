@@ -152,6 +152,29 @@ it.each(["connector", "skill"] as const)(
   },
 );
 
+it("rejects whole-source dependencies before contacting a server that advertises only shipped MCP", async () => {
+  const { manifest } = await loadWorkspace(root);
+  manifest.skills = {
+    work: { mcpDependencies: [{ kind: "connector", connectorType: "atlassian-mcp" }] },
+  };
+  const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({
+      issuer: manifest.workspace.issuer,
+      token_endpoint: `${manifest.workspace.issuer}/api/auth/oauth2/token`,
+      weldall_iac: {
+        endpoint: `${manifest.workspace.issuer}/api/iac/v1`,
+        installationId,
+        scope: "weldall:iac",
+        features: ["mcp"],
+      },
+    }),
+  );
+  await expect(IacClient.connect(manifest, null)).rejects.toThrow(
+    "does not support whole-source MCP dependencies",
+  );
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
 it("does not unmanage or update the lockfile if obtaining the server digest fails", async () => {
   const originalLock = await readFile(join(root, "weldall.lock.yml"), "utf8");
   const request = vi.fn(async (path: string) => {

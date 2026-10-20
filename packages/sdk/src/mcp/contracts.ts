@@ -197,28 +197,45 @@ export function parseMcpResponse<S extends z.ZodType>(
   return result.data;
 }
 
+export const exactMcpDependencySchema = z
+  .strictObject({
+    connectorKey: mcpConnectorKeySchema,
+    tools: z
+      .array(mcpToolNameSchema)
+      .max(32)
+      .transform((tools) => [...new Set(tools)].sort()),
+    includeResources: z.boolean(),
+  })
+  .refine((value) => value.tools.length > 0 || value.includeResources);
+export const skillMcpDependencySchema = z.union([
+  exactMcpDependencySchema,
+  z.strictObject({ kind: z.literal("resource"), resourceKey: mcpConnectorKeySchema }),
+  z.strictObject({ kind: z.literal("connector"), connectorType: mcpConnectorKeySchema }),
+]);
+export type SkillMcpDependency = z.output<typeof skillMcpDependencySchema>;
+export type ExactMcpDependency = z.output<typeof exactMcpDependencySchema>;
+
+export function mcpDependencyKey(dependency: SkillMcpDependency): string {
+  return "connectorKey" in dependency
+    ? `connector:${dependency.connectorKey}`
+    : dependency.kind === "resource"
+      ? `resource:${dependency.resourceKey}`
+      : `connector-type:${dependency.connectorType}`;
+}
+
 export const skillMcpDependenciesSchema = z
-  .array(
-    z
-      .strictObject({
-        connectorKey: mcpConnectorKeySchema,
-        tools: z
-          .array(mcpToolNameSchema)
-          .max(32)
-          .transform((tools) => [...new Set(tools)].sort()),
-        includeResources: z.boolean(),
-      })
-      .refine((value) => value.tools.length > 0 || value.includeResources),
-  )
+  .array(skillMcpDependencySchema)
   .max(8)
-  .refine((items) => new Set(items.map((item) => item.connectorKey)).size === items.length)
+  .refine((items) => new Set(items.map(mcpDependencyKey)).size === items.length)
   .transform((items) =>
     [...items].sort((a, b) =>
-      a.connectorKey < b.connectorKey ? -1 : a.connectorKey > b.connectorKey ? 1 : 0,
+      mcpDependencyKey(a) < mcpDependencyKey(b)
+        ? -1
+        : mcpDependencyKey(a) > mcpDependencyKey(b)
+          ? 1
+          : 0,
     ),
   );
-
-export type SkillMcpDependency = z.output<typeof skillMcpDependenciesSchema>[number];
 
 export const mcpConnectionSelectionSchema = z.strictObject({
   connection: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/),

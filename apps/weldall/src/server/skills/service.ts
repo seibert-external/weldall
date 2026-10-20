@@ -5,7 +5,12 @@ import { connectorProviders } from "../connectors/registry";
 import { logger } from "../observability/logger";
 import { effectiveScopesFor } from "../policy/resources";
 
-import { skillMcpDependenciesSchema, type SkillMcpDependency } from "@weldall/sdk/mcp";
+import {
+  skillMcpDependenciesSchema,
+  mcpDependencyKey,
+  type SkillMcpDependency,
+} from "@weldall/sdk/mcp";
+import { authorizedNativeResourceKeys } from "../mcp/native";
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
 export type SkillSource = { type: "admin" } | { type: "resource"; key: string; name: string };
@@ -327,30 +332,53 @@ async function accessibleMcpConnectorKeys(
   dependencies: readonly unknown[],
   grants: readonly string[],
 ): Promise<ReadonlySet<string>> {
-  const keys = new Set(
-    dependencies.flatMap((value) =>
-      skillMcpDependenciesSchema.parse(value).map((dependency) => dependency.connectorKey),
+  const parsed = dependencies.flatMap((value) => skillMcpDependenciesSchema.parse(value));
+  const keys = parsed.flatMap((dep) => ("connectorKey" in dep ? [dep.connectorKey] : []));
+  const types = parsed.flatMap((dep) =>
+    "kind" in dep && dep.kind === "connector" ? [dep.connectorType] : [],
+  );
+  const resourceKeys = [
+    ...new Set(
+      parsed.flatMap((dep) => ("kind" in dep && dep.kind === "resource" ? [dep.resourceKey] : [])),
     ),
-  );
-  if (!keys.size) return new Set();
-  const connectors = await db.connector.findMany({
-    where: {
-      key: { in: [...keys] },
-      enabled: true,
-      providerType: {
-        in: connectorProviders
-          .filter((provider) => connectorCapabilities(provider).includes("mcp"))
-          .map((provider) => provider.type),
+  ];
+  const accessible = new Set<string>();
+  if (keys.length || types.length) {
+    const connectors = await db.connector.findMany({
+      where: {
+        OR: [{ key: { in: keys } }, { providerType: { in: types } }],
+        enabled: true,
+        providerType: {
+          in: connectorProviders
+            .filter((provider) => connectorCapabilities(provider).includes("mcp"))
+            .map((provider) => provider.type),
+        },
       },
-    },
-    include: connectorScopeInclude,
-  });
-  const actor = { scopeKeys: grants };
-  return new Set(
-    connectors
-      .filter((connector) => canAccessConnector({ connector, actor }))
-      .map((connector) => connector.key),
-  );
+      include: connectorScopeInclude,
+    });
+    for (const connector of connectors.filter((connector) =>
+      canAccessConnector({ connector, actor: { scopeKeys: grants } }),
+    )) {
+      accessible.add(`connector:${connector.key}`);
+      accessible.add(`connector-type:${connector.providerType}`);
+    }
+  }
+  if (resourceKeys.length) {
+    const resources = await db.downstreamResource.findMany({
+      where: { key: { in: resourceKeys }, enabled: true },
+      include: { requestPrefixes: true, scopes: { include: { scope: true } } },
+    });
+    const authorized = await authorizedNativeResourceKeys(
+      resources.map((resource) => ({
+        ...resource,
+        requestPrefixes: resource.requestPrefixes.map((prefix) => prefix.urlPrefix),
+        supportedScopes: resource.scopes.map(({ scope }) => scope.key),
+      })),
+      grants,
+    );
+    for (const key of authorized) accessible.add(`resource:${key}`);
+  }
+  return accessible;
 }
 
 function hasAccessibleMcpDependencies(
@@ -359,7 +387,7 @@ function hasAccessibleMcpDependencies(
 ): boolean {
   return skillMcpDependenciesSchema
     .parse(dependencies)
-    .every((dependency) => accessibleConnectors.has(dependency.connectorKey));
+    .every((dependency) => accessibleConnectors.has(mcpDependencyKey(dependency)));
 }
 
 function ineligibleScopes(requiredScopes: string[], scopes: ReadonlySet<string>): string[] {

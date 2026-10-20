@@ -5,7 +5,12 @@ import {
 } from "@weldall/sdk";
 import type { WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
-import { successfulResponse, successfulResponseStream, isRecord } from "../http.js";
+import {
+  successfulResponse,
+  successfulResponseStream,
+  isRecord,
+  boundedJsonResponse,
+} from "../http.js";
 import { withAccess } from "./auth.js";
 import { browserOpener } from "./browser.js";
 import type { PreparedRequest } from "./resources.js";
@@ -194,47 +199,59 @@ export async function requestConnectionApi({
   path,
   method = "GET",
   body,
+  signal: abort,
+  expectedSubject,
 }: {
   config: WeldallConfig;
   path: string;
   method?: string;
   body?: unknown;
+  signal?: AbortSignal;
+  expectedSubject?: string;
 }) {
   const url = `${config.issuer}/api/me/${path}`;
-  return withAccess(config, async (session) =>
-    successfulResponse(
-      await fetch(url, {
-        method,
-        headers: {
-          authorization: `DPoP ${session.accessToken}`,
-          dpop: await createDpopProof({
-            ...session.credentials,
-            method,
-            url,
-            accessToken: session.accessToken,
-          }),
-          "content-type": "application/json",
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        redirect: "error",
-        signal: AbortSignal.timeout(30_000),
-      }),
-      "Weldall connection request",
-    ),
-  );
+  return withAccess(config, async (session) => {
+    if (expectedSubject !== undefined && session.subject !== expectedSubject)
+      throw new CliError("Signed-in identity changed; discover again.");
+    const response = await fetch(url, {
+      method,
+      headers: {
+        authorization: `DPoP ${session.accessToken}`,
+        dpop: await createDpopProof({
+          ...session.credentials,
+          method,
+          url,
+          accessToken: session.accessToken,
+        }),
+        "content-type": "application/json",
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      redirect: "error",
+      signal: AbortSignal.any([AbortSignal.timeout(30_000), ...(abort ? [abort] : [])]),
+    });
+    return abort
+      ? boundedJsonResponse(response, abort)
+      : successfulResponse(response, "Weldall connection request");
+  });
 }
 
 /** Lists credential-free managed connections for CLI table, JSON, and agentic output. */
-export async function listConnections(config: WeldallConfig): Promise<ConnectionSummary[]> {
-  const value = await requestConnectionApi({ config, path: "connections" });
+export async function listConnections(
+  config: WeldallConfig,
+  options: { signal?: AbortSignal; expectedSubject?: string } = {},
+): Promise<ConnectionSummary[]> {
+  const value = await requestConnectionApi({ config, path: "connections", ...options });
   if (!Array.isArray(value) || value.some((connection) => !isConnectionSummary(connection)))
     throw new CliError("Weldall returned an invalid connection list");
   return value;
 }
 
 /** Lists enabled connector catalogs and scope descriptions for CLI discovery. */
-export async function listConnectors(config: WeldallConfig): Promise<ConnectorSummary[]> {
-  const value = await requestConnectionApi({ config, path: "connectors" });
+export async function listConnectors(
+  config: WeldallConfig,
+  options: { signal?: AbortSignal; expectedSubject?: string } = {},
+): Promise<ConnectorSummary[]> {
+  const value = await requestConnectionApi({ config, path: "connectors", ...options });
   if (!Array.isArray(value) || value.some((connector) => !isConnectorSummary(connector)))
     throw new CliError("Weldall returned an invalid connector list");
   return value;

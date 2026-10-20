@@ -179,10 +179,16 @@ export const nativeCredentialStore = {
     );
   },
 
-  async set(service: string, account: string, password: string) {
+  async set(
+    service: string,
+    account: string,
+    password: string,
+    mode: "update" | "replace" = "update",
+  ) {
     const { AsyncEntry } = await import("@napi-rs/keyring");
-    // Recreate macOS items so the current binary owns their access controls.
-    if (isMacOs()) await deleteMacOsItem(service, account);
+    // Only explicit login recreates macOS ownership. Refresh/profile writes must not
+    // delete the existing session before an update that can fail or be interrupted.
+    if (isMacOs() && mode === "replace") await deleteMacOsItem(service, account);
     await new AsyncEntry(service, account).setPassword(password);
   },
 
@@ -217,7 +223,11 @@ export const keychain = {
     return raw ? parseCredentials(raw, issuer) : null;
   },
 
-  async set(issuer: string, credentials: StoredCredentialsInput) {
+  async set(
+    issuer: string,
+    credentials: StoredCredentialsInput,
+    mode: "update" | "replace" = "update",
+  ) {
     const stored: StoredCredentialsV2 = {
       version: CREDENTIALS_VERSION,
       issuer,
@@ -230,11 +240,11 @@ export const keychain = {
       return;
     }
     try {
-      await nativeCredentialStore.set(SERVICE, accountFor(issuer), JSON.stringify(stored));
+      await nativeCredentialStore.set(SERVICE, accountFor(issuer), JSON.stringify(stored), mode);
     } catch (error) {
       throw new CliError("Unable to save the Weldall session in the secure credential store", {
         cause: error,
-        hint: writeHint(),
+        hint: mode === "replace" ? writeHint() : credentialStoreHint,
       });
     }
   },

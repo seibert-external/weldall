@@ -66,6 +66,8 @@ def test_mcp_skill_catalog_matches_node():
                         "includeResources": False,
                     },
                     {"connectorKey": "a", "tools": [], "includeResources": True},
+                    {"kind": "resource", "resourceKey": "billing"},
+                    {"kind": "connector", "connectorType": "atlassian-mcp"},
                 ],
             }
         ],

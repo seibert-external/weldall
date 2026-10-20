@@ -8,6 +8,7 @@ import { WeldallAuthError, oauthErrorResponse } from "./errors.js";
 import { hasVerifiedEmail } from "./identity.js";
 import { MACHINE_TOKEN_LIFETIME_SECONDS, MACHINE_TOKEN_TYP } from "./machine.js";
 import { parseScope } from "./scope.js";
+import { nativeMcpMetadataSchema } from "./mcp/native.js";
 import { consumeReplay } from "./replay.js";
 import { loadSkillCatalog, SKILL_ASSERTION_TYPE, SKILL_CATALOG_PATH } from "./skills.js";
 import {
@@ -93,6 +94,24 @@ export function initWeldall(host: string, options: WeldallOptions) {
       throw new TypeError("skills must configure exactly one of items or load");
     if (options.replayStore === "disabled")
       throw new TypeError("skill publication requires replay protection");
+  }
+  const mcpMetadata = options.mcp
+    ? nativeMcpMetadataSchema.parse(options.mcp.metadata(publicOriginUrl.origin))
+    : undefined;
+  if (options.mcp && mcpMetadata) {
+    if (options.replayStore === "disabled")
+      throw new TypeError("native MCP requires replay protection");
+    if (
+      new URL(mcpMetadata.endpoint).origin !== publicOriginUrl.origin ||
+      new URL(mcpMetadata.endpoint).pathname !== options.mcp.path ||
+      new URL(mcpMetadata.endpoint).search ||
+      new URL(mcpMetadata.endpoint).hash ||
+      JSON.stringify(mcpMetadata.discoveryScopes) !== JSON.stringify(options.mcp.discoveryScopes) ||
+      [...mcpMetadata.discoveryScopes, ...options.mcp.operationScopes].some(
+        (scope) => !supportedScopes.includes(scope),
+      )
+    )
+      throw new TypeError("native MCP endpoint and scopes must match this resource");
   }
   assertSigningConfig(options.signingKey);
   const issuer = publicOriginUrl.origin;
@@ -499,8 +518,29 @@ export function initWeldall(host: string, options: WeldallOptions) {
     }
   };
 
+  const mcp = async (request: Request): Promise<Response> => {
+    if (!options.mcp || !mcpMetadata) return new Response(null, { status: 404 });
+    if (new URL(request.url).pathname !== options.mcp.path)
+      return new Response(null, { status: 404 });
+    const origin = request.headers.get("origin");
+    if (origin !== null && origin !== issuer) return new Response(null, { status: 403 });
+    const verification = await verifyNoThrow(request, { scopes: mcpMetadata.discoveryScopes });
+    if (!verification.ok) return verification.response;
+    const revision = request.headers.get("weldall-mcp-revision");
+    if (revision !== null && revision !== mcpMetadata.revision)
+      return Response.json({ error: "stale_mcp_catalog" }, { status: 409 });
+    try {
+      const response = await options.mcp.handle(request, verification.auth);
+      response.headers.set("weldall-mcp-revision", mcpMetadata.revision);
+      return response;
+    } catch {
+      return Response.json({ error: "mcp_unavailable" }, { status: 503 });
+    }
+  };
+
   const handlers = {
     token,
+    mcp,
     authorizationServerMetadata: async (_request?: Request) =>
       Response.json({
         issuer,
@@ -520,6 +560,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
         bearer_methods_supported: ["header"],
         dpop_signing_alg_values_supported: ["ES256"],
         ...(options.skills ? { weldall_skills_endpoint: skillsEndpoint } : {}),
+        ...(mcpMetadata ? { weldall_mcp: mcpMetadata } : {}),
       }),
     skills,
     jwks: async (_request?: Request) => Response.json({ keys: await validatedJwks(signing) }),
@@ -530,6 +571,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
     resource,
     tokenEndpoint,
     skillsEndpoint: options.skills ? skillsEndpoint : undefined,
+    mcpMetadata,
     ready,
     verify,
     verifyNoThrow,

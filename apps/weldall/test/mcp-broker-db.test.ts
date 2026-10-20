@@ -763,6 +763,62 @@ describe.skipIf(!approved)(
       expect(JSON.stringify(await getIacState(workspace.id))).toContain("connector.upstream");
       expect((await planIac(manifest)).actions.every((a) => a.action === "noop")).toBe(true);
       expect((await planIac({ ...manifest, connectors: {} })).blockers.length).toBeGreaterThan(0);
+      const coarse = {
+        ...manifest,
+        scopes: { native: { key: `${key}:read`, description: "Native discovery" } },
+        resources: {
+          native: {
+            key: `${key}-native`,
+            name: "Native",
+            resourceIdentifier: `https://${key}.example/api`,
+            authorizationServer: `https://${key}.example`,
+            downstreamClientId: "cli",
+            enabled: true,
+            requestPrefixes: [`https://${key}.example/api`],
+            scopes: [`${key}:read`],
+          },
+        },
+        skills: {
+          review: {
+            ...manifest.skills.review,
+            mcpDependencies: [
+              { kind: "resource", resourceKey: `${key}-native` },
+              { kind: "connector", connectorType: "atlassian-mcp" },
+            ],
+          },
+        },
+      };
+      await apply(coarse);
+      const persisted = await db.skill.findUniqueOrThrow({ where: { slug: key } });
+      expect(persisted.mcpDependencies).toEqual([
+        { kind: "connector", connectorType: "atlassian-mcp" },
+        { kind: "resource", resourceKey: `${key}-native` },
+      ]);
+      expect(JSON.stringify(await getIacState(workspace.id))).toContain("resource.native");
+      expect((await planIac(coarse)).actions.every((a) => a.action === "noop")).toBe(true);
+      expect((await planIac({ ...coarse, resources: {} })).blockers).toContainEqual(
+        expect.objectContaining({ code: "UNRESOLVED_MCP_DEPENDENCY" }),
+      );
+      await transaction((tx) =>
+        mutateSkill(
+          tx,
+          {
+            action: "update",
+            id: persisted.id,
+            expectedVersion: persisted.version,
+            title: persisted.title,
+            content: persisted.content,
+            visibility: persisted.visibility,
+            requiredScopes: persisted.requiredScopes,
+          },
+          { type: "machine", id: actor.id, requestId: prefix, source: "weldall_up" },
+        ),
+      );
+      expect(
+        (await db.skill.findUniqueOrThrow({ where: { id: persisted.id } })).mcpDependencies,
+      ).toEqual(persisted.mcpDependencies);
+      await apply(manifest);
+      expect(await db.downstreamResource.count({ where: { key: `${key}-native` } })).toBe(0);
       const moved = {
         ...manifest,
         connectors: {

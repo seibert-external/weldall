@@ -127,6 +127,55 @@ The constructor form is
 This explicit instance injection avoids global SDK state and lets Django projects
 choose one SDK instance per resource configuration.
 
+## Native MCP (unreleased)
+
+The development SDK can serve ordinary MCP tools and fixed resources alongside HTTP. No separate
+MCP runtime is required; protocol/JSON Schema dependencies already used by the SDK are reused.
+Add `mcp` to the same options used by core, FastAPI or Django:
+
+```python
+from weldall.native_mcp import create_native_mcp
+
+
+async def whoami(arguments, context):
+    return {"content": [{"type": "text", "text": context.auth.subject}]}
+
+
+mcp = create_native_mcp(
+    path="/api/mcp",
+    description="Contracts visible to the authenticated caller",
+    discovery_scopes=["contracts:read"],
+    tools=[
+        {
+            "name": "whoami",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+            "scopes": ["contracts:read"],
+            "annotations": {"readOnlyHint": True},
+            "handler": whoami,
+        }
+    ],
+)
+options["mcp"] = mcp
+# Initialize the existing core/framework SDK with these options.
+```
+
+FastAPI `register_routes()` and Django `urls()` mount the configured endpoint. Framework-neutral
+users await `weldall.handlers.mcp(request)`. Catalogs are immutable; replace the provider/restart
+to change definitions. Metadata advertises the endpoint, all discovery scopes and catalog revision.
+The endpoint must remain inside the registered resource’s HTTPS origin and approved request prefixes.
+
+Discovery and every operation require explicit nonempty supported scopes; all listed scopes are
+required. Initialization/listing authenticates, and call/read additionally enforces operation scopes.
+Handlers receive verified user/machine identity and must enforce record-level business permissions.
+The transport is stateless Streamable HTTP with JSON responses, bounded messages and async
+cancellation. There are no sessions, Apps, resource templates, automatic retries or write replay.
+Cancellation cannot undo a completed write. Resource owners must audit business operations;
+central token activity does not audit direct MCP calls. Existing local token verification retains
+its user ten-minute/machine five-minute revocation window.
+
+Removing `mcp` disables advertisement and MCP without changing HTTP. Full cross-SDK/framework,
+installed-host and real-pilot acceptance remains pending; this section does not claim a released version.
+
 ## Call another service as a machine
 
 ```python

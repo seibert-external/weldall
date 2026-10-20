@@ -62,7 +62,7 @@ Saved issuer locations are:
 - Windows: `%USERPROFILE%\.weldall\config.json`
 - macOS: Preferences domain/key `dev.seibert.weldall-cli/Issuer` (preserved for MDM and existing installations)
 
-The issuer is not a credential. Validated discovery metadata and public signing keys are cached in owner-only files under `~/.weldall`; use `weldall config refresh` after an administrator changes endpoints. Sessions, refresh tokens, short-lived central access tokens, and DPoP keys remain in the native secure store: Windows Credential Manager, macOS Keychain, or Linux Secret Service with the keyutils fallback provided by `@napi-rs/keyring`. There is no plaintext credential fallback.
+The issuer is not a credential. Validated discovery metadata and public signing keys are cached in owner-only files under `~/.weldall`; use `weldall config refresh` after an administrator changes endpoints. Sessions, refresh tokens, short-lived central access tokens, and DPoP keys remain in the native secure store: Windows Credential Manager, macOS Keychain, or Linux Secret Service with the keyutils fallback provided by `@napi-rs/keyring`. There is no plaintext credential fallback. On macOS, refresh and profile updates modify the existing Keychain item without deleting it first. Explicit login still recreates the item to bind its access controls to the current binary; npm and standalone installations retain separate credential namespaces.
 
 On Ubuntu desktop, sign in to a normal user session and ensure the keyring is unlocked. On a headless Linux host, provide a user D-Bus session with an unlocked Secret Service implementation (for example `gnome-keyring-daemon`) or a usable kernel keyring/keyutils environment. If neither backend is usable, `login` and session commands fail closed and report the secure-store error; do not bypass this by writing credentials to files.
 
@@ -175,6 +175,68 @@ Set `WELDALL_DEBUG_TIMINGS=1` to print optional phase timings to standard error.
 
 On interactive terminals, the CLI checks at most once per day whether a newer `@weldall/cli` version is published and prints a stderr-only notice with the upgrade command for your install method (npm or standalone).
 The check is silent for piped output, `--json`, and non-interactive runs, and it never blocks or fails when the registry is unreachable.
+
+## Shared discovery (development branch)
+
+Build the server, SDK, CLI and extension from this branch together; there is no published minimum
+version yet. Explicit selection, query search and skill dependencies use the same resolver:
+
+```sh
+weldall discover --resource expenses --connector-type atlassian-mcp --json
+weldall discover --query "expenses" --json
+weldall discover --skill expense-review --json
+weldall discover --resource expenses --catalog-only --json
+weldall mcp native tools expenses --json
+weldall mcp native call expenses list_expenses --arguments '{}' --json
+weldall mcp native read-resource expenses --uri expenses://current --json
+```
+
+For the local demo, follow the repository's local-development setup and start/restart `pnpm dev`
+after building the SDK. Use `WELDALL_ISSUER=https://weldall.seibert.localdev` on each command
+(or export it for that terminal) and log in locally. This override does not change your saved
+issuer. Build with `pnpm --filter @weldall/sdk build && pnpm --filter @weldall/cli build`, then
+replace `weldall` above with `./apps/cli/dist/index.js`.
+
+Discovery resolves definitions; a terminal command does not install tools in an existing chat.
+The compatible extension publishes successful sources in its own live session. `--catalog-only`
+fetches descriptions without schemas, skill documents, account selection or native token exchange.
+Results distinguish `resolved`, `catalog`, `incomplete`, `selection_required` and `unavailable`.
+Failures carry sanitized codes; independent failures preserve successful sources. `nextCursor`
+paginates search hits, not dependencies; use `--cursor` with the same query. Query search includes
+only authorized native advertisements and matches their descriptions. Old servers without this
+opt-in metadata omit native search hits; existing HTTP/connector commands remain unchanged.
+
+Ambiguous connector accounts return recognizable choices. Continue with the same selectors plus
+`--selection '{"connectorKey":"work","connection":"<offered-id>"}'`. The extension manages
+this through `select_mcp_connection`; authors must not put connection IDs in skill dependencies.
+A missing bound account fails rather than selecting a replacement.
+
+Admission is capped at eight source selectors, 200 tools, 200 resources, 1 MiB of results and
+32 KiB of instructions, four workers and a 35-second deadline. These are enforced safety limits,
+not yet a measured model-context recommendation.
+
+Native endpoints come only from the registered resource's protected-resource metadata, must
+share its authorization-server origin, and must fall under its approved request prefixes.
+Discovery requires all explicitly configured scopes. Calls obtain declared operation scopes
+before execution; a missing grant prevents invocation. Calls are never automatically replayed.
+The `--expected-*` native options let hosts reject stale identity/origin/audience/revision
+bindings; they grant no permission.
+
+Native discovery uses two bounded caches, not database records. Weldall keeps validated resource
+metadata in process-local memory for 60 seconds and shares concurrent fetches; current grants are
+checked on every lookup. Each server replica warms its own cache. The CLI keeps validated tool and
+resource definitions for five minutes in owner-only files under `~/.weldall/native-mcp/`, keyed by
+issuer, subject, resource registration, granted scopes and advertised revision. Both caches are
+limited to 128 entries / 16 MiB with least-recently-used eviction. The CLI still fetches current
+metadata and checks grants before using a catalog, and obtains operation tokens for every call.
+Changed revisions cannot reuse old catalogs; failed native requests invalidate their catalog without
+retrying the operation. Neither cache stores tokens or business results. Disk cache failures fall
+back to live discovery; deleting `~/.weldall/native-mcp/` clears the local catalog cache.
+
+The shared resolver and whole-source skill dependencies are implemented. Full semantic parity,
+performance evidence and packaged-host/next-model validation remain release gates.
+Existing connector `weldall mcp` commands and exact-tool skill dependencies retain their semantics.
+See the [SDK preview contract](../../packages/sdk/README.md#native-mcp-development-preview).
 
 ## Development
 

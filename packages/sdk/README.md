@@ -82,6 +82,91 @@ const weldall = initWeldall("https://weldall.example.com", {
 
 The proxy only transports authorization-server metadata and JWKS requests. The SDK still requires metadata and signed assertions to identify the canonical Weldall issuer, and it requires the advertised `jwks_uri` to remain on that canonical origin. The proxy must expose `GET /.well-known/oauth-authorization-server` and the canonical JWKS path advertised by that response (Weldall currently uses `GET /api/oauth/jwks`) without rewriting their JSON responses.
 
+## Native MCP (development preview)
+
+Native serving and shared resource/connector/skill discovery are available on the development
+branch, with no published minimum version yet. Python serving is also implemented; full parity,
+performance and packaged-host acceptance remain Task 1 release gates.
+
+Install the optional runtime only in services that expose MCP:
+
+```sh
+npm install @modelcontextprotocol/sdk@^1.32.1 ajv@^8.20.0
+```
+
+Add this provider as the `mcp` option of the existing `initWeldall` configuration. Keep the existing
+HTTP routes and authentication configuration:
+
+```ts
+import { createNativeMcp } from "@weldall/sdk/mcp/server";
+
+const mcp = createNativeMcp({
+  path: "/api/mcp",
+  description: "Contracts visible to the authenticated caller",
+  discoveryScopes: ["contracts:read"],
+  tools: [
+    {
+      name: "whoami",
+      description: "Return the verified caller, not an identity supplied in arguments",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      scopes: ["contracts:read"],
+      annotations: { readOnlyHint: true },
+      async handler(_, { auth, signal }) {
+        signal.throwIfAborted();
+        return { content: [{ type: "text", text: auth.subject }] };
+      },
+    },
+  ],
+});
+// initWeldall(host, { ...existingOptions, mcp });
+```
+
+Hono's `registerRoutes` mounts the provider automatically. Fetch/Next expose
+`weldall.handlers.mcp(request)`; mount it at the exact configured path, exporting the handler
+as the route's `POST`. Astro exposes `weldall.handlers.mcp(context)`. Core HTTP consumers do not
+load the optional MCP runtime. A provider is an immutable catalog; replace/restart it to change
+definitions or policies.
+
+- SDK declarations own description, endpoint path, discovery scopes, operation scopes and the
+  catalog revision. Protected-resource metadata advertises them as `weldall_mcp` (schema version 1).
+  There is no second editable policy copy or new persisted resource field. The authenticated
+  registry's opt-in `?mcp=1` read synchronizes validated advertisements at request time, omitting
+  missing/unreachable/incompatible or unauthorized advertisements. It is bounded to 100 resources,
+  four concurrent metadata requests, five seconds and 64 KiB per document; no stale catalog grants
+  access. Ordinary registry reads do not contact resources.
+- The enabled registry resource, its authorization-server origin, supported scopes and approved
+  request prefixes remain the trust boundary. Keep `/api/mcp` inside those prefixes; the CLI
+  rejects metadata pointing elsewhere. Existing IaC resource registration is unchanged.
+- Discovery scopes and each operation's `scopes` must be explicit, nonempty, unique and supported.
+  Every scope is required. Initialization and all listings authenticate and enforce discovery
+  scopes; invocation also requires the operation's scopes. The CLI obtains the union before
+  invoking, using ordinary nonempty-scope exchanges. It never retries a denied operation.
+- Tool input/output schemas use JSON Schema Draft 2020-12 (also the default when `$schema` is
+  omitted); other declared dialects and asynchronous validation are rejected. `format` is an
+  annotation, not an enforced constraint. Handlers receive the same verified user/machine context
+  as HTTP and must enforce business/record-level authorization themselves. Honor `signal`;
+  cancelling transport cannot undo a completed write.
+- Ordinary tools and fixed resources are supported; resource-template listing is empty.
+  Transport is stateless Streamable HTTP with JSON responses, no sessions/reconnection.
+  Only the native `_meta["weldall/scopes"]` field is used for operation policy; Apps metadata is
+  not forwarded to the model/host.
+- Resource owners must audit execution at the handler/business layer without recording tokens or
+  sensitive arguments. Central token/discovery activity does not audit direct MCP execution.
+  Locally verified user tokens can remain valid for their ten-minute lifetime (machine tokens:
+  five minutes); this is not immediate central grant revocation.
+- Removing the `mcp` option disables advertisement and the MCP route without changing HTTP.
+
+Skills can declare `mcpDependencies: [{ kind: "resource", resourceKey: "billing" },
+{ kind: "connector", connectorType: "atlassian-mcp" }]`. These select whole available catalogs;
+existing `{ connectorKey, tools, includeResources }` entries still select only those exact tools.
+No skill dependency selects an account. New-form administrative configuration uses the existing
+IaC skill field and requires server feature `mcp-discovery-v1`. Registration identity, enabled
+state, supported scopes and request prefixes remain existing IaC resource fields; SDK metadata
+is derived, not another independently editable IaC policy.
+
+The executable local fixture is `apps/expenses/src/app.ts`; its `create_expense` tool is a
+demonstration only and does not persist records. It is not an approved real-service pilot.
+
 ## Scope rules
 
 A route can require one or more scopes:

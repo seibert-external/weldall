@@ -1,8 +1,18 @@
 import { Hono } from "hono";
-import { inMemory } from "@weldall/sdk";
+import { inMemory, type AuthContext } from "@weldall/sdk";
+import { createNativeMcp } from "@weldall/sdk/mcp/server";
 import { initWeldall, type WeldallVariables } from "@weldall/sdk/hono";
 import { WELDALL_ISSUER } from "./constants.js";
 import { getEnv } from "./env.js";
+import { reviewExpensesSkill } from "./review-skill.js";
+
+const listExpenses = (auth: AuthContext) => ({
+  expenses: [{ id: "expense-1", description: "Team lunch", amount: 18.5, currency: "EUR" }],
+  subject: auth.subject,
+  requestedBy: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
+  identityType: auth.identityType,
+  ...(auth.identityType === "user" ? { email: auth.email } : {}),
+});
 
 export const createApp = async () => {
   const env = await getEnv();
@@ -17,36 +27,72 @@ export const createApp = async () => {
       publicJwk: env.expensesPublicJwk,
     },
     replayStore: inMemory(),
-    skills: {
-      items: [
+    mcp: createNativeMcp({
+      path: "/api/mcp",
+      description: "List and review expenses",
+      discoveryScopes: ["expenses:read"],
+      tools: [
         {
-          id: "review",
-          title: "Review expenses",
-          requiredScopes: ["expenses:read"],
-          visibility: "DEFAULT",
-          content: `# Review expenses\n\nUse \`weldall request --scope expenses:read ${env.downstreamIssuer}/api/expenses\` to list expenses.`,
+          name: "list_expenses",
+          description: "List expenses visible to the verified caller",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          scopes: ["expenses:read"],
+          annotations: { readOnlyHint: true, destructiveHint: false },
+          async handler(_, { auth }) {
+            const result = listExpenses(auth);
+            return {
+              content: [{ type: "text", text: JSON.stringify(result) }],
+              structuredContent: result,
+            };
+          },
+        },
+        {
+          name: "create_expense",
+          description: "Create a demonstration expense (not persisted)",
+          inputSchema: {
+            type: "object",
+            properties: { description: { type: "string", minLength: 1, maxLength: 200 } },
+            required: ["description"],
+            additionalProperties: false,
+          },
+          scopes: ["expenses:create"],
+          annotations: { readOnlyHint: false, destructiveHint: false },
+          async handler(args) {
+            return {
+              content: [{ type: "text", text: JSON.stringify({ id: "expense-new", ...args }) }],
+            };
+          },
         },
       ],
+      resources: [
+        {
+          uri: "expenses://current",
+          name: "Current expenses",
+          mimeType: "application/json",
+          scopes: ["expenses:read"],
+          async handler({ auth }) {
+            return {
+              contents: [
+                {
+                  uri: "expenses://current",
+                  mimeType: "application/json",
+                  text: JSON.stringify(listExpenses(auth)),
+                },
+              ],
+            };
+          },
+        },
+      ],
+    }),
+    skills: {
+      items: [reviewExpensesSkill(env.downstreamIssuer)],
     },
   });
   const app = new Hono<{ Variables: WeldallVariables }>();
   weldall.registerRoutes(app);
   app.get("/api/expenses", weldall.protect({ scopes: ["expenses:read"] }), (c) => {
     const auth = weldall.getAuth(c);
-    return c.json({
-      expenses: [
-        {
-          id: "expense-1",
-          description: "Team lunch",
-          amount: 18.5,
-          currency: "EUR",
-        },
-      ],
-      subject: auth.subject,
-      requestedBy: auth.identity.type === "machine" ? auth.identity.clientId : auth.identity.email,
-      identityType: auth.identityType,
-      ...(auth.identityType === "user" ? { email: auth.email } : {}),
-    });
+    return c.json(listExpenses(auth));
   });
   app.post("/api/expenses", weldall.protect({ scopes: ["expenses:create"] }), async (c) =>
     c.json({ id: "expense-new", ...(await c.req.json()) }, 201),

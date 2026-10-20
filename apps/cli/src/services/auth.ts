@@ -85,15 +85,19 @@ export async function login(
       key,
     );
     const validated = await validateLoginResponse(config, result, key, nonce);
-    await keychain.set(config.issuer, {
-      ...key,
-      refreshToken: validated.refreshToken,
-      accessSession: {
-        accessToken: validated.accessToken,
-        subject: validated.subject,
-        expiresAt: validated.expiresAt as number,
+    await keychain.set(
+      config.issuer,
+      {
+        ...key,
+        refreshToken: validated.refreshToken,
+        accessSession: {
+          accessToken: validated.accessToken,
+          subject: validated.subject,
+          expiresAt: validated.expiresAt as number,
+        },
       },
-    });
+      "replace",
+    );
     return validated.subject;
   });
 }

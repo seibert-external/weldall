@@ -46,6 +46,7 @@
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@toon-format/toon": "^4.1.1",
     "chalk": "^5.6.2",
     "gunshi": "^0.37.1",

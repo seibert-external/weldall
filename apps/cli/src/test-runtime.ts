@@ -80,9 +80,16 @@ export async function runTestRuntimeHook(
       let primaryError: unknown;
       let cleanupError: unknown;
       try {
-        await nativeCredentialStore.set(service, account, secret);
+        await nativeCredentialStore.set(service, account, secret, "replace");
         if ((await nativeCredentialStore.get(service, account)) !== secret)
           throw new Error("Secure credential round trip differed");
+        // Exercise refresh-style updates in the compiled binary, not just fresh inserts.
+        for (let update = 0; update < 2; update++) {
+          const rotated = randomBytes(32).toString("base64url");
+          await nativeCredentialStore.set(service, account, rotated);
+          if ((await nativeCredentialStore.get(service, account)) !== rotated)
+            throw new Error("Secure credential update differed");
+        }
         result.keyringRoundTrip = true;
       } catch (error) {
         primaryError = error;

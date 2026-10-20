@@ -14,8 +14,25 @@ import {
   mcpResourceReadSchema,
 } from "../src/mcp/contracts.js";
 
+import {
+  nativeMcpMetadataSchema,
+  nativeMcpScopesSchema,
+  nativeMcpToolsSchema,
+  nativeMcpResourcesSchema,
+} from "../src/mcp/native.js";
+import {
+  nativeDiscoveryRequestSchema,
+  nativeDiscoveryResponseSchema,
+} from "../src/mcp/discovery.js";
+
 // JSON Schema carries structural contracts; byte/depth/URI/base64 checks are enforced by both clients.
 const schemas = {
+  nativeMetadata: nativeMcpMetadataSchema,
+  nativeScopes: nativeMcpScopesSchema,
+  nativeTools: nativeMcpToolsSchema,
+  nativeResources: nativeMcpResourcesSchema,
+  nativeDiscoveryRequest: nativeDiscoveryRequestSchema,
+  nativeDiscoveryResponse: nativeDiscoveryResponseSchema,
   connectors: mcpConnectorsSchema,
   connections: mcpConnectionsSchema,
   tools: mcpToolsResponseSchema,

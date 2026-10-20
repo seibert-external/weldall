@@ -16,6 +16,7 @@ type KeyringBehavior = {
   setPassword?: (password: string) => Promise<void>;
   deletePassword?: () => Promise<boolean>;
   findCredentials?: () => Promise<Array<{ account: string; password: string }>>;
+  onDelete?: () => void;
 };
 
 const withPlatform = (platform: NodeJS.Platform) => {
@@ -26,7 +27,7 @@ const withPlatform = (platform: NodeJS.Platform) => {
 
 // Loads the production keychain module against a fake keyring addon and a recording
 // `execFile`, so the macOS behaviour is testable on every CI platform. `order` records the
-// interleaving of the security-tool delete and the addon write to assert delete-before-set.
+// interleaving to distinguish non-destructive updates from explicit login replacement.
 const loadNativeStore = async (behavior: KeyringBehavior, securityExitCode?: number) => {
   vi.stubEnv("NODE_ENV", "production");
   const order: Array<"delete" | "set"> = [];
@@ -43,9 +44,10 @@ const loadNativeStore = async (behavior: KeyringBehavior, securityExitCode?: num
       callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void,
     ) => {
       order.push("delete");
-      if (securityExitCode === undefined || securityExitCode === 0)
+      if (securityExitCode === undefined || securityExitCode === 0) {
+        behavior.onDelete?.();
         callback(null, { stdout: "", stderr: "" });
-      else
+      } else
         callback(
           Object.assign(new Error(`security exited ${securityExitCode}`), {
             code: securityExitCode,
@@ -63,8 +65,8 @@ const loadNativeStore = async (behavior: KeyringBehavior, securityExitCode?: num
     },
     findCredentialsAsync: behavior.findCredentials ?? (async () => []),
   }));
-  const { nativeCredentialStore } = await import("../src/storage/keychain.js");
-  return { nativeCredentialStore, setPassword, deletePassword, execFile, order };
+  const { nativeCredentialStore, keychain } = await import("../src/storage/keychain.js");
+  return { nativeCredentialStore, keychain, setPassword, deletePassword, execFile, order };
 };
 
 // Asserts the one and only `execFile` call was a prompt-free security-tool delete of exactly
@@ -155,14 +157,110 @@ describe("native credential store", () => {
     expect(findCredentials).not.toHaveBeenCalled();
   });
 
-  it("deletes any pre-existing macOS item before writing, without reading it first", async () => {
+  it("keeps a macOS session readable while an update is pending", async () => {
+    const restore = withPlatform("darwin");
+    let finish!: () => void;
+    const pendingWrite = new Promise<void>((resolve) => (finish = resolve));
+    let started!: () => void;
+    const writing = new Promise<void>((resolve) => (started = resolve));
+    let stored: string | null = "previous";
+    try {
+      const { nativeCredentialStore, execFile } = await loadNativeStore({
+        getPassword: async () => stored,
+        onDelete: () => {
+          stored = null;
+        },
+        setPassword: async (password) => {
+          started();
+          await pendingWrite;
+          stored = password;
+        },
+      });
+      const update = nativeCredentialStore.set("svc", "acct", "updated");
+      await writing;
+      expect(await nativeCredentialStore.get("svc", "acct")).toBe("previous");
+      finish();
+      await update;
+      expect(await nativeCredentialStore.get("svc", "acct")).toBe("updated");
+      expect(execFile).not.toHaveBeenCalled();
+    } finally {
+      finish();
+      restore();
+    }
+  });
+
+  it.each(["npm", "standalone"])(
+    "preserves the %s session when an update fails",
+    async (installMode) => {
+      const restore = withPlatform("darwin");
+      vi.doMock("../src/install-mode.js", () => ({ installMode }));
+      const credentials = {
+        privateJwk: { kty: "EC", d: "synthetic" },
+        publicJwk: { kty: "EC" },
+        refreshToken: "previous-refresh",
+      };
+      let stored: string | null = JSON.stringify({ version: 2, issuer, ...credentials });
+      try {
+        const { keychain, execFile, setPassword, deletePassword } = await loadNativeStore({
+          getPassword: async () => stored,
+          onDelete: () => {
+            stored = null;
+          },
+          setPassword: async () => {
+            throw new Error("injected write failure");
+          },
+        });
+        await expect(
+          keychain.set(issuer, { ...credentials, refreshToken: "rotated" }),
+        ).rejects.toThrow("Unable to save");
+        await expect(keychain.get(issuer)).resolves.toMatchObject(credentials);
+        expect(setPassword).toHaveBeenCalledOnce();
+        expect(execFile).not.toHaveBeenCalled();
+        expect(deletePassword).not.toHaveBeenCalled();
+      } finally {
+        vi.doUnmock("../src/install-mode.js");
+        restore();
+      }
+    },
+  );
+
+  it.each([
+    ["npm", "dev.seibert.weldall-cli"],
+    ["standalone", "dev.seibert.weldall-cli.standalone"],
+  ])("keeps explicit %s login replacement in its own namespace", async (installMode, service) => {
+    const restore = withPlatform("darwin");
+    vi.doMock("../src/install-mode.js", () => ({ installMode }));
+    try {
+      const { keychain, execFile, order } = await loadNativeStore({});
+      await keychain.set(
+        issuer,
+        {
+          privateJwk: { kty: "EC", d: "synthetic" },
+          publicJwk: { kty: "EC" },
+          refreshToken: "synthetic-refresh",
+        },
+        "replace",
+      );
+      expect(order).toEqual(["delete", "set"]);
+      expectSecurityDelete(
+        execFile,
+        service!,
+        `session-${createHash("sha256").update(issuer).digest("base64url")}`,
+      );
+    } finally {
+      vi.doUnmock("../src/install-mode.js");
+      restore();
+    }
+  });
+
+  it("replaces a foreign macOS item only on explicit login, without reading it first", async () => {
     const restore = withPlatform("darwin");
     try {
       const getPassword = vi.fn(async () => "previous");
       const { nativeCredentialStore, setPassword, execFile, order } = await loadNativeStore({
         getPassword,
       });
-      await nativeCredentialStore.set("svc", "acct", "secret");
+      await nativeCredentialStore.set("svc", "acct", "secret", "replace");
       expect(order).toEqual(["delete", "set"]);
       expectSecurityDelete(execFile, "svc", "acct");
       // A read of a foreign item would raise an authorization prompt on macOS.
@@ -178,7 +276,9 @@ describe("native credential store", () => {
     const restore = withPlatform("darwin");
     try {
       const { nativeCredentialStore, order } = await loadNativeStore({}, 44);
-      await expect(nativeCredentialStore.set("svc", "acct", "secret")).resolves.toBeUndefined();
+      await expect(
+        nativeCredentialStore.set("svc", "acct", "secret", "replace"),
+      ).resolves.toBeUndefined();
       expect(order).toEqual(["delete", "set"]);
     } finally {
       restore();
@@ -189,7 +289,7 @@ describe("native credential store", () => {
     const restore = withPlatform("darwin");
     try {
       const { nativeCredentialStore, setPassword, order } = await loadNativeStore({}, 1);
-      await expect(nativeCredentialStore.set("svc", "acct", "secret")).rejects.toThrow(
+      await expect(nativeCredentialStore.set("svc", "acct", "secret", "replace")).rejects.toThrow(
         "security exited 1",
       );
       expect(order).toEqual(["delete"]);
@@ -199,7 +299,7 @@ describe("native credential store", () => {
     }
   });
 
-  it("surfaces an addon write failure after the pre-delete without retrying", async () => {
+  it("surfaces an explicit replacement failure after the pre-delete without retrying", async () => {
     const restore = withPlatform("darwin");
     try {
       const { nativeCredentialStore, setPassword, order } = await loadNativeStore({
@@ -209,7 +309,9 @@ describe("native credential store", () => {
           });
         },
       });
-      await expect(nativeCredentialStore.set("svc", "acct", "secret")).rejects.toThrow("locked");
+      await expect(nativeCredentialStore.set("svc", "acct", "secret", "replace")).rejects.toThrow(
+        "locked",
+      );
       expect(order).toEqual(["delete", "set"]);
       expect(setPassword).toHaveBeenCalledTimes(1);
     } finally {
@@ -217,19 +319,23 @@ describe("native credential store", () => {
     }
   });
 
-  it("never invokes the security tool for set or clear outside macOS", async () => {
-    const restore = withPlatform("linux");
-    try {
-      const { nativeCredentialStore, execFile } = await loadNativeStore({
-        deletePassword: async () => false,
-      });
-      await nativeCredentialStore.set("svc", "acct", "secret");
-      await nativeCredentialStore.clear("svc", "acct");
-      expect(execFile).not.toHaveBeenCalled();
-    } finally {
-      restore();
-    }
-  });
+  it.each(["linux", "win32"] as const)(
+    "never invokes the security tool for %s writes or clear",
+    async (platform) => {
+      const restore = withPlatform(platform);
+      try {
+        const { nativeCredentialStore, execFile } = await loadNativeStore({
+          deletePassword: async () => false,
+        });
+        await nativeCredentialStore.set("svc", "acct", "secret");
+        await nativeCredentialStore.set("svc", "acct", "replacement", "replace");
+        await nativeCredentialStore.clear("svc", "acct");
+        expect(execFile).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    },
+  );
 
   it("clears on macOS through the security tool without touching the addon", async () => {
     const restore = withPlatform("darwin");
