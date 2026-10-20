@@ -184,7 +184,7 @@ version yet. Explicit selection, query search and skill dependencies use the sam
 ```sh
 weldall discover --resource expenses --connector-type atlassian-mcp --json
 weldall discover --query "expenses" --json
-weldall discover --skill expense-review --json
+weldall discover --skill expenses.review --json
 weldall discover --resource expenses --catalog-only --json
 weldall mcp native tools expenses --json
 weldall mcp native call expenses list_expenses --arguments '{}' --json
