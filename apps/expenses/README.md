@@ -2,19 +2,19 @@
 
 This repository's runnable Task 1 resource demonstrates the same protected expense data through HTTP and native MCP. It uses the Hono adapter and `createNativeMcp` from `@weldall/sdk`; it is not a separate MCP connector. The `list_expenses` tool also links an MCP App with resource-bound mock approve/deny buttons. Desktop preselection is not part of this demo.
 
-| Interface                                   | Behavior                                                                 | Required scopes                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `GET /api/expenses`                         | Read the fixed demo list and verified caller identity                    | `expenses:read`                                                     |
-| MCP `list_expenses`                         | The same data as HTTP, including structured content                      | `expenses:read`                                                     |
-| MCP `ui://weldall/expenses`                 | Server-rendered HTML/CSS expense view and verified caller                | `expenses:read`                                                     |
-| `GET /mcp-ui/expenses.css`                  | Public, non-sensitive stylesheet for the view                            | None                                                                |
-| MCP `expenses://current`                    | The same data as a protected JSON resource                               | `expenses:read`                                                     |
-| MCP `preview_expense_decision`              | Simulate approve/deny for the fixed expense; **not persisted**           | `expenses:read`                                                     |
-| `GET /mcp-ui/expenses.js`, `/mcp-ui/sdk.js` | Public browser modules for the mock review controls                      | None                                                                |
-| MCP `create_expense`                        | Validate a description and return a synthetic expense; **not persisted** | `expenses:read` for discovery, plus `expenses:create` for execution |
-| Skill `expenses.review`                     | Activate the whole native resource and describe a read-only review       | `expenses:read`                                                     |
+| Interface                                   | Behavior                                                                                                                        | Required scopes                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `GET /api/expenses`                         | Read the fixed demo list and verified caller identity                                                                           | `expenses:read`                                                     |
+| MCP `list_expenses`                         | The same data as HTTP, including structured content                                                                             | `expenses:read`                                                     |
+| MCP `ui://weldall/expenses`                 | Server-rendered HTML/CSS expense view and verified caller                                                                       | `expenses:read`                                                     |
+| `GET /mcp-ui/expenses.css`                  | Public, non-sensitive stylesheet for the view                                                                                   | None                                                                |
+| MCP `expenses://current`                    | The same data as a protected JSON resource                                                                                      | `expenses:read`                                                     |
+| MCP `preview_expense_decision`              | Simulate approve/deny for the fixed expense; **not persisted**                                                                  | `expenses:read`                                                     |
+| `GET /mcp-ui/expenses.js`, `/mcp-ui/sdk.js` | Public browser modules for the mock review controls                                                                             | None                                                                |
+| MCP `create_expense` (optional)             | Published only when `expenses:create` is configured; validates a description and returns a synthetic expense; **not persisted** | `expenses:read` for discovery, plus `expenses:create` for execution |
+| Skill `expenses.review`                     | Activate the whole native resource and describe a read-only review                                                              | `expenses:read`                                                     |
 
-The native endpoint is `/api/mcp`. Protected-resource metadata advertises its endpoint, discovery scope and catalog revision. Anonymous initialize/list/read requests are denied. Discovery may advertise the write tool, but does **not** grant permission to execute it. Both user and machine tokens are DPoP-bound; each request requires a fresh proof.
+The native endpoint is `/api/mcp`. Protected-resource metadata advertises its endpoint, discovery scope and catalog revision. Anonymous initialize/list/read requests are denied. When `expenses:create` is configured, discovery may advertise the write tool, but does **not** grant permission to execute it. Both user and machine tokens are DPoP-bound; each request requires a fresh proof.
 
 HTTP POST and DELETE routes remain available for the existing demo. They also return synthetic results without changing the fixed list. The in-memory replay store is for this single-process development demo, not a multi-instance production deployment.
 
@@ -67,9 +67,16 @@ Run from the repository root. The subshell uses only an ephemeral issuer overrid
 )
 ```
 
-Expect three tools and two MCP resources. HTTP, `list_expenses` and `expenses://current` return the same list and caller identity. Separate CLI processes do not publish tools into a host session: with the branch extension, `discover_integrations({"resources":["expenses"]})` or `read_skill_document` for `expenses.review` performs session-local activation. Use the tool names returned by the extension, not guessed aliases. See [the extension README](../goose-extension/README.md) for branch-host setup.
+The default local configuration exposes three tools and two MCP resources; a deployment configured with
+only `expenses:read` exposes two tools and two resources. HTTP, `list_expenses` and
+`expenses://current` return the same list and caller identity. Separate CLI processes do not publish tools
+into a host session: with the branch extension, `discover_integrations({"resources":["expenses"]})` or
+`read_skill_document` for `expenses.review` performs session-local activation. Use the tool names returned
+by the extension, not guessed aliases. See [the extension README](../goose-extension/README.md) for
+branch-host setup.
 
-For a user granted **only** `expenses:read`, this must fail rather than execute the write:
+When the deployment publishes `create_expense`, a user granted **only** `expenses:read` must fail rather
+than execute the write:
 
 ```sh
 WELDALL_ISSUER=https://weldall.seibert.localdev ./apps/cli/dist/index.js \
@@ -108,20 +115,20 @@ The public ES module at `/mcp-ui/expenses.js` imports the SDK browser module fro
 and adds **16 test buttons**. Assets carry a content-derived version query, including the SDK import,
 so a new deployment does not reuse stale browser JavaScript. No direct API fetches.
 
-| Buttons                                  | Expected result                                                                                                     |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Simulate approve / Simulate deny         | Real authenticated tool call; mock result with `persisted: false`. No automatic chat turn.                          |
-| List resources / Read expenses           | Own-resource catalog/data through MCP. The configured URI also supports the Playground's `expenses-demo://current`. |
-| Set model context                        | Updates context without a chat turn. Then ask: “Which expense is selected in the app context?”                      |
-| Send to chat                             | Adds an explicit demo-state message and starts an assistant response.                                               |
-| Open service metadata                    | Opens the public metadata endpoint through the host's link policy.                                                  |
-| Download JSON                            | Save dialog for `expenses-demo.json`; includes mock state, not caller identity.                                     |
-| Write log                                | A non-sensitive `[MCP App]` entry in the desktop renderer console.                                                  |
-| Host capabilities                        | Shows current capabilities/context; does not run a business operation.                                              |
-| Inline / Fullscreen / Picture in picture | Changes display mode without reloading the view.                                                                    |
-| Toggle extra content                     | Adds/removes six rows; inline height should grow/shrink.                                                            |
-| Close app                                | Tears down the view. Call `list_expenses` again to open a fresh one.                                                |
-| Sampling                                 | Disabled in Goose, which does not advertise sampling support.                                                       |
+| Buttons                                  | Expected result                                                                                                                   |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Simulate approve / Simulate deny         | Real authenticated tool call; mock result with `persisted: false`. No automatic chat turn.                                        |
+| List resources / Read expenses           | Own-resource catalog/data through MCP. The view reads its configured JSON resource URI; the local demo uses `expenses://current`. |
+| Set model context                        | Updates context without a chat turn. Then ask: “Which expense is selected in the app context?”                                    |
+| Send to chat                             | Adds an explicit demo-state message and starts an assistant response.                                                             |
+| Open service metadata                    | Opens the public metadata endpoint through the host's link policy.                                                                |
+| Download JSON                            | Save dialog for `expenses-demo.json`; includes mock state, not caller identity.                                                   |
+| Write log                                | A non-sensitive `[MCP App]` entry in the desktop renderer console.                                                                |
+| Host capabilities                        | Shows current capabilities/context; does not run a business operation.                                                            |
+| Inline / Fullscreen / Picture in picture | Changes display mode without reloading the view.                                                                                  |
+| Toggle extra content                     | Adds/removes six rows; inline height should grow/shrink.                                                                          |
+| Close app                                | Tears down the view. Call `list_expenses` again to open a fresh one.                                                              |
+| Sampling                                 | Disabled in Goose, which does not advertise sampling support.                                                                     |
 
 Other unsupported capabilities are disabled as well. The view shows the last action/result and
 recent host events. Test **Close app last**. Context and chat are distinct: setting context does not
