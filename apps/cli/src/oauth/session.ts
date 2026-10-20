@@ -184,6 +184,7 @@ export async function validateIdJagResponse(
     clientId: string;
     scopes: readonly string[];
   },
+  signal?: AbortSignal,
 ): Promise<string> {
   const requestedScopes = [...new Set(expected.scopes)].sort();
   const expectedScope = requestedScopes.join(" ");
@@ -219,7 +220,7 @@ export async function validateIdJagResponse(
     ],
     maxTokenAge: "5m",
     clockTolerance: 5,
-  });
+  }, weldallJwksCache, signal);
   if (!verified.protectedHeader.kid) throw new CliError("The ID-JAG has no signing-key ID");
   const claims = verified.payload;
   const scopes = parseScope(claims.scope);

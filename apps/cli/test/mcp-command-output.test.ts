@@ -67,3 +67,34 @@ it.each(["list", "tools", "resources"] as const)(
     expect(output).toHaveBeenCalledExactlyOnceWith(`${key}\tName��[2J`);
   },
 );
+
+it.each(["tools", "resources"] as const)(
+  "passes identity guards to MCP %s selection",
+  async (operation) => {
+    vi.mocked(requestMcp).mockResolvedValue(
+      operation === "tools"
+        ? { tools: [{ name: "read", inputSchema: { type: "object" } }] }
+        : { resources: [{ uri: "fixture://current", name: "Current" }] },
+    );
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await run([
+      "mcp",
+      operation,
+      "work",
+      "--connection=mine",
+      "--expected-issuer=https://weldall.example",
+      "--expected-subject=alice",
+    ]);
+    expect(requestMcp).toHaveBeenCalledWith(
+      {},
+      operation,
+      {
+        connectorKey: "work",
+        connection: "mine",
+        expectedIssuer: "https://weldall.example",
+        expectedSubject: "alice",
+      },
+      expect.any(AbortSignal),
+    );
+  },
+);

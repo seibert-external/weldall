@@ -185,6 +185,30 @@ async def test_metadata_and_http_only_remain_separate(keys, discovery):
         make_sdk(keys, discovery, mcp=provider(), supported_scopes=["read"])
 
 
+def test_metadata_rejects_incomplete_capability_tuple(keys, discovery):
+    class InvalidMetadataProvider:
+        path = "/api/mcp"
+        discovery_scopes = ("read",)
+        operation_scopes = ()
+
+        def metadata(self, public_origin):
+            return {
+                "schemaVersion": 1,
+                "transport": "streamable-http-stateless",
+                "endpoint": f"{public_origin}{self.path}",
+                "description": "Invalid",
+                "discoveryScopes": ["read"],
+                "capabilities": ["tools"],
+                "revision": "0" * 64,
+            }
+
+        async def handle(self, request, auth):
+            raise AssertionError("invalid metadata should not reach the handler")
+
+    with pytest.raises(ValidationError):
+        make_sdk(keys, discovery, mcp=InvalidMetadataProvider())
+
+
 @pytest.mark.parametrize(
     "method", ["initialize", "tools/list", "resources/list", "resources/templates/list"]
 )

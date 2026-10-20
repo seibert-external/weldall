@@ -64,7 +64,16 @@ const tools = define({
   run: (context) =>
     execute(
       "tools",
-      { connectorKey: context.values.connector, connection: context.values.connection },
+      {
+        connectorKey: context.values.connector,
+        connection: context.values.connection,
+        ...(context.values["expected-issuer"]
+          ? { expectedIssuer: context.values["expected-issuer"] }
+          : {}),
+        ...(context.values["expected-subject"]
+          ? { expectedSubject: context.values["expected-subject"] }
+          : {}),
+      },
       context.values.json,
     ),
 });
@@ -75,7 +84,16 @@ const resources = define({
   run: (context) =>
     execute(
       "resources",
-      { connectorKey: context.values.connector, connection: context.values.connection },
+      {
+        connectorKey: context.values.connector,
+        connection: context.values.connection,
+        ...(context.values["expected-issuer"]
+          ? { expectedIssuer: context.values["expected-issuer"] }
+          : {}),
+        ...(context.values["expected-subject"]
+          ? { expectedSubject: context.values["expected-subject"] }
+          : {}),
+      },
       context.values.json,
     ),
 });

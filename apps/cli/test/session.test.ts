@@ -425,6 +425,64 @@ describe("CLI token validation", () => {
     ).resolves.toBe(token);
   });
 
+  it("cancels ID-JAG signing-key validation with the caller signal", async () => {
+    const issuer = await generateEs256KeyPair();
+    const device = await generateEs256KeyPair();
+    const token = await issueIdJag({
+      issuer: WELDALL_ISSUER,
+      subject: "user",
+      email: "user@example.com",
+      audience: EXPENSES_ISSUER,
+      clientId: DOWNSTREAM_CLIENT_ID,
+      resource: EXPENSES_RESOURCE,
+      scopes: ["expenses:read"],
+      jkt: device.jkt,
+      kid: "id-jag-signal",
+      privateJwk: issuer.privateJwk,
+    });
+    const controller = new AbortController();
+    let signalJwksFetch!: () => void;
+    const jwksFetchStarted = new Promise<void>((resolve) => {
+      signalJwksFetch = resolve;
+    });
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      signalJwksFetch();
+      const signal = init?.signal;
+      if (!signal) throw new Error("JWKS fetch was not cancellable");
+      return new Promise<Response>((_, reject) => {
+        if (signal.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    const pending = validateIdJagResponse(
+      config,
+      {
+        access_token: token,
+        issued_token_type: ID_JAG_TOKEN_TYPE,
+        token_type: "N_A",
+        expires_in: 300,
+        scope: "expenses:read",
+      },
+      device.publicJwk,
+      {
+        subject: "user",
+        authorizationServer: EXPENSES_ISSUER,
+        resource: EXPENSES_RESOURCE,
+        clientId: DOWNSTREAM_CLIENT_ID,
+        scopes: ["expenses:read"],
+      },
+      controller.signal,
+    );
+    await jwksFetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it.each([
     ["additional audience", (_key: DpopKeyPair) => ({ aud: [EXPENSES_ISSUER, "attacker"] })],
     ["wrong resource", () => ({ resource: "https://attacker.example/api" })],

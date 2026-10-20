@@ -281,13 +281,19 @@ export async function prepareResourceClient(
       CONFIG_REFRESH_HINT,
     );
     if (!isRecord(exchange)) throw new CliError("Weldall returned an invalid token exchange");
-    const assertion = await validateIdJagResponse(config, exchange, session.credentials.publicJwk, {
-      subject: session.subject,
-      authorizationServer: resource.authorizationServer,
-      resource: resource.resourceIdentifier,
-      clientId: resource.downstreamClientId,
-      scopes: requestedScopes,
-    });
+    const assertion = await validateIdJagResponse(
+      config,
+      exchange,
+      session.credentials.publicJwk,
+      {
+        subject: session.subject,
+        authorizationServer: resource.authorizationServer,
+        resource: resource.resourceIdentifier,
+        clientId: resource.downstreamClientId,
+        scopes: requestedScopes,
+      },
+      options.signal,
+    );
 
     phaseTiming("token-exchange", exchangeStartedAt);
     const resourceTokenStartedAt = timingNow();
