@@ -210,29 +210,33 @@ export async function requestConnectionApi({
   expectedSubject?: string;
 }) {
   const url = `${config.issuer}/api/me/${path}`;
-  return withAccess(config, async (session) => {
-    if (expectedSubject !== undefined && session.subject !== expectedSubject)
-      throw new CliError("Signed-in identity changed; discover again.");
-    const response = await fetch(url, {
-      method,
-      headers: {
-        authorization: `DPoP ${session.accessToken}`,
-        dpop: await createDpopProof({
-          ...session.credentials,
-          method,
-          url,
-          accessToken: session.accessToken,
-        }),
-        "content-type": "application/json",
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      redirect: "error",
-      signal: AbortSignal.any([AbortSignal.timeout(30_000), ...(abort ? [abort] : [])]),
-    });
-    return abort
-      ? boundedJsonResponse(response, abort)
-      : successfulResponse(response, "Weldall connection request");
-  }, abort);
+  return withAccess(
+    config,
+    async (session) => {
+      if (expectedSubject !== undefined && session.subject !== expectedSubject)
+        throw new CliError("Signed-in identity changed; discover again.");
+      const response = await fetch(url, {
+        method,
+        headers: {
+          authorization: `DPoP ${session.accessToken}`,
+          dpop: await createDpopProof({
+            ...session.credentials,
+            method,
+            url,
+            accessToken: session.accessToken,
+          }),
+          "content-type": "application/json",
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        redirect: "error",
+        signal: AbortSignal.any([AbortSignal.timeout(30_000), ...(abort ? [abort] : [])]),
+      });
+      return abort
+        ? boundedJsonResponse(response, abort)
+        : successfulResponse(response, "Weldall connection request");
+    },
+    abort,
+  );
 }
 
 /** Lists credential-free managed connections for CLI table, JSON, and agentic output. */
@@ -420,36 +424,40 @@ export async function requestConnection({
   if (!/^[a-z0-9][a-z0-9._-]{0,119}$/.test(connection.connectorKey))
     throw new CliError("Invalid connector key");
   const url = new URL(`/connectors/${connection.connectorKey}`, config.issuer);
-  return withAccess(config, async (session) => {
-    const headers = new Headers(input.headers);
-    headers.set("authorization", `DPoP ${session.accessToken}`);
-    headers.set(
-      "dpop",
-      await createDpopProof({
-        ...session.credentials,
-        method: input.method,
-        url: url.toString(),
-        accessToken: session.accessToken,
-      }),
-    );
-    headers.set("x-weldall-connection", connection.id);
-    headers.set("x-weldall-upstream-url", input.url);
-    if (input.json !== undefined) headers.set("content-type", "application/json");
-    return successfulResponseStream(
-      await fetch(url, {
-        method: input.method,
-        headers,
-        ...(input.json !== undefined
-          ? { body: JSON.stringify(input.json) }
-          : input.body !== undefined
-            ? { body: input.body }
-            : {}),
-        redirect: "error",
-        signal: input.signal
-          ? AbortSignal.any([input.signal, AbortSignal.timeout(30_000)])
-          : AbortSignal.timeout(30_000),
-      }),
-      "Weldall connector request",
-    );
-  }, input.signal);
+  return withAccess(
+    config,
+    async (session) => {
+      const headers = new Headers(input.headers);
+      headers.set("authorization", `DPoP ${session.accessToken}`);
+      headers.set(
+        "dpop",
+        await createDpopProof({
+          ...session.credentials,
+          method: input.method,
+          url: url.toString(),
+          accessToken: session.accessToken,
+        }),
+      );
+      headers.set("x-weldall-connection", connection.id);
+      headers.set("x-weldall-upstream-url", input.url);
+      if (input.json !== undefined) headers.set("content-type", "application/json");
+      return successfulResponseStream(
+        await fetch(url, {
+          method: input.method,
+          headers,
+          ...(input.json !== undefined
+            ? { body: JSON.stringify(input.json) }
+            : input.body !== undefined
+              ? { body: input.body }
+              : {}),
+          redirect: "error",
+          signal: input.signal
+            ? AbortSignal.any([input.signal, AbortSignal.timeout(30_000)])
+            : AbortSignal.timeout(30_000),
+        }),
+        "Weldall connector request",
+      );
+    },
+    input.signal,
+  );
 }

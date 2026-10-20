@@ -114,7 +114,10 @@ describe("native login", () => {
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
-    expect(fetcher).toHaveBeenCalledWith(config.token, expect.objectContaining({ signal: controller.signal }));
+    expect(fetcher).toHaveBeenCalledWith(
+      config.token,
+      expect.objectContaining({ signal: controller.signal }),
+    );
   });
 
   it("creates RFC7636 S256 values", () => {

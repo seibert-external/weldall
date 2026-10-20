@@ -55,10 +55,7 @@ export function createServer(
   let ready = false;
   server.setRequestHandler(InitializeRequestSchema, (request) => {
     if (initialized) {
-      throw new McpError(
-        ErrorCode.InvalidRequest,
-        "Repeated initialization.",
-      );
+      throw new McpError(ErrorCode.InvalidRequest, "Repeated initialization.");
     }
     initialized = true;
     return {

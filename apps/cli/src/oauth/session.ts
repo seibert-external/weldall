@@ -199,28 +199,34 @@ export async function validateIdJagResponse(
   )
     throw new CliError("Weldall returned an invalid ID-JAG response");
 
-  const verified = await verifyWeldallJwt(config, result.access_token, {
-    algorithms: ["ES256"],
-    issuer: config.issuer,
-    audience: expected.authorizationServer,
-    typ: "oauth-id-jag+jwt",
-    requiredClaims: [
-      "iss",
-      "aud",
-      "sub",
-      "email",
-      "email_verified",
-      "exp",
-      "iat",
-      "jti",
-      "client_id",
-      "resource",
-      "scope",
-      "cnf",
-    ],
-    maxTokenAge: "5m",
-    clockTolerance: 5,
-  }, weldallJwksCache, signal);
+  const verified = await verifyWeldallJwt(
+    config,
+    result.access_token,
+    {
+      algorithms: ["ES256"],
+      issuer: config.issuer,
+      audience: expected.authorizationServer,
+      typ: "oauth-id-jag+jwt",
+      requiredClaims: [
+        "iss",
+        "aud",
+        "sub",
+        "email",
+        "email_verified",
+        "exp",
+        "iat",
+        "jti",
+        "client_id",
+        "resource",
+        "scope",
+        "cnf",
+      ],
+      maxTokenAge: "5m",
+      clockTolerance: 5,
+    },
+    weldallJwksCache,
+    signal,
+  );
   if (!verified.protectedHeader.kid) throw new CliError("The ID-JAG has no signing-key ID");
   const claims = verified.payload;
   const scopes = parseScope(claims.scope);
