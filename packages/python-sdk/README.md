@@ -270,7 +270,7 @@ exactly one static `items` list or synchronous `load` callable:
 Catalogs are strictly validated, limited to 100 skills and 1 MiB, and require
 replay protection because Weldall fetches them with one-use signed assertions.
 
-Skills may include `mcpDependencies` with camelCase wire keys, e.g. `[{"connectorKey": "atlassian-mcp", "tools": ["getJiraIssue"], "includeResources": False}]`; `SkillMcpDependency` is exported for typing. Limit: eight distinct connectors and 32 tools each; empty tools require `includeResources: True`. The SDK sorts connectors/deduplicates and sorts tools without mutating input, and omits empty dependencies. References may precede connector/scope creation; Weldall checks visibility/access, and the SDK does not provision connectors or credentials.
+Skills may include exact MCP dependencies with camelCase wire keys, e.g. `[{"connectorKey": "atlassian-mcp", "tools": ["getJiraIssue"], "includeResources": False}]`, or whole-source dependencies such as `[{"kind": "resource", "resourceKey": "billing"}]` and `[{"kind": "connector", "connectorType": "atlassian-mcp"}]`. `SkillMcpDependency` is exported for typing. A skill may declare at most eight distinct dependency selectors; exact dependencies allow up to 32 tools each, and empty tool lists require `includeResources: True`. The SDK sorts dependencies, deduplicates exact tools, and omits empty dependency arrays without mutating input. References may precede connector/scope creation; Weldall checks visibility/access, and the SDK does not provision connectors or credentials.
 
 ## Use managed signing keys
 

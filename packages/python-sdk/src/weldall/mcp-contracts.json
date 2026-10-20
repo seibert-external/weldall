@@ -61,7 +61,10 @@
               "type": "string",
               "const": "resources"
             }
-          ]
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "items": false
         },
         "revision": {
           "type": "string",

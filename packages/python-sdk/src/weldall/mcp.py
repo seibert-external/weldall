@@ -70,10 +70,14 @@ def _bounded_json(value: Any, maximum: int) -> bytes:
     return encoded
 
 
-def _project(schema: dict[str, Any], value: Any, field: str = "") -> Any:
+def _project(schema: dict[str, Any] | bool, value: Any, field: str = "") -> Any:
+    if not isinstance(schema, dict):
+        return value
     variants = schema.get("anyOf", schema.get("oneOf"))
     if variants is not None:
         schema = next(s for s in variants if Draft202012Validator(s).is_valid(value))
+        if not isinstance(schema, dict):
+            return value
     if isinstance(value, str):
         if "maxLength" in schema and len(value.encode("utf-16-le")) // 2 > schema["maxLength"]:
             raise ValueError()
@@ -89,7 +93,17 @@ def _project(schema: dict[str, Any], value: Any, field: str = "") -> Any:
             raise ValueError()
         return value
     if isinstance(value, list):
-        result = [_project(schema.get("items", {}), item) for item in value]
+        prefix_items = schema.get("prefixItems")
+        if isinstance(prefix_items, list):
+            result = [
+                _project(
+                    prefix_items[index] if index < len(prefix_items) else schema.get("items", {}),
+                    item,
+                )
+                for index, item in enumerate(value)
+            ]
+        else:
+            result = [_project(schema.get("items", {}), item) for item in value]
         if field == "capabilities" and len(set(value)) != len(value):
             raise ValueError()
         return result

@@ -73,27 +73,31 @@ const isSkillSummary = (value: unknown): value is SkillSummary =>
   isSource(value.source);
 
 async function authenticatedGet(config: WeldallConfig, url: string, signal?: AbortSignal) {
-  return withAccess(config, async (session) => {
-    const proof = await createDpopProof({
-      ...session.credentials,
-      method: "GET",
-      url,
-      accessToken: session.accessToken,
-    });
-    const response = await fetch(url, {
-      headers: {
-        accept: "application/json",
-        authorization: `DPoP ${session.accessToken}`,
-        dpop: proof,
-      },
-      redirect: "error",
-      ...(signal ? { signal } : {}),
-    });
-    const value = await (signal
-      ? boundedJsonResponse(response, signal)
-      : successfulResponse(response, "Weldall skill registry request", CONFIG_REFRESH_HINT));
-    return { value, subject: session.subject };
-  });
+  return withAccess(
+    config,
+    async (session) => {
+      const proof = await createDpopProof({
+        ...session.credentials,
+        method: "GET",
+        url,
+        accessToken: session.accessToken,
+      });
+      const response = await fetch(url, {
+        headers: {
+          accept: "application/json",
+          authorization: `DPoP ${session.accessToken}`,
+          dpop: proof,
+        },
+        redirect: "error",
+        ...(signal ? { signal } : {}),
+      });
+      const value = await (signal
+        ? boundedJsonResponse(response, signal)
+        : successfulResponse(response, "Weldall skill registry request", CONFIG_REFRESH_HINT));
+      return { value, subject: session.subject };
+    },
+    signal,
+  );
 }
 
 export async function listSkillsWithSubject(

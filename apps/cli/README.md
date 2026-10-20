@@ -184,7 +184,7 @@ version yet. Explicit selection, query search and skill dependencies use the sam
 ```sh
 weldall discover --resource expenses --connector-type atlassian-mcp --json
 weldall discover --query "expenses" --json
-weldall discover --skill expense-review --json
+weldall discover --skill expenses.review --json
 weldall discover --resource expenses --catalog-only --json
 weldall mcp native tools expenses --json
 weldall mcp native call expenses list_expenses --arguments '{}' --json
@@ -203,8 +203,9 @@ fetches descriptions without schemas, skill documents, account selection or nati
 Results distinguish `resolved`, `catalog`, `incomplete`, `selection_required` and `unavailable`.
 Failures carry sanitized codes; independent failures preserve successful sources. `nextCursor`
 paginates search hits, not dependencies; use `--cursor` with the same query. Query search includes
-only authorized native advertisements and matches their descriptions. Old servers without this
-opt-in metadata omit native search hits; existing HTTP/connector commands remain unchanged.
+only authorized resource advertisements and connector/skill catalog entries, matching their keys,
+names, descriptions and skill metadata. Old servers without this opt-in metadata omit native search
+hits; existing HTTP/connector commands remain unchanged.
 
 Ambiguous connector accounts return recognizable choices. Continue with the same selectors plus
 `--selection '{"connectorKey":"work","connection":"<offered-id>"}'`. The extension manages

@@ -155,6 +155,34 @@ describe("SessionManager", () => {
     });
   });
 
+  it("passes the caller deadline through session refresh", async () => {
+    const key = await generateEs256KeyPair();
+    const credentials: StoredCredentialsV2 = {
+      version: 2,
+      issuer,
+      ...key,
+      refreshToken: "refresh",
+      accessSession: { accessToken: "expired", subject: "user", expiresAt: 900 },
+    };
+    const store = storeFor(credentials);
+    const signal = new AbortController().signal;
+    const refresh = vi.fn(async (_config, current, _onRotation, receivedSignal) => {
+      expect(receivedSignal).toBe(signal);
+      return {
+        credentials: current,
+        accessToken: "access",
+        subject: "user",
+        expiresAt: 2_000,
+      };
+    });
+    await expect(
+      new SessionManager(config, store, serialLock(), refresh as any, () => 1_000).getAccessSession(
+        signal,
+      ),
+    ).resolves.toMatchObject({ accessToken: "access" });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
   it("retains the rotated refresh token if saving the access session fails", async () => {
     const key = await generateEs256KeyPair();
     const store = storeFor({ version: 2, issuer, ...key, refreshToken: "old-refresh" });

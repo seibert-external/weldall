@@ -53,20 +53,15 @@ export function createServer(
   });
   let initialized = false;
   let ready = false;
-  // Explicit negotiation: unknown versions are rejected, not reflected.
   server.setRequestHandler(InitializeRequestSchema, (request) => {
-    if (
-      initialized ||
-      !PROTOCOL_VERSIONS.some((version) => version === request.params.protocolVersion)
-    ) {
-      throw new McpError(
-        ErrorCode.InvalidRequest,
-        "Unsupported protocol version or repeated initialization.",
-      );
+    if (initialized) {
+      throw new McpError(ErrorCode.InvalidRequest, "Repeated initialization.");
     }
     initialized = true;
     return {
-      protocolVersion: request.params.protocolVersion,
+      protocolVersion:
+        PROTOCOL_VERSIONS.find((version) => version === request.params.protocolVersion) ??
+        PROTOCOL_VERSIONS[0],
       capabilities: { tools: { listChanged: true }, resources: { listChanged: true } },
       serverInfo: { name: "weldall", version },
       instructions: sessionInstructions,

@@ -131,8 +131,8 @@ definitions or policies.
   catalog revision. Protected-resource metadata advertises them as `weldall_mcp` (schema version 1).
   There is no second editable policy copy or new persisted resource field. The authenticated
   registry's opt-in `?mcp=1` read synchronizes validated advertisements at request time, omitting
-  missing/unreachable/incompatible or unauthorized advertisements. It is bounded to 100 resources,
-  four concurrent metadata requests, five seconds and 64 KiB per document; no stale catalog grants
+  missing/unreachable/incompatible or unauthorized advertisements. It uses four concurrent metadata
+  requests, a five-second timeout and 64 KiB per document; no stale catalog grants
   access. Ordinary registry reads do not contact resources.
 - The enabled registry resource, its authorization-server origin, supported scopes and approved
   request prefixes remain the trust boundary. Keep `/api/mcp` inside those prefixes; the CLI

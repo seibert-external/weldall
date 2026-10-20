@@ -917,8 +917,7 @@ export class McpActivation {
       true,
     );
     return this.exclusive(async () => {
-      // An in-flight result must not revive routes removed by refresh or an identity change.
-      if (this.tools.get(name) !== binding) return result;
+      if (this.tools.get(name) !== binding) throw new ExtensionError("cancelled");
       const map = new Map(this.resources);
       const content = result.content.map((item) =>
         item.type === "resource_link"
@@ -1015,10 +1014,7 @@ export class McpActivation {
         })
       : result.contents;
     return this.exclusive(async () => {
-      if (this.resources.get(uri) !== binding) {
-        if (binding.native) throw new ExtensionError("invalid_request");
-        return result;
-      }
+      if (this.resources.get(uri) !== binding) throw new ExtensionError("cancelled");
       const map = new Map(this.resources);
       let viewToken: string | undefined;
       if (bindView && binding.native && binding.definition?.mimeType === MCP_APP_MIME_TYPE) {

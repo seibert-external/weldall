@@ -69,76 +69,80 @@ export async function requestMcp(
   const url = `${config.issuer}${path}`;
   const signal = AbortSignal.any([AbortSignal.timeout(35_000), ...(abort ? [abort] : [])]);
   try {
-    return await withAccess(config, async (session) => {
-      signal.throwIfAborted();
-      if (input.expectedSubject !== undefined && session.subject !== input.expectedSubject)
-        throw new CliError("Signed-in identity changed; discover again.");
-      const response = await fetch(url, {
-        method,
-        redirect: "error",
-        signal,
-        headers: {
-          authorization: `DPoP ${session.accessToken}`,
-          dpop: await createDpopProof({
-            ...session.credentials,
-            method,
-            url,
-            accessToken: session.accessToken,
-          }),
-          accept: "application/json",
-          ...(body === undefined ? {} : { "content-type": "application/json" }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      const maximum = response.ok
-        ? operation === "call" || operation === "read-resource"
-          ? MCP_LIMITS.resultBytes
-          : MCP_LIMITS.definitionsBytes
-        : 16_384;
-      if (Number(response.headers.get("content-length") ?? 0) > maximum) {
-        await response.body?.cancel();
-        throw new CliError("MCP response exceeds the size limit");
-      }
-      const reader = response.body?.getReader();
-      const chunks: Uint8Array[] = [];
-      let length = 0;
-      const cancel = () => {
-        void reader?.cancel().catch(() => {});
-      };
-      signal.addEventListener("abort", cancel, { once: true });
-      try {
-        for (;;) {
-          signal.throwIfAborted();
-          const part = await reader?.read();
-          if (!part || part.done) break;
-          length += part.value.byteLength;
-          if (length > maximum) throw new CliError("MCP response exceeds the size limit");
-          chunks.push(part.value);
+    return await withAccess(
+      config,
+      async (session) => {
+        signal.throwIfAborted();
+        if (input.expectedSubject !== undefined && session.subject !== input.expectedSubject)
+          throw new CliError("Signed-in identity changed; discover again.");
+        const response = await fetch(url, {
+          method,
+          redirect: "error",
+          signal,
+          headers: {
+            authorization: `DPoP ${session.accessToken}`,
+            dpop: await createDpopProof({
+              ...session.credentials,
+              method,
+              url,
+              accessToken: session.accessToken,
+            }),
+            accept: "application/json",
+            ...(body === undefined ? {} : { "content-type": "application/json" }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        const maximum = response.ok
+          ? operation === "call" || operation === "read-resource"
+            ? MCP_LIMITS.resultBytes
+            : MCP_LIMITS.definitionsBytes
+          : 16_384;
+        if (Number(response.headers.get("content-length") ?? 0) > maximum) {
+          await response.body?.cancel();
+          throw new CliError("MCP response exceeds the size limit");
         }
-      } finally {
-        signal.removeEventListener("abort", cancel);
-        await reader?.cancel().catch(() => {});
-      }
-      if (!response.ok) {
-        // Do not print arbitrary server/proxy error bodies or token/proof reflections.
-        if (response.status === 404)
+        const reader = response.body?.getReader();
+        const chunks: Uint8Array[] = [];
+        let length = 0;
+        const cancel = () => {
+          void reader?.cancel().catch(() => {});
+        };
+        signal.addEventListener("abort", cancel, { once: true });
+        try {
+          for (;;) {
+            signal.throwIfAborted();
+            const part = await reader?.read();
+            if (!part || part.done) break;
+            length += part.value.byteLength;
+            if (length > maximum) throw new CliError("MCP response exceeds the size limit");
+            chunks.push(part.value);
+          }
+        } finally {
+          signal.removeEventListener("abort", cancel);
+          await reader?.cancel().catch(() => {});
+        }
+        if (!response.ok) {
+          // Do not print arbitrary server/proxy error bodies or token/proof reflections.
+          if (response.status === 404)
+            throw new CliError(
+              "MCP connector unavailable or this Weldall version does not support MCP",
+            );
           throw new CliError(
-            "MCP connector unavailable or this Weldall version does not support MCP",
+            `Weldall MCP request failed with HTTP ${response.status}. No tool call was retried.`,
           );
-        throw new CliError(
-          `Weldall MCP request failed with HTTP ${response.status}. No tool call was retried.`,
-        );
-      }
-      try {
-        return parseMcpResponse(
-          responseSchemas[operation],
-          JSON.parse(Buffer.concat(chunks).toString("utf8")),
-          maximum,
-        );
-      } catch {
-        throw new CliError("Weldall returned an invalid MCP response");
-      }
-    });
+        }
+        try {
+          return parseMcpResponse(
+            responseSchemas[operation],
+            JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            maximum,
+          );
+        } catch {
+          throw new CliError("Weldall returned an invalid MCP response");
+        }
+      },
+      signal,
+    );
   } catch (error) {
     if (signal.aborted)
       throw new CliError(

@@ -724,11 +724,29 @@ describe("native discovery publication", () => {
         ],
       }),
     );
-    expect(await pending).toMatchObject({ content: [{ type: "resource_link" }] });
+    await expect(pending).rejects.toMatchObject({ code: "cancelled" });
     expect(activation.listResources()).toHaveLength(1);
     const count = cli.run.mock.calls.length;
     await expect(activation.read(oldLinkedUri)).rejects.toMatchObject({ code: "invalid_request" });
     expect(cli.run).toHaveBeenCalledTimes(count);
+  });
+  it("does not return an old identity's in-flight resource result", async () => {
+    const { state, activation, cli } = fixture();
+    await activation.call("discover_integrations", { resources: ["expenses"] });
+    const uri = activation.listResources()[0]!.uri;
+    let finish!: (value: string) => void;
+    cli.run.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = activation.read(uri);
+    state.subject = "bob";
+    await activation.call("discover_integrations", { resources: ["expenses"] });
+    finish(JSON.stringify({ contents: [{ uri: "fixture://private", text: "alice-secret" }] }));
+    await expect(pending).rejects.toMatchObject({ code: "cancelled" });
+    expect(activation.listResources()).toHaveLength(1);
   });
   it("does not expose discovery on a shipped CLI without explicit capability negotiation", () => {
     const activation = new McpActivation(

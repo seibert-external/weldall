@@ -185,6 +185,35 @@ async def test_metadata_and_http_only_remain_separate(keys, discovery):
         make_sdk(keys, discovery, mcp=provider(), supported_scopes=["read"])
 
 
+def test_metadata_rejects_incomplete_capability_tuple(keys, discovery):
+    class InvalidMetadataProvider:
+        path = "/api/mcp"
+        discovery_scopes = ("read",)
+        operation_scopes = ()
+
+        def metadata(self, public_origin):
+            return {
+                "schemaVersion": 1,
+                "transport": "streamable-http-stateless",
+                "endpoint": f"{public_origin}{self.path}",
+                "description": "Invalid",
+                "discoveryScopes": ["read"],
+                "capabilities": ["tools"],
+                "revision": "0" * 64,
+            }
+
+        async def handle(self, request, auth):
+            raise AssertionError("invalid metadata should not reach the handler")
+
+    with pytest.raises(ValidationError):
+        make_sdk(keys, discovery, mcp=InvalidMetadataProvider())
+
+
+def test_valid_native_provider_constructs_with_tuple_contract(keys, discovery):
+    sdk = make_sdk(keys, discovery, mcp=provider())
+    assert sdk.mcp_metadata["capabilities"] == ["tools", "resources"]
+
+
 @pytest.mark.parametrize(
     "method", ["initialize", "tools/list", "resources/list", "resources/templates/list"]
 )
@@ -321,6 +350,22 @@ async def test_protocol_validation_limits_and_no_sessions(keys, discovery):
     assert (await sdk.handlers.mcp(request(keys, params={"cursor": "anything"}))).json_body()[
         "error"
     ]["code"] == -32602
+
+
+async def test_initialize_negotiates_to_latest_supported_protocol(keys, discovery):
+    sdk = make_sdk(keys, discovery, mcp=provider())
+    response = await sdk.handlers.mcp(
+        request(
+            keys,
+            "initialize",
+            {
+                "protocolVersion": "2099-01-01",
+                "clientInfo": {"name": "test", "version": "1"},
+                "capabilities": {},
+            },
+        )
+    )
+    assert response.json_body()["result"]["protocolVersion"] == "2025-11-25"
 
 
 async def test_cancellation_and_timeout_cancel_handler_without_retry(keys, discovery, monkeypatch):

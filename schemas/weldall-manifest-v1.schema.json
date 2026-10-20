@@ -1372,29 +1372,59 @@
             "maxItems": 8,
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "connectorKey": {
-                  "type": "string",
-                  "maxLength": 120,
-                  "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "connectorKey": {
+                      "type": "string",
+                      "maxLength": 120,
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+                    },
+                    "tools": {
+                      "maxItems": 32,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "includeResources": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["connectorKey", "tools", "includeResources"],
+                  "additionalProperties": false
                 },
-                "tools": {
-                  "maxItems": 32,
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 64,
-                    "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$"
-                  }
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": { "const": "resource" },
+                    "resourceKey": {
+                      "type": "string",
+                      "maxLength": 120,
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+                    }
+                  },
+                  "required": ["kind", "resourceKey"],
+                  "additionalProperties": false
                 },
-                "includeResources": {
-                  "type": "boolean"
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": { "const": "connector" },
+                    "connectorType": {
+                      "type": "string",
+                      "maxLength": 120,
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,119}$"
+                    }
+                  },
+                  "required": ["kind", "connectorType"],
+                  "additionalProperties": false
                 }
-              },
-              "required": ["connectorKey", "tools", "includeResources"],
-              "additionalProperties": false
+              ]
             }
           },
           "lastUpdatedAt": {

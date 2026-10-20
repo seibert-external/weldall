@@ -239,10 +239,13 @@ class NativeMcp:
                 or not isinstance(params.get("clientInfo"), dict)
             ):
                 raise _RpcError(-32602, "Invalid initialization")
-            return {
-                "protocolVersion": params["protocolVersion"]
+            protocol_version = (
+                params["protocolVersion"]
                 if params["protocolVersion"] in _PROTOCOLS
-                else _PROTOCOLS[0],
+                else _PROTOCOLS[0]
+            )
+            return {
+                "protocolVersion": protocol_version,
                 "capabilities": {"tools": {}, "resources": {}},
                 "serverInfo": {"name": "weldall-native", "version": "1.0.0"},
             }

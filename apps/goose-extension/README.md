@@ -21,7 +21,7 @@ Keep Code Mode disabled in Goose 1.51 so organization instructions reach the mod
 
 When the local CLI explicitly advertises `nativeDiscoveryVersion: 1` in `status --json`,
 the extension exposes `discover_integrations({ resources: ["expenses"], connectorTypes:
-["atlassian-mcp"], skills: ["expense-review"] })`, or `{ query: "expenses" }`. It resolves through
+["atlassian-mcp"], skills: ["expenses.review"] })`, or `{ query: "expenses" }`. It resolves through
 the CLI and atomically publishes each successful source’s tools and ordinary resources, then
 emits list-change notifications before returning instructions/outcomes. `catalogOnly: true`
 does not activate. Ambiguity uses `select_mcp_connection` with an explicitly chosen offered ID.

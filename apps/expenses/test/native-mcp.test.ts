@@ -168,6 +168,18 @@ describe("Expenses Task 1 demo", () => {
       expect(await response.text()).toContain("callMcpAppTool");
     }
   });
+
+  it("starts when a deployment exposes only its configured read scope", async () => {
+    vi.stubEnv("DOWNSTREAM_SCOPES", "expenses:read");
+    const readOnlyApp = await createApp();
+
+    const metadata = await readOnlyApp.request("/.well-known/oauth-protected-resource");
+    expect(metadata.status).toBe(200);
+    expect((await metadata.json()).weldall_mcp).toMatchObject({
+      discoveryScopes: ["expenses:read"],
+    });
+  });
+
   it("advertises the native endpoint, discovery scope and stable revision alongside HTTP", async () => {
     const metadata = await app.request("/.well-known/oauth-protected-resource");
     expect(metadata.status).toBe(200);
