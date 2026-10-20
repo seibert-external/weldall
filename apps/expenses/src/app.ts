@@ -46,23 +46,32 @@ export const createApp = async () => {
             };
           },
         },
-        {
-          name: "create_expense",
-          description: "Create a demonstration expense (not persisted)",
-          inputSchema: {
-            type: "object",
-            properties: { description: { type: "string", minLength: 1, maxLength: 200 } },
-            required: ["description"],
-            additionalProperties: false,
-          },
-          scopes: ["expenses:create"],
-          annotations: { readOnlyHint: false, destructiveHint: false },
-          async handler(args) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ id: "expense-new", ...args }) }],
-            };
-          },
-        },
+        ...(env.downstreamScopes.includes("expenses:create")
+          ? [
+              {
+                name: "create_expense",
+                description: "Create a demonstration expense (not persisted)",
+                inputSchema: {
+                  type: "object" as const,
+                  properties: { description: { type: "string", minLength: 1, maxLength: 200 } },
+                  required: ["description"],
+                  additionalProperties: false,
+                },
+                scopes: ["expenses:create"],
+                annotations: { readOnlyHint: false, destructiveHint: false },
+                async handler(args: Record<string, unknown>) {
+                  return {
+                    content: [
+                      {
+                        type: "text" as const,
+                        text: JSON.stringify({ id: "expense-new", ...args }),
+                      },
+                    ],
+                  };
+                },
+              },
+            ]
+          : []),
       ],
       resources: [
         {
