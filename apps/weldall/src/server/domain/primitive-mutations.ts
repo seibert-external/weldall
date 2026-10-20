@@ -384,6 +384,7 @@ export async function mutateResource(
         "CONFLICT",
         `Resource ${current.key} is selected by machine ${access.client.clientId}. Remove it from machine access first.`,
       );
+    await assertNoNativeMcpDependents(tx, current.key);
     const deleted = await tx.downstreamResource.deleteMany({
       where: { id: current.id, version: input.expectedVersion },
     });
@@ -403,6 +404,7 @@ export async function mutateResource(
     if (!current) throw new PrimitiveMutationError("NOT_FOUND", "Resource not found.");
     assertVersion(current.version, input.expectedVersion, "resource");
   }
+  if (current && !parsed.enabled) await assertNoNativeMcpDependents(tx, current.key);
   const scopes = await scopesByKeys(tx, parsed.scopeKeys);
   await assertPrefixes(
     tx,
@@ -482,6 +484,18 @@ export async function mutateResource(
   });
   await resourceAudit(tx, actor, "resource_scopes.replaced", current, updated);
   return updated;
+}
+
+async function assertNoNativeMcpDependents(tx: Prisma.TransactionClient, resourceKey: string) {
+  if (
+    await tx.skill.count({
+      where: { mcpDependencies: { array_contains: [{ kind: "resource", resourceKey }] } },
+    })
+  )
+    throw new PrimitiveMutationError(
+      "CONFLICT",
+      "Remove native MCP skill dependencies before disabling or deleting this resource.",
+    );
 }
 
 type ResourceMutableInput = {

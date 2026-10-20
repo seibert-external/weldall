@@ -14,8 +14,25 @@ import {
   mcpResourceReadSchema,
 } from "../src/mcp/contracts.js";
 
+import {
+  nativeMcpMetadataSchema,
+  nativeMcpScopesSchema,
+  nativeMcpToolsSchema,
+  nativeMcpResourcesSchema,
+} from "../src/mcp/native.js";
+import {
+  nativeDiscoveryRequestSchema,
+  nativeDiscoveryResponseSchema,
+} from "../src/mcp/discovery.js";
+
 // JSON Schema carries structural contracts; byte/depth/URI/base64 checks are enforced by both clients.
 const schemas = {
+  nativeMetadata: nativeMcpMetadataSchema,
+  nativeScopes: nativeMcpScopesSchema,
+  nativeTools: nativeMcpToolsSchema,
+  nativeResources: nativeMcpResourcesSchema,
+  nativeDiscoveryRequest: nativeDiscoveryRequestSchema,
+  nativeDiscoveryResponse: nativeDiscoveryResponseSchema,
   connectors: mcpConnectorsSchema,
   connections: mcpConnectionsSchema,
   tools: mcpToolsResponseSchema,
@@ -26,6 +43,19 @@ const schemas = {
   toolCall: mcpToolCallSchema,
   resourceRead: mcpResourceReadSchema,
 };
+const preserveTupleBounds = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(preserveTupleBounds);
+  if (typeof value !== "object" || value === null) return value;
+  const result = Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, preserveTupleBounds(child)]),
+  ) as Record<string, unknown>;
+  if (Array.isArray(result.prefixItems) && result.items === undefined) {
+    result.minItems = result.prefixItems.length;
+    result.maxItems = result.prefixItems.length;
+    result.items = false;
+  }
+  return result;
+};
 const serialized =
   JSON.stringify(
     {
@@ -33,7 +63,7 @@ const serialized =
       schemas: Object.fromEntries(
         Object.entries(schemas).map(([name, schema]) => [
           name,
-          z.toJSONSchema(schema, { io: "input" }),
+          preserveTupleBounds(z.toJSONSchema(schema, { io: "input" })),
         ]),
       ),
     },

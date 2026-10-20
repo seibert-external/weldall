@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any, Protocol, cast
@@ -19,7 +21,7 @@ from .crypto import is_sha256_jwk_thumbprint
 from .discovery import WeldallDiscovery
 from .dpop import verify_strict_dpop
 from .errors import WeldallAuthError, oauth_error_response
-from .http import Request, Response
+from .http import Headers, Request, Response
 from .identity import has_verified_email
 from .jwt import (
     _validate_registered_times,
@@ -150,6 +152,7 @@ class WeldallHandlers:
     protected_resource_metadata: _MetadataHandler
     jwks: _MetadataHandler
     skills: Callable[[Request], Response]
+    mcp: Callable[[Request], Awaitable[Response]]
 
 
 class Weldall:
@@ -215,6 +218,38 @@ class Weldall:
         self.token_endpoint = f"{self.issuer}/oauth/token"
         self.skills_endpoint = f"{self.issuer}{SKILL_CATALOG_PATH}" if skills is not None else None
         self._skills_provider = skills
+        self._mcp_provider = options.get("mcp")
+        self._mcp_metadata: dict[str, Any] | None = None
+        if self._mcp_provider is not None:
+            from .mcp import MCP_LIMITS, _validate
+
+            metadata = _validate(
+                "nativeMetadata",
+                self._mcp_provider.metadata(self.issuer),
+                MCP_LIMITS["definitionsBytes"],
+            )
+            endpoint = urlsplit(metadata["endpoint"])
+            if (
+                replay == "disabled"
+                or _origin(metadata["endpoint"]) != self.issuer
+                or endpoint.path != self._mcp_provider.path
+                or endpoint.query
+                or endpoint.fragment
+                or endpoint.username is not None
+                or endpoint.password is not None
+                or metadata["discoveryScopes"] != list(self._mcp_provider.discovery_scopes)
+                or any(
+                    scope not in self.supported_scopes
+                    for scope in [
+                        *metadata["discoveryScopes"],
+                        *self._mcp_provider.operation_scopes,
+                    ]
+                )
+            ):
+                raise TypeError(
+                    "Native MCP requires replay protection and matching endpoint/scopes"
+                )
+            self._mcp_metadata = metadata
         self.handlers = WeldallHandlers(
             token=self.token_endpoint_handler,
             authorization_server_metadata=cast(
@@ -223,6 +258,7 @@ class Weldall:
             protected_resource_metadata=cast(_MetadataHandler, self.protected_resource_metadata),
             jwks=cast(_MetadataHandler, self.jwks),
             skills=self.skills,
+            mcp=self.mcp,
         )
 
     def close(self) -> None:
@@ -686,6 +722,38 @@ class Weldall:
                 response=oauth_error_response(known),
             )
 
+    @property
+    def mcp_metadata(self) -> dict[str, Any] | None:
+        return copy.deepcopy(self._mcp_metadata)
+
+    async def mcp(self, request: Request) -> Response:
+        metadata = self._mcp_metadata
+        provider = self._mcp_provider
+        if provider is None or metadata is None or urlsplit(request.url).path != provider.path:
+            return Response.empty(status=404)
+        origin = request.headers.get("origin")
+        if origin is not None and origin != self.issuer:
+            return Response.empty(status=403)
+        verification = await asyncio.to_thread(
+            self.verify_no_throw, request, {"scopes": metadata["discoveryScopes"]}
+        )
+        if not verification.ok:
+            return verification.response
+        revision = request.headers.get("weldall-mcp-revision")
+        if revision is not None and revision != metadata["revision"]:
+            return Response.json({"error": "stale_mcp_catalog"}, status=409)
+        try:
+            response = await provider.handle(request, verification.auth)
+            return Response(
+                response.body,
+                response.status,
+                Headers(
+                    {**response.headers.as_dict(), "weldall-mcp-revision": metadata["revision"]}
+                ),
+            )
+        except Exception:
+            return Response.json({"error": "mcp_unavailable"}, status=503)
+
     def authorization_server_metadata(self, _request: Request | None = None) -> Response:
         return Response.json(
             {
@@ -710,6 +778,8 @@ class Weldall:
         }
         if self.skills_endpoint is not None:
             value["weldall_skills_endpoint"] = self.skills_endpoint
+        if self._mcp_metadata is not None:
+            value["weldall_mcp"] = self._mcp_metadata
         return Response.json(value)
 
     def jwks(self, _request: Request | None = None) -> Response:

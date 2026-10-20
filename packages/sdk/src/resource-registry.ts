@@ -1,3 +1,5 @@
+import type { NativeMcpMetadata } from "./mcp/native.js";
+
 export type ResourceRegistryEntry = {
   key: string;
   name: string;
@@ -7,6 +9,8 @@ export type ResourceRegistryEntry = {
   requestPrefixes: string[];
   supportedScopes: string[];
   grantedScopes: string[];
+  /** Optional authorized, live SDK advertisement. Ordinary registry reads omit it. */
+  mcp?: NativeMcpMetadata;
 };
 
 const parseHttpsUrl = (value: string, label: string): URL => {

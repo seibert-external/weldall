@@ -1,0 +1,13 @@
+.gcloudignore
+.git
+#!include:.gitignore
+.env
+.env.*
+**/.env
+**/.env.*
+node_modules
+**/node_modules
+.lavish
+.pi-subagents
+**/__pycache__
+**/.venv

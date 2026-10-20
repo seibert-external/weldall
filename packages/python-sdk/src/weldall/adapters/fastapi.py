@@ -82,6 +82,16 @@ class FastAPIWeldall(Weldall):
         def skills(request: FastAPIRequest) -> StarletteResponse:
             return _response(self.handlers.skills(_request(request)))
 
+        async def mcp(request: FastAPIRequest) -> StarletteResponse:
+            from ..mcp import MCP_LIMITS
+
+            body = bytearray()
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > MCP_LIMITS["requestBytes"]:
+                    return JSONResponse({"error": "request_too_large"}, status_code=413)
+                body.extend(chunk)
+            return _response(await self.handlers.mcp(_request(request, body=bytes(body))))
+
         app.add_api_route(
             "/.well-known/oauth-authorization-server",
             authorization_server_metadata,
@@ -109,6 +119,15 @@ class FastAPIWeldall(Weldall):
                 include_in_schema=False,
             )
         app.add_api_route("/oauth/token", token, methods=["POST"], include_in_schema=False)
+        if self.mcp_metadata is not None:
+            from urllib.parse import urlsplit
+
+            app.add_api_route(
+                urlsplit(self.mcp_metadata["endpoint"]).path,
+                mcp,
+                methods=["GET", "POST", "DELETE"],
+                include_in_schema=False,
+            )
         return app
 
 

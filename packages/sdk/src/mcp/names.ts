@@ -9,6 +9,11 @@ export function localMcpToolName(connectorKey: string, upstreamName: string) {
   return `mcp_${namespace}__${mcpToolNameSchema.parse(upstreamName)}`;
 }
 
+/** Preserve the UI scheme so hosts recognize the app; authorization still uses session maps. */
+export function localMcpAppResourceUri(namespace: string, upstreamUri: string) {
+  return localMcpResourceUri(namespace, upstreamUri).replace(/^weldall-mcp:/, "ui:");
+}
+
 /** A display URI, not authorization. Only session-map entries may be read; never decode arbitrary input. */
 export function localMcpResourceUri(connectorKey: string, upstreamUri: string) {
   return `weldall-mcp://${mcpConnectorKeySchema.parse(connectorKey)}/${Buffer.from(mcpUriSchema.parse(upstreamUri), "utf8").toString("base64url")}`;

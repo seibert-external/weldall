@@ -81,6 +81,19 @@ describe.skipIf(process.platform === "win32")("CLI subprocess boundary", () => {
     expect(await checked.loadOrganizationInstructions()).toBe(organizationInstructions);
     expect((await readFile(calls, "utf8")).trim()).toBe(JSON.stringify(["status", "--json"]));
   });
+  it.each([undefined, 1, 2, "1"])(
+    "negotiates native discovery explicitly (%s)",
+    async (version) => {
+      const { cli } = await setup({
+        FAKE_STATUS: JSON.stringify({
+          organizationInstructions: "",
+          ...(version === undefined ? {} : { nativeDiscoveryVersion: version }),
+        }),
+      });
+      await cli.loadOrganizationInstructions();
+      expect(cli.nativeDiscoveryVersion).toBe(version === 1 ? 1 : undefined);
+    },
+  );
   it("accepts an explicitly empty organization configuration", async () => {
     const { cli } = await setup({ FAKE_STATUS: JSON.stringify({ organizationInstructions: "" }) });
     expect(await cli.loadOrganizationInstructions()).toBe("");

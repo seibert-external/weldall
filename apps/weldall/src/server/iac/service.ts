@@ -23,7 +23,7 @@ import { LoginError } from "../auth/oidc-config";
 import { AdminDomainError } from "../admin/service";
 import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
 import { createPlan, desiredObjects, loadPlanningState, skillMcpState } from "./planner";
-import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
+import { skillMcpDependenciesSchema, mcpDependencyKey } from "@weldall/sdk/mcp";
 import { lockSkillScopeChanges } from "../domain/configuration";
 import { prismaAuditWriter, type AuditEventInput } from "../audit/service";
 import type { AuditReasonCode } from "../../lib/audit";
@@ -329,7 +329,7 @@ async function executeDesiredState({
     for (const item of desired
       .filter((candidate) => candidate.kind === kind)
       .sort((a, b) =>
-        kind === "loginProvider"
+        kind === "loginProvider" || kind === "connector"
           ? Number((b.state as any).enabled) - Number((a.state as any).enabled)
           : 0,
       )) {
@@ -384,13 +384,23 @@ async function executeDesiredState({
             scopes: withoutReplacedScopes(state.scopes),
           },
         });
-      } else if (kind === "skill" && replacementScopes.size) {
-        const state = item.state as { requiredScopes: string[] };
+      } else if (kind === "skill" && (replacementScopes.size || replacementResources.size)) {
+        const state = item.state as { requiredScopes: string[]; mcpDependencies?: unknown };
         await reconcileObject({
           item,
           state: {
             ...(item.state as object),
             requiredScopes: withoutReplacedScopes(state.requiredScopes),
+            mcpDependencies: skillMcpDependenciesSchema
+              .parse(state.mcpDependencies ?? [])
+              .filter(
+                (dep) =>
+                  !(
+                    "kind" in dep &&
+                    dep.kind === "resource" &&
+                    replacementResources.has(dep.resourceKey)
+                  ),
+              ),
           },
         });
       } else if (
@@ -495,14 +505,45 @@ async function stageMcpRemovals(
   actor: IacActor,
 ) {
   const desiredByAddress = new Map(desired.map((item) => [item.address, item]));
+  const retiringTypes = new Set<string>();
+  for (const binding of bindings.filter((item) => item.connectorId)) {
+    const connector = await tx.connector.findUnique({ where: { id: binding.connectorId! } });
+    const next = desiredByAddress.get(binding.address);
+    if (
+      connector?.enabled &&
+      (!next || next.identity !== connector.key || !(next.state as { enabled: boolean }).enabled)
+    )
+      retiringTypes.add(connector.providerType);
+  }
+  const replacingResources = new Set<string>();
+  for (const binding of bindings.filter((item) => item.resourceId)) {
+    const resource = await tx.downstreamResource.findUnique({ where: { id: binding.resourceId! } });
+    const next = desiredByAddress.get(binding.address);
+    if (
+      resource &&
+      next &&
+      (next.identity !== resource.key ||
+        (next.state as { resourceIdentifier: string }).resourceIdentifier !==
+          resource.resourceIdentifier)
+    )
+      replacingResources.add(resource.key);
+  }
   for (const binding of bindings.filter((b) => b.skillId)) {
     const current = await tx.skill.findUnique({ where: { id: binding.skillId! } });
     if (!current) continue;
     const previous = skillMcpDependenciesSchema.parse(current.mcpDependencies);
     const next = desiredByAddress.get(binding.address);
-    const desiredDeps = next?.kind === "skill" ? ((next.state as any).mcpDependencies ?? []) : [];
-    const kept = previous.filter((dep) =>
-      desiredDeps.some((d: { connectorKey: string }) => d.connectorKey === dep.connectorKey),
+    const desiredDeps = skillMcpDependenciesSchema.parse(
+      next?.kind === "skill" ? ((next.state as any).mcpDependencies ?? []) : [],
+    );
+    const kept = previous.filter(
+      (dep) =>
+        !(
+          "kind" in dep &&
+          (dep.kind === "connector"
+            ? retiringTypes.has(dep.connectorType)
+            : replacingResources.has(dep.resourceKey))
+        ) && desiredDeps.some((desired) => mcpDependencyKey(desired) === mcpDependencyKey(dep)),
     );
     if (kept.length === previous.length) continue;
     await mutateSkill(

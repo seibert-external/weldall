@@ -26,6 +26,18 @@
       "types": "./dist/mcp/index.d.ts",
       "default": "./dist/mcp/index.js"
     },
+    "./mcp/browser": {
+      "types": "./dist/mcp/browser.d.ts",
+      "default": "./dist/mcp/browser.js"
+    },
+    "./mcp/display": {
+      "types": "./dist/mcp/display.d.ts",
+      "default": "./dist/mcp/display.js"
+    },
+    "./mcp/server": {
+      "types": "./dist/mcp/server.d.ts",
+      "default": "./dist/mcp/server.js"
+    },
     "./hono": {
       "types": "./dist/hono.d.ts",
       "default": "./dist/hono.js"
@@ -57,9 +69,12 @@
   },
   "dependencies": {
     "jose": "^6.2.10",
+    "sanitize-html": "2.18.1",
     "zod": "4.4.3"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ajv": "^8.20.0",
     "astro": ">=7 <8",
     "hono": ">=4 <5",
     "next": ">=16 <17",
@@ -69,6 +84,12 @@
     "gray-matter": "^4.0.3"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "ajv": {
+      "optional": true
+    },
     "astro": {
       "optional": true
     },
@@ -92,11 +113,14 @@
     }
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@orama/orama": "^3.1.6",
     "@orama/stemmers": "^3.0.3",
     "@orama/stopwords": "^3.0.0",
     "@types/node": "catalog:",
+    "@types/sanitize-html": "2.16.2",
     "@weldall/tsconfig": "workspace:*",
+    "ajv": "^8.20.0",
     "astro": "^7.2.7",
     "gray-matter": "^4.0.3",
     "hono": "^4.13.5",

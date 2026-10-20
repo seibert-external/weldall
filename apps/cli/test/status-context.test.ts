@@ -60,6 +60,7 @@ describe("status JSON organization context", () => {
       assignedScopes: ["reports:read"],
       grants: [],
       organizationInstructions,
+      nativeDiscoveryVersion: 1,
     });
     expect(settings.getCliAppendix).toHaveBeenCalledOnce();
   });
@@ -81,6 +82,7 @@ describe("status JSON organization context", () => {
         assignedScopes: ["reports:read"],
         grants: [],
         organizationInstructions: null,
+        nativeDiscoveryVersion: 1,
       });
       expect(output).not.toContain("stale cached organization");
     },

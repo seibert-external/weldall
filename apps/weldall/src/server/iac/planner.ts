@@ -7,7 +7,11 @@ import {
 } from "../domain/secret-primitive-contracts";
 import { sharedConfigInclude } from "../connectors/core/shared-connections";
 import { secretPrimitiveBlockers } from "./secret-primitives";
-import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
+import {
+  skillMcpDependenciesSchema,
+  mcpDependencyKey,
+  type SkillMcpDependency,
+} from "@weldall/sdk/mcp";
 import type { ConnectorConfig } from "../connectors/contracts";
 import { buildConnectorState } from "../connectors/configuration";
 import { connectorScopeInclude } from "../connectors/access";
@@ -748,32 +752,34 @@ function mcpGraphBlockers(manifest: DesiredState, current: CurrentObject[]): Iac
     (o) => !o.tombstone && o.ownerWorkspaceId !== manifest.workspace.id,
   );
   const final = [...retained, ...desired];
-  const connectors = new Map(
-    final
-      .filter((o) => o.kind === "connector")
-      .map((o) => [o.identity, o.state as ConnectorConfig]),
-  );
+  const resolves = (objects: typeof final, dep: SkillMcpDependency) =>
+    objects.some((object) => {
+      if ("kind" in dep && dep.kind === "resource")
+        return (
+          object.kind === "resource" &&
+          object.identity === dep.resourceKey &&
+          (object.state as { enabled: boolean }).enabled
+        );
+      if (object.kind !== "connector") return false;
+      const config = object.state as ConnectorConfig;
+      return (
+        config.enabled &&
+        getConnectorProvider(config.type).mcp &&
+        ("connectorKey" in dep
+          ? object.identity === dep.connectorKey
+          : config.type === dep.connectorType)
+      );
+    });
   const blockers: IacBlocker[] = [];
   for (const object of final.filter((o) => o.kind === "skill")) {
     const deps = skillMcpDependenciesSchema.parse((object.state as any).mcpDependencies ?? []);
     for (const dep of deps) {
-      const connector = connectors.get(dep.connectorKey);
       const isDesired = desired.includes(object as (typeof desired)[number]);
-      const wasResolved = current.some(
-        (o) =>
-          o.kind === "connector" &&
-          o.identity === dep.connectorKey &&
-          (o.state as ConnectorConfig).enabled &&
-          getConnectorProvider((o.state as ConnectorConfig).type).mcp,
-      );
-      if (
-        (!connector?.enabled || !getConnectorProvider(connector.type).mcp) &&
-        (isDesired || wasResolved)
-      )
+      if (!resolves(final, dep) && (isDesired || resolves(current, dep)))
         blockers.push({
           code: "UNRESOLVED_MCP_DEPENDENCY",
           ...(object.address ? { address: object.address } : {}),
-          message: `Skill ${object.identity} requires enabled MCP connector ${dep.connectorKey}.`,
+          message: `Skill ${object.identity} requires enabled MCP source ${mcpDependencyKey(dep)}.`,
         });
     }
   }
@@ -802,8 +808,19 @@ function orderMcpActions(
     );
     if (!object?.state) continue;
     if (action.kind === "skill")
-      for (const dep of (object.state as any).mcpDependencies ?? [])
-        edge("connector", dep.connectorKey, action);
+      for (const dep of skillMcpDependenciesSchema.parse(
+        (object.state as any).mcpDependencies ?? [],
+      )) {
+        if ("connectorKey" in dep) edge("connector", dep.connectorKey, action);
+        else if (dep.kind === "resource") edge("resource", dep.resourceKey, action);
+        else
+          for (const connector of [...desired, ...current].filter(
+            (item) =>
+              item.kind === "connector" &&
+              (item.state as ConnectorConfig).type === dep.connectorType,
+          ))
+            edge("connector", connector.identity, action);
+      }
     if (action.kind === "sharedConnection") {
       edge("connector", (object.state as any).connectorKey, action);
       for (const scope of (object.state as any).useScopes) edge("scope", scope, action);

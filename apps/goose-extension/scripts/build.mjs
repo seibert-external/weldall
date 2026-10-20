@@ -12,6 +12,9 @@ await build({
   packages: "external",
   // Bundle our unpublished workspace contracts; only pinned public packages remain external.
   alias: {
+    "@weldall/sdk/mcp/display": fileURLToPath(
+      new URL("../../../packages/sdk/src/mcp/display.ts", import.meta.url),
+    ),
     "@weldall/sdk/mcp": fileURLToPath(
       new URL("../../../packages/sdk/src/mcp/index.ts", import.meta.url),
     ),

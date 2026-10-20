@@ -127,13 +127,7 @@ export async function saveConnectorConfiguration({
     );
   if (current && current.providerType !== config.type)
     throw new ConnectorError("immutable_provider", "Connector provider type cannot change.", 409);
-  if (
-    current &&
-    !config.enabled &&
-    (await tx.skill.count({
-      where: { mcpDependencies: { array_contains: [{ connectorKey: current.key }] } },
-    }))
-  )
+  if (current && !config.enabled && (await hasMcpDependents(tx, current)))
     throw new ConnectorError(
       "in_use",
       "Remove skill MCP dependencies before disabling this connector.",
@@ -295,11 +289,7 @@ export async function deleteConnectorConfiguration({
 }) {
   const connector = await tx.connector.findUniqueOrThrow({ where: { id } });
   assertConfigurationVersion({ current: connector, expected: version });
-  if (
-    await tx.skill.count({
-      where: { mcpDependencies: { array_contains: [{ connectorKey: connector.key }] } },
-    })
-  )
+  if (await hasMcpDependents(tx, connector))
     throw new ConnectorError(
       "in_use",
       "Remove skill MCP dependencies before deleting this connector.",
@@ -313,6 +303,32 @@ export async function deleteConnectorConfiguration({
     event: "configuration",
     subjectId: id,
     operation: "connector.deleted",
+  });
+}
+
+/** A family dependency survives removal only while another enabled provider remains. */
+async function hasMcpDependents(
+  tx: Tx,
+  connector: { id: string; key: string; providerType: string },
+) {
+  const alternatives = await tx.connector.count({
+    where: { id: { not: connector.id }, providerType: connector.providerType, enabled: true },
+  });
+  return tx.skill.count({
+    where: {
+      OR: [
+        { mcpDependencies: { array_contains: [{ connectorKey: connector.key }] } },
+        ...(alternatives
+          ? []
+          : [
+              {
+                mcpDependencies: {
+                  array_contains: [{ kind: "connector", connectorType: connector.providerType }],
+                },
+              },
+            ]),
+      ],
+    },
   });
 }
 

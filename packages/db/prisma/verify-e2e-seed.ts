@@ -13,6 +13,7 @@
  *
  * Exit 0 = seed complete; exit 1 = one or more required rows are missing.
  */
+import { isDeepStrictEqual } from "node:util";
 import { PrismaClient } from "@prisma/client";
 import { ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY } from "../src/system-scopes.js";
 import { DEVELOPMENT_SKILL_COUNT } from "./seed.dev-skills.js";
@@ -82,7 +83,7 @@ const requiredSkill = await db.skill.findUnique({
 });
 const requiredExpenseSkill = await db.discoveredSkill.findUnique({
   where: { canonicalId: REQUIRED_EXPENSE_SKILL_SLUG },
-  select: { title: true, content: true, requiredScopes: true },
+  select: { title: true, content: true, requiredScopes: true, mcpDependencies: true },
 });
 
 await db.$disconnect();
@@ -153,6 +154,13 @@ check(
     requiredExpenseSkill.requiredScopes.includes("expenses:read") &&
     requiredExpenseSkill.content.includes(`${EXPENSES_API_PREFIX}/expenses`),
   () => `found: ${JSON.stringify(requiredExpenseSkill ?? null)}`,
+);
+
+check(
+  "expenses.review must activate the whole native expenses resource",
+  isDeepStrictEqual(requiredExpenseSkill?.mcpDependencies, [
+    { kind: "resource", resourceKey: "expenses" },
+  ]),
 );
 
 if (failures.length > 0) {

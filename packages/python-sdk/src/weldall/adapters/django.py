@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Sequence
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from django.http import HttpRequest, HttpResponse
 from django.urls import path, re_path
@@ -48,6 +50,7 @@ class DjangoWeldall:
         self.resource = core.resource
         self.token_endpoint = core.token_endpoint
         self.skills_endpoint = core.skills_endpoint
+        self.mcp_metadata = core.mcp_metadata
         self.handlers = core.handlers
 
     def ready(self) -> None:
@@ -109,6 +112,17 @@ class DjangoWeldall:
             return _method_not_allowed("POST")
         return _response(self.handlers.token(_request(request, body=True)))
 
+    @csrf_exempt
+    async def mcp(self, request: HttpRequest) -> HttpResponse:
+        from ..mcp import MCP_LIMITS
+
+        body = await asyncio.to_thread(request.read, MCP_LIMITS["requestBytes"] + 1)
+        if len(body) > MCP_LIMITS["requestBytes"]:
+            return _response(Response.json({"error": "request_too_large"}, status=413))
+        value = _request(request)
+        value.body = body
+        return _response(await self.handlers.mcp(value))
+
     def urls(self) -> list[Any]:
         patterns = [
             path(
@@ -135,6 +149,14 @@ class DjangoWeldall:
                     ".well-known/weldall-skills",
                     self.skills,
                     name="weldall-skills",
+                )
+            )
+        if self.mcp_metadata is not None:
+            patterns.append(
+                path(
+                    urlsplit(self.mcp_metadata["endpoint"]).path.lstrip("/"),
+                    self.mcp,
+                    name="weldall-mcp",
                 )
             )
         return patterns

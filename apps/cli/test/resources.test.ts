@@ -117,6 +117,20 @@ describe("scope overview", () => {
 });
 
 describe("prepared resource clients", () => {
+  it("rejects a changed source identity before exchanging any token", async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json([{ ...expenses, downstreamClientId: "new-client" }]),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const { prepareResourceClient } = await import("../src/services/resources.js");
+    await expect(
+      prepareResourceClient(config, `${EXPENSES_ISSUER}/api/mcp`, ["expenses:read"], {
+        expectedSubject: "user",
+        expectedResource: expenses,
+      }),
+    ).rejects.toThrow("registration changed");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("prepares authorization once and creates a distinct proof for every target request", async () => {
     const target = `${EXPENSES_ISSUER}/api/expenses`;
     const proofs: string[] = [];

@@ -30,6 +30,9 @@ try {
     "./astro",
     "./hono",
     "./mcp",
+    "./mcp/browser",
+    "./mcp/display",
+    "./mcp/server",
     "./next",
     "./starlight",
   ]);
@@ -40,18 +43,22 @@ try {
   assert.equal(packageJson.engines.node, ">=22.15.0");
   assert.equal(JSON.stringify(packageJson).includes("workspace:"), false);
   assert.deepEqual(packageJson.peerDependencies, {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@orama/orama": "^3.1.6",
     "@orama/stemmers": "^3.0.3",
     "@orama/stopwords": "^3.0.0",
+    ajv: "^8.20.0",
     astro: ">=7 <8",
     "gray-matter": "^4.0.3",
     hono: ">=4 <5",
     next: ">=16 <17",
   });
   assert.deepEqual(packageJson.peerDependenciesMeta, {
+    "@modelcontextprotocol/sdk": { optional: true },
     "@orama/orama": { optional: true },
     "@orama/stemmers": { optional: true },
     "@orama/stopwords": { optional: true },
+    ajv: { optional: true },
     astro: { optional: true },
     "gray-matter": { optional: true },
     hono: { optional: true },
@@ -66,6 +73,14 @@ try {
     "package/dist/machine.d.ts",
     "package/dist/mcp/index.js",
     "package/dist/mcp/index.d.ts",
+    "package/dist/mcp/browser.js",
+    "package/dist/mcp/browser.d.ts",
+    "package/dist/mcp/display.js",
+    "package/dist/mcp/display.d.ts",
+    "package/dist/mcp/server.js",
+    "package/dist/mcp/server.d.ts",
+    "package/dist/mcp/native.js",
+    "package/dist/mcp/native.d.ts",
     "package/dist/mcp/client.js",
     "package/dist/mcp/client.d.ts",
     "package/dist/mcp/contracts.js",

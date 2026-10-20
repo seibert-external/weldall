@@ -60,6 +60,7 @@ export async function resolveCli(env = process.env, cwd = process.cwd()): Promis
 }
 
 export interface CliRunner {
+  nativeDiscoveryVersion?: 1 | undefined;
   run(
     args: string[],
     signal?: AbortSignal,
@@ -69,6 +70,7 @@ export interface CliRunner {
 }
 
 export class WeldallCli implements CliRunner {
+  nativeDiscoveryVersion?: 1;
   private readonly operations = new Set<AbortController>();
   private readonly pending = new Set<Promise<string>>();
   private closed = false;
@@ -99,6 +101,9 @@ export class WeldallCli implements CliRunner {
     // Match the CLI's organization appendix bound; never silently truncate policy.
     if (typeof instructions !== "string" || instructions.length > 100_000)
       throw new ExtensionError("invalid_response");
+    if ((status as Record<string, unknown>).nativeDiscoveryVersion === 1)
+      this.nativeDiscoveryVersion = 1;
+    else delete this.nativeDiscoveryVersion;
     return instructions;
   }
 

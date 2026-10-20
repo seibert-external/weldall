@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTestRuntimeHook } from "../src/test-runtime.js";
+import { nativeCredentialStore } from "../src/storage/keychain.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -33,6 +34,38 @@ describe("test-only runtime hook", () => {
     expect(diagnostics.execArgv).toEqual(process.execArgv);
     expect(diagnostics.autoloadSentinels).toEqual({ dotenv: false, bunfig: false });
     expect(diagnostics).not.toHaveProperty("secret");
+  });
+
+  it("checks explicit replacement and two in-place updates through the production store", async () => {
+    let stored: string | null = null;
+    const set = vi
+      .spyOn(nativeCredentialStore, "set")
+      .mockImplementation(async (_service, _account, password) => {
+        stored = password;
+      });
+    const get = vi.spyOn(nativeCredentialStore, "get").mockImplementation(async () => stored);
+    const clear = vi.spyOn(nativeCredentialStore, "clear").mockImplementation(async () => {
+      stored = null;
+    });
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await expect(
+      runTestRuntimeHook({ NODE_ENV: "test", WELDALL_TEST_KEYRING_SMOKE: "production-updates" }),
+    ).resolves.toBe(true);
+    expect(set.mock.calls.map((call) => call[3] ?? "update")).toEqual([
+      "replace",
+      "update",
+      "update",
+    ]);
+    expect(new Set(set.mock.calls.map((call) => call[2])).size).toBe(3);
+    expect(get).toHaveBeenCalledTimes(3);
+    expect(clear).toHaveBeenCalledExactlyOnceWith(
+      "dev.seibert.weldall-cli.smoke.production-updates",
+      "account-production-updates",
+    );
+    expect(stored).toBeNull();
+    expect(JSON.parse(String(write.mock.calls[0]?.[0])).keyringRoundTrip).toBe(true);
+    for (const call of set.mock.calls)
+      expect(String(write.mock.calls[0]?.[0])).not.toContain(call[2]);
   });
 
   it("round-trips and always deletes an injected secure-store entry without exposing its secret", async () => {

@@ -127,6 +127,55 @@ The constructor form is
 This explicit instance injection avoids global SDK state and lets Django projects
 choose one SDK instance per resource configuration.
 
+## Native MCP (unreleased)
+
+The development SDK can serve ordinary MCP tools and fixed resources alongside HTTP. No separate
+MCP runtime is required; protocol/JSON Schema dependencies already used by the SDK are reused.
+Add `mcp` to the same options used by core, FastAPI or Django:
+
+```python
+from weldall.native_mcp import create_native_mcp
+
+
+async def whoami(arguments, context):
+    return {"content": [{"type": "text", "text": context.auth.subject}]}
+
+
+mcp = create_native_mcp(
+    path="/api/mcp",
+    description="Contracts visible to the authenticated caller",
+    discovery_scopes=["contracts:read"],
+    tools=[
+        {
+            "name": "whoami",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+            "scopes": ["contracts:read"],
+            "annotations": {"readOnlyHint": True},
+            "handler": whoami,
+        }
+    ],
+)
+options["mcp"] = mcp
+# Initialize the existing core/framework SDK with these options.
+```
+
+FastAPI `register_routes()` and Django `urls()` mount the configured endpoint. Framework-neutral
+users await `weldall.handlers.mcp(request)`. Catalogs are immutable; replace the provider/restart
+to change definitions. Metadata advertises the endpoint, all discovery scopes and catalog revision.
+The endpoint must remain inside the registered resource’s HTTPS origin and approved request prefixes.
+
+Discovery and every operation require explicit nonempty supported scopes; all listed scopes are
+required. Initialization/listing authenticates, and call/read additionally enforces operation scopes.
+Handlers receive verified user/machine identity and must enforce record-level business permissions.
+The transport is stateless Streamable HTTP with JSON responses, bounded messages and async
+cancellation. There are no sessions, Apps, resource templates, automatic retries or write replay.
+Cancellation cannot undo a completed write. Resource owners must audit business operations;
+central token activity does not audit direct MCP calls. Existing local token verification retains
+its user ten-minute/machine five-minute revocation window.
+
+Removing `mcp` disables advertisement and MCP without changing HTTP. Full cross-SDK/framework,
+installed-host and real-pilot acceptance remains pending; this section does not claim a released version.
+
 ## Call another service as a machine
 
 ```python
@@ -221,7 +270,7 @@ exactly one static `items` list or synchronous `load` callable:
 Catalogs are strictly validated, limited to 100 skills and 1 MiB, and require
 replay protection because Weldall fetches them with one-use signed assertions.
 
-Skills may include `mcpDependencies` with camelCase wire keys, e.g. `[{"connectorKey": "atlassian-mcp", "tools": ["getJiraIssue"], "includeResources": False}]`; `SkillMcpDependency` is exported for typing. Limit: eight distinct connectors and 32 tools each; empty tools require `includeResources: True`. The SDK sorts connectors/deduplicates and sorts tools without mutating input, and omits empty dependencies. References may precede connector/scope creation; Weldall checks visibility/access, and the SDK does not provision connectors or credentials.
+Skills may include exact MCP dependencies with camelCase wire keys, e.g. `[{"connectorKey": "atlassian-mcp", "tools": ["getJiraIssue"], "includeResources": False}]`, or whole-source dependencies such as `[{"kind": "resource", "resourceKey": "billing"}]` and `[{"kind": "connector", "connectorType": "atlassian-mcp"}]`. `SkillMcpDependency` is exported for typing. A skill may declare at most eight distinct dependency selectors; exact dependencies allow up to 32 tools each, and empty tool lists require `includeResources: True`. The SDK sorts dependencies, deduplicates exact tools, and omits empty dependency arrays without mutating input. References may precede connector/scope creation; Weldall checks visibility/access, and the SDK does not provision connectors or credentials.
 
 ## Use managed signing keys
 

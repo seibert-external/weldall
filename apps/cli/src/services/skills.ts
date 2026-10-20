@@ -1,7 +1,7 @@
 import { createDpopProof } from "@weldall/sdk";
 import { CONFIG_REFRESH_HINT, type WeldallConfig } from "../config.js";
 import { CliError } from "../errors.js";
-import { isRecord, successfulResponse } from "../http.js";
+import { isRecord, successfulResponse, boundedJsonResponse } from "../http.js";
 import { withAccess } from "./auth.js";
 
 export type SkillVisibility = "DEFAULT" | "HIDDEN_IF_UNALLOWED";
@@ -72,34 +72,39 @@ const isSkillSummary = (value: unknown): value is SkillSummary =>
   (value.lastUpdatedAt === undefined || typeof value.lastUpdatedAt === "string") &&
   isSource(value.source);
 
-async function authenticatedGet(config: WeldallConfig, url: string) {
-  return withAccess(config, async (session) => {
-    const proof = await createDpopProof({
-      ...session.credentials,
-      method: "GET",
-      url,
-      accessToken: session.accessToken,
-    });
-    const value = await successfulResponse(
-      await fetch(url, {
+async function authenticatedGet(config: WeldallConfig, url: string, signal?: AbortSignal) {
+  return withAccess(
+    config,
+    async (session) => {
+      const proof = await createDpopProof({
+        ...session.credentials,
+        method: "GET",
+        url,
+        accessToken: session.accessToken,
+      });
+      const response = await fetch(url, {
         headers: {
           accept: "application/json",
           authorization: `DPoP ${session.accessToken}`,
           dpop: proof,
         },
         redirect: "error",
-      }),
-      "Weldall skill registry request",
-      CONFIG_REFRESH_HINT,
-    );
-    return { value, subject: session.subject };
-  });
+        ...(signal ? { signal } : {}),
+      });
+      const value = await (signal
+        ? boundedJsonResponse(response, signal)
+        : successfulResponse(response, "Weldall skill registry request", CONFIG_REFRESH_HINT));
+      return { value, subject: session.subject };
+    },
+    signal,
+  );
 }
 
 export async function listSkillsWithSubject(
   config: WeldallConfig,
+  signal?: AbortSignal,
 ): Promise<{ result: SkillList; subject: string }> {
-  const { value, subject } = await authenticatedGet(config, config.skills);
+  const { value, subject } = await authenticatedGet(config, config.skills, signal);
   if (
     !isRecord(value) ||
     !Array.isArray(value.items) ||
@@ -124,12 +129,14 @@ export async function listSkills(config: WeldallConfig): Promise<SkillList> {
 export async function showSkillWithSubject(
   config: WeldallConfig,
   slug: string,
+  signal?: AbortSignal,
 ): Promise<{ result: SkillDetail; subject: string }> {
   let authenticated: Awaited<ReturnType<typeof authenticatedGet>>;
   try {
     authenticated = await authenticatedGet(
       config,
       `${config.skills}/${encodeURIComponent(slug.trim())}`,
+      signal,
     );
   } catch (error) {
     if (error instanceof CliError && error.message.includes("HTTP 404"))

@@ -50,7 +50,23 @@ def _parse_mcp_dependencies(value: object) -> list[SkillMcpDependency]:
     result: list[SkillMcpDependency] = []
     keys: set[str] = set()
     for dependency in value:
-        if not _record(dependency) or dependency.keys() != _MCP_DEPENDENCY_KEYS:
+        if not _record(dependency):
+            raise TypeError("invalid skill MCP dependencies")
+        if dependency.get("kind") in ("resource", "connector"):
+            field = "resourceKey" if dependency["kind"] == "resource" else "connectorType"
+            key = dependency.get(field)
+            identity = f"{dependency['kind'] if field == 'resourceKey' else 'connector-type'}:{key}"
+            if (
+                dependency.keys() != {"kind", field}
+                or not isinstance(key, str)
+                or _MCP_CONNECTOR_KEY.fullmatch(key) is None
+                or identity in keys
+            ):
+                raise TypeError("invalid skill MCP dependencies")
+            keys.add(identity)
+            result.append(cast(SkillMcpDependency, dict(dependency)))
+            continue
+        if dependency.keys() != _MCP_DEPENDENCY_KEYS:
             raise TypeError("invalid skill MCP dependencies")
         key = dependency["connectorKey"]
         tools = dependency["tools"]
@@ -58,7 +74,7 @@ def _parse_mcp_dependencies(value: object) -> list[SkillMcpDependency]:
         if (
             not isinstance(key, str)
             or _MCP_CONNECTOR_KEY.fullmatch(key) is None
-            or key in keys
+            or f"connector:{key}" in keys
             or not isinstance(tools, list)
             or len(tools) > 32
             or any(
@@ -69,7 +85,7 @@ def _parse_mcp_dependencies(value: object) -> list[SkillMcpDependency]:
             or (not tools and not include_resources)
         ):
             raise TypeError("invalid skill MCP dependencies")
-        keys.add(key)
+        keys.add(f"connector:{key}")
         result.append(
             {
                 "connectorKey": key,
@@ -77,7 +93,16 @@ def _parse_mcp_dependencies(value: object) -> list[SkillMcpDependency]:
                 "includeResources": include_resources,
             }
         )
-    return sorted(result, key=lambda dependency: dependency["connectorKey"])
+
+    def dependency_key(dependency: SkillMcpDependency) -> str:
+        item = cast(dict[str, Any], dependency)
+        if "connectorKey" in item:
+            return f"connector:{item['connectorKey']}"
+        if item["kind"] == "resource":
+            return f"resource:{item['resourceKey']}"
+        return f"connector-type:{item['connectorType']}"
+
+    return sorted(result, key=dependency_key)
 
 
 def parse_skill_catalog(value: object, expected_resource: str | None = None) -> SkillCatalog:

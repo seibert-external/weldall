@@ -26,6 +26,7 @@ export function initWeldall(host: string, options: WeldallOptions) {
     return auth;
   };
   const handlers = {
+    mcp: ((context: AstroContext) => core.handlers.mcp(context.request)) satisfies AstroEndpoint,
     token: ((context: AstroContext) =>
       core.handlers.token(context.request)) satisfies AstroEndpoint,
     authorizationServerMetadata: ((context: AstroContext) =>

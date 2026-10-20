@@ -109,6 +109,8 @@ Every request requires an absolute HTTPS URL and at least one `--scope`; the CLI
 
 ## What's in the box
 
+The [Expenses demo](apps/expenses/README.md) demonstrates HTTP and native MCP reads, scoped tools, protected resources and skill-driven activation, with a local walkthrough and permission-denial tests.
+
 | Workspace                                 | Purpose                                                                                         |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | [`@weldall/weldall`](apps/weldall/)       | The Next.js authorization server and administration UI.                                         |

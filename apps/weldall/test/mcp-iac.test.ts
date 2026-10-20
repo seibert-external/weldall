@@ -40,6 +40,85 @@ const source = () => ({
   },
 });
 describe("MCP connector and skill IaC graph", () => {
+  it("round-trips whole-source forms and orders resources and connector families before their skills", () => {
+    const input = source();
+    const manifest = parseDesiredState({
+      ...input,
+      resources: {
+        billing: {
+          key: "billing",
+          name: "Billing",
+          resourceIdentifier: "https://billing.example/api",
+          authorizationServer: "https://billing.example",
+          downstreamClientId: "cli",
+          enabled: true,
+          requestPrefixes: ["https://billing.example/api"],
+          scopes: [],
+        },
+      },
+      skills: {
+        review: {
+          ...input.skills.review,
+          mcpDependencies: [
+            { kind: "resource", resourceKey: "billing" },
+            { kind: "connector", connectorType: "atlassian-mcp" },
+          ],
+        },
+      },
+    });
+    const plan = createPlan(manifest, { revision: 0, objects: [] });
+    expect(plan.blockers).toEqual([]);
+    expect(plan.actions.at(-1)?.kind).toBe("skill");
+    const state = skillMcpState(manifest.skills.review!.mcpDependencies);
+    expect(
+      parseDesiredState({
+        ...manifest,
+        skills: { review: { ...manifest.skills.review!, ...state } },
+      }),
+    ).toEqual(manifest);
+    const objects = desiredObjects(manifest).map((object, index) => ({
+      ...object,
+      id: String(index),
+      version: 1,
+      ownerWorkspaceId: manifest.workspace.id,
+    }));
+    const empty = parseDesiredState({
+      apiVersion: manifest.apiVersion,
+      workspace: manifest.workspace,
+    });
+    expect(createPlan(empty, { revision: 1, objects }).actions[0]?.kind).toBe("skill");
+    manifest.resources.billing!.enabled = false;
+    expect(createPlan(manifest, { revision: 1, objects }).blockers).toContainEqual(
+      expect.objectContaining({ code: "UNRESOLVED_MCP_DEPENDENCY" }),
+    );
+  });
+  it("retains a connector-type dependency when another eligible configured connector remains", () => {
+    const input = source();
+    const manifest = parseDesiredState({
+      ...input,
+      connectors: { ...input.connectors, second: { ...input.connectors.atlassian, key: "second" } },
+      skills: {
+        review: {
+          ...input.skills.review,
+          mcpDependencies: [{ kind: "connector", connectorType: "atlassian-mcp" }],
+        },
+      },
+    });
+    manifest.connectors.atlassian!.enabled = false;
+    expect(createPlan(manifest, { revision: 0, objects: [] }).blockers).toEqual([]);
+    manifest.connectors.second!.enabled = false;
+    expect(createPlan(manifest, { revision: 0, objects: [] }).blockers).toContainEqual(
+      expect.objectContaining({ code: "UNRESOLVED_MCP_DEPENDENCY" }),
+    );
+  });
+  it("rejects account selectors, wildcard tools and malformed new dependencies", () => {
+    for (const dependency of [
+      { kind: "resource", resourceKey: "billing", connectionId: "secret-choice" },
+      { kind: "connector", connectorType: "atlassian-mcp", tools: ["*"] },
+      { kind: "resource" },
+    ])
+      expect(() => skillMcpState([dependency])).toThrow();
+  });
   it("reserves weldall:mcp for machines and rejects secret shells", () => {
     expect(() =>
       parseDesiredState({

@@ -75,8 +75,7 @@ describe("SessionManager", () => {
   });
 
   it("retries an unlocked miss under the lock before reporting a missing login", async () => {
-    // On macOS a concurrent rewrite deletes and reinserts the keychain item, so an unlocked
-    // read can miss while the session is being refreshed.
+    // An explicit macOS login recreates ownership; an unlocked read can miss during it.
     const key = await generateEs256KeyPair();
     const credentials: StoredCredentialsV2 = {
       version: 2,
@@ -154,6 +153,63 @@ describe("SessionManager", () => {
       subject: "verified-user",
       expiresAt: 2_000,
     });
+  });
+
+  it("passes the caller deadline through session refresh", async () => {
+    const key = await generateEs256KeyPair();
+    const credentials: StoredCredentialsV2 = {
+      version: 2,
+      issuer,
+      ...key,
+      refreshToken: "refresh",
+      accessSession: { accessToken: "expired", subject: "user", expiresAt: 900 },
+    };
+    const store = storeFor(credentials);
+    const signal = new AbortController().signal;
+    const refresh = vi.fn(async (_config, current, _onRotation, receivedSignal) => {
+      expect(receivedSignal).toBe(signal);
+      return {
+        credentials: current,
+        accessToken: "access",
+        subject: "user",
+        expiresAt: 2_000,
+      };
+    });
+    await expect(
+      new SessionManager(config, store, serialLock(), refresh as any, () => 1_000).getAccessSession(
+        signal,
+      ),
+    ).resolves.toMatchObject({ accessToken: "access" });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("retains the rotated refresh token if saving the access session fails", async () => {
+    const key = await generateEs256KeyPair();
+    const store = storeFor({ version: 2, issuer, ...key, refreshToken: "old-refresh" });
+    const save = store.set.getMockImplementation()!;
+    store.set.mockImplementation(async (issuer, input) => {
+      if (input.accessSession) throw new Error("injected cache write failure");
+      await save(issuer, input);
+    });
+    const refresh = vi.fn(async (_config, current, onRotation) => {
+      const rotated = { ...current, refreshToken: "rotated-refresh" };
+      await onRotation(rotated);
+      return { credentials: rotated, accessToken: "access", subject: "user", expiresAt: 2_000 };
+    });
+    await expect(
+      new SessionManager(
+        config,
+        store,
+        serialLock(),
+        refresh as any,
+        () => 1_000,
+      ).getAccessSession(),
+    ).rejects.toThrow("injected cache write failure");
+    expect(store.current()).toMatchObject({ refreshToken: "rotated-refresh" });
+    expect(store.current()).not.toHaveProperty("accessSession");
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(store.set).toHaveBeenCalledTimes(2);
+    expect(store.set.mock.calls.every((call) => call.length === 2)).toBe(true);
   });
 
   it("migrates v1 credentials and lets refresh followers reuse the leader session", async () => {

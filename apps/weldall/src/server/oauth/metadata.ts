@@ -38,7 +38,7 @@ export function extendOAuthMetadata(
       endpoint: `${WELDALL_ISSUER}/api/iac/v1`,
       manifestVersions: ["weldall.dev/v1"],
       apiVersions: ["v1"],
-      features: ["mcp", "iac-ui-secrets-v1"],
+      features: ["mcp", "mcp-discovery-v1", "iac-ui-secrets-v1"],
       scope: IAC_SCOPE_KEY,
       ...(installationId ? { installationId } : {}),
     },

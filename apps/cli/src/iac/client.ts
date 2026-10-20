@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createDpopProof, createMachineClientAssertion } from "@weldall/sdk";
 import type { JWK } from "jose";
+import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import { CliError } from "../errors.js";
 import type { Lockfile, Manifest } from "./manifest.js";
 import { SECRET_PRIMITIVES_FEATURE, secretSections } from "./secret-primitives.js";
@@ -95,6 +96,17 @@ export class IacClient {
     )
       throw new CliError(
         "This Weldall server does not support MCP connectors or skill dependencies. Upgrade the server before applying MCP configuration.",
+      );
+    if (
+      Object.values(manifest.skills ?? {}).some((skill) =>
+        skillMcpDependenciesSchema
+          .parse((skill as { mcpDependencies?: unknown }).mcpDependencies ?? [])
+          .some((dependency) => "kind" in dependency),
+      ) &&
+      !discovery.weldall_iac.features?.includes("mcp-discovery-v1")
+    )
+      throw new CliError(
+        "This server does not support whole-source MCP dependencies. Upgrade the server before applying this configuration.",
       );
     if (
       secretSections.some((section) => manifest[section] !== undefined) &&

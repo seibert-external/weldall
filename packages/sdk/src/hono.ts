@@ -34,6 +34,9 @@ export function initWeldall(host: string, options: WeldallOptions) {
     app.get("/.well-known/jwks.json", (c) => core.handlers.jwks(c.req.raw));
     app.get(SKILL_CATALOG_PATH, (c) => core.handlers.skills(c.req.raw));
     app.post("/oauth/token", (c) => core.handlers.token(c.req.raw));
+    if (core.mcpMetadata) {
+      app.all(new URL(core.mcpMetadata.endpoint).pathname, (c) => core.handlers.mcp(c.req.raw));
+    }
     return app;
   };
   return { ...core, protect, getAuth, registerRoutes };

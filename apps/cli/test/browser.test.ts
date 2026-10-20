@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WeldallConfig } from "../src/config.js";
 import { loopback } from "../src/oauth/loopback.js";
 import { login } from "../src/services/auth.js";
+import * as oauthSession from "../src/oauth/session.js";
+import { keychain } from "../src/storage/keychain.js";
 import {
   browserOpenTimeoutMs,
   createBrowserOpener,
@@ -106,6 +108,49 @@ describe("browser opener", () => {
       agent.destroy();
     }
   });
+
+  it.each([true, false])(
+    "replaces credential ownership only after a validated login (%s)",
+    async (valid) => {
+      vi.spyOn(oauthSession, "tokenRequest").mockResolvedValue({});
+      const validated = {
+        refreshToken: "synthetic-refresh",
+        accessToken: "synthetic-access",
+        subject: "user",
+        expiresAt: 2_000,
+      };
+      const validate = vi.spyOn(oauthSession, "validateLoginResponse").mockResolvedValue(validated);
+      if (!valid) validate.mockRejectedValue(new Error("invalid login response"));
+      const set = vi.spyOn(keychain, "set").mockResolvedValue();
+      const opener = async (url: string) => {
+        const authorize = new URL(url);
+        const callback = new URL(authorize.searchParams.get("redirect_uri")!);
+        callback.searchParams.set("state", authorize.searchParams.get("state")!);
+        callback.searchParams.set("iss", config.issuer);
+        callback.searchParams.set("code", "authorization-code");
+        await fetch(callback, { redirect: "manual" });
+      };
+      const result = login(config, opener, async (operation) => operation());
+      if (valid) {
+        await expect(result).resolves.toBe("user");
+        expect(set).toHaveBeenCalledExactlyOnceWith(
+          config.issuer,
+          expect.objectContaining({
+            refreshToken: validated.refreshToken,
+            accessSession: {
+              accessToken: validated.accessToken,
+              subject: validated.subject,
+              expiresAt: validated.expiresAt,
+            },
+          }),
+          "replace",
+        );
+      } else {
+        await expect(result).rejects.toThrow("invalid login response");
+        expect(set).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("handles an early loopback rejection while a failing browser opener is still pending", async () => {
     const opener = vi.fn(async (url: string) => {

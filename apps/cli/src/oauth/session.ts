@@ -39,13 +39,16 @@ const verifyWeldallJwt = async (
   token: string,
   options: JWTVerifyOptions,
   cache: WeldallJwksCache = weldallJwksCache,
+  signal?: AbortSignal,
 ) => {
-  let loaded = await cache.get(config);
+  signal?.throwIfAborted();
+  let loaded = await cache.get(config, false, signal);
+  signal?.throwIfAborted();
   const kid = decodeProtectedHeader(token).kid;
   if (typeof kid !== "string" || !kid) throw new CliError("The token has no signing-key ID");
   let refreshed = false;
   if (!loaded.kids.has(kid)) {
-    loaded = await cache.get(config, true);
+    loaded = await cache.get(config, true, signal);
     refreshed = true;
   }
   try {
@@ -56,7 +59,7 @@ const verifyWeldallJwt = async (
       !refreshed &&
       (code === "ERR_JWKS_NO_MATCHING_KEY" || code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED")
     ) {
-      return jwtVerify(token, (await cache.get(config, true)).set, options);
+      return jwtVerify(token, (await cache.get(config, true, signal)).set, options);
     }
     throw error;
   }
@@ -67,6 +70,7 @@ export async function validateAccessToken(
   token: string,
   publicJwk: JWK,
   cache: WeldallJwksCache = weldallJwksCache,
+  signal?: AbortSignal,
 ): Promise<JWTPayload & { sub: string }> {
   const result = await verifyWeldallJwt(
     config,
@@ -80,6 +84,7 @@ export async function validateAccessToken(
       clockTolerance: 5,
     },
     cache,
+    signal,
   );
   const audiences =
     typeof result.payload.aud === "string"
@@ -109,6 +114,7 @@ export async function tokenRequest(
   config: WeldallConfig,
   body: URLSearchParams,
   key: { privateJwk: JWK; publicJwk: JWK },
+  signal?: AbortSignal,
 ) {
   const proof = await createDpopProof({ ...key, method: "POST", url: config.token });
   const response = await fetch(config.token, {
@@ -116,6 +122,7 @@ export async function tokenRequest(
     headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
     body,
     redirect: "error",
+    ...(signal ? { signal } : {}),
   });
   const value = await jsonObject(response, "Weldall token endpoint");
   if (!response.ok) {
@@ -177,6 +184,7 @@ export async function validateIdJagResponse(
     clientId: string;
     scopes: readonly string[];
   },
+  signal?: AbortSignal,
 ): Promise<string> {
   const requestedScopes = [...new Set(expected.scopes)].sort();
   const expectedScope = requestedScopes.join(" ");
@@ -191,28 +199,34 @@ export async function validateIdJagResponse(
   )
     throw new CliError("Weldall returned an invalid ID-JAG response");
 
-  const verified = await verifyWeldallJwt(config, result.access_token, {
-    algorithms: ["ES256"],
-    issuer: config.issuer,
-    audience: expected.authorizationServer,
-    typ: "oauth-id-jag+jwt",
-    requiredClaims: [
-      "iss",
-      "aud",
-      "sub",
-      "email",
-      "email_verified",
-      "exp",
-      "iat",
-      "jti",
-      "client_id",
-      "resource",
-      "scope",
-      "cnf",
-    ],
-    maxTokenAge: "5m",
-    clockTolerance: 5,
-  });
+  const verified = await verifyWeldallJwt(
+    config,
+    result.access_token,
+    {
+      algorithms: ["ES256"],
+      issuer: config.issuer,
+      audience: expected.authorizationServer,
+      typ: "oauth-id-jag+jwt",
+      requiredClaims: [
+        "iss",
+        "aud",
+        "sub",
+        "email",
+        "email_verified",
+        "exp",
+        "iat",
+        "jti",
+        "client_id",
+        "resource",
+        "scope",
+        "cnf",
+      ],
+      maxTokenAge: "5m",
+      clockTolerance: 5,
+    },
+    weldallJwksCache,
+    signal,
+  );
   if (!verified.protectedHeader.kid) throw new CliError("The ID-JAG has no signing-key ID");
   const claims = verified.payload;
   const scopes = parseScope(claims.scope);
@@ -253,6 +267,7 @@ export async function refresh(
   config: WeldallConfig,
   credentials: StoredCredentials,
   onRotation: (credentials: StoredCredentials) => Promise<void>,
+  signal?: AbortSignal,
 ) {
   const result = await tokenRequest(
     config,
@@ -262,6 +277,7 @@ export async function refresh(
       client_id: WELDALL_CLIENT_ID,
     }),
     credentials,
+    signal,
   );
   if (
     result.token_type !== "DPoP" ||
@@ -273,7 +289,13 @@ export async function refresh(
     throw new CliError("Weldall returned an invalid refresh response");
   const rotatedCredentials = { ...credentials, refreshToken: result.refresh_token };
   await onRotation(rotatedCredentials);
-  const claims = await validateAccessToken(config, result.access_token, credentials.publicJwk);
+  const claims = await validateAccessToken(
+    config,
+    result.access_token,
+    credentials.publicJwk,
+    weldallJwksCache,
+    signal,
+  );
   if (!Number.isInteger(claims.exp)) throw new CliError("Weldall returned an invalid access token");
   return {
     credentials: rotatedCredentials,

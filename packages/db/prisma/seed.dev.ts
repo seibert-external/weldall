@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 // Development fixtures use the application's actual formats rather than a second crypto implementation.
 import { encrypt } from "../../../apps/weldall/src/server/connectors/encryption.js";
 import { seal } from "../../../apps/weldall/src/server/auth/oidc-credentials.js";
+import { reviewExpensesSkill } from "../../../apps/expenses/src/review-skill.js";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { STATISTICS_SCOPE_KEY } from "../src/system-scopes.js";
 import { DEVELOPMENT_SKILL_SCOPE_KEYS, seedDevelopmentSkills } from "./seed.dev-skills.js";
@@ -189,14 +190,12 @@ try {
     requiredScopes: ["contracts:read"],
     tags: ["contracts", "review"],
   });
+  const expenseReview = reviewExpensesSkill("https://expenses.seibert.localdev");
   await seedDevelopmentResourceSkill(expenses, {
+    ...expenseReview,
     resourceKey: "expenses",
-    localId: "review",
-    title: "Review expenses",
-    content:
-      "# Review expenses\n\nUse `weldall request --scope expenses:read https://expenses.seibert.localdev/api/expenses` to list expenses.",
-    requiredScopes: ["expenses:read"],
-    tags: ["expenses", "review"],
+    localId: expenseReview.id,
+    tags: expenseReview.meta.tags,
   });
   await seedDevelopmentUsers(db);
   await seedDevelopmentManagedConnectors();
@@ -314,6 +313,7 @@ async function seedDevelopmentResourceSkill(
     content: string;
     requiredScopes: string[];
     tags: string[];
+    mcpDependencies?: Prisma.InputJsonArray;
   },
 ) {
   const validUntil = new Date("2100-01-01T00:00:00.000Z");
@@ -356,6 +356,7 @@ async function seedDevelopmentResourceSkill(
       title: skill.title,
       content: skill.content,
       requiredScopes: skill.requiredScopes,
+      mcpDependencies: skill.mcpDependencies ?? [],
       visibility: "DEFAULT",
       meta: { tags: skill.tags },
       lastUpdatedAt: "development-seed",
@@ -366,6 +367,7 @@ async function seedDevelopmentResourceSkill(
       title: skill.title,
       content: skill.content,
       requiredScopes: skill.requiredScopes,
+      mcpDependencies: skill.mcpDependencies ?? [],
       visibility: "DEFAULT",
       meta: { tags: skill.tags },
       lastUpdatedAt: "development-seed",
