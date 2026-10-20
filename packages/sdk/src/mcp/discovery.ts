@@ -7,6 +7,8 @@ import {
   skillMcpDependenciesSchema,
 } from "./contracts.js";
 
+import { nativeMcpToolDefinitionSchema } from "./native.js";
+
 export const DISCOVERY_LIMITS = Object.freeze({
   sources: 8,
   entries: 72,
@@ -83,6 +85,7 @@ export const nativeDiscoveryEntrySchema = z.union([
     status: z.literal("resolved"),
     route: nativeMcpRouteSchema,
     ...definitions,
+    tools: z.array(nativeMcpToolDefinitionSchema).max(MCP_LIMITS.tools),
   }),
   z.strictObject({
     ...summary,

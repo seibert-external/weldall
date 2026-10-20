@@ -216,6 +216,18 @@
                       "pattern": "^[\\x21\\x23-\\x5b\\x5d-\\x7e]+$"
                     },
                     "uniqueItems": true
+                  },
+                  "ui": {
+                    "type": "object",
+                    "properties": {
+                      "resourceUri": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 8192,
+                        "x-weldall-maxBytes": 8192
+                      }
+                    },
+                    "required": ["resourceUri"]
                   }
                 },
                 "required": ["weldall/scopes"]
@@ -685,6 +697,23 @@
                             },
                             "openWorldHint": {
                               "type": "boolean"
+                            }
+                          }
+                        },
+                        "_meta": {
+                          "type": "object",
+                          "properties": {
+                            "ui": {
+                              "type": "object",
+                              "properties": {
+                                "resourceUri": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 8192,
+                                  "x-weldall-maxBytes": 8192
+                                }
+                              },
+                              "required": ["resourceUri"]
                             }
                           }
                         }

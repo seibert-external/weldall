@@ -107,8 +107,8 @@ const resourceMetadata = {
   annotations: annotations.optional(),
 };
 
-// Explicitly project supported protocol fields. Unknown extension metadata (notably _meta.ui)
-// is never forwarded. The complete incoming JSON must pass parseMcpResponse's budget first.
+// Base/connector contracts deliberately drop extension metadata, including _meta.ui.
+// native.ts separately allowlists display-only Apps fields. Budget the complete incoming JSON first.
 export const mcpToolSchema = z.object({
   name: mcpToolNameSchema,
   title: title.optional(),

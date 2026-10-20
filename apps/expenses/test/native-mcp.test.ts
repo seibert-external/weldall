@@ -191,6 +191,7 @@ describe("Expenses Task 1 demo", () => {
           "list_expenses",
         ]);
         expect((await client.listResources()).resources.map((resource) => resource.uri)).toEqual([
+          "ui://weldall/expenses",
           "expenses://current",
         ]);
         expect(await client.callTool({ name: "list_expenses", arguments: {} })).toMatchObject({
@@ -203,6 +204,49 @@ describe("Expenses Task 1 demo", () => {
           client.callTool({ name: "create_expense", arguments: { description: "Demo lunch" } }),
         ).rejects.toMatchObject({ code: -32003 });
       });
+    },
+  );
+
+  it.each(["user", "machine"] as const)(
+    "links the tool to an authenticated HTML view for a %s, with public CSS only",
+    async (identity) => {
+      const token = await tokenFor(identity, ["expenses:read"]);
+      await withClient(token, async (client) => {
+        const tool = (await client.listTools()).tools.find(
+          (item) => item.name === "list_expenses",
+        )!;
+        expect(tool._meta?.ui).toEqual({
+          resourceUri: "ui://weldall/expenses",
+          visibility: ["model"],
+        });
+        const result = await client.readResource({ uri: "ui://weldall/expenses" });
+        expect(result.contents[0]).toMatchObject({
+          mimeType: "text/html;profile=mcp-app",
+          _meta: { ui: { csp: { resourceDomains: [EXPENSES_ISSUER] } } },
+        });
+        const html = String(result.contents[0]!.text);
+        expect(html).toContain("Team lunch");
+        expect(html).toContain("18.50 EUR");
+        expect(html).toContain(identity === "user" ? "alice@example.com" : "dev-expenses-reader");
+        expect(html).toContain(`${EXPENSES_ISSUER}/mcp-ui/expenses.css`);
+        expect(html).toContain('"displayModes":["inline","fullscreen","pip"]');
+        expect(html).toContain("ui/notifications/size-changed");
+        expect(html).toContain("script-src &#39;sha256-");
+        expect(html).not.toContain("<form");
+      });
+      expect(
+        (await app.request(endpoint, rpc("resources/read", { uri: "ui://weldall/expenses" })))
+          .status,
+      ).toBe(401);
+      const denied = await tokenFor(identity, ["expenses:create"]);
+      expect(
+        (await request(denied, endpoint, rpc("resources/read", { uri: "ui://weldall/expenses" })))
+          .status,
+      ).toBe(403);
+      const css = await app.request("/mcp-ui/expenses.css");
+      expect(css.status).toBe(200);
+      expect(css.headers.get("content-type")).toContain("text/css");
+      expect(await css.text()).toContain(".expenses");
     },
   );
 

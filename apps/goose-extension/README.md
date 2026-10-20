@@ -52,6 +52,27 @@ The in-memory MCP tests verify notification ordering and immediate tool-list ref
 Goose, the white-label adapter, Code Mode and packaged-host behavior still need manual acceptance;
 do not infer host/model refresh guarantees from the protocol tests alone.
 
+## Native resource display Apps (development branch)
+
+Native tools may reference an HTML/CSS view in `_meta.ui.resourceUri`. The extension checks that
+the view exists in that source's catalog, preserves a source/session-local `ui://` URI, and routes
+resource reads through the existing direct CLI path. Connector/connection UI metadata is still
+stripped. Hosts without MCP Apps support continue to receive normal text tool results.
+
+Before returning native UI HTML to Goose, the extension applies the SDK's display-only sanitizer
+and restrictive document CSP. This covers text and base64 content, even when the provider changes
+the MIME type. The asset origin comes from the bound resource identifier, never provider CSP.
+Provider inline code is removed and replaced with the SDK\'s CSP-hashed display bootstrap. Public
+ES modules are queued and loaded only after the host advertises its enforced
+`weldall/display-only` capability (version 1); older hosts receive static content and sizing only.
+The updated Goose host rejects UI business RPC, additional resource reads, chat messages and
+external links for Weldall views. UI-linked tools remain model-only. Authentication/scopes are
+still enforced on every native read. Source-bound interactive tool access remains deferred.
+
+See [the Expenses demo](../expenses/README.md#show-the-demo-ui-in-goose) for the first UI.
+Restart the branch extension after rebuilding. The MCP integration tests cover metadata and HTML
+transport; actual iframe rendering in an installed Goose remains a separate acceptance check.
+
 ## Textual response content types
 
 The `get` and `send` tools normally parse text and JSON responses automatically. For an endpoint

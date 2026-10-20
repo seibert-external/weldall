@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { inMemory, type AuthContext } from "@weldall/sdk";
-import { createNativeMcp } from "@weldall/sdk/mcp/server";
+import { createNativeMcp, createMcpAppResource } from "@weldall/sdk/mcp/server";
 import { initWeldall, type WeldallVariables } from "@weldall/sdk/hono";
 import { WELDALL_ISSUER } from "./constants.js";
 import { getEnv } from "./env.js";
 import { reviewExpensesSkill } from "./review-skill.js";
+import { renderExpensesUi, expensesUiCss } from "./expenses-ui.js";
 
 const listExpenses = (auth: AuthContext) => ({
   expenses: [{ id: "expense-1", description: "Team lunch", amount: 18.5, currency: "EUR" }],
@@ -16,6 +17,14 @@ const listExpenses = (auth: AuthContext) => ({
 
 export const createApp = async () => {
   const env = await getEnv();
+  const expensesUi = createMcpAppResource({
+    name: "expenses",
+    scopes: ["expenses:read"],
+    resourceOrigin: env.downstreamIssuer,
+    displayModes: ["inline", "fullscreen", "pip"],
+    styleUrls: [new URL("/mcp-ui/expenses.css", env.downstreamIssuer).href],
+    render: ({ auth }) => renderExpensesUi(listExpenses(auth)),
+  });
   const weldall = initWeldall(WELDALL_ISSUER, {
     resource: env.downstreamResourceIdentifier,
     publicOrigin: env.downstreamIssuer,
@@ -34,6 +43,7 @@ export const createApp = async () => {
       tools: [
         {
           name: "list_expenses",
+          _meta: { ui: { resourceUri: expensesUi.uri } },
           description: "List expenses visible to the verified caller",
           inputSchema: { type: "object", properties: {}, additionalProperties: false },
           scopes: ["expenses:read"],
@@ -65,6 +75,7 @@ export const createApp = async () => {
         },
       ],
       resources: [
+        expensesUi,
         {
           uri: "expenses://current",
           name: "Current expenses",
@@ -90,6 +101,12 @@ export const createApp = async () => {
   });
   const app = new Hono<{ Variables: WeldallVariables }>();
   weldall.registerRoutes(app);
+  app.get("/mcp-ui/expenses.css", (c) =>
+    c.body(expensesUiCss, 200, {
+      "content-type": "text/css; charset=utf-8",
+      "cache-control": "public, max-age=300",
+    }),
+  );
   app.get("/api/expenses", weldall.protect({ scopes: ["expenses:read"] }), (c) => {
     const auth = weldall.getAuth(c);
     return c.json(listExpenses(auth));

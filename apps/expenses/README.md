@@ -1,14 +1,16 @@
 # Expenses — HTTP and native MCP demo
 
-This repository's runnable Task 1 resource demonstrates the same protected expense data through HTTP and native MCP. It uses the Hono adapter and `createNativeMcp` from `@weldall/sdk`; it is not a separate MCP connector. MCP Apps and desktop preselection are not part of this demo.
+This repository's runnable Task 1 resource demonstrates the same protected expense data through HTTP and native MCP. It uses the Hono adapter and `createNativeMcp` from `@weldall/sdk`; it is not a separate MCP connector. The `list_expenses` tool also links a display-only MCP App. Desktop preselection and UI interactivity are not part of this demo.
 
-| Interface                | Behavior                                                                 | Required scopes                                                     |
-| ------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `GET /api/expenses`      | Read the fixed demo list and verified caller identity                    | `expenses:read`                                                     |
-| MCP `list_expenses`      | The same data as HTTP, including structured content                      | `expenses:read`                                                     |
-| MCP `expenses://current` | The same data as a protected JSON resource                               | `expenses:read`                                                     |
-| MCP `create_expense`     | Validate a description and return a synthetic expense; **not persisted** | `expenses:read` for discovery, plus `expenses:create` for execution |
-| Skill `expenses.review`  | Activate the whole native resource and describe a read-only review       | `expenses:read`                                                     |
+| Interface                   | Behavior                                                                 | Required scopes                                                     |
+| --------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `GET /api/expenses`         | Read the fixed demo list and verified caller identity                    | `expenses:read`                                                     |
+| MCP `list_expenses`         | The same data as HTTP, including structured content                      | `expenses:read`                                                     |
+| MCP `ui://weldall/expenses` | Server-rendered HTML/CSS expense view and verified caller                | `expenses:read`                                                     |
+| `GET /mcp-ui/expenses.css`  | Public, non-sensitive stylesheet for the view                            | None                                                                |
+| MCP `expenses://current`    | The same data as a protected JSON resource                               | `expenses:read`                                                     |
+| MCP `create_expense`        | Validate a description and return a synthetic expense; **not persisted** | `expenses:read` for discovery, plus `expenses:create` for execution |
+| Skill `expenses.review`     | Activate the whole native resource and describe a read-only review       | `expenses:read`                                                     |
 
 The native endpoint is `/api/mcp`. Protected-resource metadata advertises its endpoint, discovery scope and catalog revision. Anonymous initialize/list/read requests are denied. Discovery may advertise the write tool, but does **not** grant permission to execute it. Both user and machine tokens are DPoP-bound; each request requires a fresh proof.
 
@@ -63,7 +65,7 @@ Run from the repository root. The subshell uses only an ephemeral issuer overrid
 )
 ```
 
-Expect two tools and one MCP resource. HTTP, `list_expenses` and `expenses://current` return the same list and caller identity. Separate CLI processes do not publish tools into a host session: with the branch extension, `discover_integrations({"resources":["expenses"]})` or `read_skill_document` for `expenses.review` performs session-local activation. Use the tool names returned by the extension, not guessed aliases. See [the extension README](../goose-extension/README.md) for branch-host setup.
+Expect two tools and two MCP resources. HTTP, `list_expenses` and `expenses://current` return the same list and caller identity. Separate CLI processes do not publish tools into a host session: with the branch extension, `discover_integrations({"resources":["expenses"]})` or `read_skill_document` for `expenses.review` performs session-local activation. Use the tool names returned by the extension, not guessed aliases. See [the extension README](../goose-extension/README.md) for branch-host setup.
 
 For a user granted **only** `expenses:read`, this must fail rather than execute the write:
 
@@ -74,6 +76,46 @@ WELDALL_ISSUER=https://weldall.seibert.localdev ./apps/cli/dist/index.js \
 ```
 
 If that user also has `expenses:create`, the call succeeds but remains non-persistent. Never automatically retry writes or switch to HTTP after a failed MCP operation.
+
+## Show the demo UI in Goose
+
+Build the branch SDK, CLI and extension (restart the extension after rebuilding):
+
+```sh
+pnpm --filter @weldall/sdk build
+pnpm --filter @weldall/cli build
+pnpm --filter @weldall/goose build
+```
+
+Use the branch extension and CLI as described in the extension README, with the Expenses process
+running and the user granted `expenses:read`. Ask Goose to discover resource `expenses` and invoke
+its advertised `list_expenses` tool. A host with MCP Apps rendering should show the expense card
+in an iframe alongside the ordinary tool result. This demo enables inline, fullscreen and PiP;
+the SDK bootstrap reports its natural height. Resource-owned JavaScript additionally requires the
+updated white-label host with its display-only bridge guard.
+
+The tool links `ui://weldall/expenses`; the extension rewrites this to a session/source-local
+`ui://` URI. Goose reads that URI through the extension and CLI directly from `/api/mcp`.
+The returned HTML imports `https://expenses.seibert.localdev/mcp-ui/expenses.css` (or the configured
+resource origin). Only that asset origin is declared in the UI CSP. The local HTTPS certificate
+must be trusted by the desktop browser as well as the CLI.
+
+`createMcpAppResource` renders current data using the authenticated resource-read identity. It does not
+consume the preceding tool result or its arguments. This demo uses only the fixed SDK display
+bootstrap: no business JavaScript, forms, direct fetches or UI-initiated tool calls. The SDK also
+supports same-origin ES modules (including React bundles) and a browser `mountMcpApp` export.
+Those modules load only after the host confirms its enforced display-only bridge boundary.
+Source-bound interactive tool access remains deferred.
+
+For protocol-only inspection:
+
+```sh
+./apps/cli/dist/index.js mcp native read-resource expenses --uri ui://weldall/expenses --json
+```
+
+A successful CLI read proves HTML transport, **not** that Goose displayed the iframe. Record
+installed-host verification separately. Text-only/older clients still receive the normal tool
+result.
 
 ## Automated checks
 

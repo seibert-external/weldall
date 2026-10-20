@@ -18,6 +18,9 @@ import {
   mcpResourcesResponseSchema,
   mcpCallResultSchema,
   mcpReadResultSchema,
+  nativeMcpReadResultSchema,
+  MCP_APP_MIME_TYPE,
+  localMcpAppResourceUri,
   mcpConnectorKeySchema,
   mcpConnectionSelectionSchema,
   skillMcpDependenciesSchema,
@@ -26,6 +29,7 @@ import {
   parseMcpResponse,
   type SkillMcpDependency,
 } from "@weldall/sdk/mcp";
+import { sanitizeMcpDisplayHtml } from "@weldall/sdk/mcp/display";
 import type { CliRunner } from "./cli.js";
 import { ExtensionError } from "./errors.js";
 
@@ -430,14 +434,40 @@ export class McpActivation {
             .slice(0, 12);
           const local = `${readable}_${suffix}`;
           if (tools.has(local)) throw new ExtensionError("invalid_response");
+          const ui =
+            entry.kind === "resource" && "_meta" in definition ? definition._meta?.ui : undefined;
+          if (
+            ui &&
+            !entry.resources.some(
+              (resource) =>
+                resource.uri === ui.resourceUri && resource.mimeType === MCP_APP_MIME_TYPE,
+            )
+          )
+            throw new ExtensionError("invalid_response");
           tools.set(local, {
             ...routing,
             upstreamName: definition.name,
-            definition: { ...definition, name: local },
+            definition: {
+              ...definition,
+              name: local,
+              ...(ui
+                ? {
+                    _meta: {
+                      ui: {
+                        resourceUri: localMcpAppResourceUri(namespace, ui.resourceUri),
+                        visibility: ["model"],
+                      },
+                    },
+                  }
+                : {}),
+            },
           });
         }
         for (const definition of entry.resources) {
-          const uri = localMcpResourceUri(namespace, definition.uri);
+          const uri =
+            native && definition.uri.startsWith("ui://")
+              ? localMcpAppResourceUri(namespace, definition.uri)
+              : localMcpResourceUri(namespace, definition.uri);
           resources.set(uri, {
             ...routing,
             upstreamUri: definition.uri,
@@ -787,7 +817,11 @@ export class McpActivation {
     });
   }
   private mapUri(map: Map<string, ResourceBinding>, binding: Routing, upstreamUri: string) {
-    const uri = localMcpResourceUri(
+    const uri = (
+      binding.native && upstreamUri.startsWith("ui://")
+        ? localMcpAppResourceUri
+        : localMcpResourceUri
+    )(
       binding.namespace ?? (binding.native ? binding.native.resourceKey : binding.connectorKey),
       upstreamUri,
     );
@@ -811,7 +845,7 @@ export class McpActivation {
     const binding = this.resources.get(uri);
     if (!binding) throw new ExtensionError("invalid_request");
     const result = await this.run(
-      mcpReadResultSchema,
+      binding.native ? nativeMcpReadResultSchema : mcpReadResultSchema,
       binding.native
         ? [
             "mcp",
@@ -839,11 +873,35 @@ export class McpActivation {
       signal,
       true,
     );
+    const contents = binding.native
+      ? nativeMcpReadResultSchema.parse(result).contents.map((item) => {
+          // A provider must not bypass sanitization by changing/omitting the response MIME type.
+          if (
+            !binding.upstreamUri.startsWith("ui://") &&
+            binding.definition?.mimeType !== MCP_APP_MIME_TYPE &&
+            item.mimeType !== MCP_APP_MIME_TYPE
+          )
+            return item;
+          // The source binding, never the provider-declared CSP, authorizes asset origins.
+          const origin = new URL(binding.native!.resourceIdentifier).origin;
+          const domains = [origin];
+          const html = item.text ?? Buffer.from(item.blob!, "base64").toString("utf8");
+          return {
+            uri: item.uri,
+            mimeType: MCP_APP_MIME_TYPE,
+            text: sanitizeMcpDisplayHtml(html, origin),
+            _meta: { ui: { csp: { resourceDomains: domains }, prefersBorder: true } },
+          };
+        })
+      : result.contents;
     return this.exclusive(async () => {
-      if (this.resources.get(uri) !== binding) return result;
+      if (this.resources.get(uri) !== binding) {
+        if (binding.native) throw new ExtensionError("invalid_request");
+        return result;
+      }
       const map = new Map(this.resources);
       const output = {
-        contents: result.contents.map((item) => ({
+        contents: contents.map((item) => ({
           ...item,
           uri: this.mapUri(map, binding, item.uri),
         })),

@@ -48,6 +48,18 @@ function fixture() {
 }
 
 describe("shared CLI discovery publication", () => {
+  it("does not enable Apps metadata on connector tools", async () => {
+    const { entries, activation } = fixture();
+    const entry = connector();
+    entries.splice(0, entries.length, {
+      ...entry,
+      tools: [{ ...entry.tools[0], _meta: { ui: { resourceUri: "ui://connector/view" } } }],
+    });
+    await activation.call("discover_integrations", { connectorTypes: ["atlassian-mcp"] });
+    expect(activation.listTools().find((tool) => tool.name.startsWith("mcp_"))).not.toHaveProperty(
+      "_meta",
+    );
+  });
   it("read_skill_document delegates to discovery and exposes tools before returning instructions", async () => {
     const { cli } = fixture();
     const server = createServer(cli, "test", "Organization first");

@@ -148,13 +148,31 @@ definitions or policies.
   cancelling transport cannot undo a completed write.
 - Ordinary tools and fixed resources are supported; resource-template listing is empty.
   Transport is stateless Streamable HTTP with JSON responses, no sessions/reconnection.
-  Only the native `_meta["weldall/scopes"]` field is used for operation policy; Apps metadata is
-  not forwarded to the model/host.
+  Only the native `_meta["weldall/scopes"]` field is used for operation policy. Native tools can
+  additionally link a display-only MCP App as described below; connector UI metadata stays stripped.
 - Resource owners must audit execution at the handler/business layer without recording tokens or
   sensitive arguments. Central token/discovery activity does not audit direct MCP execution.
   Locally verified user tokens can remain valid for their ten-minute lifetime (machine tokens:
   five minutes); this is not immediate central grant revocation.
 - Removing the `mcp` option disables advertisement and the MCP route without changing HTTP.
+
+### Tool behavior hints (not permissions)
+
+Tool `annotations` describe expected behavior to clients/models. They do **not** enforce it:
+scopes and handler-level checks control access. These are standard MCP field names:
+
+| Hint              | Meaning when `true`                                                                            | MCP default if omitted |
+| ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------- |
+| `readOnlyHint`    | Only reads; does not modify its environment.                                                   | `false`                |
+| `destructiveHint` | May delete or overwrite existing data; `false` means only additive changes.                    | `true`                 |
+| `idempotentHint`  | Repeating the same arguments has no additional side effects.                                   | `false`                |
+| `openWorldHint`   | Interacts with an open-ended set of external entities, such as web search or email recipients. | `true`                 |
+
+`destructiveHint` and `idempotentHint` matter only for tools that are not read-only.
+An internal expense database or memory store is a closed domain (`openWorldHint: false`).
+A web search is both read-only and open-world: this hint is **not** a synonym for write access,
+network permission or UI bridge access. Idempotency also does not mean identical results or
+authorize automatic retries. Weldall preserves supplied hints without inserting defaults.
 
 Skills can declare `mcpDependencies: [{ kind: "resource", resourceKey: "billing" },
 { kind: "connector", connectorType: "atlassian-mcp" }]`. These select whole available catalogs;
@@ -166,6 +184,98 @@ is derived, not another independently editable IaC policy.
 
 The executable local fixture is `apps/expenses/src/app.ts`; its `create_expense` tool is a
 demonstration only and does not persist records. It is not an approved real-service pilot.
+
+## Display-only MCP Apps (TypeScript preview)
+
+Native resource tools can link a server-rendered HTML/CSS view. Keep the normal tool result:
+text-only hosts and older CLIs still receive it. There is no central HTML proxy or additional
+HTML endpoint: the host reads the registered `ui://` resource through the same authenticated
+MCP endpoint as the tools.
+
+```ts
+import { createNativeMcp, createMcpAppResource, escapeMcpAppText } from "@weldall/sdk/mcp/server";
+
+const view = createMcpAppResource({
+  name: "caller",
+  scopes: ["contracts:read"],
+  resourceOrigin: "https://contracts.example.com",
+  displayModes: ["inline", "fullscreen", "pip"],
+  styleUrls: ["https://contracts.example.com/assets/caller.css"],
+  render: ({ auth }) =>
+    `<main><h1>Requested by</h1><p>${escapeMcpAppText(auth.subject)}</p></main>`,
+});
+
+const mcp = createNativeMcp({
+  path: "/api/mcp",
+  description: "Contracts",
+  discoveryScopes: ["contracts:read"],
+  resources: [view],
+  tools: [
+    {
+      name: "whoami",
+      inputSchema: { type: "object", additionalProperties: false },
+      scopes: ["contracts:read"],
+      _meta: { ui: { resourceUri: view.uri } },
+      async handler(_, { auth }) {
+        return { content: [{ type: "text", text: auth.subject }] };
+      },
+    },
+  ],
+});
+```
+
+The helper generates the URI, document, MIME type (`text/html;profile=mcp-app`) and a fixed,
+CSP-hashed display bootstrap. `displayModes` defaults to `["inline"]`; `inline` is required.
+Add `fullscreen` and/or `pip` to offer the host controls, not to switch modes automatically.
+The bootstrap negotiates the MCP Apps lifecycle and reports natural content height, including
+changes after CSS loads. Rendering still runs on the server with `{ auth, signal }`, independently
+of a tool call; it does not receive tool arguments/results. Escape interpolated data.
+
+`resourceOrigin` authorizes public CSS, images, fonts and JavaScript **ES modules** from that exact
+origin (scheme + host + port). URLs must be absolute HTTPS, or HTTP on explicit loopback hosts for
+development. No CDNs, credentials or wildcards. At the extension boundary the origin is re-derived
+from the registered resource identifier, never trusted from provider metadata. The document CSP
+blocks direct fetch/WebSocket connections, frames and form submissions. Provider inline scripts,
+event handlers and static navigation/form markup are removed. JavaScript can implement local UI
+interactions, but receives neither provider credentials nor authority to invoke business tools.
+
+### HTML templates and React/Vue
+
+`createMcpAppResource()` creates the resource definition; add it to `createNativeMcp` to register it.
+Its read handler includes the bootstrap automatically. For custom HTML assembly append the string from
+`renderMcpAppBootstrapHtml({ displayModes: ["inline", "fullscreen", "pip"] })` from
+`@weldall/sdk/mcp/display` (also exported by `/mcp/server`) at the end of the body; return the
+result through the native UI resource, not as an unauthenticated HTML endpoint.
+
+For a React/Vue UI, set `scriptUrls: ["https://contracts.example.com/assets/app.js"]` on the resource
+and render a mount point such as `<div id="root"></div>`. Bundle your framework normally and serve
+its ES modules, CSS and fonts from `resourceOrigin`, with correct MIME types and CORS headers for
+cross-origin iframe/module loading. These assets must be public and non-sensitive; authenticated
+HTML supplies the initial data. Inline hydration scripts and API fetching are not supported.
+
+The framework-independent browser export has no React or Node dependencies:
+
+```tsx
+import { mountMcpApp } from "@weldall/sdk/mcp/browser";
+
+useEffect(() => mountMcpApp({ displayModes: ["inline", "fullscreen", "pip"] }), []);
+```
+
+The returned cleanup removes observers/listeners after the last mount. An existing HTML bootstrap
+and framework effects share one handshake; the first mount owns its configuration. When using
+`createMcpAppResource`, its automatic bootstrap already handles sizing, so this effect is optional.
+
+**Host boundary:** resource modules are queued, not emitted as immediately executable script tags.
+They load only after the host advertises `hostCapabilities.experimental["weldall/display-only"]`
+with `{ version: 1 }`. The updated Goose host enforces this for the Weldall extension: UI tool calls,
+additional resource reads, chat messages, external links and unhandled RPC are rejected. Other
+Goose apps retain their existing behavior. Older hosts still render the static content and fixed
+sizing bootstrap but do not load resource modules. This is not source-bound interactive tool access;
+that remains deferred. Connector/connection Apps remain unsupported.
+
+The runnable example is [Expenses](../../apps/expenses/README.md). Protocol tests do not prove
+that an installed desktop host has loaded the branch extension; verify the iframe in that host
+before claiming desktop acceptance.
 
 ## Scope rules
 

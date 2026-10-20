@@ -4,7 +4,7 @@ import {
   MCP_LIMITS,
   assertMcpJson,
   mcpCallResultSchema,
-  mcpReadResultSchema,
+  nativeMcpReadResultSchema,
   mcpToolNameSchema,
   mcpUriSchema,
   validateNativeMcpMetadata,
@@ -325,7 +325,7 @@ export async function requestNativeMcp(
             ),
           )
         : parseMcpResponse(
-            mcpReadResultSchema,
+            nativeMcpReadResultSchema,
             await client.readResource(
               { uri: input.uri! },
               { signal, timeout: MCP_LIMITS.operationMs },

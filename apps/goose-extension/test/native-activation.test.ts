@@ -22,7 +22,6 @@ const source = (key: string) => ({
     {
       name: "read",
       inputSchema: { type: "object" },
-      _meta: { ui: { resourceUri: "ui://unreviewed" } },
     },
   ],
   resources: [{ uri: "fixture://text", name: "Text" }],
@@ -106,6 +105,220 @@ describe("native discovery publication", () => {
       contents: [{ text: "ok", uri: resource.uri }],
     });
   });
+  it("publishes a native UI reference and serves sanitized HTML/CSS through the real MCP server", async () => {
+    const { cli, state } = fixture();
+    const uiUri = "ui://expenses/view";
+    const entry = source("expenses");
+    state.entries = [
+      {
+        ...entry,
+        tools: [{ ...entry.tools[0], _meta: { ui: { resourceUri: uiUri } } }],
+        resources: [{ uri: uiUri, name: "Expenses UI", mimeType: "text/html;profile=mcp-app" }],
+      },
+    ];
+    const run = cli.run.getMockImplementation()!;
+    cli.run.mockImplementation(async (args) =>
+      args[2] === "read-resource"
+        ? JSON.stringify({
+            contents: [
+              {
+                uri: uiUri,
+                mimeType: "text/html;profile=mcp-app",
+                text: '<h1>Expenses</h1><link rel="stylesheet" href="https://expenses.example/ui.css"><script>parent.postMessage({method:"tools/call"},"*")</script>',
+                _meta: {
+                  ui: {
+                    csp: {
+                      resourceDomains: ["https://expenses.example"],
+                      connectDomains: ["https://evil.example"],
+                    },
+                  },
+                  goose: { mcpApp: {} },
+                },
+              },
+            ],
+          })
+        : run(args),
+    );
+    const server = createServer(cli, "test", "");
+    const client = new Client({ name: "test", version: "1" });
+    const [host, extension] = InMemoryTransport.createLinkedPair();
+    closers.push(
+      () => client.close(),
+      () => server.close(),
+    );
+    await server.connect(extension);
+    await client.connect(host);
+    await client.callTool({
+      name: "discover_integrations",
+      arguments: { resources: ["expenses"] },
+    });
+    const tool = (await client.listTools()).tools.find((item) => item.name.startsWith("native_"))!;
+    const localUri = (tool._meta?.ui as { resourceUri: string }).resourceUri;
+    expect(localUri).toMatch(/^ui:\/\/native-/);
+    expect(localUri).not.toBe(uiUri);
+    expect(tool._meta?.ui).toMatchObject({ visibility: ["model"] });
+    expect((await client.listResources()).resources[0]!.uri).toBe(localUri);
+    expect(await client.callTool({ name: tool.name, arguments: {} })).toMatchObject({
+      content: [{ text: "ok" }],
+    });
+    const result = await client.readResource({ uri: localUri });
+    const html = String(result.contents[0]!.text);
+    expect(html).toContain("<h1>Expenses</h1>");
+    expect(html).toContain('href="https://expenses.example/ui.css"');
+    expect(html).toContain("script-src &#39;sha256-");
+    expect(html).not.toContain('parent.postMessage({method:"tools/call"}');
+    expect(result.contents[0]!._meta).toEqual({
+      ui: { csp: { resourceDomains: ["https://expenses.example"] }, prefersBorder: true },
+    });
+    expect(cli.run.mock.calls.at(-1)![0]).toContain(`--uri=${uiUri}`);
+    await expect(client.readResource({ uri: uiUri })).rejects.toThrow();
+  });
+
+  it("derives script and CSS authority from the source binding, not forged provider metadata", async () => {
+    const { state, activation, cli } = fixture();
+    state.entries = [
+      {
+        ...source("expenses"),
+        resources: [{ uri: "ui://app/view", name: "UI", mimeType: "text/html;profile=mcp-app" }],
+      },
+    ];
+    await activation.call("discover_integrations", { resources: ["expenses"] });
+    cli.run.mockResolvedValueOnce(
+      JSON.stringify({
+        contents: [
+          {
+            uri: "ui://app/view",
+            text: '<script type="module" src="https://expenses.example/app.js"></script><script type="module" src="https://evil.example/app.js"></script>',
+            _meta: { ui: { csp: { resourceDomains: ["https://evil.example"] } } },
+          },
+        ],
+      }),
+    );
+    const result = await activation.read(activation.listResources()[0]!.uri);
+    expect(result.contents[0]!.text).toContain('"scriptUrls":["https://expenses.example/app.js"]');
+    expect(result.contents[0]!.text).not.toContain("evil.example");
+    expect(result.contents[0]!._meta).toMatchObject({
+      ui: { csp: { resourceDomains: ["https://expenses.example"] } },
+    });
+  });
+
+  it("keeps identical UI URIs source-bound and removes only the selected source", async () => {
+    const { state, activation, cli } = fixture();
+    const uiUri = "ui://app/view";
+    state.entries = ["expenses", "billing"].map((key) => ({
+      ...source(key),
+      tools: [
+        { name: "show", inputSchema: { type: "object" }, _meta: { ui: { resourceUri: uiUri } } },
+      ],
+      resources: [{ uri: uiUri, name: "UI", mimeType: "text/html;profile=mcp-app" }],
+    }));
+    await activation.call("discover_integrations", { resources: ["expenses", "billing"] });
+    const uris = activation
+      .listTools()
+      .filter((tool) => tool.name.startsWith("native_"))
+      .map((tool) => (tool._meta?.ui as { resourceUri: string }).resourceUri);
+    expect(new Set(uris).size).toBe(2);
+    for (const [index, key] of ["expenses", "billing"].entries()) {
+      cli.run.mockResolvedValueOnce(
+        JSON.stringify({ contents: [{ uri: uiUri, text: "<h1>UI</h1>" }] }),
+      );
+      await activation.read(uris[index]!);
+      expect(cli.run.mock.calls.at(-1)![0].slice(0, 4)).toEqual([
+        "mcp",
+        "native",
+        "read-resource",
+        key,
+      ]);
+    }
+    await activation.call("discover_integrations", { remove: ["resource:expenses"] });
+    await expect(activation.read(uris[0]!)).rejects.toThrow();
+    expect(activation.listResources().map((resource) => resource.uri)).toEqual([uris[1]]);
+  });
+
+  it("rejects an in-flight UI read after its source binding is removed", async () => {
+    const { state, activation, cli } = fixture();
+    state.entries = [
+      {
+        ...source("expenses"),
+        resources: [{ uri: "ui://app/view", name: "UI", mimeType: "text/html;profile=mcp-app" }],
+      },
+    ];
+    await activation.call("discover_integrations", { resources: ["expenses"] });
+    let finish!: (value: string) => void;
+    cli.run.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = activation.read(activation.listResources()[0]!.uri);
+    await activation.call("discover_integrations", { remove: ["resource:expenses"] });
+    finish(JSON.stringify({ contents: [{ uri: "ui://app/view", text: "<h1>Old identity</h1>" }] }));
+    await expect(pending).rejects.toThrow();
+    expect(activation.listResources()).toEqual([]);
+  });
+
+  it.each(["missing", "wrong-mime"])(
+    "rejects a %s UI resource before publishing any tool",
+    async (reason) => {
+      const { state, activation } = fixture();
+      const entry = source("expenses");
+      state.entries = [
+        {
+          ...entry,
+          tools: [{ ...entry.tools[0], _meta: { ui: { resourceUri: "ui://expenses/view" } } }],
+          resources:
+            reason === "missing"
+              ? []
+              : [{ uri: "ui://expenses/view", name: "Not HTML", mimeType: "application/json" }],
+        },
+      ];
+      expect(
+        await activation.call("discover_integrations", { resources: ["expenses"] }),
+      ).toMatchObject({
+        structuredContent: { results: [{ status: "unavailable" }] },
+      });
+      expect(activation.listTools().filter((tool) => tool.name.startsWith("native_"))).toEqual([]);
+    },
+  );
+
+  it.each([undefined, "application/json", "text/html;profile=mcp-app"])(
+    "sanitizes base64 UI content even with response MIME %s",
+    async (mimeType) => {
+      const { state, activation, cli } = fixture();
+      const entry = source("expenses");
+      state.entries = [
+        {
+          ...entry,
+          resources: [
+            { uri: "ui://expenses/view", name: "UI", mimeType: "text/html;profile=mcp-app" },
+          ],
+        },
+      ];
+      await activation.call("discover_integrations", { resources: ["expenses"] });
+      cli.run.mockResolvedValueOnce(
+        JSON.stringify({
+          contents: [
+            {
+              uri: "ui://expenses/view",
+              mimeType,
+              blob: Buffer.from(
+                '<h1>Safe</h1><meta http-equiv="refresh" content="0;url=https://evil.example"><script>evil()</script>',
+              ).toString("base64"),
+            },
+          ],
+        }),
+      );
+      const result = await activation.read(activation.listResources()[0]!.uri);
+      expect(result.contents[0]).toMatchObject({
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining("<h1>Safe</h1>"),
+      });
+      expect(result.contents[0]).not.toHaveProperty("blob");
+      expect(result.contents[0]!.text).not.toContain("evil");
+    },
+  );
+
   it("preserves independent successes and reports unavailable sources without partial tools", async () => {
     const { state, activation } = fixture();
     state.entries.push({

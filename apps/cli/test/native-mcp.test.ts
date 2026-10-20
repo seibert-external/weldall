@@ -10,7 +10,7 @@ import {
   issueIdJag,
   type ResourceRegistryEntry,
 } from "@weldall/sdk";
-import { createNativeMcp } from "@weldall/sdk/mcp/server";
+import { createNativeMcp, createMcpAppResource } from "@weldall/sdk/mcp/server";
 import type { WeldallConfig } from "../src/config.js";
 import { requestNativeMcp, resolveNativeMcp } from "../src/services/native-mcp.js";
 import { discoverNativeResources } from "../src/services/discovery.js";
@@ -74,6 +74,13 @@ beforeEach(async () => {
     supportedScopes: ["read", "write"],
     grantedScopes: ["read", "write"],
   };
+  const ui = createMcpAppResource({
+    name: "expenses",
+    scopes: ["read"],
+    resourceOrigin: origin,
+    styleUrls: [`${origin}/ui.css`],
+    render: ({ auth }) => `<h1>${auth.subject}</h1>`,
+  });
   instance = initWeldall(host, {
     resource: resource.resourceIdentifier,
     publicOrigin: origin,
@@ -88,6 +95,7 @@ beforeEach(async () => {
       tools: [
         {
           name: "write",
+          _meta: { ui: { resourceUri: ui.uri } },
           scopes: ["write"],
           inputSchema: { type: "object" },
           async handler(_, { auth }) {
@@ -97,6 +105,7 @@ beforeEach(async () => {
         },
       ],
       resources: [
+        ui,
         {
           name: "Expenses",
           uri: "expenses://current",
@@ -177,6 +186,41 @@ describe("native CLI resource transport", () => {
     ).toMatchObject({ contents: [{ text: "expenses" }] });
     expect(fetched.some((r) => r.url.includes("connectors"))).toBe(false);
   });
+  it("preserves native UI metadata through discovery, disk cache and direct authenticated HTML reads", async () => {
+    const discovered = await discoverNativeResources(config, { resources: ["expenses"] });
+    expect(discovered.results[0]).toMatchObject({
+      tools: [{ _meta: { ui: { resourceUri: "ui://weldall/expenses" } } }],
+      resources: expect.arrayContaining([
+        { name: "expenses", uri: "ui://weldall/expenses", mimeType: "text/html;profile=mcp-app" },
+      ]),
+    });
+    fetched = [];
+    expect(await requestNativeMcp(config, "tools", { resourceKey: "expenses" })).toMatchObject({
+      tools: [
+        { _meta: { ui: { resourceUri: "ui://weldall/expenses" }, "weldall/scopes": ["write"] } },
+      ],
+    });
+    expect(fetched.some((request) => request.body?.includes('"tools/list"'))).toBe(false);
+    const result = await requestNativeMcp(config, "read-resource", {
+      resourceKey: "expenses",
+      uri: "ui://weldall/expenses",
+    });
+    expect(result).toMatchObject({
+      contents: [
+        {
+          text: expect.stringContaining("<h1>alice</h1>"),
+          _meta: { ui: { csp: { resourceDomains: [origin] } } },
+        },
+      ],
+    });
+    expect(fetched.some((request) => request.url.includes("connectors"))).toBe(false);
+    expect(
+      fetched
+        .filter((request) => request.body?.includes('"resources/read"'))
+        .map((request) => request.url),
+    ).toEqual([`${origin}/api/mcp`]);
+  });
+
   it("reuses definitions but checks metadata, grants and operation tokens on every call", async () => {
     await requestNativeMcp(config, "tools", { resourceKey: "expenses" });
     fetched = [];
