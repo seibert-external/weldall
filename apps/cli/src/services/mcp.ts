@@ -138,7 +138,7 @@ export async function requestMcp(
       } catch {
         throw new CliError("Weldall returned an invalid MCP response");
       }
-    });
+    }, signal);
   } catch (error) {
     if (signal.aborted)
       throw new CliError(

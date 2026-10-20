@@ -55,12 +55,14 @@ export class SessionManager {
     private readonly now: () => number = () => Math.floor(Date.now() / 1_000),
   ) {}
 
-  async getAccessSession(): Promise<AccessSession> {
+  async getAccessSession(signal?: AbortSignal): Promise<AccessSession> {
+    signal?.throwIfAborted();
     const readStartedAt = timingNow();
     // Read outside the lock first so a valid session costs a single keychain access. A miss is
     // not final: on macOS an explicit login deletes and reinserts the item, so the locked
     // read below, which waits for that rewrite, decides whether the user is logged in.
     const initial = await this.store.get(this.config.issuer);
+    signal?.throwIfAborted();
     phaseTiming("keychain-read", readStartedAt);
     const cached = initial ? usable(initial, this.now()) : null;
     if (cached) {
@@ -70,7 +72,9 @@ export class SessionManager {
 
     const refreshStartedAt = timingNow();
     const session = await this.lock(async () => {
+      signal?.throwIfAborted();
       const credentials = await this.store.get(this.config.issuer);
+      signal?.throwIfAborted();
       if (!credentials)
         throw new CliError(`You are not logged in to ${this.config.issuer}`, {
           hint: "Run `weldall login` first.",
@@ -78,10 +82,15 @@ export class SessionManager {
       const followerSession = usable(credentials, this.now());
       if (followerSession) return followerSession;
 
-      const fresh = await this.refreshCredentials(this.config, credentials, async (rotated) => {
-        // Persist rotation before any signing-key or access-token validation.
-        await this.store.set(this.config.issuer, inputFrom(rotated, {}, true));
-      });
+      const fresh = await this.refreshCredentials(
+        this.config,
+        credentials,
+        async (rotated) => {
+          await this.store.set(this.config.issuer, inputFrom(rotated, {}, true));
+        },
+        signal,
+      );
+      signal?.throwIfAborted();
       const accessSession: StoredAccessSession = {
         accessToken: fresh.accessToken,
         subject: fresh.subject,

@@ -156,7 +156,7 @@ export async function listScopesWithSubject(
       },
       subject: session.subject,
     };
-  });
+  }, signal);
 }
 
 export async function listScopes(config: WeldallConfig) {
@@ -362,7 +362,7 @@ export async function prepareResourceClient(
         );
       },
     };
-  });
+  }, options.signal);
 }
 
 export async function resourceRequest(

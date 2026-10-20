@@ -323,6 +323,22 @@ async def test_protocol_validation_limits_and_no_sessions(keys, discovery):
     ]["code"] == -32602
 
 
+async def test_initialize_negotiates_to_latest_supported_protocol(keys, discovery):
+    sdk = make_sdk(keys, discovery, mcp=provider())
+    response = await sdk.handlers.mcp(
+        request(
+            keys,
+            "initialize",
+            {
+                "protocolVersion": "2099-01-01",
+                "clientInfo": {"name": "test", "version": "1"},
+                "capabilities": {},
+            },
+        )
+    )
+    assert response.json_body()["result"]["protocolVersion"] == "2025-11-25"
+
+
 async def test_cancellation_and_timeout_cancel_handler_without_retry(keys, discovery, monkeypatch):
     entered = asyncio.Event()
     cancelled = []

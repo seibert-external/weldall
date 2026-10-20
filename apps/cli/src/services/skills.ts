@@ -93,7 +93,7 @@ async function authenticatedGet(config: WeldallConfig, url: string, signal?: Abo
       ? boundedJsonResponse(response, signal)
       : successfulResponse(response, "Weldall skill registry request", CONFIG_REFRESH_HINT));
     return { value, subject: session.subject };
-  });
+  }, signal);
 }
 
 export async function listSkillsWithSubject(

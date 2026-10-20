@@ -93,6 +93,30 @@ describe("native login", () => {
     );
   });
 
+  it("cancels a stalled token request through the caller signal", async () => {
+    const key = await generateEs256KeyPair();
+    const controller = new AbortController();
+    const fetcher = vi.fn(
+      async (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init.signal!;
+          if (signal.aborted) reject(signal.reason);
+          else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const pending = tokenRequest(
+      config,
+      new URLSearchParams({ refresh_token: "secret" }),
+      key,
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetcher).toHaveBeenCalledWith(config.token, expect.objectContaining({ signal: controller.signal }));
+  });
+
   it("creates RFC7636 S256 values", () => {
     const p = createPkce();
     expect(p.verifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);

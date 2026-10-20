@@ -109,6 +109,7 @@ export async function tokenRequest(
   config: WeldallConfig,
   body: URLSearchParams,
   key: { privateJwk: JWK; publicJwk: JWK },
+  signal?: AbortSignal,
 ) {
   const proof = await createDpopProof({ ...key, method: "POST", url: config.token });
   const response = await fetch(config.token, {
@@ -116,6 +117,7 @@ export async function tokenRequest(
     headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof },
     body,
     redirect: "error",
+    ...(signal ? { signal } : {}),
   });
   const value = await jsonObject(response, "Weldall token endpoint");
   if (!response.ok) {
@@ -253,6 +255,7 @@ export async function refresh(
   config: WeldallConfig,
   credentials: StoredCredentials,
   onRotation: (credentials: StoredCredentials) => Promise<void>,
+  signal?: AbortSignal,
 ) {
   const result = await tokenRequest(
     config,
@@ -262,6 +265,7 @@ export async function refresh(
       client_id: WELDALL_CLIENT_ID,
     }),
     credentials,
+    signal,
   );
   if (
     result.token_type !== "DPoP" ||

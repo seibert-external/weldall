@@ -107,8 +107,9 @@ export type { AccessSession } from "./session-manager.js";
 export async function withAccess<T>(
   config: WeldallConfig,
   operation: (session: AccessSession) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
-  return operation(await new SessionManager(config).getAccessSession());
+  return operation(await new SessionManager(config).getAccessSession(signal));
 }
 
 export async function whoAmI(config: WeldallConfig) {

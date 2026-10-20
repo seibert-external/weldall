@@ -218,11 +218,12 @@ describe.skipIf(process.platform === "win32")("real stdio MCP", () => {
         }) + "\n",
       );
       const message = JSON.parse(await response);
-      if (version === "2099-01-01") expect(message.error.code).toBe(-32600);
-      else {
-        expect(message.result.protocolVersion).toBe(version);
-        expect(message.result.instructions).toBe(buildInstructions(organizationInstructions));
-      }
+      expect(message.result.protocolVersion).toBe(
+        PROTOCOL_VERSIONS.includes(version as (typeof PROTOCOL_VERSIONS)[number])
+          ? version
+          : PROTOCOL_VERSIONS[0],
+      );
+      expect(message.result.instructions).toBe(buildInstructions(organizationInstructions));
     } finally {
       lines.close();
       const closed = new Promise((resolve) => child.once("close", resolve));

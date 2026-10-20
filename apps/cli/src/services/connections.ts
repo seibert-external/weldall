@@ -232,7 +232,7 @@ export async function requestConnectionApi({
     return abort
       ? boundedJsonResponse(response, abort)
       : successfulResponse(response, "Weldall connection request");
-  });
+  }, abort);
 }
 
 /** Lists credential-free managed connections for CLI table, JSON, and agentic output. */
@@ -261,13 +261,16 @@ export async function listConnectors(
 export async function showConnection({
   config,
   selector,
+  signal,
 }: {
   config: WeldallConfig;
   selector: string;
+  signal?: AbortSignal;
 }): Promise<ConnectionSummary> {
   const value = await requestConnectionApi({
     config,
     path: `connections/${encodeURIComponent(selector)}`,
+    ...(signal === undefined ? {} : { signal }),
   });
   if (!isConnectionSummary(value)) throw new CliError("Weldall returned an invalid connection");
   return value;
@@ -403,7 +406,11 @@ export async function requestConnection({
   input: PreparedRequest;
 }) {
   validateConnectionTarget(input.url);
-  const connection = await showConnection({ config, selector });
+  const connection = await showConnection({
+    config,
+    selector,
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+  });
   if (connection.capabilities && !connection.capabilities.includes("http"))
     throw new CliError("This connection does not support HTTP requests.", {
       hint: connection.capabilities.includes("mcp")
@@ -444,5 +451,5 @@ export async function requestConnection({
       }),
       "Weldall connector request",
     );
-  });
+  }, input.signal);
 }
