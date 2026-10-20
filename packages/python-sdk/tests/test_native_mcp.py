@@ -209,6 +209,11 @@ def test_metadata_rejects_incomplete_capability_tuple(keys, discovery):
         make_sdk(keys, discovery, mcp=InvalidMetadataProvider())
 
 
+def test_valid_native_provider_constructs_with_tuple_contract(keys, discovery):
+    sdk = make_sdk(keys, discovery, mcp=provider())
+    assert sdk.mcp_metadata["capabilities"] == ["tools", "resources"]
+
+
 @pytest.mark.parametrize(
     "method", ["initialize", "tools/list", "resources/list", "resources/templates/list"]
 )
