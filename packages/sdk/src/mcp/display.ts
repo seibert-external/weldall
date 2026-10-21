@@ -78,7 +78,9 @@ export function sanitizeMcpDisplayHtml(
   const scripts = new Set<string>();
   const allowedUrl = (value: string | undefined, origins: readonly string[]) => {
     const parsed = mcpAppAssetUrlSchema.safeParse(value);
-    return parsed.success && origins.includes(new URL(parsed.data).origin) ? parsed.data : undefined;
+    return parsed.success && origins.includes(new URL(parsed.data).origin)
+      ? parsed.data
+      : undefined;
   };
   const asset = (value: string | undefined) =>
     allowedUrl(value, origin === undefined ? [] : [origin]);
