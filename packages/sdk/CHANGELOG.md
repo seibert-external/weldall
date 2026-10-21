@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.11.0
+
+### Minor Changes
+
+- 04837c5: Add optional native MCP serving with existing DPoP authentication and explicit discovery/operation scopes. Unify bounded resource, connector-type, query and skill discovery behind the CLI, with session-local extension publication, explicit account continuation and additive whole-source dependencies. Preserve HTTP and shipped exact-tool dependency semantics. Include the Expenses reference resource with native tools/resources, a whole-resource review skill, matching development seed, and user/machine authorization tests. Load the native MCP runtime lazily to preserve standalone startup under the pinned Bun compiler. Cache native discovery metadata in bounded server memory for 60 seconds and validated catalogs in owner-only CLI files for five minutes, while retaining live authorization and revision checks. Add native MCP Apps: a TypeScript resource helper with source-bound asset CSP, native-only UI metadata transport, session-local UI references, and a sanitized Expenses view. Add HTML injection and framework-independent browser exports for sizing and configurable fullscreen/PiP. Public same-origin ES modules require an enforced display-only or resource-bound bridge. Add per-view tool allowlists, a browser call helper and host-bound extension dispatch with live authorization; unsupported clients fail closed. Expose typed browser APIs for chat messages, future-turn model context, own-resource listing/reads, external links, user-confirmed downloads, logs, display/lifecycle events and capability-aware sampling. The desktop wires supported host actions without dropping source isolation, scope checks or the network sandbox; model actions triggered by chat are distinct from direct allowlisted UI calls. The Expenses UI demonstrates non-persistent approve/deny previews. Provider inline code, connector Apps and cross-resource UI calls remain unsupported. This remains development work: Task 1's parity, performance, installed-host/next-model and real-pilot acceptance gates must close before release; no minimum published version is claimed.
+
 ## 0.10.0
 
 ### Minor Changes
