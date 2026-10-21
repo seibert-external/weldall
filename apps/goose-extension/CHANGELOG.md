@@ -1,5 +1,11 @@
 # @weldall/goose
 
+## 0.4.1
+
+### Patch Changes
+
+- 1244f7a: Preserve validated MCP App connection and object CSP domains when Goose re-sanitizes native UI resources.
+
 ## 0.4.0
 
 ### Minor Changes
