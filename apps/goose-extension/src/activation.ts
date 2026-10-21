@@ -70,7 +70,7 @@ const selectionTool: Tool = {
 const discoveryTool: Tool = {
   name: "discover_integrations",
   description:
-    "Search authorized integrations or select registered resources, connector types and skills. Successful sources become tools for the next model request. catalogOnly returns descriptions without activation. Follow nextCursor only when relevant; ask the user to choose ambiguous accounts.",
+    "Primary entry point for company-service tasks and capability questions unless suitable tools are already active or organization instructions require another workflow. Search with a focused query or select known resources, connector types and skills; activate by default without a preliminary skill search. Successful sources become tools for the next model request. Use catalogOnly only for an explicitly requested catalog-only overview without activation. Follow nextCursor only when relevant; ask the user to choose ambiguous accounts. Activation does not authorize writes.",
   inputSchema: {
     type: "object",
     properties: {

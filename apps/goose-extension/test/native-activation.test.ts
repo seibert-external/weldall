@@ -85,6 +85,10 @@ describe("native discovery publication", () => {
     );
     await server.connect(extension);
     await client.connect(host);
+    expect(client.getInstructions()).toContain(
+      "use discover_integrations as the primary entry point",
+    );
+    expect(client.getInstructions()).not.toContain("use search_skills first");
     await client.callTool({
       name: "discover_integrations",
       arguments: { resources: ["expenses", "other"] },

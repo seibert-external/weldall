@@ -27,6 +27,12 @@ emits list-change notifications before returning instructions/outcomes. `catalog
 does not activate. Ambiguity uses `select_mcp_connection` with an explicitly chosen offered ID.
 `read_skill_document` uses this same resolver and reports incomplete dependencies.
 
+For capable CLIs, the default workflow starts with focused discovery and activation, including
+capability questions, unless organization instructions require another workflow. Already active
+tools are reused directly; no preliminary skill search is needed. Reserve `catalogOnly: true` for
+explicit catalog-only overviews without activation. Activation never authorizes writes. Older CLIs
+retain the search-skills-first workflow.
+
 Repeat a selection to refresh its catalog. `{ remove: ["resource:expenses", "connector:work"] }`
 removes live handlers without forgetting the session’s account choice; removal cannot enable a
 silent account switch. A detected identity/origin change clears old routes and requires fresh
