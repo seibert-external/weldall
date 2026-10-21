@@ -1,6 +1,6 @@
 {
   "name": "@weldall/goose",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "mcpName": "io.github.seibert-external/weldall",
   "description": "Weldall skills and governed API tools for Goose over stdio MCP; requires the local Weldall binary",
   "license": "SEE LICENSE IN LICENSE",
