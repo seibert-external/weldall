@@ -413,7 +413,9 @@ describe("native discovery publication", () => {
     expect(html).toContain("script-src &#39;sha256-");
     expect(html).toContain(`connect-src ${connectOrigin}`);
     expect(html).toContain(`object-src https://expenses.example ${objectOrigin}`);
-    expect(html).toContain(`<object data="${objectOrigin}/contract.pdf" type="application/pdf"></object>`);
+    expect(html).toContain(
+      `<object data="${objectOrigin}/contract.pdf" type="application/pdf"></object>`,
+    );
     expect(html).not.toContain('parent.postMessage({method:"tools/call"}');
     expect(result.contents[0]!._meta).toMatchObject({
       ui: {
