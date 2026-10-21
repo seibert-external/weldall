@@ -1,5 +1,11 @@
 # @weldall/goose
 
+## 0.4.2
+
+### Patch Changes
+
+- ab6b77e: Use focused integration discovery with activation as the default entry point when supported by the local CLI. Reuse active tools, reserve catalog-only discovery for explicit catalog requests, and retain the skill-search workflow for older CLIs.
+
 ## 0.4.1
 
 ### Patch Changes
