@@ -1,5 +1,12 @@
 # @weldall/weldall
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [22c772f]
+  - @weldall/sdk@0.12.0
+
 ## 0.7.0
 
 ### Minor Changes
