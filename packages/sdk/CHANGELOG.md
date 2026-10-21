@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.12.0
+
+### Minor Changes
+
+- 22c772f: Allow MCP App resources to declare validated CSP `connectDomains` and `objectDomains` for direct browser network access and embeds.
+
 ## 0.11.0
 
 ### Minor Changes
