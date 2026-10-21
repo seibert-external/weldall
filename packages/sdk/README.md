@@ -202,7 +202,6 @@ const view = createMcpAppResource({
   displayModes: ["inline", "fullscreen", "pip"],
   styleUrls: ["https://contracts.example.com/assets/caller.css"],
   connectDomains: ["https://contracts.example.com"],
-  objectDomains: ["https://contracts.example.com"],
   render: ({ auth }) =>
     `<main><h1>Requested by</h1><p>${escapeMcpAppText(auth.subject)}</p></main>`,
 });
@@ -239,10 +238,9 @@ development. No CDNs, credentials or wildcards. At the extension boundary the or
 from the registered resource identifier, never trusted from provider metadata. The document CSP
 blocks direct fetch/WebSocket connections by default. `connectDomains` explicitly allows up to 16
 validated HTTPS origins (or loopback HTTP during development) for `fetch`, XHR and WebSockets and
-publishes the same allowlist to the host. `objectDomains` separately allows sanitized `<object>`
-embeds, such as a short-lived PDF URL, and emits the matching `object-src` policy. Treat each entry as
-a data-disclosure boundary; credentials and wildcards are rejected. Frames and form submissions stay
-blocked. Provider inline scripts, event
+publishes the same allowlist to the host. Treat each entry as a data-disclosure boundary; credentials
+and wildcards are rejected. Objects, frames and form submissions stay blocked. The old `objectDomains`
+option is deprecated and ignored for source compatibility; sandboxed hosts cannot render PDF plugins. Provider inline scripts, event
 handlers and static navigation/form markup are removed. JavaScript can implement local UI interactions
 without receiving provider credentials. Tool access requires the explicit per-view opt-in below.
 
@@ -259,8 +257,9 @@ and render a mount point such as `<div id="root"></div>`. Bundle your framework 
 its ES modules, CSS and fonts from `resourceOrigin`, with correct MIME types and CORS headers for
 cross-origin iframe/module loading. These assets must be public and non-sensitive; authenticated
 HTML supplies the initial data. Inline hydration scripts are not supported. API fetching additionally
-requires the target origin in `connectDomains` and appropriate CORS headers. A native browser embed
-instead requires its origin in `objectDomains` and an `<object data="…" type="application/pdf">`.
+requires the target origin in `connectDomains` and appropriate CORS headers. Render PDFs with PDF.js
+and canvas, not `<object>` or browser plugins. Weldall CLI 0.22.1 or newer is required to preserve
+`connectDomains` through native resource reads; 0.22.0 strips that field.
 
 The framework-independent browser export has no React or Node dependencies:
 

@@ -84,7 +84,7 @@ describe("display-only MCP Apps", () => {
     ).toThrow();
   });
 
-  it("allows only explicitly configured object origins", async () => {
+  it("removes unsupported object embeds even with the deprecated object option", async () => {
     const app = createMcpAppResource({
       name: "pdf",
       scopes: ["read"],
@@ -98,10 +98,8 @@ describe("display-only MCP Apps", () => {
     expect(result.contents[0]!._meta).toMatchObject({
       ui: { csp: { resourceDomains: [origin], connectDomains: [] } },
     });
-    expect(result.contents[0]!.text).toContain(`object-src ${origin}`);
-    expect(result.contents[0]!.text).toContain(
-      `<object data="${origin}/preview/token" type="application/pdf" width="100%"></object>`,
-    );
+    expect(result.contents[0]!.text).toContain("object-src &#39;none&#39;");
+    expect(result.contents[0]!.text).not.toContain("<object");
     expect(result.contents[0]!.text).not.toContain("evil.example");
   });
 

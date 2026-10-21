@@ -67,9 +67,9 @@ stripped. Hosts without MCP Apps support continue to receive normal text tool re
 
 Before returning native UI HTML to Goose, the extension applies the SDK's HTML sanitizer
 and restrictive document CSP. This covers text and base64 content, even when the provider changes
-the MIME type. Executable assets remain bound to the registered resource origin; validated provider
-CSP connection and object-embed domains are forwarded into the second sanitizer pass, so SDK-generated
-`object-src` rules survive without allowing provider metadata to expand executable asset loading.
+the MIME type. Assets remain bound to the registered resource origin; validated provider CSP connection
+domains are forwarded into the second sanitizer pass. Objects stay blocked: use PDF.js/fetch/canvas,
+not PDF plugins. CLI 0.22.1 or newer is required for `connectDomains`; 0.22.0 strips that metadata.
 Provider inline code is removed and replaced with the SDK\'s CSP-hashed display bootstrap. Public
 ES modules load only after a compatible host advertises `weldall/app-bridge`,
 `weldall/display-only` or `weldall/resource-tool-calls` (version 1).

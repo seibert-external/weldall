@@ -416,15 +416,13 @@ describe("native discovery publication", () => {
     expect(html).toContain('href="https://expenses.example/ui.css"');
     expect(html).toContain("script-src &#39;sha256-");
     expect(html).toContain(`connect-src ${connectOrigin}`);
-    expect(html).toContain(`object-src https://expenses.example ${objectOrigin}`);
-    expect(html).toContain(
-      `<object data="${objectOrigin}/contract.pdf" type="application/pdf"></object>`,
-    );
+    expect(html).toContain("object-src &#39;none&#39;");
+    expect(html).not.toContain("<object");
     expect(html).not.toContain('parent.postMessage({method:"tools/call"}');
     expect(result.contents[0]!._meta).toMatchObject({
       ui: {
         csp: {
-          resourceDomains: ["https://expenses.example", objectOrigin],
+          resourceDomains: ["https://expenses.example"],
           connectDomains: [connectOrigin],
         },
         prefersBorder: true,
@@ -461,14 +459,14 @@ describe("native discovery publication", () => {
     expect(result.contents[0]!._meta).toMatchObject({
       ui: {
         csp: {
-          resourceDomains: ["https://expenses.example", "https://evil.example"],
+          resourceDomains: ["https://expenses.example"],
           connectDomains: [],
         },
       },
     });
   });
 
-  it("rejects CSP domains that cannot fit beside the trusted source origin", async () => {
+  it("does not forward provider object or asset allowlists", async () => {
     const { state, activation, cli } = fixture();
     state.entries = [
       {
@@ -497,9 +495,11 @@ describe("native discovery publication", () => {
         ],
       }),
     );
-    await expect(activation.read(activation.listResources()[0]!.uri)).rejects.toMatchObject({
-      code: "output_limit",
+    const result = await activation.read(activation.listResources()[0]!.uri);
+    expect(result.contents[0]!._meta).toMatchObject({
+      ui: { csp: { resourceDomains: ["https://expenses.example"], connectDomains: [] } },
     });
+    expect(result.contents[0]!.text).not.toContain("domain-0.example");
   });
 
   it("keeps identical UI URIs source-bound and removes only the selected source", async () => {

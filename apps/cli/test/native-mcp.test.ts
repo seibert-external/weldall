@@ -80,6 +80,7 @@ beforeEach(async () => {
     allowedTools: ["write"],
     resourceOrigin: origin,
     styleUrls: [`${origin}/ui.css`],
+    connectDomains: [origin],
     render: ({ auth }) => `<h1>${auth.subject}</h1>`,
   });
   instance = initWeldall(host, {
@@ -215,7 +216,7 @@ describe("native CLI resource transport", () => {
       contents: [
         {
           text: expect.stringContaining("<h1>alice</h1>"),
-          _meta: { ui: { csp: { resourceDomains: [origin] } } },
+          _meta: { ui: { csp: { resourceDomains: [origin], connectDomains: [origin] } } },
         },
       ],
     });

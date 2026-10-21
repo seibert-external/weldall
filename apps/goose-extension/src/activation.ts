@@ -1001,18 +1001,16 @@ export class McpActivation {
             item.mimeType !== MCP_APP_MIME_TYPE
           )
             return item;
-          // Only the source binding authorizes executable assets; declared CSP domains stay
-          // limited to connections and sanitized object embeds.
+          // Only the source binding authorizes assets; provider CSP grants fetch origins only.
           const origin = new URL(binding.native!.resourceIdentifier).origin;
           const csp = item._meta?.ui.csp;
-          const domains = [...new Set([origin, ...(csp?.resourceDomains ?? [])])];
-          if (domains.length > 16) throw new ExtensionError("output_limit");
+          const domains = [origin];
           const connections = csp?.connectDomains ?? [];
           const html = item.text ?? Buffer.from(item.blob!, "base64").toString("utf8");
           return {
             uri: item.uri,
             mimeType: MCP_APP_MIME_TYPE,
-            text: sanitizeMcpDisplayHtml(html, origin, connections, domains),
+            text: sanitizeMcpDisplayHtml(html, origin, connections),
             _meta: {
               ui: {
                 csp: { resourceDomains: domains, connectDomains: connections },
