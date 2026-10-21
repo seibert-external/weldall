@@ -201,6 +201,8 @@ const view = createMcpAppResource({
   resourceOrigin: "https://contracts.example.com",
   displayModes: ["inline", "fullscreen", "pip"],
   styleUrls: ["https://contracts.example.com/assets/caller.css"],
+  connectDomains: ["https://contracts.example.com"],
+  objectDomains: ["https://contracts.example.com"],
   render: ({ auth }) =>
     `<main><h1>Requested by</h1><p>${escapeMcpAppText(auth.subject)}</p></main>`,
 });
@@ -235,9 +237,14 @@ of a tool call; it does not receive tool arguments/results. Escape interpolated 
 origin (scheme + host + port). URLs must be absolute HTTPS, or HTTP on explicit loopback hosts for
 development. No CDNs, credentials or wildcards. At the extension boundary the origin is re-derived
 from the registered resource identifier, never trusted from provider metadata. The document CSP
-blocks direct fetch/WebSocket connections, frames and form submissions. Provider inline scripts,
-event handlers and static navigation/form markup are removed. JavaScript can implement local UI
-interactions without receiving provider credentials. Tool access requires the explicit per-view opt-in below.
+blocks direct fetch/WebSocket connections by default. `connectDomains` explicitly allows up to 16
+validated HTTPS origins (or loopback HTTP during development) for `fetch`, XHR and WebSockets and
+publishes the same allowlist to the host. `objectDomains` separately allows sanitized `<object>`
+embeds, such as a short-lived PDF URL, and emits the matching `object-src` policy. Treat each entry as
+a data-disclosure boundary; credentials and wildcards are rejected. Frames and form submissions stay
+blocked. Provider inline scripts, event
+handlers and static navigation/form markup are removed. JavaScript can implement local UI interactions
+without receiving provider credentials. Tool access requires the explicit per-view opt-in below.
 
 ### HTML templates and React/Vue
 
@@ -251,7 +258,9 @@ For a React/Vue UI, set `scriptUrls: ["https://contracts.example.com/assets/app.
 and render a mount point such as `<div id="root"></div>`. Bundle your framework normally and serve
 its ES modules, CSS and fonts from `resourceOrigin`, with correct MIME types and CORS headers for
 cross-origin iframe/module loading. These assets must be public and non-sensitive; authenticated
-HTML supplies the initial data. Inline hydration scripts and API fetching are not supported.
+HTML supplies the initial data. Inline hydration scripts are not supported. API fetching additionally
+requires the target origin in `connectDomains` and appropriate CORS headers. A native browser embed
+instead requires its origin in `objectDomains` and an `<object data="…" type="application/pdf">`.
 
 The framework-independent browser export has no React or Node dependencies:
 
@@ -358,8 +367,8 @@ if (!result.isError) {
 
 **Chat is a separate authority path:** a message can make the model use any tools available to the chat,
 not just the view's own tools. The per-view tool allowlist restricts direct UI calls, not subsequent model
-actions. Authentication, scopes and business authorization still apply to those actions. Public assets remain
-same-origin, provider inline code is removed, and `connect-src 'none'` still prevents direct network access.
+actions. Authentication, scopes and business authorization still apply to those actions. Public assets remain same-origin and provider inline code is removed. Direct network access
+stays blocked unless the resource explicitly declares `connectDomains`.
 
 The runnable example is [Expenses](../../apps/expenses/README.md). Protocol tests do not prove
 that an installed desktop host has loaded the branch extension; verify the iframe in that host

@@ -58,21 +58,33 @@ export function renderMcpAppBootstrapHtml(options: McpAppDisplayOptions = {}): s
  * @param html Provider HTML, optionally containing a display bootstrap or external ES module tags.
  * @param resourceOrigin Trusted registered origin (scheme + host + port), never provider-declared
  * CSP. Omit to disallow external assets. HTTPS is required except for explicit loopback hosts.
+ * @param connectDomains Origins the app may contact with fetch, XHR or WebSocket. Defaults to none.
+ * @param objectDomains Origins the app may embed with `<object>`, for example a PDF. Defaults to none.
+ * Treat every allowed origin as a data disclosure boundary.
  * @returns A complete HTML document ready for the host's sandboxed MCP App renderer.
  */
-export function sanitizeMcpDisplayHtml(html: string, resourceOrigin?: string): string {
+export function sanitizeMcpDisplayHtml(
+  html: string,
+  resourceOrigin?: string,
+  connectDomains: readonly string[] = [],
+  objectDomains: readonly string[] = [],
+): string {
   assertMcpJson(html);
   const origin =
     resourceOrigin === undefined ? undefined : mcpAppOriginSchema.parse(resourceOrigin);
+  const connections = z.array(mcpAppOriginSchema).max(16).parse(connectDomains);
+  const objects = z.array(mcpAppOriginSchema).max(16).parse(objectDomains);
   let displayModes: McpAppDisplayOptions["displayModes"] = ["inline"];
   const scripts = new Set<string>();
-  const asset = (value: string | undefined) => {
+  const allowedUrl = (value: string | undefined, origins: readonly string[]) => {
     const parsed = mcpAppAssetUrlSchema.safeParse(value);
-    return parsed.success && new URL(parsed.data).origin === origin ? parsed.data : undefined;
+    return parsed.success && origins.includes(new URL(parsed.data).origin) ? parsed.data : undefined;
   };
+  const asset = (value: string | undefined) =>
+    allowedUrl(value, origin === undefined ? [] : [origin]);
   const body = sanitizeHtml(html, {
     // Scripts are parsed solely to extract module URLs/config, then ALL are removed below.
-    allowedTags: [...sanitizeHtml.defaults.allowedTags, "link", "img", "script"],
+    allowedTags: [...sanitizeHtml.defaults.allowedTags, "link", "img", "object", "script"],
     allowVulnerableTags: true,
     allowedAttributes: {
       "*": ["id", "class", "title", "lang", "dir", "role", "aria-*", "data-*"],
@@ -80,6 +92,7 @@ export function sanitizeMcpDisplayHtml(html: string, resourceOrigin?: string): s
       td: ["colspan", "rowspan"],
       link: ["rel", "href"],
       img: ["src", "alt", "width", "height"],
+      object: ["data", "type", "width", "height"],
       script: ["src", "type", "data-weldall-mcp"],
     },
     allowedSchemes: ["https", "http"],
@@ -96,6 +109,12 @@ export function sanitizeMcpDisplayHtml(html: string, resourceOrigin?: string): s
       img: (_tag, attrs) => ({
         tagName: "img",
         attribs: asset(attrs.src) ? { ...attrs, src: asset(attrs.src)! } : {},
+      }),
+      object: (_tag, attrs) => ({
+        tagName: "object",
+        attribs: allowedUrl(attrs.data, objects)
+          ? { ...attrs, data: allowedUrl(attrs.data, objects)! }
+          : {},
       }),
     },
     exclusiveFilter: (frame) => {
@@ -119,15 +138,19 @@ export function sanitizeMcpDisplayHtml(html: string, resourceOrigin?: string): s
         return true;
       }
       return (
-        (frame.tag === "link" && !frame.attribs.href) || (frame.tag === "img" && !frame.attribs.src)
+        (frame.tag === "link" && !frame.attribs.href) ||
+        (frame.tag === "img" && !frame.attribs.src) ||
+        (frame.tag === "object" && !frame.attribs.data)
       );
     },
   });
   const hash = createHash("sha256").update(bootstrapCode()).digest("base64");
   const assets = origin ?? "'none'";
+  const connects = connections.length ? connections.join(" ") : "'none'";
+  const objectSources = objects.length ? objects.join(" ") : "'none'";
   const csp =
     `default-src 'none'; script-src 'sha256-${hash}'${origin ? ` ${origin}` : ""}; ` +
-    "connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; " +
+    `connect-src ${connects}; frame-src 'none'; object-src ${objectSources}; base-uri 'none'; form-action 'none'; ` +
     `style-src 'unsafe-inline'${origin ? ` ${origin}` : ""}; img-src ${assets}; font-src ${assets}`;
   const document = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${escapeMcpAppText(csp)}"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${body}${renderMcpAppBootstrapHtml({ displayModes, ...(origin ? { resourceOrigin: origin } : {}), scriptUrls: [...scripts] })}</body></html>`;
   assertMcpJson(document, MCP_LIMITS.resultBytes);
@@ -153,6 +176,11 @@ export function createMcpAppResource(
     allowedTools?: readonly string[];
     /** Public stylesheet URLs on `resourceOrigin`; absolute URLs, no credentials or CDN origins. */
     styleUrls?: readonly string[];
+    /** Origins this view may contact with fetch, XHR or WebSocket. Defaults to none.
+     * Each origin is also declared to the host and must use HTTPS or explicit loopback HTTP. */
+    connectDomains?: readonly string[];
+    /** Origins this view may embed with `<object>`, for example a PDF. Defaults to none. */
+    objectDomains?: readonly string[];
     /**
      * Render an HTML fragment for each authenticated resource read. Escape interpolated text
      * with `escapeMcpAppText`. Receives no preceding tool arguments/results; load data using
@@ -171,6 +199,14 @@ export function createMcpAppResource(
     .array(mcpAppAssetUrlSchema)
     .max(16)
     .parse(options.styleUrls ?? []);
+  const connectDomains = z
+    .array(mcpAppOriginSchema)
+    .max(16)
+    .parse(options.connectDomains ?? []);
+  const objectDomains = z
+    .array(mcpAppOriginSchema)
+    .max(16)
+    .parse(options.objectDomains ?? []);
   if (styles.some((url) => new URL(url).origin !== config.resourceOrigin))
     throw new TypeError("Stylesheets must use the resource origin");
   const ui = nativeMcpResourceDefinitionSchema.shape._meta.unwrap().parse({
@@ -195,10 +231,20 @@ export function createMcpAppResource(
             text: sanitizeMcpDisplayHtml(
               links + (await options.render(context)) + renderMcpAppBootstrapHtml(config),
               config.resourceOrigin,
+              connectDomains,
+              objectDomains,
             ),
             _meta: {
               ui: {
-                csp: { resourceDomains: config.resourceOrigin ? [config.resourceOrigin] : [] },
+                csp: {
+                  resourceDomains: [
+                    ...new Set([
+                      ...(config.resourceOrigin ? [config.resourceOrigin] : []),
+                      ...objectDomains,
+                    ]),
+                  ],
+                  connectDomains,
+                },
                 prefersBorder: true,
               },
             },

@@ -44,7 +44,9 @@ describe("display-only MCP Apps", () => {
     const result = nativeMcpReadResultSchema.parse(await app.handler(context));
     expect(result.contents[0]).toMatchObject({
       uri: app.uri,
-      _meta: { ui: { csp: { resourceDomains: [origin] }, prefersBorder: true } },
+      _meta: {
+        ui: { csp: { resourceDomains: [origin], connectDomains: [] }, prefersBorder: true },
+      },
     });
     const html = result.contents[0]!.text!;
     expect(html).toContain("<h1>machine:test</h1>");
@@ -56,6 +58,55 @@ describe("display-only MCP Apps", () => {
     expect(escapeMcpAppText("<script>\"&'</script>")).toBe(
       "&lt;script&gt;&quot;&amp;&#39;&lt;/script&gt;",
     );
+  });
+
+  it("allows only explicitly configured network origins", async () => {
+    const apiOrigin = "https://api.example";
+    const app = createMcpAppResource({
+      name: "connected",
+      scopes: ["read"],
+      resourceOrigin: origin,
+      connectDomains: [origin, apiOrigin],
+      render: () => "<main>Connected</main>",
+    });
+    const result = nativeMcpReadResultSchema.parse(await app.handler(context));
+    expect(result.contents[0]!._meta).toMatchObject({
+      ui: { csp: { resourceDomains: [origin], connectDomains: [origin, apiOrigin] } },
+    });
+    expect(result.contents[0]!.text).toContain(
+      `connect-src ${origin} ${apiOrigin}`,
+    );
+    expect(() =>
+      createMcpAppResource({
+        name: "unsafe",
+        scopes: ["read"],
+        connectDomains: ["*"],
+        render: () => "",
+      }),
+    ).toThrow();
+  });
+
+  it("allows only explicitly configured object origins", async () => {
+    const app = createMcpAppResource({
+      name: "pdf",
+      scopes: ["read"],
+      resourceOrigin: origin,
+      objectDomains: [origin],
+      render: () =>
+        `<object data="${origin}/preview/token" type="application/pdf" width="100%"></object>` +
+        `<object data="https://evil.example/file.pdf" type="application/pdf"></object>`,
+    });
+    const result = nativeMcpReadResultSchema.parse(await app.handler(context));
+    expect(result.contents[0]!._meta).toMatchObject({
+      ui: { csp: { resourceDomains: [origin], connectDomains: [] } },
+    });
+    expect(result.contents[0]!.text).toContain(
+      `object-src ${origin}`,
+    );
+    expect(result.contents[0]!.text).toContain(
+      `<object data="${origin}/preview/token" type="application/pdf" width="100%"></object>`,
+    );
+    expect(result.contents[0]!.text).not.toContain("evil.example");
   });
 
   it("removes active markup, navigation, undeclared assets and event handlers at the rendering boundary", () => {
@@ -183,7 +234,7 @@ describe("display-only MCP Apps", () => {
       ],
     };
     expect(nativeMcpReadResultSchema.parse(value).contents[0]!._meta).toEqual({
-      ui: { csp: { resourceDomains: [origin] } },
+      ui: { csp: { resourceDomains: [origin], connectDomains: [origin] } },
     });
     expect(mcpReadResultSchema.parse(value).contents[0]).not.toHaveProperty("_meta");
   });
