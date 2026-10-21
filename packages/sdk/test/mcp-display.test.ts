@@ -84,25 +84,6 @@ describe("display-only MCP Apps", () => {
     ).toThrow();
   });
 
-  it("removes unsupported object embeds even with the deprecated object option", async () => {
-    const app = createMcpAppResource({
-      name: "pdf",
-      scopes: ["read"],
-      resourceOrigin: origin,
-      objectDomains: [origin],
-      render: () =>
-        `<object data="${origin}/preview/token" type="application/pdf" width="100%"></object>` +
-        `<object data="https://evil.example/file.pdf" type="application/pdf"></object>`,
-    });
-    const result = nativeMcpReadResultSchema.parse(await app.handler(context));
-    expect(result.contents[0]!._meta).toMatchObject({
-      ui: { csp: { resourceDomains: [origin], connectDomains: [] } },
-    });
-    expect(result.contents[0]!.text).toContain("object-src &#39;none&#39;");
-    expect(result.contents[0]!.text).not.toContain("<object");
-    expect(result.contents[0]!.text).not.toContain("evil.example");
-  });
-
   it("removes active markup, navigation, undeclared assets and event handlers at the rendering boundary", () => {
     const html = sanitizeMcpDisplayHtml(
       `<!doctype html><html><head>
@@ -123,6 +104,7 @@ describe("display-only MCP Apps", () => {
       </main></body></html>`,
       origin,
     );
+    expect(html).toContain("object-src &#39;none&#39;");
     expect(html).toContain('<main class="card"><h1>Safe</h1>');
     expect(html).toContain(`<link rel="stylesheet" href="${origin}/safe.css" />`);
     expect(html).not.toMatch(/<(iframe|svg|math|object|embed|base|form|input|button|style)\b/i);

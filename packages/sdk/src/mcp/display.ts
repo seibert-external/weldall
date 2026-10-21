@@ -59,7 +59,6 @@ export function renderMcpAppBootstrapHtml(options: McpAppDisplayOptions = {}): s
  * @param resourceOrigin Trusted registered origin (scheme + host + port), never provider-declared
  * CSP. Omit to disallow external assets. HTTPS is required except for explicit loopback hosts.
  * @param connectDomains Origins the app may contact with fetch, XHR or WebSocket. Defaults to none.
- * @param _objectDomains Deprecated and ignored: sandboxed hosts cannot render PDF plugins.
  * Treat every allowed origin as a data disclosure boundary.
  * @returns A complete HTML document ready for the host's sandboxed MCP App renderer.
  */
@@ -67,7 +66,6 @@ export function sanitizeMcpDisplayHtml(
   html: string,
   resourceOrigin?: string,
   connectDomains: readonly string[] = [],
-  _objectDomains: readonly string[] = [],
 ): string {
   assertMcpJson(html);
   const origin =
@@ -170,8 +168,6 @@ export function createMcpAppResource(
     /** Origins this view may contact with fetch, XHR or WebSocket. Defaults to none.
      * Each origin is also declared to the host and must use HTTPS or explicit loopback HTTP. */
     connectDomains?: readonly string[];
-    /** @deprecated Ignored. Render PDFs with fetch and canvas; sandboxed hosts block plugins. */
-    objectDomains?: readonly string[];
     /**
      * Render an HTML fragment for each authenticated resource read. Escape interpolated text
      * with `escapeMcpAppText`. Receives no preceding tool arguments/results; load data using
