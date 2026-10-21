@@ -73,9 +73,7 @@ describe("display-only MCP Apps", () => {
     expect(result.contents[0]!._meta).toMatchObject({
       ui: { csp: { resourceDomains: [origin], connectDomains: [origin, apiOrigin] } },
     });
-    expect(result.contents[0]!.text).toContain(
-      `connect-src ${origin} ${apiOrigin}`,
-    );
+    expect(result.contents[0]!.text).toContain(`connect-src ${origin} ${apiOrigin}`);
     expect(() =>
       createMcpAppResource({
         name: "unsafe",
@@ -100,9 +98,7 @@ describe("display-only MCP Apps", () => {
     expect(result.contents[0]!._meta).toMatchObject({
       ui: { csp: { resourceDomains: [origin], connectDomains: [] } },
     });
-    expect(result.contents[0]!.text).toContain(
-      `object-src ${origin}`,
-    );
+    expect(result.contents[0]!.text).toContain(`object-src ${origin}`);
     expect(result.contents[0]!.text).toContain(
       `<object data="${origin}/preview/token" type="application/pdf" width="100%"></object>`,
     );
