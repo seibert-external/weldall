@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.12.1
+
+### Patch Changes
+
+- 12fa865: Preserve MCP App connectDomains in the bundled CLI validation schema so fetch-based PDF.js views work end to end. Keep object embeds blocked and remove obsolete object-origin forwarding; legacy objectDomains options remain accepted but ignored. Add a regression for connection metadata through authenticated native CLI reads.
+
 ## 0.12.0
 
 ### Minor Changes
