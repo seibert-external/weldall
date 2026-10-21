@@ -239,9 +239,8 @@ from the registered resource identifier, never trusted from provider metadata. T
 blocks direct fetch/WebSocket connections by default. `connectDomains` explicitly allows up to 16
 validated HTTPS origins (or loopback HTTP during development) for `fetch`, XHR and WebSockets and
 publishes the same allowlist to the host. Treat each entry as a data-disclosure boundary; credentials
-and wildcards are rejected. Objects, frames and form submissions stay blocked. The old `objectDomains`
-option is deprecated and ignored for source compatibility; sandboxed hosts cannot render PDF plugins. Provider inline scripts, event
-handlers and static navigation/form markup are removed. JavaScript can implement local UI interactions
+and wildcards are rejected. Provider inline scripts, event handlers and static navigation/form markup
+are removed. JavaScript can implement local UI interactions
 without receiving provider credentials. Tool access requires the explicit per-view opt-in below.
 
 ### HTML templates and React/Vue
@@ -252,14 +251,13 @@ Its read handler includes the bootstrap automatically. For custom HTML assembly 
 `@weldall/sdk/mcp/display` (also exported by `/mcp/server`) at the end of the body; return the
 result through the native UI resource, not as an unauthenticated HTML endpoint.
 
-For a React/Vue UI, set `scriptUrls: ["https://contracts.example.com/assets/app.js"]` on the resource
+For a React/Vue UI, set `scriptUrls: ["https://expenses.example.com/assets/app.js"]` on the resource
 and render a mount point such as `<div id="root"></div>`. Bundle your framework normally and serve
 its ES modules, CSS and fonts from `resourceOrigin`, with correct MIME types and CORS headers for
 cross-origin iframe/module loading. These assets must be public and non-sensitive; authenticated
 HTML supplies the initial data. Inline hydration scripts are not supported. API fetching additionally
-requires the target origin in `connectDomains` and appropriate CORS headers. Render PDFs with PDF.js
-and canvas, not `<object>` or browser plugins. Weldall CLI 0.22.1 or newer is required to preserve
-`connectDomains` through native resource reads; 0.22.0 strips that field.
+requires the target origin in `connectDomains` and appropriate CORS headers. Native resource reads
+require Weldall CLI 0.22.1 or newer.
 
 The framework-independent browser export has no React or Node dependencies:
 
