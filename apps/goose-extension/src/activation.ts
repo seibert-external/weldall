@@ -1006,6 +1006,7 @@ export class McpActivation {
           const origin = new URL(binding.native!.resourceIdentifier).origin;
           const csp = item._meta?.ui.csp;
           const domains = [...new Set([origin, ...(csp?.resourceDomains ?? [])])];
+          if (domains.length > 16) throw new ExtensionError("output_limit");
           const connections = csp?.connectDomains ?? [];
           const html = item.text ?? Buffer.from(item.blob!, "base64").toString("utf8");
           return {

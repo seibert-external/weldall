@@ -462,6 +462,40 @@ describe("native discovery publication", () => {
     });
   });
 
+  it("rejects CSP domains that cannot fit beside the trusted source origin", async () => {
+    const { state, activation, cli } = fixture();
+    state.entries = [
+      {
+        ...source("expenses"),
+        resources: [{ uri: "ui://app/view", name: "UI", mimeType: "text/html;profile=mcp-app" }],
+      },
+    ];
+    await activation.call("discover_integrations", { resources: ["expenses"] });
+    cli.run.mockResolvedValueOnce(
+      JSON.stringify({
+        contents: [
+          {
+            uri: "ui://app/view",
+            text: "<h1>Expenses</h1>",
+            _meta: {
+              ui: {
+                csp: {
+                  resourceDomains: Array.from(
+                    { length: 16 },
+                    (_, index) => `https://domain-${index}.example`,
+                  ),
+                },
+              },
+            },
+          },
+        ],
+      }),
+    );
+    await expect(activation.read(activation.listResources()[0]!.uri)).rejects.toMatchObject({
+      code: "output_limit",
+    });
+  });
+
   it("keeps identical UI URIs source-bound and removes only the selected source", async () => {
     const { state, activation, cli } = fixture();
     const uiUri = "ui://app/view";
