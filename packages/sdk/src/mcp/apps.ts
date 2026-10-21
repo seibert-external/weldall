@@ -33,10 +33,16 @@ export const mcpAppOriginSchema = mcpAppAssetUrlSchema.refine(
 export const mcpAppToolMetaSchema = z.object({
   ui: z.object({ resourceUri: mcpAppUriSchema }).optional(),
 });
-// Sandbox profile: never forward connect/frame domains, permissions or host-owned call handles.
+// Sandbox profile: forward only validated resource/connect origins, never frame domains,
+// permissions or host-owned call handles.
 export const mcpAppResourceMetaSchema = z.object({
   ui: z.object({
-    csp: z.object({ resourceDomains: z.array(mcpAppOriginSchema).max(16).default([]) }).optional(),
+    csp: z
+      .object({
+        resourceDomains: z.array(mcpAppOriginSchema).max(16).default([]),
+        connectDomains: z.array(mcpAppOriginSchema).max(16).default([]),
+      })
+      .optional(),
     prefersBorder: z.boolean().optional(),
   }),
 });
