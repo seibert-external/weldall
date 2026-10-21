@@ -351,6 +351,8 @@ describe("native discovery publication", () => {
   it("publishes a native UI reference and serves sanitized HTML/CSS through the real MCP server", async () => {
     const { cli, state } = fixture();
     const uiUri = "ui://expenses/view";
+    const objectOrigin = "https://contracts.finance.seibert.diy";
+    const connectOrigin = "https://api.expenses.example";
     const entry = source("expenses");
     state.entries = [
       {
@@ -367,12 +369,12 @@ describe("native discovery publication", () => {
               {
                 uri: uiUri,
                 mimeType: "text/html;profile=mcp-app",
-                text: '<h1>Expenses</h1><link rel="stylesheet" href="https://expenses.example/ui.css"><script>parent.postMessage({method:"tools/call"},"*")</script>',
+                text: `<h1>Expenses</h1><link rel="stylesheet" href="https://expenses.example/ui.css"><object data="${objectOrigin}/contract.pdf" type="application/pdf"></object><script>parent.postMessage({method:"tools/call"},"*")</script>`,
                 _meta: {
                   ui: {
                     csp: {
-                      resourceDomains: ["https://expenses.example"],
-                      connectDomains: ["https://evil.example"],
+                      resourceDomains: ["https://expenses.example", objectOrigin],
+                      connectDomains: [connectOrigin],
                     },
                   },
                   goose: { mcpApp: {} },
@@ -409,16 +411,25 @@ describe("native discovery publication", () => {
     expect(html).toContain("<h1>Expenses</h1>");
     expect(html).toContain('href="https://expenses.example/ui.css"');
     expect(html).toContain("script-src &#39;sha256-");
+    expect(html).toContain(`connect-src ${connectOrigin}`);
+    expect(html).toContain(`object-src https://expenses.example ${objectOrigin}`);
+    expect(html).toContain(`<object data="${objectOrigin}/contract.pdf" type="application/pdf"></object>`);
     expect(html).not.toContain('parent.postMessage({method:"tools/call"}');
     expect(result.contents[0]!._meta).toMatchObject({
-      ui: { csp: { resourceDomains: ["https://expenses.example"] }, prefersBorder: true },
+      ui: {
+        csp: {
+          resourceDomains: ["https://expenses.example", objectOrigin],
+          connectDomains: [connectOrigin],
+        },
+        prefersBorder: true,
+      },
       "weldall/resource-tool-calls": { version: 1, viewToken: expect.any(String) },
     });
     expect(cli.run.mock.calls.at(-1)![0]).toContain(`--uri=${uiUri}`);
     await expect(client.readResource({ uri: uiUri })).rejects.toThrow();
   });
 
-  it("derives script and CSS authority from the source binding, not forged provider metadata", async () => {
+  it("keeps executable asset authority source-bound while forwarding CSP domains", async () => {
     const { state, activation, cli } = fixture();
     state.entries = [
       {
@@ -440,9 +451,14 @@ describe("native discovery publication", () => {
     );
     const result = await activation.read(activation.listResources()[0]!.uri);
     expect(result.contents[0]!.text).toContain('"scriptUrls":["https://expenses.example/app.js"]');
-    expect(result.contents[0]!.text).not.toContain("evil.example");
+    expect(result.contents[0]!.text).not.toContain("https://evil.example/app.js");
     expect(result.contents[0]!._meta).toMatchObject({
-      ui: { csp: { resourceDomains: ["https://expenses.example"] } },
+      ui: {
+        csp: {
+          resourceDomains: ["https://expenses.example", "https://evil.example"],
+          connectDomains: [],
+        },
+      },
     });
   });
 
