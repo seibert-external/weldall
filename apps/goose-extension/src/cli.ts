@@ -9,6 +9,8 @@ export const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 export const CATALOG_TIMEOUT = 60_000;
 export const REQUEST_TIMEOUT = 240_000;
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const KEYCHAIN_READ_FAILED = "Unable to read the Weldall session from the secure credential store";
+const KEYCHAIN_RETRY_MS = [200, 500, 1200];
 
 export function trustedDirectories(
   value: string,
@@ -107,7 +109,25 @@ export class WeldallCli implements CliRunner {
     return instructions;
   }
 
-  run(
+  async run(
+    args: string[],
+    signal?: AbortSignal,
+    timeout = CATALOG_TIMEOUT,
+    maximumOutput = MAX_OUTPUT_BYTES,
+  ): Promise<string> {
+    for (const pause of KEYCHAIN_RETRY_MS) {
+      try {
+        return await this.runOnce(args, signal, timeout, maximumOutput);
+      } catch (error) {
+        if (!(error instanceof ExtensionError && error.stderr?.startsWith(KEYCHAIN_READ_FAILED)))
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, pause));
+      }
+    }
+    return this.runOnce(args, signal, timeout, maximumOutput);
+  }
+
+  private runOnce(
     args: string[],
     signal?: AbortSignal,
     timeout = CATALOG_TIMEOUT,

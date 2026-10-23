@@ -48,6 +48,7 @@ describe.skipIf(process.platform === "win32")("real stdio MCP", () => {
           {
             url: "https://example.com/api",
             connection: "work",
+            requiredScopes: ["mail:read"],
             method: "POST",
             json: { amount: 24 },
           },

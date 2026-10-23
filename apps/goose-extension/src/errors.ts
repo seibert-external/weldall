@@ -14,6 +14,10 @@ export const messages = {
   output_limit: "The response exceeded the output limit. Do not repeat a write.",
   timeout: "The operation timed out. The outcome may be unknown; do not repeat a write.",
   cancelled: "The operation was cancelled. The outcome may be unknown; do not repeat a write.",
+  connection_unavailable:
+    "The selected connection is not available and ready. Refresh connections and ask which account to use if needed.",
+  permission_missing:
+    "The selected connection does not grant every provider permission required for this operation. Do not attempt the request; explain the missing access and offer to reconnect.",
   mcp_unavailable:
     "The skill requires an MCP connector or tool that is unavailable. Check its configuration and your connection.",
   mcp_selection:

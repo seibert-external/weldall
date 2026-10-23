@@ -68,6 +68,11 @@ Read the `title`, `preview` and `tags` of every returned item and pick by judgem
 Every item, including the ones that look unrelated at a glance. There is no search string to
 get right, and the user's wording does not have to match the skill author's.
 
+Match the requested operation, not only the system name. A skill described as read, search, list,
+lookup or review is not a match for create, update, delete, send, comment or transition. Keep
+looking for an explicit write-capable skill. If the catalog exposes only a read skill, say that the
+requested action is unavailable instead of trying the read skill with a write request.
+
 ## Branch on the result
 
 | Result of the lookup               | Response                                                                                                        |
@@ -110,6 +115,9 @@ The `document` field holds the instructions. Follow them, within three limits.
 - Never run a command that still contains a placeholder such as `<contract-id>` or
   `<expense-id>`. Fill every one with a confirmed value first.
 - Do whatever confirmation the document demands, at the point it demands it.
+- For a create, update, delete, send, comment or transition, proceed only when the loaded document
+  explicitly supports that operation and its required write permission is available. Availability
+  of a read skill never authorizes a write.
 
 ## Presenting the result
 

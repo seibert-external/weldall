@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import {
   connectorCapabilitiesSchema,
@@ -134,23 +135,31 @@ const requestFields = {
   responseMode,
 };
 const getSchema = z.strictObject(requestFields);
+const requiredScopes = z
+  .array(identifier)
+  .min(1)
+  .max(32)
+  .describe("Exact provider permissions required by the loaded skill for this operation.");
+const requestBody = {
+  json: z.json().optional(),
+  text: z.string().max(16_000).optional(),
+};
 const sendSchema = z.strictObject({
   ...requestFields,
   method: z.enum(["POST", "PUT", "PATCH", "DELETE"]),
-  json: z.json().optional(),
-  text: z.string().max(16_000).optional(),
+  requiredScopes: requiredScopes.optional(),
+  ...requestBody,
 });
 // Goose Code Mode generates invalid circular TS aliases from z.json()'s recursive
 // $defs. Advertise any JSON value without references, but keep sendSchema's strict
 // z.json() validation for actual calls (including nested values).
-const sendWireSchema = sendSchema.extend({
-  json: z
-    .unknown()
-    .optional()
-    .describe(
-      "JSON request body: object, array, string, number, boolean or null. Mutually exclusive with text.",
-    ),
-});
+const jsonWire = z
+  .unknown()
+  .optional()
+  .describe(
+    "JSON request body: object, array, string, number, boolean or null. Mutually exclusive with text.",
+  );
+const sendWireSchema = sendSchema.extend({ json: jsonWire });
 
 const definitions = [
   {
@@ -198,9 +207,9 @@ const definitions = [
   },
   {
     name: "send",
-    title: "Write through Weldall",
+    title: "POST or write through Weldall",
     description:
-      'Use instead of shell for a skill\'s weldall request --method/-X POST, PUT, PATCH or DELETE, only when authorized by the user. Preserve URL and method. Map --connection to connection or --scope/-s to scope (exactly one), --header/-H to headers, --json/-j to a JSON value in json or --data/-d to text (at most one body). Set responseMode to "text" only for a documented textual response whose content type is not handled automatically, including multipart/mixed. Files, uploads and binary downloads remain unsupported. Never automatically retry a write, including after timeout, cancellation or ambiguous failure.',
+      'Use instead of shell for a skill\'s weldall request --method/-X POST, PUT, PATCH or DELETE. For an operation with side effects, proceed only when the loaded skill explicitly supports that write and the user authorized it; a read/search/list/lookup/review skill never authorizes a write. A skill may explicitly document POST as a read-only, repeatable transport such as a query or batch of inner reads; that does not require write confirmation. For a managed connection, pass the exact provider permissions from the skill as requiredScopes; the extension checks the live READY connection and its grantedScopes before the request. Preserve URL and method. Map --connection to connection or --scope/-s to scope (exactly one), --header/-H to headers, --json/-j to a JSON value in json or --data/-d to text (at most one body). Set responseMode to "text" only for a documented textual response whose content type is not handled automatically, including multipart/mixed. Files, uploads and binary downloads remain unsupported. This tool is never automatically retried, including after timeout, cancellation or ambiguous failure.',
     schema: sendSchema,
   },
 ] as const;
@@ -247,6 +256,53 @@ const summarize = ({ meta, ...item }: z.infer<typeof summary>) => ({
   ...(meta?.owner === undefined ? {} : { owner: meta.owner }),
 });
 
+const READ_RETRY_MS = [500, 1500];
+const RETRYABLE_READ_STATUS = new Set([429, 502, 503, 504]);
+const CONNECTION_CACHE_MS = 30_000;
+type Connection = z.infer<typeof connections>[number];
+const connectionCache = new WeakMap<CliRunner, { expiresAt: number; connections: Connection[] }>();
+
+const httpStatus = (error: unknown) =>
+  error instanceof ExtensionError
+    ? Number(error.stderr?.match(/\bHTTP\s+(\d{3})\b/i)?.[1] ?? NaN)
+    : NaN;
+
+async function runSafeRead(cli: CliRunner, args: string[], signal?: AbortSignal): Promise<string> {
+  for (const pause of READ_RETRY_MS) {
+    try {
+      return await cli.run(args, signal, REQUEST_TIMEOUT);
+    } catch (error) {
+      if (!RETRYABLE_READ_STATUS.has(httpStatus(error))) throw error;
+      await delay(pause, undefined, { signal });
+    }
+  }
+  return cli.run(args, signal, REQUEST_TIMEOUT);
+}
+
+async function liveConnections(cli: CliRunner, signal?: AbortSignal): Promise<Connection[]> {
+  const cached = connectionCache.get(cli);
+  if (cached && cached.expiresAt > Date.now()) return cached.connections;
+  const value = parsed(connections, await cli.run(["connections", "--json"], signal));
+  connectionCache.set(cli, { expiresAt: Date.now() + CONNECTION_CACHE_MS, connections: value });
+  return value;
+}
+
+async function preflightConnection(
+  cli: CliRunner,
+  selector: string,
+  scopes: string[],
+  signal?: AbortSignal,
+) {
+  const available = await liveConnections(cli, signal);
+  const connection =
+    available.find((item) => item.id === selector) ??
+    available.find((item) => item.name === selector);
+  if (!connection || !connection.connectorEnabled || connection.status !== "READY")
+    throw new ExtensionError("connection_unavailable");
+  if (scopes.some((scope) => !connection.grantedScopes.includes(scope)))
+    throw new ExtensionError("permission_missing");
+}
+
 export function requestArguments(
   args: z.infer<typeof getSchema> | z.infer<typeof sendSchema>,
 ): string[] {
@@ -284,8 +340,17 @@ export async function callTool(
     if (!definition) throw new ExtensionError("invalid_request");
     const validation = definition.schema.safeParse(input ?? {});
     if (!validation.success) throw new ExtensionError("invalid_request");
-    if (name === "get" || name === "send") {
-      const args = name === "get" ? getSchema.parse(input) : sendSchema.parse(input);
+    if (name === "get") {
+      const args = getSchema.parse(input);
+      const body = await runSafeRead(cli, requestArguments(args), signal);
+      return result({ body }, body);
+    }
+    if (name === "send") {
+      const args = sendSchema.parse(input);
+      if (args.connection !== undefined) {
+        if (args.requiredScopes === undefined) throw new ExtensionError("invalid_request");
+        await preflightConnection(cli, args.connection, args.requiredScopes, signal);
+      }
       const body = await cli.run(requestArguments(args), signal, REQUEST_TIMEOUT);
       return result({ body }, body);
     }
@@ -316,6 +381,10 @@ export async function callTool(
     const { offset, limit } = z.object(page).parse(input ?? {});
     if (name === "list_connections") {
       const items = parsed(connections, await cli.run(["connections", "--json"], signal));
+      connectionCache.set(cli, {
+        expiresAt: Date.now() + CONNECTION_CACHE_MS,
+        connections: items,
+      });
       return result(paginate(items, offset, limit));
     }
     if (name === "list_skills") {
@@ -343,6 +412,7 @@ export async function callTool(
     });
   } catch (error) {
     const safe = safeError(error);
+    const httpStatus = safe.stderr?.match(/\bHTTP\s+(\d{3})\b/i)?.[1];
     return {
       isError: true,
       content: [{ type: "text", text: safe.message }],
@@ -352,6 +422,7 @@ export async function callTool(
           message: safe.message,
           ...(safe.exitCode === undefined ? {} : { exitCode: safe.exitCode }),
           ...(safe.stderr === undefined ? {} : { stderr: safe.stderr }),
+          ...(httpStatus === undefined ? {} : { httpStatus: Number(httpStatus) }),
         },
       },
     };

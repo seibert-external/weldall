@@ -19,6 +19,13 @@ import fs from "node:fs";
 const args = process.argv.slice(2);
 if (args[0] === "--version") { console.log(process.env.FAKE_VERSION ?? "0.20.0"); process.exit(); }
 if (process.env.FAKE_CALLS) fs.appendFileSync(process.env.FAKE_CALLS, JSON.stringify(args) + "\\n");
+if (process.env.FAKE_KEYCHAIN_FAILURES && process.env.FAKE_CALLS) {
+  const calls = fs.readFileSync(process.env.FAKE_CALLS, "utf8").trim().split("\\n").length;
+  if (calls <= Number(process.env.FAKE_KEYCHAIN_FAILURES)) {
+    console.error("Unable to read the Weldall session from the secure credential store");
+    process.exit(3);
+  }
+}
 if (args[0] === "status") {
   if (process.env.FAKE_STATUS_ERROR) { console.error("Organization context unavailable"); process.exit(3); }
   console.log(process.env.FAKE_STATUS ?? JSON.stringify({organizationInstructions: ${JSON.stringify(organizationInstructions)}, identity: {email: "should-not-escape"}, grants: ["should-not-escape"]}));
