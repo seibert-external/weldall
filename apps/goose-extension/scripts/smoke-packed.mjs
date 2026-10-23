@@ -83,7 +83,13 @@ try {
     ["get", { url: "https://example.com/api", scope: "expenses:read" }],
     [
       "send",
-      { url: "https://example.com/api", connection: "work", method: "POST", json: { amount: 24 } },
+      {
+        url: "https://example.com/api",
+        connection: "work",
+        method: "POST",
+        requiredScopes: ["mail:read"],
+        json: { query: "recent" },
+      },
     ],
   ]) {
     const result = await client.callTool({ name, arguments: args });
