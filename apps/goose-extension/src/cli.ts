@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ExtensionError, type ErrorCode } from "./errors.js";
@@ -9,6 +10,8 @@ export const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 export const CATALOG_TIMEOUT = 60_000;
 export const REQUEST_TIMEOUT = 240_000;
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const KEYCHAIN_READ_FAILED = "Unable to read the Weldall session from the secure credential store";
+const KEYCHAIN_RETRY_MS = [200, 500, 1200];
 
 export function trustedDirectories(
   value: string,
@@ -107,7 +110,30 @@ export class WeldallCli implements CliRunner {
     return instructions;
   }
 
-  run(
+  async run(
+    args: string[],
+    signal?: AbortSignal,
+    timeout = CATALOG_TIMEOUT,
+    maximumOutput = MAX_OUTPUT_BYTES,
+  ): Promise<string> {
+    for (const pause of KEYCHAIN_RETRY_MS) {
+      try {
+        return await this.runOnce(args, signal, timeout, maximumOutput);
+      } catch (error) {
+        if (!(error instanceof ExtensionError && error.stderr?.startsWith(KEYCHAIN_READ_FAILED)))
+          throw error;
+        try {
+          await delay(pause, undefined, { signal });
+        } catch (delayError) {
+          if (signal?.aborted) throw new ExtensionError("cancelled");
+          throw delayError;
+        }
+      }
+    }
+    return this.runOnce(args, signal, timeout, maximumOutput);
+  }
+
+  private runOnce(
     args: string[],
     signal?: AbortSignal,
     timeout = CATALOG_TIMEOUT,

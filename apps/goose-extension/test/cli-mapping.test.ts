@@ -64,11 +64,32 @@ describe("mapped request arguments", () => {
   it.each(["POST", "PUT", "PATCH", "DELETE"])(
     "preserves explicit %s and --json as a JSON value",
     async (method) => {
-      const cli = { run: vi.fn().mockResolvedValue("{}") };
+      const ready = {
+        id: "connection-1",
+        name: "work",
+        connectorKey: "example",
+        connectorEnabled: true,
+        status: "READY",
+        selectedScopes: ["items:write"],
+        grantedScopes: ["items:write"],
+      };
+      const cli = {
+        run: vi
+          .fn()
+          .mockResolvedValueOnce(JSON.stringify([ready]))
+          .mockResolvedValueOnce("{}"),
+      };
       const json = { title: "'quoted' & $(not-a-command)", nested: [false, null, 3] };
-      const result = await callTool(cli, "send", { url, method, connection: "work", json });
+      const result = await callTool(cli, "send", {
+        url,
+        method,
+        connection: "work",
+        requiredScopes: ["items:write"],
+        json,
+      });
       expect(result.isError).not.toBe(true);
-      expect(cli.run).toHaveBeenCalledExactlyOnceWith(
+      expect(cli.run).toHaveBeenNthCalledWith(
+        2,
         [
           "request",
           `--method=${method}`,
@@ -101,7 +122,7 @@ describe("mapped request arguments", () => {
       input: {
         url,
         method: "POST",
-        connection: "work",
+        scope: "items:read",
         headers: ["Content-Type: multipart/mixed; boundary=batch"],
         text: "--batch--",
         responseMode: "text",
@@ -113,6 +134,7 @@ describe("mapped request arguments", () => {
     expect(result.isError).not.toBe(true);
     expect(result.content).toEqual([{ type: "text", text: "--response--" }]);
     expect(cli.run.mock.calls[0]?.[0]).toContain("--output=-");
+    if (name === "send") expect(cli.run.mock.calls[0]?.[0]).toContain("--method=POST");
   });
 
   it.each([

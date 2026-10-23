@@ -1,6 +1,6 @@
 {
   "name": "@weldall/opencode",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Routes company-system requests through Weldall's live, per-user skill catalog instead of general knowledge or an invented API call.",
   "keywords": [
     "opencode",

@@ -84,7 +84,7 @@ The app-only `read_resource_ui_resource` dispatcher lists the bound catalog (no 
 upstream URI of that exact binding. Foreign/local-routed URIs and caller-supplied routing are rejected.
 UI-initiated reads never mint or expose new host handles.
 At most 128 view handles are retained; evicted or replaced bindings require a fresh view read.
-Calls are never retried. Goose's existing Auto-mode requirement remains in force; no Rust changes
+Native MCP calls are never retried. Goose's existing Auto-mode requirement remains in force; no Rust changes
 or general-purpose App permission changes are needed.
 
 Ordinary UI-linked tools remain model-only. The desktop enables chat, future-turn context, resource reads,
@@ -104,3 +104,12 @@ The `get` and `send` tools normally parse text and JSON responses automatically.
 documented to return textual bytes with another content type, such as Gmail's `multipart/mixed`
 batch response, set `responseMode` to `text`. The response is returned inline under the extension's
 existing output limits. Binary downloads and saving responses to local files remain unsupported.
+
+## Request retries and managed connections
+
+The `get` tool may retry a read after HTTP 429, 502, 503 or 504 with bounded backoff. The `send`
+tool is never retried, including when a skill documents POST as a repeatable read-only transport or
+when the outcome is ambiguous. Before a managed-connection send, pass the exact provider
+permissions documented by the loaded skill as `requiredScopes`; the selected connection must be
+enabled, `READY`, and grant every required permission. A missing or unavailable connection stops
+the request before it is sent.

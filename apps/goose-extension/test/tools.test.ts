@@ -215,20 +215,111 @@ describe("fixed tool adapters", () => {
     expect(result.structuredContent).toMatchObject({ error: { code: "invalid_request" } });
     expect(cli.run).not.toHaveBeenCalled();
   });
-  it("passes metacharacters as literal argument values, exactly once", async () => {
+  it("retries only transient read failures", async () => {
     const cli = runner({ ok: true });
+    cli.run
+      .mockRejectedValueOnce(
+        new ExtensionError("cli_failed", {
+          exitCode: 1,
+          stderr: "Weldall connector request failed with HTTP 503",
+        }),
+      )
+      .mockResolvedValueOnce(JSON.stringify({ ok: true }));
+    const result = await callTool(cli, "get", {
+      url: "https://example.com/api",
+      scope: "read",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(cli.run).toHaveBeenCalledTimes(2);
+
+    const denied = runner({});
+    denied.run.mockRejectedValue(
+      new ExtensionError("cli_failed", {
+        exitCode: 1,
+        stderr: "Weldall connector request failed with HTTP 403",
+      }),
+    );
+    const deniedResult = await callTool(denied, "get", {
+      url: "https://example.com/api",
+      scope: "read",
+    });
+    expect(deniedResult.isError).toBe(true);
+    expect(deniedResult.structuredContent).toMatchObject({ error: { httpStatus: 403 } });
+    expect(denied.run).toHaveBeenCalledOnce();
+  });
+  it("cancels a transient read retry backoff", async () => {
+    const cli = runner({ ok: true });
+    cli.run.mockRejectedValueOnce(
+      new ExtensionError("cli_failed", {
+        exitCode: 1,
+        stderr: "Weldall connector request failed with HTTP 503",
+      }),
+    );
+    const controller = new AbortController();
+    const pending = callTool(
+      cli,
+      "get",
+      { url: "https://example.com/api", scope: "read" },
+      controller.signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    const result = await pending;
+    expect(result.structuredContent).toMatchObject({ error: { code: "cancelled" } });
+    expect(cli.run).toHaveBeenCalledOnce();
+  });
+  it("requires provider permissions for managed-connection writes", async () => {
+    const cli = runner([connection]);
+    const result = await callTool(cli, "send", {
+      url: "https://example.com/api",
+      connection: "work",
+      method: "POST",
+      json: {},
+    });
+    expect(result.structuredContent).toMatchObject({ error: { code: "invalid_request" } });
+    expect(cli.run).not.toHaveBeenCalled();
+  });
+  it("preflights write permissions and reuses a recent connection read", async () => {
+    const cli = runner([connection]);
+    await callTool(cli, "list_connections", {});
+    cli.run.mockResolvedValueOnce(JSON.stringify({ ok: true }));
+    const result = await callTool(cli, "send", {
+      url: "https://example.com/api",
+      connection: "work",
+      requiredScopes: ["mail:read"],
+      method: "POST",
+      json: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect(cli.run).toHaveBeenCalledTimes(2);
+
+    const denied = runner([connection]);
+    const failure = await callTool(denied, "send", {
+      url: "https://example.com/api",
+      connection: "work",
+      requiredScopes: ["mail:send"],
+      method: "POST",
+      json: {},
+    });
+    expect(failure.structuredContent).toMatchObject({ error: { code: "permission_missing" } });
+    expect(denied.run).toHaveBeenCalledOnce();
+  });
+  it("passes metacharacters as literal argument values, exactly once", async () => {
+    const cli = runner([connection]);
+    cli.run.mockResolvedValueOnce(JSON.stringify([connection])).mockResolvedValueOnce("ok");
     const json = { title: "$(touch /tmp/nope); 'quotes'" };
     await callTool(cli, "send", {
       url: "https://example.com/api",
-      connection: "work account",
+      connection: "work",
+      requiredScopes: ["mail:read"],
       method: "POST",
       json,
     });
-    expect(cli.run).toHaveBeenCalledOnce();
-    expect(cli.run.mock.calls[0]?.[0]).toEqual([
+    expect(cli.run).toHaveBeenCalledTimes(2);
+    expect(cli.run.mock.calls[1]?.[0]).toEqual([
       "request",
       "--method=POST",
-      "--connection=work account",
+      "--connection=work",
       `--json=${JSON.stringify(json)}`,
       "https://example.com/api",
     ]);
@@ -241,7 +332,7 @@ describe("fixed tool adapters", () => {
     cli.run.mockRejectedValue(new Error("Bearer secret"));
     const result = await callTool(cli, "send", {
       url: "https://example.com",
-      connection: "work",
+      scope: "write",
       method: "DELETE",
     });
     expect(JSON.stringify(result)).not.toContain("secret");

@@ -127,6 +127,54 @@ describe.skipIf(process.platform === "win32")("CLI subprocess boundary", () => {
       stderr: "Missing scope: expenses:read\nAsk for access, then run weldall login.",
     });
   });
+  it("retries only credential-store reads that fail before execution", async () => {
+    const f = await fixture();
+    cleanups.push(f.cleanup);
+    const calls = path.join(f.root, "keychain-calls");
+    const cli = new WeldallCli(f.executable, {
+      ...f.env,
+      FAKE_CALLS: calls,
+      FAKE_KEYCHAIN_FAILURES: "2",
+    });
+    cleanups.push(() => cli.close());
+
+    await expect(cli.run(["request"])).resolves.toContain('"ok":true');
+    expect((await readFile(calls, "utf8")).trim().split("\n")).toHaveLength(3);
+  });
+  it("cancels a credential-store retry backoff", async () => {
+    const f = await fixture();
+    cleanups.push(f.cleanup);
+    const calls = path.join(f.root, "keychain-cancel-calls");
+    const controller = new AbortController();
+    const cli = new WeldallCli(f.executable, {
+      ...f.env,
+      FAKE_CALLS: calls,
+      FAKE_KEYCHAIN_FAILURES: "1",
+    });
+    cleanups.push(() => cli.close());
+
+    const pending = cli.run(["request"], controller.signal);
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try {
+        if ((await readFile(calls, "utf8")).trim()) break;
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "cancelled" });
+    expect((await readFile(calls, "utf8")).trim().split("\n")).toHaveLength(1);
+  });
+  it("does not retry other CLI failures", async () => {
+    const f = await fixture();
+    cleanups.push(f.cleanup);
+    const calls = path.join(f.root, "failed-calls");
+    const cli = new WeldallCli(f.executable, { ...f.env, FAKE_CALLS: calls, FAKE_ERROR: "1" });
+    cleanups.push(() => cli.close());
+
+    await expect(cli.run(["request"])).rejects.toMatchObject({ code: "cli_failed" });
+    expect((await readFile(calls, "utf8")).trim().split("\n")).toHaveLength(1);
+  });
   it("does not re-resolve or replace a CLI removed after startup", async () => {
     const { f, cli } = await setup();
     await cli.initialize();
