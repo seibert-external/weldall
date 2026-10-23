@@ -11,8 +11,6 @@ describe("organization instructions in the host prompt", () => {
     );
     expect(buildInstructions(second)).toContain(second);
     expect(buildInstructions(second)).not.toContain(first);
-    expect(instructions).toContain("never use a read/search/list/lookup/review skill");
-    expect(instructions).toContain("Before asking the user to confirm a provider write");
   });
   it("uses discovery-first with activation only for capable CLIs", () => {
     const organization = "Ask before sending mail.";

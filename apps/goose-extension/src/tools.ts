@@ -273,7 +273,12 @@ async function runSafeRead(cli: CliRunner, args: string[], signal?: AbortSignal)
       return await cli.run(args, signal, REQUEST_TIMEOUT);
     } catch (error) {
       if (!RETRYABLE_READ_STATUS.has(httpStatus(error))) throw error;
-      await delay(pause, undefined, { signal });
+      try {
+        await delay(pause, undefined, { signal });
+      } catch (delayError) {
+        if (signal?.aborted) throw new ExtensionError("cancelled");
+        throw delayError;
+      }
     }
   }
   return cli.run(args, signal, REQUEST_TIMEOUT);

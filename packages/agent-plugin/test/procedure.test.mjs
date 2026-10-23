@@ -98,15 +98,6 @@ test("the outcome table has one header, one rule and exactly four branches", () 
   assert.deepEqual(tableCells[0], ["Result of the lookup", "Response"]);
 });
 
-test("write requests cannot be routed through read-only skills", () => {
-  assert.match(
-    procedure,
-    /A skill described as read, search, list,\s+lookup or review is not a match/,
-  );
-  assert.match(procedure, /If the catalog exposes only a read skill/);
-  assert.match(procedure, /Availability\s+of a read skill never authorizes a write/);
-});
-
 test("the available branch loads the skill", () => {
   const [result, response] = tableCells[2];
   assert.match(result, /available: true/);

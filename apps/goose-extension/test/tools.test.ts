@@ -247,6 +247,27 @@ describe("fixed tool adapters", () => {
     expect(deniedResult.structuredContent).toMatchObject({ error: { httpStatus: 403 } });
     expect(denied.run).toHaveBeenCalledOnce();
   });
+  it("cancels a transient read retry backoff", async () => {
+    const cli = runner({ ok: true });
+    cli.run.mockRejectedValueOnce(
+      new ExtensionError("cli_failed", {
+        exitCode: 1,
+        stderr: "Weldall connector request failed with HTTP 503",
+      }),
+    );
+    const controller = new AbortController();
+    const pending = callTool(
+      cli,
+      "get",
+      { url: "https://example.com/api", scope: "read" },
+      controller.signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    const result = await pending;
+    expect(result.structuredContent).toMatchObject({ error: { code: "cancelled" } });
+    expect(cli.run).toHaveBeenCalledOnce();
+  });
   it("requires provider permissions for managed-connection writes", async () => {
     const cli = runner([connection]);
     const result = await callTool(cli, "send", {

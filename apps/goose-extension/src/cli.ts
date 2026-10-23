@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ExtensionError, type ErrorCode } from "./errors.js";
@@ -121,7 +122,12 @@ export class WeldallCli implements CliRunner {
       } catch (error) {
         if (!(error instanceof ExtensionError && error.stderr?.startsWith(KEYCHAIN_READ_FAILED)))
           throw error;
-        await new Promise((resolve) => setTimeout(resolve, pause));
+        try {
+          await delay(pause, undefined, { signal });
+        } catch (delayError) {
+          if (signal?.aborted) throw new ExtensionError("cancelled");
+          throw delayError;
+        }
       }
     }
     return this.runOnce(args, signal, timeout, maximumOutput);
