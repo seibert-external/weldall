@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.12.2
+
+### Patch Changes
+
+- 03f1d7f: Simplify the MCP display API by removing unused options and streamline its documentation.
+
 ## 0.12.1
 
 ### Patch Changes
