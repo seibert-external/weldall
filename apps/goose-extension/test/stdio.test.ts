@@ -35,8 +35,12 @@ describe.skipIf(process.platform === "win32")("real stdio MCP", () => {
       expect(client.getInstructions()).toBe(buildInstructions(organizationInstructions));
       expect(client.getInstructions()).not.toContain("should-not-escape");
       expect(client.getInstructions()).toContain("CLI-to-MCP mapping:");
-      expect(client.getInstructions()).toContain("never use a read/search/list/lookup/review skill");
-      expect(client.getInstructions()).toContain("Before asking the user to confirm a provider write");
+      expect(client.getInstructions()).toContain(
+        "never use a read/search/list/lookup/review skill",
+      );
+      expect(client.getInstructions()).toContain(
+        "Before asking the user to confirm a provider write",
+      );
       expect(await client.ping()).toEqual({});
       expect((await client.listTools()).tools).toHaveLength(6);
       for (const [name, args] of [
