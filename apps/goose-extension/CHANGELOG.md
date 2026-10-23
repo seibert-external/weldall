@@ -1,5 +1,11 @@
 # @weldall/goose
 
+## 0.4.4
+
+### Patch Changes
+
+- 9f34626: Retry transient credential-store and read-only provider failures, preflight managed-connection permissions before writes, and support skill-documented read-only POST transports.
+
 ## 0.4.3
 
 ### Patch Changes
