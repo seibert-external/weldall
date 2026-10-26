@@ -22,9 +22,8 @@ export function ConsentOptions() {
         oauth_query: window.location.search.slice(1),
       });
       if (result.error) throw new Error(result.error.message ?? "Consent could not be processed");
-      if (result.data && "url" in result.data && typeof result.data.url === "string") {
-        window.location.assign(result.data.url);
-      }
+      // better-auth's redirect fetch plugin navigates to the { redirect: true, url } answer. A second
+      // navigation to the same URL makes the browser cancel and resend the callback request.
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Consent could not be processed");
       setPending(null);
