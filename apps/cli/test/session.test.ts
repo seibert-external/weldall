@@ -142,6 +142,7 @@ describe("native login", () => {
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("https://issuer.example/login/complete");
     await expect(callback.code).resolves.toBe("authorization-code");
+    callback.close();
   });
 
   it("rejects missing, duplicate, ambiguous, or non-GET callback parameters", async () => {
@@ -167,6 +168,7 @@ describe("native login", () => {
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("https://issuer.example/login/complete");
     await expect(callback.code).resolves.toBe("authorization-code");
+    callback.close();
   });
 
   it("preserves OAuth error descriptions from the callback", async () => {
@@ -182,6 +184,7 @@ describe("native login", () => {
     );
     expect((await fetch(denied)).status).toBe(400);
     await code;
+    callback.close();
   });
 });
 
