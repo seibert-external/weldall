@@ -123,6 +123,10 @@ describe("install-specific credential store", () => {
         async getPassword() {
           return null;
         }
+
+        async getSecret() {
+          return undefined;
+        }
       },
       findCredentialsAsync: async () => [],
     }));
@@ -145,6 +149,7 @@ describe("native credential store", () => {
   });
 
   it("falls back to enumerating the service under Bun when the exact lookup returns null", async () => {
+    const restore = withPlatform("darwin");
     vi.stubGlobal("Bun", { version: "test" });
     try {
       const { nativeCredentialStore } = await loadNativeStore({
@@ -157,6 +162,7 @@ describe("native credential store", () => {
       await expect(nativeCredentialStore.get("svc", "acct")).resolves.toBe("found-by-enumeration");
     } finally {
       vi.unstubAllGlobals();
+      restore();
     }
   });
 
