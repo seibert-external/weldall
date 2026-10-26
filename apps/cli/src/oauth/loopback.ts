@@ -1,9 +1,10 @@
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { safeEqual } from "@weldall/sdk";
 
 export interface LoopbackCallback {
   redirectUri: string;
   code: Promise<string>;
+  /** Stops listening and ends open connections; rejects `code` if it is still pending. */
   close(error?: Error): void;
 }
 
@@ -15,14 +16,31 @@ export async function loopback(
   let resolve!: (value: string) => void;
   let reject!: (error: Error) => void;
   let settled = false;
+  let accepted: string | undefined;
   let timer: NodeJS.Timeout;
 
   const code = new Promise<string>((onResolve, onReject) => {
     resolve = onResolve;
     reject = onReject;
   });
+  // Answers with "connection: close", so the server ends the socket once the answer is flushed.
+  const answer = (response: ServerResponse, url: URL) => {
+    response.shouldKeepAlive = false;
+    response.setHeader("connection", "close");
+    if (url.searchParams.has("error")) response.writeHead(400).end("Authorization failed");
+    else
+      response
+        .writeHead(303, { location: new URL("/login/complete", expectedIssuer).toString() })
+        .end();
+  };
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    // Browsers can request the accepted callback a second time, e.g. when the consent page
+    // navigates twice. Answer it again until login finishes instead of leaving a closed port.
+    if (request.method === "GET" && url.pathname === "/callback" && url.search === accepted) {
+      answer(response, url);
+      return;
+    }
     const states = url.searchParams.getAll("state");
     const issuers = url.searchParams.getAll("iss");
     const codes = url.searchParams.getAll("code");
@@ -49,25 +67,14 @@ export async function loopback(
     }
 
     settled = true;
+    accepted = url.search;
     clearTimeout(timer);
-    response.shouldKeepAlive = false;
-    response.setHeader("connection", "close");
-    response.once("finish", () => {
-      request.socket.destroy();
-      server.closeAllConnections();
-    });
+    answer(response, url);
     if (errors.length === 1) {
-      response.writeHead(400).end("Authorization failed");
       const error = errors[0] || "authorization failed";
       const description = descriptions[0];
       reject(new Error(description ? `${error}: ${description}` : error));
-    } else {
-      response
-        .writeHead(303, { location: new URL("/login/complete", expectedIssuer).toString() })
-        .end();
-      resolve(codes[0]!);
-    }
-    server.close();
+    } else resolve(codes[0]!);
   });
 
   await new Promise<void>((resolveListening, rejectListening) => {
@@ -78,11 +85,11 @@ export async function loopback(
   if (!address || typeof address === "string") throw new Error("loopback failed");
 
   const close = (error = new Error("login cancelled")) => {
+    clearTimeout(timer);
+    if (server.listening) server.close();
+    server.closeAllConnections();
     if (settled) return;
     settled = true;
-    clearTimeout(timer);
-    server.close();
-    server.closeAllConnections();
     reject(error);
   };
   timer = setTimeout(() => close(new Error("login timed out")), timeoutMs);
