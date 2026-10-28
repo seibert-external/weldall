@@ -1,5 +1,11 @@
 # @weldall/weldall
 
+## 0.7.4
+
+### Patch Changes
+
+- 1024e7e: Navigate only once after Approve or Deny on the CLI consent page, so browsers no longer cancel and resend the login callback.
+
 ## 0.7.3
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @weldall/goose
 
+## 0.4.5
+
+### Patch Changes
+
+- d9ca3e5: Advertise `requiredScopes` as conditionally required for managed-connection sends, including read-only POST query transports, and return a specific error when it is missing.
+
 ## 0.4.4
 
 ### Patch Changes
