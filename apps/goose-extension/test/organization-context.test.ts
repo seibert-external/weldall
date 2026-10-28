@@ -26,6 +26,7 @@ describe("organization instructions in the host prompt", () => {
     expect(native).toContain(organization);
     const legacy = buildInstructions(organization);
     expect(legacy).toContain("use search_skills first");
+    expect(legacy).toContain("including a read-only POST query transport");
     expect(legacy).not.toContain("discover_integrations");
   });
   it("makes an intentionally empty configuration explicit", () => {

@@ -268,7 +268,7 @@ describe("fixed tool adapters", () => {
     expect(result.structuredContent).toMatchObject({ error: { code: "cancelled" } });
     expect(cli.run).toHaveBeenCalledOnce();
   });
-  it("requires provider permissions for managed-connection writes", async () => {
+  it("requires provider permissions for managed-connection sends", async () => {
     const cli = runner([connection]);
     const result = await callTool(cli, "send", {
       url: "https://example.com/api",
@@ -276,7 +276,12 @@ describe("fixed tool adapters", () => {
       method: "POST",
       json: {},
     });
-    expect(result.structuredContent).toMatchObject({ error: { code: "invalid_request" } });
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        code: "required_scopes_missing",
+        message: expect.stringContaining("require requiredScopes"),
+      },
+    });
     expect(cli.run).not.toHaveBeenCalled();
   });
   it("preflights write permissions and reuses a recent connection read", async () => {

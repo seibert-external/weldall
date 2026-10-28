@@ -160,6 +160,15 @@ const jsonWire = z
     "JSON request body: object, array, string, number, boolean or null. Mutually exclusive with text.",
   );
 const sendWireSchema = sendSchema.extend({ json: jsonWire });
+const sendInputSchema = {
+  ...z.toJSONSchema(sendWireSchema, { io: "input" }),
+  allOf: [
+    {
+      if: { required: ["connection"] },
+      then: { required: ["requiredScopes"] },
+    },
+  ],
+} as Tool["inputSchema"];
 
 const definitions = [
   {
@@ -218,9 +227,10 @@ export const tools: Tool[] = definitions.map(({ name, title, description, schema
   name,
   title,
   description,
-  inputSchema: z.toJSONSchema(name === "send" ? sendWireSchema : schema, {
-    io: "input",
-  }) as Tool["inputSchema"],
+  inputSchema:
+    name === "send"
+      ? sendInputSchema
+      : (z.toJSONSchema(schema, { io: "input" }) as Tool["inputSchema"]),
   annotations: {
     readOnlyHint: name !== "send",
     destructiveHint: name === "send",
@@ -353,7 +363,7 @@ export async function callTool(
     if (name === "send") {
       const args = sendSchema.parse(input);
       if (args.connection !== undefined) {
-        if (args.requiredScopes === undefined) throw new ExtensionError("invalid_request");
+        if (args.requiredScopes === undefined) throw new ExtensionError("required_scopes_missing");
         await preflightConnection(cli, args.connection, args.requiredScopes, signal);
       }
       const body = await cli.run(requestArguments(args), signal, REQUEST_TIMEOUT);
