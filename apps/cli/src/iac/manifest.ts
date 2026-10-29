@@ -227,6 +227,7 @@ function validateGoogleConfiguration(value: unknown) {
       "bigquery.readonly",
       "bigquery.insertdata",
       "bigquery",
+      "drive.file",
     ].map((scope) => `https://www.googleapis.com/auth/${scope}`),
   );
   const allowed = value.allowedScopes;
