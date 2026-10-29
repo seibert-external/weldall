@@ -1,5 +1,12 @@
 # @weldall/cli
 
+## 0.22.2
+
+### Patch Changes
+
+- e873bb8: Fix `weldall login` on Windows: store the session as UTF-8 bytes so it fits the 2560-byte Credential Manager limit.
+- bfa9e7f: Fix `weldall login` leaving the browser on "127.0.0.1 refused to connect" after Approve: the loopback keeps answering a repeated callback request until login has finished.
+
 ## 0.22.1
 
 ### Patch Changes
