@@ -141,6 +141,21 @@ describe.skipIf(process.platform === "win32")("CLI subprocess boundary", () => {
     await expect(cli.run(["request"])).resolves.toContain('"ok":true');
     expect((await readFile(calls, "utf8")).trim().split("\n")).toHaveLength(3);
   });
+  it("keeps credential-store retries within the call's timeout", async () => {
+    const f = await fixture();
+    cleanups.push(f.cleanup);
+    const calls = path.join(f.root, "keychain-calls");
+    const cli = new WeldallCli(f.executable, {
+      ...f.env,
+      FAKE_CALLS: calls,
+      FAKE_KEYCHAIN_FAILURES: "3",
+    });
+    cleanups.push(() => cli.close());
+
+    // The backoff after the second failure ends past the deadline.
+    await expect(cli.run(["request"], undefined, 400)).rejects.toMatchObject({ code: "busy" });
+    expect((await readFile(calls, "utf8")).trim().split("\n")).toHaveLength(2);
+  });
   it("cancels a credential-store retry backoff", async () => {
     const f = await fixture();
     cleanups.push(f.cleanup);
@@ -197,12 +212,34 @@ describe.skipIf(process.platform === "win32")("CLI subprocess boundary", () => {
     expect(() => process.kill(pid, 0)).toThrow();
     await cli.close();
   });
+  it("queues calls beyond four running ones within their timeout", async () => {
+    const { cli } = await setup({ FAKE_WAIT: "1" });
+    const stop = new AbortController();
+    const fails = (call: Promise<string>, code: string) =>
+      expect(call).rejects.toMatchObject({ code });
+    const running = Array.from({ length: 4 }, () =>
+      fails(cli.run(["request"], undefined, 200), "timeout"),
+    );
+    // Starts once a slot frees, so it ends with its own deadline, not with "busy".
+    const queued = fails(cli.run(["request"], undefined, 1000), "timeout");
+    const expired = fails(cli.run(["request"], undefined, 100), "busy");
+    const waiting = Array.from({ length: 14 }, () =>
+      fails(cli.run(["request"], stop.signal, 5000), "cancelled"),
+    );
+    await fails(cli.run(["request"], undefined, 1000), "busy");
+    await Promise.all([...running, expired]);
+    stop.abort();
+    await Promise.all([queued, ...waiting]);
+  });
   it("cancels active operations on close and refuses new work", async () => {
     const { cli } = await setup({ FAKE_WAIT: "1" });
-    const pending = cli.run(["request"]);
-    const assertion = expect(pending).rejects.toMatchObject({ code: "cancelled" });
+    // Five calls: four running and one waiting for a slot.
+    const pending = Array.from({ length: 5 }, () => cli.run(["request"]));
+    const assertions = pending.map((call) =>
+      expect(call).rejects.toMatchObject({ code: "cancelled" }),
+    );
     await cli.close();
-    await assertion;
+    await Promise.all(assertions);
     await expect(cli.run(["request"])).rejects.toMatchObject({ code: "cancelled" });
   });
 });

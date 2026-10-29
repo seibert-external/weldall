@@ -75,6 +75,7 @@ export interface CliRunner {
 export class WeldallCli implements CliRunner {
   nativeDiscoveryVersion?: 1;
   private readonly operations = new Set<AbortController>();
+  private readonly waiting = new Set<() => void>();
   private readonly pending = new Set<Promise<string>>();
   private closed = false;
   constructor(
@@ -116,9 +117,11 @@ export class WeldallCli implements CliRunner {
     timeout = CATALOG_TIMEOUT,
     maximumOutput = MAX_OUTPUT_BYTES,
   ): Promise<string> {
+    // Retries share one deadline, so waiting for a slot never extends a call past its timeout.
+    const deadline = Date.now() + timeout;
     for (const pause of KEYCHAIN_RETRY_MS) {
       try {
-        return await this.runOnce(args, signal, timeout, maximumOutput);
+        return await this.runOnce(args, signal, deadline, maximumOutput);
       } catch (error) {
         if (!(error instanceof ExtensionError && error.stderr?.startsWith(KEYCHAIN_READ_FAILED)))
           throw error;
@@ -130,14 +133,14 @@ export class WeldallCli implements CliRunner {
         }
       }
     }
-    return this.runOnce(args, signal, timeout, maximumOutput);
+    return this.runOnce(args, signal, deadline, maximumOutput);
   }
 
-  private runOnce(
+  private async runOnce(
     args: string[],
-    signal?: AbortSignal,
-    timeout = CATALOG_TIMEOUT,
-    maximumOutput = MAX_OUTPUT_BYTES,
+    signal: AbortSignal | undefined,
+    deadline: number,
+    maximumOutput: number,
   ): Promise<string> {
     if (
       !Number.isSafeInteger(maximumOutput) ||
@@ -146,7 +149,29 @@ export class WeldallCli implements CliRunner {
     )
       return Promise.reject(new ExtensionError("invalid_request"));
     if (this.closed || signal?.aborted) return Promise.reject(new ExtensionError("cancelled"));
-    if (this.operations.size >= 4) return Promise.reject(new ExtensionError("busy"));
+    // A model often fetches several records in parallel: calls beyond the four running
+    // ones wait for a slot instead of failing. A call whose deadline passes while it
+    // waits fails with busy, so a write never starts after its caller has given up.
+    while (this.operations.size >= 4) {
+      if (this.waiting.size >= 16) throw new ExtensionError("busy");
+      await new Promise<void>((resolve, reject) => {
+        const done = (error?: ExtensionError) => {
+          clearTimeout(expiry);
+          signal?.removeEventListener("abort", cancel);
+          this.waiting.delete(wake);
+          if (error) reject(error);
+          else resolve();
+        };
+        const wake = () => done();
+        const cancel = () => done(new ExtensionError("cancelled"));
+        const expiry = setTimeout(() => done(new ExtensionError("busy")), deadline - Date.now());
+        this.waiting.add(wake);
+        signal?.addEventListener("abort", cancel, { once: true });
+      });
+      if (this.closed || signal?.aborted) throw new ExtensionError("cancelled");
+    }
+    const timeout = deadline - Date.now();
+    if (timeout <= 0) throw new ExtensionError("busy");
     const controller = new AbortController();
     this.operations.add(controller);
     const abort = () => controller.abort();
@@ -230,6 +255,7 @@ export class WeldallCli implements CliRunner {
       signal?.removeEventListener("abort", abort);
       this.operations.delete(controller);
       this.pending.delete(promise);
+      this.waiting.values().next().value?.();
     });
     this.pending.add(promise);
     return promise;
@@ -237,6 +263,7 @@ export class WeldallCli implements CliRunner {
 
   async close(): Promise<void> {
     this.closed = true;
+    for (const wake of [...this.waiting]) wake();
     for (const operation of this.operations) operation.abort();
     await Promise.allSettled([...this.pending]);
   }
