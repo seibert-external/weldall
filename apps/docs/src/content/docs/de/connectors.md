@@ -32,12 +32,15 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
-Außerdem gibt es die dateibezogene Drive-Berechtigung. Eine Verbindung kann damit neue Dateien hochladen und nur die Dateien lesen oder ändern, die Weldall angelegt hat, nicht den Rest des Drives. Ein PDF hochladen zum Beispiel (Drive nennt es "Untitled", bis du es umbenennst):
+Außerdem gibt es die dateibezogene Drive-Berechtigung. Eine Verbindung kann damit Dateien anlegen, auch Google-Sheets-Tabellen, und nur die Dateien lesen oder ändern, die Weldall angelegt hat, nicht den Rest des Drives. Eine Tabelle anlegen und dann mit der `spreadsheetId` aus der Antwort Zellen schreiben zum Beispiel:
 
 ```sh
 weldall request --connection my-google -X POST \
-  -T ./report.pdf -H 'Content-Type: application/pdf' \
-  'https://www.googleapis.com/upload/drive/v3/files?uploadType=media'
+  --json '{"properties":{"title":"Report"}}' \
+  https://sheets.googleapis.com/v4/spreadsheets
+weldall request --connection my-google -X PUT \
+  --json '{"values":[["Date","Name"],["2026-10-01","Kickoff"]]}' \
+  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/A1?valueInputOption=RAW'
 ```
 
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.

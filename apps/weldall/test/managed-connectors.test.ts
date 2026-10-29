@@ -226,6 +226,7 @@ describe("managed provider boundaries", () => {
       "https://www.googleapis.com",
       "https://calendar.googleapis.com",
       "https://bigquery.googleapis.com",
+      "https://sheets.googleapis.com",
     ]) {
       const requestedUrl = parseCanonicalHttps(
         `${origin}/future/v99/accounts/someone@example.com/arbitrary?newKey=yes&newKey=no&q=hello%20world`,
