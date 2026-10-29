@@ -125,18 +125,28 @@ export async function whoAmI(config: WeldallConfig) {
       url: config.userInfo,
       accessToken: session.accessToken,
     });
-    const value = await successfulResponse(
-      await fetch(config.userInfo, {
-        headers: {
-          accept: "application/json",
-          authorization: `DPoP ${session.accessToken}`,
-          dpop: proof,
-        },
-        redirect: "error",
-      }),
-      "Weldall userinfo request",
-      CONFIG_REFRESH_HINT,
-    );
+    const response = await fetch(config.userInfo, {
+      headers: {
+        accept: "application/json",
+        authorization: `DPoP ${session.accessToken}`,
+        dpop: proof,
+      },
+      redirect: "error",
+    });
+    let value: unknown;
+    try {
+      value = await successfulResponse(response, "Weldall userinfo request", CONFIG_REFRESH_HINT);
+    } catch (error) {
+      // Userinfo refuses even a freshly refreshed token once the browser sign-in it was
+      // issued under has ended, while the rest of the API still accepts it. A refresh keeps
+      // that sign-in; only a new login replaces it.
+      if (response.status === 401 && error instanceof CliError)
+        throw new CliError(error.message, {
+          cause: error,
+          hint: "Weldall no longer accepts this sign-in. Run `weldall login` to sign in again.",
+        });
+      throw error;
+    }
     if (!isRecord(value) || typeof value.sub !== "string" || value.sub !== session.subject)
       throw new CliError("Weldall returned inconsistent identity information");
     const subject = value.sub;
