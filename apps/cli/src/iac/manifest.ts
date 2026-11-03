@@ -229,7 +229,9 @@ function validateGoogleConfiguration(value: unknown) {
       "bigquery",
       "drive.file",
       "drive.readonly",
+      "spreadsheets.readonly",
       "spreadsheets",
+      "documents.readonly",
       "documents",
     ].map((scope) => `https://www.googleapis.com/auth/${scope}`),
   );

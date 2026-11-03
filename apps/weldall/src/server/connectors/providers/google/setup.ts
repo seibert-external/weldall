@@ -100,10 +100,24 @@ export const scopeCatalog: ScopeDescriptor[] = [
     required: false,
   },
   {
+    id: `${google}spreadsheets.readonly`,
+    label: "View spreadsheets",
+    description: "Read all Google Sheets spreadsheets you can access.",
+    group: "Sheets",
+    required: false,
+  },
+  {
     id: `${google}spreadsheets`,
     label: "Read and edit spreadsheets",
     description: "Read, create and change all Google Sheets spreadsheets you can access.",
     group: "Sheets",
+    required: false,
+  },
+  {
+    id: `${google}documents.readonly`,
+    label: "View documents",
+    description: "Read all Google Docs documents you can access.",
+    group: "Docs",
     required: false,
   },
   {
