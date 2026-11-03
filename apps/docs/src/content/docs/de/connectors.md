@@ -32,16 +32,16 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
-Außerdem gibt es die dateibezogene Drive-Berechtigung. Eine Verbindung kann damit Dateien anlegen, auch Google-Sheets-Tabellen, und nur die Dateien lesen oder ändern, die Weldall angelegt hat, nicht den Rest des Drives. Eine Tabelle anlegen und dann mit der `spreadsheetId` aus der Antwort Zellen schreiben zum Beispiel:
+Außerdem gibt es Berechtigungen für Drive, Sheets und Docs. Mit der dateibezogenen Drive-Berechtigung kann eine Verbindung Dateien anlegen und nur die Dateien lesen oder ändern, die Weldall angelegt hat. Mit Drive-Lesezugriff kann sie alle Dateien auflisten und lesen, die die Person sehen kann. Mit den Sheets- und Docs-Berechtigungen kann sie jede Tabelle und jedes Dokument lesen und bearbeiten, auf das die Person Zugriff hat. Vollen Drive-Zugriff gibt es nicht. Einen Bereich aus einer bestehenden Tabelle und danach ein bestehendes Dokument lesen zum Beispiel:
 
 ```sh
-weldall request --connection my-google -X POST \
-  --json '{"properties":{"title":"Report"}}' \
-  https://sheets.googleapis.com/v4/spreadsheets
-weldall request --connection my-google -X PUT \
-  --json '{"values":[["Date","Name"],["2026-10-01","Kickoff"]]}' \
-  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/A1?valueInputOption=RAW'
+weldall request --connection my-google \
+  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/Sheet1!A1:D20'
+weldall request --connection my-google \
+  https://docs.googleapis.com/v1/documents/<document-id>
 ```
+
+Bestätige dafür beim Einrichten die passende Berechtigung. Tabellennamen mit Leerzeichen oder Sonderzeichen müssen URL-kodiert werden. Zellen schreibst du mit `-X PUT` auf dieselbe `values`-URL plus `?valueInputOption=RAW`. So wird Text unverändert gespeichert und nie als Formel ausgewertet.
 
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 

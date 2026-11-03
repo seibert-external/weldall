@@ -32,16 +32,16 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
-It also offers Drive's per-file permission. It lets a connection create files, including Google Sheets spreadsheets, and read or change only the files Weldall created, not the rest of the user's Drive. For example, create a spreadsheet, then write cells into it using the `spreadsheetId` from the response:
+It also offers Drive, Sheets, and Docs permissions. Drive's per-file permission lets a connection create files and read or change only the files Weldall created. Drive read-only access lets it list and read all files the user can see. The Sheets and Docs permissions let it read and edit any spreadsheet or document the user can access. Full Drive access is not offered. For example, read a range from an existing spreadsheet, then read an existing document:
 
 ```sh
-weldall request --connection my-google -X POST \
-  --json '{"properties":{"title":"Report"}}' \
-  https://sheets.googleapis.com/v4/spreadsheets
-weldall request --connection my-google -X PUT \
-  --json '{"values":[["Date","Name"],["2026-10-01","Kickoff"]]}' \
-  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/A1?valueInputOption=RAW'
+weldall request --connection my-google \
+  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/Sheet1!A1:D20'
+weldall request --connection my-google \
+  https://docs.googleapis.com/v1/documents/<document-id>
 ```
+
+Approve the matching permission during setup. URL-encode sheet names with spaces or special characters. Write cells with `-X PUT` on the same `values` URL plus `?valueInputOption=RAW`, so text is stored as entered and never evaluated as a formula.
 
 To remove it, run `weldall connections disconnect my-google`. Weldall attempts to revoke access at Google and removes the stored connection. If revocation cannot be confirmed, the CLI asks you to finish in your Google account settings.
 
