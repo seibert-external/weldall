@@ -75,6 +75,8 @@ export interface CliRunner {
 export class WeldallCli implements CliRunner {
   nativeDiscoveryVersion?: 1;
   private readonly operations = new Set<AbortController>();
+  private running = 0;
+  private readonly waiting = new Set<(error?: ExtensionError) => void>();
   private readonly pending = new Set<Promise<string>>();
   private closed = false;
   constructor(
@@ -116,12 +118,15 @@ export class WeldallCli implements CliRunner {
     timeout = CATALOG_TIMEOUT,
     maximumOutput = MAX_OUTPUT_BYTES,
   ): Promise<string> {
+    // Retries share one deadline, so waiting for a slot never extends a call past its timeout.
+    const deadline = Date.now() + timeout;
     for (const pause of KEYCHAIN_RETRY_MS) {
       try {
-        return await this.runOnce(args, signal, timeout, maximumOutput);
+        return await this.runOnce(args, signal, deadline, maximumOutput);
       } catch (error) {
         if (!(error instanceof ExtensionError && error.stderr?.startsWith(KEYCHAIN_READ_FAILED)))
           throw error;
+        if (Date.now() + pause >= deadline) throw error;
         try {
           await delay(pause, undefined, { signal });
         } catch (delayError) {
@@ -130,23 +135,29 @@ export class WeldallCli implements CliRunner {
         }
       }
     }
-    return this.runOnce(args, signal, timeout, maximumOutput);
+    return this.runOnce(args, signal, deadline, maximumOutput);
   }
 
-  private runOnce(
+  private async runOnce(
     args: string[],
-    signal?: AbortSignal,
-    timeout = CATALOG_TIMEOUT,
-    maximumOutput = MAX_OUTPUT_BYTES,
+    signal: AbortSignal | undefined,
+    deadline: number,
+    maximumOutput: number,
   ): Promise<string> {
     if (
       !Number.isSafeInteger(maximumOutput) ||
       maximumOutput < 1 ||
       maximumOutput > 12 * 1024 * 1024
     )
-      return Promise.reject(new ExtensionError("invalid_request"));
-    if (this.closed || signal?.aborted) return Promise.reject(new ExtensionError("cancelled"));
-    if (this.operations.size >= 4) return Promise.reject(new ExtensionError("busy"));
+      throw new ExtensionError("invalid_request");
+    if (this.closed || signal?.aborted) throw new ExtensionError("cancelled");
+    if (this.running < 4) this.running++;
+    else await this.waitForSlot(signal, deadline);
+    const timeout = deadline - Date.now();
+    if (this.closed || signal?.aborted || timeout <= 0) {
+      this.release();
+      throw new ExtensionError(timeout <= 0 ? "busy" : "cancelled");
+    }
     const controller = new AbortController();
     this.operations.add(controller);
     const abort = () => controller.abort();
@@ -230,13 +241,42 @@ export class WeldallCli implements CliRunner {
       signal?.removeEventListener("abort", abort);
       this.operations.delete(controller);
       this.pending.delete(promise);
+      this.release();
     });
     this.pending.add(promise);
     return promise;
   }
 
+  // A model often fetches several records in parallel: calls beyond the four running
+  // ones wait for a slot instead of failing. A call whose deadline passes while it
+  // waits fails with busy, so a write never starts after its caller has given up.
+  private waitForSlot(signal: AbortSignal | undefined, deadline: number): Promise<void> {
+    if (this.waiting.size >= 16) return Promise.reject(new ExtensionError("busy"));
+    return new Promise<void>((resolve, reject) => {
+      const done = (error?: ExtensionError) => {
+        clearTimeout(expiry);
+        signal?.removeEventListener("abort", cancel);
+        this.waiting.delete(done);
+        if (error) reject(error);
+        else resolve();
+      };
+      const cancel = () => done(new ExtensionError("cancelled"));
+      const expiry = setTimeout(() => done(new ExtensionError("busy")), deadline - Date.now());
+      this.waiting.add(done);
+      signal?.addEventListener("abort", cancel, { once: true });
+    });
+  }
+
+  // Hands a freed slot to the oldest waiter, so no later call can take it first.
+  private release(): void {
+    const next = this.waiting.values().next().value;
+    if (next) next();
+    else this.running--;
+  }
+
   async close(): Promise<void> {
     this.closed = true;
+    for (const done of [...this.waiting]) done(new ExtensionError("cancelled"));
     for (const operation of this.operations) operation.abort();
     await Promise.allSettled([...this.pending]);
   }
