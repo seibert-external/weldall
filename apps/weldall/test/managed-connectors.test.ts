@@ -71,11 +71,8 @@ describe("managed provider boundaries", () => {
         .filter(({ group }) => ["Drive", "Sheets", "Docs"].includes(group))
         .map(({ id }) => id),
     ).toEqual([
-      "https://www.googleapis.com/auth/drive.file",
       "https://www.googleapis.com/auth/drive.readonly",
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
       "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/documents.readonly",
       "https://www.googleapis.com/auth/documents",
     ]);
     expect(scopeCatalog.map(({ id }) => id)).not.toContain("https://www.googleapis.com/auth/drive");

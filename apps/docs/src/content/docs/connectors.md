@@ -32,7 +32,7 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
-It also offers Drive, Sheets, and Docs permissions. Drive's per-file permission lets a connection create files and read or change only the files Weldall created. Drive read-only access lets it list and read all files the user can see. The Sheets and Docs read-only permissions let it read any spreadsheet or document the user can access. The full Sheets and Docs permissions also let it edit them. Full Drive access is not offered. For example, read a range from an existing spreadsheet, then read an existing document:
+It also offers Drive read-only access, which lists and reads files, and Sheets and Docs permissions, which read and edit spreadsheets and documents. Full Drive access is not offered. For example, read a range from an existing spreadsheet, then read an existing document:
 
 ```sh
 weldall request --connection my-google \

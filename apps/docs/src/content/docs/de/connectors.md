@@ -32,7 +32,7 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
-Außerdem gibt es Berechtigungen für Drive, Sheets und Docs. Mit der dateibezogenen Drive-Berechtigung kann eine Verbindung Dateien anlegen und nur die Dateien lesen oder ändern, die Weldall angelegt hat. Mit Drive-Lesezugriff kann sie alle Dateien auflisten und lesen, die die Person sehen kann. Mit dem Lesezugriff für Sheets und Docs kann sie jede Tabelle und jedes Dokument lesen, auf das die Person Zugriff hat. Mit den vollen Sheets- und Docs-Berechtigungen kann sie sie auch bearbeiten. Vollen Drive-Zugriff gibt es nicht. Einen Bereich aus einer bestehenden Tabelle und danach ein bestehendes Dokument lesen zum Beispiel:
+Außerdem gibt es Drive-Lesezugriff, mit dem eine Verbindung Dateien auflistet und liest, sowie Sheets- und Docs-Berechtigungen, mit denen sie Tabellen und Dokumente liest und bearbeitet. Vollen Drive-Zugriff gibt es nicht. Einen Bereich aus einer bestehenden Tabelle und danach ein bestehendes Dokument lesen zum Beispiel:
 
 ```sh
 weldall request --connection my-google \
