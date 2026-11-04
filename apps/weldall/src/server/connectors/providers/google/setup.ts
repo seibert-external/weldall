@@ -83,6 +83,28 @@ export const scopeCatalog: ScopeDescriptor[] = [
     group: "BigQuery",
     required: false,
   },
+  {
+    id: `${google}drive.readonly`,
+    label: "View your Drive files",
+    description:
+      "List, read and download all files in your Drive, including files shared with you.",
+    group: "Drive",
+    required: false,
+  },
+  {
+    id: `${google}spreadsheets`,
+    label: "Read and edit spreadsheets",
+    description: "Read, create and change all Google Sheets spreadsheets you can access.",
+    group: "Sheets",
+    required: false,
+  },
+  {
+    id: `${google}documents`,
+    label: "Read and edit documents",
+    description: "Read, create and change all Google Docs documents you can access.",
+    group: "Docs",
+    required: false,
+  },
 ];
 export const requiredScopes = scopeCatalog.filter((s) => s.required).map((s) => s.id);
 /** Canonicalizes scope sets without aliases or inferred permissions. */

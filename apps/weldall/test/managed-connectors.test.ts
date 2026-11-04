@@ -65,6 +65,18 @@ describe("managed provider boundaries", () => {
       "https://www.googleapis.com/auth/bigquery",
     ]);
   });
+  it("offers exactly the reviewed Drive, Sheets and Docs scopes, never full Drive", () => {
+    expect(
+      scopeCatalog
+        .filter(({ group }) => ["Drive", "Sheets", "Docs"].includes(group))
+        .map(({ id }) => id),
+    ).toEqual([
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/documents",
+    ]);
+    expect(scopeCatalog.map(({ id }) => id)).not.toContain("https://www.googleapis.com/auth/drive");
+  });
   it("canonicalizes exact sets without scope aliases or implication mappings", async () => {
     expect(
       googleProvider.validateSetupInput({
@@ -221,6 +233,8 @@ describe("managed provider boundaries", () => {
       "https://www.googleapis.com",
       "https://calendar.googleapis.com",
       "https://bigquery.googleapis.com",
+      "https://sheets.googleapis.com",
+      "https://docs.googleapis.com",
     ]) {
       const requestedUrl = parseCanonicalHttps(
         `${origin}/future/v99/accounts/someone@example.com/arbitrary?newKey=yes&newKey=no&q=hello%20world`,

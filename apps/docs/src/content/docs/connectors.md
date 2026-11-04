@@ -32,6 +32,17 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
+It also offers Drive read-only access, which lists and reads files, and Sheets and Docs permissions, which read and edit spreadsheets and documents. Full Drive access is not offered. For example, read a range from an existing spreadsheet, then read an existing document:
+
+```sh
+weldall request --connection my-google \
+  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/Sheet1!A1:D20'
+weldall request --connection my-google \
+  https://docs.googleapis.com/v1/documents/<document-id>
+```
+
+Approve the matching permission during setup. URL-encode sheet names with spaces or special characters. Write cells with `-X PUT` on the same `values` URL plus `?valueInputOption=RAW`, so text is stored as entered and never evaluated as a formula.
+
 To remove it, run `weldall connections disconnect my-google`. Weldall attempts to revoke access at Google and removes the stored connection. If revocation cannot be confirmed, the CLI asks you to finish in your Google account settings.
 
 ## Set up Atlassian Cloud

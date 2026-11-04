@@ -32,6 +32,17 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
+Außerdem gibt es Drive-Lesezugriff, mit dem eine Verbindung Dateien auflistet und liest, sowie Sheets- und Docs-Berechtigungen, mit denen sie Tabellen und Dokumente liest und bearbeitet. Vollen Drive-Zugriff gibt es nicht. Einen Bereich aus einer bestehenden Tabelle und danach ein bestehendes Dokument lesen zum Beispiel:
+
+```sh
+weldall request --connection my-google \
+  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/Sheet1!A1:D20'
+weldall request --connection my-google \
+  https://docs.googleapis.com/v1/documents/<document-id>
+```
+
+Bestätige dafür beim Einrichten die passende Berechtigung. Tabellennamen mit Leerzeichen oder Sonderzeichen müssen URL-kodiert werden. Zellen schreibst du mit `-X PUT` auf dieselbe `values`-URL plus `?valueInputOption=RAW`. So wird Text unverändert gespeichert und nie als Formel ausgewertet.
+
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 
 ## Atlassian Cloud einrichten
