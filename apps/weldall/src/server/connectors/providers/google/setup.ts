@@ -105,6 +105,27 @@ export const scopeCatalog: ScopeDescriptor[] = [
     group: "Docs",
     required: false,
   },
+  {
+    id: `${google}chat.spaces.readonly`,
+    label: "View your Chat spaces",
+    description: "List and view the Google Chat spaces and conversations you are in.",
+    group: "Chat",
+    required: false,
+  },
+  {
+    id: `${google}chat.messages.readonly`,
+    label: "Read your Chat messages",
+    description: "Read messages and reactions in all Google Chat spaces you are in.",
+    group: "Chat",
+    required: false,
+  },
+  {
+    id: `${google}chat.messages.create`,
+    label: "Send Chat messages",
+    description: "Send Google Chat messages as you in spaces you are in.",
+    group: "Chat",
+    required: false,
+  },
 ];
 export const requiredScopes = scopeCatalog.filter((s) => s.required).map((s) => s.id);
 /** Canonicalizes scope sets without aliases or inferred permissions. */
