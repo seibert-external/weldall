@@ -43,6 +43,16 @@ weldall request --connection my-google \
 
 Bestätige dafür beim Einrichten die passende Berechtigung. Tabellennamen mit Leerzeichen oder Sonderzeichen müssen URL-kodiert werden. Zellen schreibst du mit `-X PUT` auf dieselbe `values`-URL plus `?valueInputOption=RAW`. So wird Text unverändert gespeichert und nie als Formel ausgewertet.
 
+Außerdem gibt es Google-Ads-Zugriff. Google kennt dafür nur die Berechtigung `adwords`, die auch Änderungen erlaubt; eine Verbindung, die nur Berichte braucht, kann also trotzdem Kampagnen ändern. Gib deinen Developer Token mit und `login-customer-id`, wenn du das Konto über ein Verwaltungskonto erreichst. Eine GAQL-Suche zum Beispiel:
+
+```sh
+weldall request --connection my-google -X POST \
+  -H 'developer-token: <developer-token>' \
+  -H 'login-customer-id: <manager-customer-id>' \
+  --json '{"query":"SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS"}' \
+  https://googleads.googleapis.com/v26/customers/<customer-id>/googleAds:search
+```
+
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 
 ## Atlassian Cloud einrichten

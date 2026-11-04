@@ -230,6 +230,7 @@ function validateGoogleConfiguration(value: unknown) {
       "drive.readonly",
       "spreadsheets",
       "documents",
+      "adwords",
     ].map((scope) => `https://www.googleapis.com/auth/${scope}`),
   );
   const allowed = value.allowedScopes;

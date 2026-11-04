@@ -77,6 +77,11 @@ describe("managed provider boundaries", () => {
     ]);
     expect(scopeCatalog.map(({ id }) => id)).not.toContain("https://www.googleapis.com/auth/drive");
   });
+  it("offers the single Google Ads scope, which has no read-only variant", () => {
+    expect(scopeCatalog.filter(({ group }) => group === "Google Ads").map(({ id }) => id)).toEqual([
+      "https://www.googleapis.com/auth/adwords",
+    ]);
+  });
   it("canonicalizes exact sets without scope aliases or implication mappings", async () => {
     expect(
       googleProvider.validateSetupInput({
@@ -203,6 +208,8 @@ describe("managed provider boundaries", () => {
     "https://gmail.googleapis.com/a#",
     "https://gmail.googleapis.com:8443/a",
     "https://gmail.googleapis.com.evil.example/a",
+    "https://googleads.googleapis.com.evil.example/a",
+    "https://ads.google.com/a",
     "https://evil.example/a",
     "https://127.0.0.1/a",
     "https://gmail.googleapis.com\\@evil.example/a",
@@ -235,6 +242,7 @@ describe("managed provider boundaries", () => {
       "https://bigquery.googleapis.com",
       "https://sheets.googleapis.com",
       "https://docs.googleapis.com",
+      "https://googleads.googleapis.com",
     ]) {
       const requestedUrl = parseCanonicalHttps(
         `${origin}/future/v99/accounts/someone@example.com/arbitrary?newKey=yes&newKey=no&q=hello%20world`,
@@ -256,6 +264,28 @@ describe("managed provider boundaries", () => {
       expect(new Headers(init.headers).get("x-goog-api-key")).toBeNull();
       expect(new Headers(init.headers).get("x-new-api-header")).toBe("yes");
     }
+  });
+  it("forwards the Google Ads developer token and manager account headers", () => {
+    const requestedUrl = parseCanonicalHttps(
+      "https://googleads.googleapis.com/v99/customers/1234567890/googleAds:search",
+    );
+    const upstreamUrl = googleProvider.resolveUpstreamUrl({ ...context, requestedUrl, grant });
+    const init = googleProvider.buildUpstreamRequest({
+      upstreamUrl,
+      credentials,
+      request: {
+        requestedUrl,
+        method: "POST",
+        headers: filterProxyHeaders({
+          input: new Headers({ "developer-token": "dev", "login-customer-id": "1112223333" }),
+        }),
+      },
+      signal: AbortSignal.timeout(1000),
+    });
+    const headers = new Headers(init.headers);
+    expect(headers.get("developer-token")).toBe("dev");
+    expect(headers.get("login-customer-id")).toBe("1112223333");
+    expect(headers.get("authorization")).toBe("Bearer private-access");
   });
   it("strips dangerous headers and Connection-nominated headers in both directions", () => {
     const headers = new Headers({

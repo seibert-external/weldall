@@ -9,6 +9,7 @@ const allowedOrigins = new Set([
   "https://bigquery.googleapis.com",
   "https://sheets.googleapis.com",
   "https://docs.googleapis.com",
+  "https://googleads.googleapis.com",
 ]);
 /**
  * Authorizes only reviewed Google origins, without interpreting API paths or query parameters.
