@@ -126,6 +126,14 @@ export const scopeCatalog: ScopeDescriptor[] = [
     group: "Chat",
     required: false,
   },
+  {
+    id: `${google}adwords`,
+    label: "Manage your Google Ads accounts",
+    description:
+      "View and change all Google Ads accounts you can access. Google offers no read-only Ads permission.",
+    group: "Google Ads",
+    required: false,
+  },
 ];
 export const requiredScopes = scopeCatalog.filter((s) => s.required).map((s) => s.id);
 /** Canonicalizes scope sets without aliases or inferred permissions. */

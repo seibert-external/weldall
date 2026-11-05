@@ -33,6 +33,7 @@ describe("Google connector IaC scope parity", () => {
       "https://www.googleapis.com/auth/unknown",
       "https://www.googleapis.com/auth/drive",
       "https://www.googleapis.com/auth/chat.messages",
+      "https://www.googleapis.com/auth/adwords.readonly",
     ].map((scope) => ({ scopes: [scope], valid: false })),
   ])("validates imported scopes $scopes (valid=$valid)", async ({ scopes, valid }) => {
     const root = await mkdtemp(join(tmpdir(), "weldall-google-iac-"));

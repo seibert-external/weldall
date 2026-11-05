@@ -337,7 +337,8 @@
                         "https://www.googleapis.com/auth/documents",
                         "https://www.googleapis.com/auth/chat.spaces.readonly",
                         "https://www.googleapis.com/auth/chat.messages.readonly",
-                        "https://www.googleapis.com/auth/chat.messages.create"
+                        "https://www.googleapis.com/auth/chat.messages.create",
+                        "https://www.googleapis.com/auth/adwords"
                       ]
                     }
                   },
@@ -360,7 +361,8 @@
                         "https://www.googleapis.com/auth/documents",
                         "https://www.googleapis.com/auth/chat.spaces.readonly",
                         "https://www.googleapis.com/auth/chat.messages.readonly",
-                        "https://www.googleapis.com/auth/chat.messages.create"
+                        "https://www.googleapis.com/auth/chat.messages.create",
+                        "https://www.googleapis.com/auth/adwords"
                       ]
                     },
                     "description": "Must be a subset of allowedScopes. Scope sets are deduplicated and sorted."

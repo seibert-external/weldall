@@ -50,6 +50,16 @@ weldall request --connection my-google \
   'https://chat.googleapis.com/v1/spaces/<space-id>/messages?pageSize=20&orderBy=createTime%20DESC'
 ```
 
+It also offers Google Ads access. Google has only one Ads permission, `adwords`, which also allows changes, so a connection that needs only reports can still change campaigns. Pass your developer token, and `login-customer-id` when you reach the account through a manager account. For example, run a GAQL search:
+
+```sh
+weldall request --connection my-google -X POST \
+  -H 'developer-token: <developer-token>' \
+  -H 'login-customer-id: <manager-customer-id>' \
+  --json '{"query":"SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS"}' \
+  https://googleads.googleapis.com/v26/customers/<customer-id>/googleAds:search
+```
+
 To remove it, run `weldall connections disconnect my-google`. Weldall attempts to revoke access at Google and removes the stored connection. If revocation cannot be confirmed, the CLI asks you to finish in your Google account settings.
 
 ## Set up Atlassian Cloud
