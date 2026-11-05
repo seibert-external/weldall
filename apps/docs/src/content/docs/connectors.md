@@ -43,6 +43,13 @@ weldall request --connection my-google \
 
 Approve the matching permission during setup. URL-encode sheet names with spaces or special characters. Write cells with `-X PUT` on the same `values` URL plus `?valueInputOption=RAW`, so text is stored as entered and never evaluated as a formula.
 
+Chat permissions list spaces, read messages and send messages as the person; sending needs a Chat app configured in the Google Cloud project that owns the OAuth client. For example, list the latest messages in a space:
+
+```sh
+weldall request --connection my-google \
+  'https://chat.googleapis.com/v1/spaces/<space-id>/messages?pageSize=20&orderBy=createTime%20DESC'
+```
+
 To remove it, run `weldall connections disconnect my-google`. Weldall attempts to revoke access at Google and removes the stored connection. If revocation cannot be confirmed, the CLI asks you to finish in your Google account settings.
 
 ## Set up Atlassian Cloud

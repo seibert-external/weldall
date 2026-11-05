@@ -230,6 +230,9 @@ function validateGoogleConfiguration(value: unknown) {
       "drive.readonly",
       "spreadsheets",
       "documents",
+      "chat.spaces.readonly",
+      "chat.messages.readonly",
+      "chat.messages.create",
     ].map((scope) => `https://www.googleapis.com/auth/${scope}`),
   );
   const allowed = value.allowedScopes;

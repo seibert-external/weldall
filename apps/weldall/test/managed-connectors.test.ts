@@ -77,6 +77,17 @@ describe("managed provider boundaries", () => {
     ]);
     expect(scopeCatalog.map(({ id }) => id)).not.toContain("https://www.googleapis.com/auth/drive");
   });
+  it("offers only read and send Chat scopes, never message edit or delete", () => {
+    const ids = scopeCatalog.map(({ id }) => id);
+    expect(scopeCatalog.filter(({ group }) => group === "Chat").map(({ id }) => id)).toEqual([
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.messages.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create",
+    ]);
+    for (const broader of ["chat.messages", "chat.spaces", "chat.delete", "chat.memberships"]) {
+      expect(ids).not.toContain(`https://www.googleapis.com/auth/${broader}`);
+    }
+  });
   it("canonicalizes exact sets without scope aliases or implication mappings", async () => {
     expect(
       googleProvider.validateSetupInput({
@@ -235,6 +246,7 @@ describe("managed provider boundaries", () => {
       "https://bigquery.googleapis.com",
       "https://sheets.googleapis.com",
       "https://docs.googleapis.com",
+      "https://chat.googleapis.com",
     ]) {
       const requestedUrl = parseCanonicalHttps(
         `${origin}/future/v99/accounts/someone@example.com/arbitrary?newKey=yes&newKey=no&q=hello%20world`,
