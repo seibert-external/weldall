@@ -43,6 +43,13 @@ weldall request --connection my-google \
 
 Approve the matching permission during setup. URL-encode sheet names with spaces or special characters. Write cells with `-X PUT` on the same `values` URL plus `?valueInputOption=RAW`, so text is stored as entered and never evaluated as a formula.
 
+Chat permissions list spaces, read messages and send messages as the person; sending needs a Chat app configured in the Google Cloud project that owns the OAuth client. For example, list the latest messages in a space:
+
+```sh
+weldall request --connection my-google \
+  'https://chat.googleapis.com/v1/spaces/<space-id>/messages?pageSize=20&orderBy=createTime%20DESC'
+```
+
 It also offers Google Ads access. Google has only one Ads permission, `adwords`, which also allows changes, so a connection that needs only reports can still change campaigns. Pass your developer token, and `login-customer-id` when you reach the account through a manager account. For example, run a GAQL search:
 
 ```sh

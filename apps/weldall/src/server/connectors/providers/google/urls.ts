@@ -9,6 +9,7 @@ const allowedOrigins = new Set([
   "https://bigquery.googleapis.com",
   "https://sheets.googleapis.com",
   "https://docs.googleapis.com",
+  "https://chat.googleapis.com",
   "https://googleads.googleapis.com",
 ]);
 /**

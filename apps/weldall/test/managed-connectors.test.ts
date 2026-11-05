@@ -77,6 +77,17 @@ describe("managed provider boundaries", () => {
     ]);
     expect(scopeCatalog.map(({ id }) => id)).not.toContain("https://www.googleapis.com/auth/drive");
   });
+  it("offers only read and send Chat scopes, never message edit or delete", () => {
+    const ids = scopeCatalog.map(({ id }) => id);
+    expect(scopeCatalog.filter(({ group }) => group === "Chat").map(({ id }) => id)).toEqual([
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.messages.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create",
+    ]);
+    for (const broader of ["chat.messages", "chat.spaces", "chat.delete", "chat.memberships"]) {
+      expect(ids).not.toContain(`https://www.googleapis.com/auth/${broader}`);
+    }
+  });
   it("offers the single Google Ads scope, which has no read-only variant", () => {
     expect(scopeCatalog.filter(({ group }) => group === "Google Ads").map(({ id }) => id)).toEqual([
       "https://www.googleapis.com/auth/adwords",
@@ -242,6 +253,7 @@ describe("managed provider boundaries", () => {
       "https://bigquery.googleapis.com",
       "https://sheets.googleapis.com",
       "https://docs.googleapis.com",
+      "https://chat.googleapis.com",
       "https://googleads.googleapis.com",
     ]) {
       const requestedUrl = parseCanonicalHttps(

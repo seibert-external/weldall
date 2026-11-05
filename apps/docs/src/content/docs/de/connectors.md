@@ -43,6 +43,13 @@ weldall request --connection my-google \
 
 Bestätige dafür beim Einrichten die passende Berechtigung. Tabellennamen mit Leerzeichen oder Sonderzeichen müssen URL-kodiert werden. Zellen schreibst du mit `-X PUT` auf dieselbe `values`-URL plus `?valueInputOption=RAW`. So wird Text unverändert gespeichert und nie als Formel ausgewertet.
 
+Chat-Berechtigungen listen Spaces auf, lesen Nachrichten und senden Nachrichten im Namen der Person; zum Senden braucht das Google-Cloud-Projekt des OAuth-Clients eine konfigurierte Chat-App. Die neuesten Nachrichten eines Space listest du zum Beispiel so:
+
+```sh
+weldall request --connection my-google \
+  'https://chat.googleapis.com/v1/spaces/<space-id>/messages?pageSize=20&orderBy=createTime%20DESC'
+```
+
 Außerdem gibt es Google-Ads-Zugriff. Google kennt dafür nur die Berechtigung `adwords`, die auch Änderungen erlaubt; eine Verbindung, die nur Berichte braucht, kann also trotzdem Kampagnen ändern. Gib deinen Developer Token mit und `login-customer-id`, wenn du das Konto über ein Verwaltungskonto erreichst. Eine GAQL-Suche zum Beispiel:
 
 ```sh
