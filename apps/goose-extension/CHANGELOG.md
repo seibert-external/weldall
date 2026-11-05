@@ -1,5 +1,11 @@
 # @weldall/goose
 
+## 0.4.6
+
+### Patch Changes
+
+- ad95cb1: Queue CLI calls beyond the four that run at once instead of failing them with `busy`; up to sixteen calls wait, and the wait counts toward the call's timeout.
+
 ## 0.4.5
 
 ### Patch Changes
