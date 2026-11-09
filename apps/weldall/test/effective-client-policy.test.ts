@@ -99,7 +99,7 @@ beforeAll(async () => {
   await db.cliSettings.update({
     where: { id: "default" },
     data: {
-      appendix: "Organisation appendix",
+      appendix: "Organization appendix",
       policy: { version: 1, approvalMode: "smart_approve", shell: false },
     },
   });
@@ -175,6 +175,34 @@ describe("effective client policy", () => {
     expect(policy).toEqual({ version: 1, approvalMode: "smart_approve", shell: false });
   });
 
+  it("dates the policy by the latest contributing change", async () => {
+    const dev = await db.groupScopeAssignment.findFirstOrThrow({
+      where: { provider: { key: providerKey }, groupId: "dev" },
+    });
+    await db.groupScopeAssignment.update({
+      where: { id: dev.id },
+      data: {
+        policy: { version: 1, approvalMode: "auto", shell: true, instructions: "Dev instructions" },
+      },
+    });
+    const touched = await db.groupScopeAssignment.findUniqueOrThrow({ where: { id: dev.id } });
+    const { updatedAt } = await effectivePolicyFor(email);
+    expect(updatedAt).toEqual(touched.updatedAt);
+  });
+
+  it("has no date when nothing contributed", async () => {
+    const settings = await db.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
+    await db.cliSettings.update({ where: { id: "default" }, data: { policy: Prisma.DbNull } });
+    try {
+      expect((await effectivePolicyFor(outsider)).updatedAt).toBeNull();
+    } finally {
+      await db.cliSettings.update({
+        where: { id: "default" },
+        data: { policy: settings.policy as Prisma.InputJsonValue },
+      });
+    }
+  });
+
   it("reports an unavailable provider", async () => {
     await withBrokenProvider(async () => {
       const { unavailableGroupProviders } = await effectivePolicyFor(email);
@@ -211,21 +239,23 @@ describe("GET /api/me/cli", () => {
   it("appends the caller's group instructions to the appendix", async () => {
     signIn(email);
     const body = await (await getCli(request("/api/me/cli"))).json();
-    expect(body.appendix).toBe("Organisation appendix\n\nDev instructions\n\nFinance instructions");
+    expect(body.appendix).toBe("Organization appendix\n\nDev instructions\n\nFinance instructions");
   });
 
   it("serves the default appendix to a user without group instructions", async () => {
     signIn(outsider);
     const body = await (await getCli(request("/api/me/cli"))).json();
-    expect(body.appendix).toBe("Organisation appendix");
+    expect(body.appendix).toBe("Organization appendix");
   });
 
-  it("serves the default appendix while a group provider is unavailable", async () => {
+  it("serves the resolved groups' instructions while a group provider is unavailable", async () => {
     signIn(email);
     await withBrokenProvider(async () => {
       const response = await getCli(request("/api/me/cli"));
       expect(response.status).toBe(200);
-      expect((await response.json()).appendix).toBe("Organisation appendix");
+      expect((await response.json()).appendix).toBe(
+        "Organization appendix\n\nDev instructions\n\nFinance instructions",
+      );
     });
   });
 });

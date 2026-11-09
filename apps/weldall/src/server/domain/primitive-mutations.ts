@@ -745,16 +745,18 @@ export async function mutateGroupAssignment(
     where: { id: current.id },
     include: groupInclude,
   });
-  await groupAudit(
-    tx,
-    actor,
-    "group_scopes.replaced",
-    saved,
-    before,
-    keys,
-    current.version,
-    saved.version,
-  );
+  // Policy changes are not audited yet; only a scope change writes the scope audit event.
+  if (scopesChanged)
+    await groupAudit(
+      tx,
+      actor,
+      "group_scopes.replaced",
+      saved,
+      before,
+      keys,
+      current.version,
+      saved.version,
+    );
   return saved;
 }
 

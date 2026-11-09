@@ -65,7 +65,7 @@ export async function effectiveScopeAccessFor(email: string): Promise<EffectiveS
 }
 
 export interface EffectiveClientPolicy {
-  /** `instructions` holds only the group instructions; the organisation appendix is separate. */
+  /** `instructions` holds only the group instructions; the organization appendix is separate. */
   policy: ClientPolicy;
   updatedAt: Date | null;
   unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"];
@@ -85,42 +85,41 @@ export async function effectivePolicyFor(email: string): Promise<EffectiveClient
         filters.length
           ? tx.groupScopeAssignment.findMany({
               where: { OR: filters, policy: { not: Prisma.DbNull } },
-              select: {
-                id: true,
-                groupId: true,
-                policy: true,
-                provider: { select: { key: true } },
-              },
+              orderBy: [{ provider: { key: "asc" } }, { groupId: "asc" }],
+              select: { id: true, policy: true, updatedAt: true },
             })
           : Promise.resolve([]),
       ]),
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
-  const sorted = [...assignments].sort(
-    (left, right) =>
-      compareText(left.provider.key, right.provider.key) ||
-      compareText(left.groupId, right.groupId),
-  );
-  const groupPolicies = sorted.flatMap((assignment) => {
-    const parsed = clientPolicySchema.safeParse(assignment.policy);
-    if (parsed.success) return [parsed.data];
-    logger.warn({ event: "client_policy.invalid_stored", assignmentId: assignment.id });
-    return [];
-  });
+  // An invalid stored value is skipped and logged, never served. `updatedAt` is the latest
+  // change among the values that contributed.
+  const contributedAt: Date[] = [];
   let defaultPolicy: ClientPolicy | null = null;
   if (settings?.policy != null) {
     const parsed = defaultClientPolicySchema.safeParse(settings.policy);
-    if (parsed.success) defaultPolicy = parsed.data;
-    else logger.warn({ event: "client_policy.invalid_stored", setting: "cli" });
+    if (parsed.success) {
+      defaultPolicy = parsed.data;
+      contributedAt.push(settings.updatedAt);
+    } else logger.warn({ event: "client_policy.invalid_stored", setting: "cli" });
   }
+  const groupPolicies = assignments.flatMap((assignment) => {
+    const parsed = clientPolicySchema.safeParse(assignment.policy);
+    if (!parsed.success) {
+      logger.warn({ event: "client_policy.invalid_stored", assignmentId: assignment.id });
+      return [];
+    }
+    contributedAt.push(assignment.updatedAt);
+    return [parsed.data];
+  });
   return {
     policy: mergeClientPolicies(defaultPolicy, groupPolicies),
-    updatedAt: settings?.updatedAt ?? null,
+    updatedAt: contributedAt.length
+      ? new Date(Math.max(...contributedAt.map((date) => date.getTime())))
+      : null,
     unavailableGroupProviders: resolution.unavailableGroupProviders,
   };
 }
-
-const compareText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
 export async function effectiveScopesFor(email: string): Promise<ScopeKey[]> {
   const normalizedEmail = normalizePolicyEmail(email);

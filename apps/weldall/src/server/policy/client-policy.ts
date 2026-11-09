@@ -47,7 +47,7 @@ const permissiveness = (mode: ApprovalMode) => APPROVAL_MODES.indexOf(mode);
 /**
  * Merges the default policy with the caller's group policies (already in stable order). A field
  * set by any group replaces the default's value; where groups disagree the most permissive wins.
- * The default's instructions are not merged: the organisation appendix is added by the route.
+ * The default's instructions are not merged: the organization appendix is added by the route.
  */
 export function mergeClientPolicies(
   defaultPolicy: ClientPolicy | null,

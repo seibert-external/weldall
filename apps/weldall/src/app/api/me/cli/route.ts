@@ -21,11 +21,9 @@ async function get(request: Request) {
       effectivePolicyFor(user.email),
     ]);
     const appendix = settings?.appendix ?? "";
-    // With a group provider unavailable the group instructions may be incomplete; serve only the
-    // organisation appendix rather than fail the request.
-    const groupInstructions = effective.unavailableGroupProviders.length
-      ? undefined
-      : effective.policy.instructions;
+    // An unavailable group provider does not fail the request (@weldall/goose refuses to start
+    // without instructions): the appendix carries the instructions of the groups that resolved.
+    const groupInstructions = effective.policy.instructions;
     return Response.json(
       {
         appendix: [appendix, groupInstructions].filter(Boolean).join("\n\n"),

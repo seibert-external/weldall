@@ -80,6 +80,10 @@ describe("group assignment client policy", () => {
     });
     expect(updated.policy).toEqual({ version: 1, approvalMode: "auto" });
     expect(updated.version).toBe(saved.version + 1);
+    const replaced = await db.auditEvent.count({
+      where: { subjectId: saved.id, eventType: "group_scopes.replaced" },
+    });
+    expect(replaced).toBe(0);
   });
 
   it("keeps the policy when an update leaves it out", async () => {
