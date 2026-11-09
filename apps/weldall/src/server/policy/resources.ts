@@ -8,6 +8,12 @@ import { createGroupProviderAdapter } from "../group-providers/registry";
 import { errorForLog, logger } from "../observability/logger";
 import { scopeKeySchema, type ScopeKey } from "./scope-key";
 import { isProtectedSystemScope } from "./system-scopes";
+import {
+  clientPolicySchema,
+  defaultClientPolicySchema,
+  mergeClientPolicies,
+  type ClientPolicy,
+} from "./client-policy";
 
 const sortedUnique = <T extends string>(values: T[]): T[] => [...new Set(values)].sort();
 const emailSchema = z.string().trim().toLowerCase().email().max(320);
@@ -57,6 +63,64 @@ export async function effectiveScopeAccessFor(email: string): Promise<EffectiveS
     unavailableGroupProviders: resolution.unavailableGroupProviders,
   };
 }
+
+export interface EffectiveClientPolicy {
+  /** `instructions` holds only the group instructions; the organisation appendix is separate. */
+  policy: ClientPolicy;
+  updatedAt: Date | null;
+  unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"];
+}
+
+export async function effectivePolicyFor(email: string): Promise<EffectiveClientPolicy> {
+  const normalizedEmail = normalizePolicyEmail(email);
+  const resolution = await resolveProviderMemberships(normalizedEmail);
+  const filters = groupAssignmentFilters(resolution.memberships);
+  const [settings, assignments] = await db.$transaction(
+    (tx) =>
+      Promise.all([
+        tx.cliSettings.findUnique({
+          where: { id: "default" },
+          select: { policy: true, updatedAt: true },
+        }),
+        filters.length
+          ? tx.groupScopeAssignment.findMany({
+              where: { OR: filters, policy: { not: Prisma.DbNull } },
+              select: {
+                id: true,
+                groupId: true,
+                policy: true,
+                provider: { select: { key: true } },
+              },
+            })
+          : Promise.resolve([]),
+      ]),
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
+  const sorted = [...assignments].sort(
+    (left, right) =>
+      compareText(left.provider.key, right.provider.key) ||
+      compareText(left.groupId, right.groupId),
+  );
+  const groupPolicies = sorted.flatMap((assignment) => {
+    const parsed = clientPolicySchema.safeParse(assignment.policy);
+    if (parsed.success) return [parsed.data];
+    logger.warn({ event: "client_policy.invalid_stored", assignmentId: assignment.id });
+    return [];
+  });
+  let defaultPolicy: ClientPolicy | null = null;
+  if (settings?.policy != null) {
+    const parsed = defaultClientPolicySchema.safeParse(settings.policy);
+    if (parsed.success) defaultPolicy = parsed.data;
+    else logger.warn({ event: "client_policy.invalid_stored", setting: "cli" });
+  }
+  return {
+    policy: mergeClientPolicies(defaultPolicy, groupPolicies),
+    updatedAt: settings?.updatedAt ?? null,
+    unavailableGroupProviders: resolution.unavailableGroupProviders,
+  };
+}
+
+const compareText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
 export async function effectiveScopesFor(email: string): Promise<ScopeKey[]> {
   const normalizedEmail = normalizePolicyEmail(email);
