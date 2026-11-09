@@ -120,6 +120,7 @@ Atlassian Cloud connectors support Jira and Confluence through `api.atlassian.co
 weldall login
 weldall status
 weldall whoami
+weldall policy
 weldall scopes
 weldall skills
 weldall skills find expense
@@ -162,7 +163,9 @@ the audience, resource, scopes, and device key. It then adds the DPoP authorizat
 
 `weldall status --json` includes `organizationInstructions` alongside `identity`, `assignedScopes`, and `grants`. This is the current organization-instructions text loaded from Weldall, not the cached help header: an empty string means no instructions are configured; `null` means the settings could not be loaded (including older servers without that endpoint). Existing identity/permission failures still fail the command. Clients that require organizational context should distinguish these states rather than silently substituting cached text or assuming an empty configuration.
 
-Use `--json` with `status`, `whoami`, `scopes`, and `skills` for machine-readable output. Human-facing
+`weldall policy --json` prints the client policy that applies to the signed-in account as `{ version, policy, updatedAt, etag }`. The server merges the organization default with the policies of the account's groups. The `etag` changes whenever the merged policy changes. The command fails when the server has no policy endpoint or a group provider is unavailable, so a client can keep its last policy. `weldall status --json` also includes the merged document as `policy`, or `null` when it could not be loaded.
+
+Use `--json` with `status`, `whoami`, `policy`, `scopes`, and `skills` for machine-readable output. Human-facing
 output is rendered with Ink in bordered account, access, skill, notice, and configuration panels. ANSI
 colors are only emitted to an interactive terminal and respect `NO_COLOR`; JSON, documents, response
 bodies, and piped scope lists remain plain output. Help shows a rounded purple Weldall panel with the

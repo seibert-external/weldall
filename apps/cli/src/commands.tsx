@@ -48,6 +48,7 @@ import {
   type ConnectionSummary,
   type ConnectorSummary,
 } from "./services/connections.js";
+import { getClientPolicy } from "./services/policy.js";
 import { getCliAppendix } from "./services/settings.js";
 import {
   listScopes,
@@ -323,13 +324,16 @@ export const statusCommand = define({
   examples: "weldall status\nweldall status --json",
   run: async (context) => {
     const config = await resolveWeldallConfig();
-    const [identity, scopedPermissions, appendix, connectors, connections] = await Promise.all([
-      whoAmI(config),
-      listScopesWithSubject(config),
-      getCliAppendix(config).catch(() => undefined),
-      listConnectors(config).catch(() => undefined),
-      listConnections(config).catch(() => undefined),
-    ]);
+    const [identity, scopedPermissions, appendix, connectors, connections, policy] =
+      await Promise.all([
+        whoAmI(config),
+        listScopesWithSubject(config),
+        getCliAppendix(config).catch(() => undefined),
+        listConnectors(config).catch(() => undefined),
+        listConnections(config).catch(() => undefined),
+        // Older servers have no policy endpoint; status must keep working against them.
+        getClientPolicy(config).catch(() => undefined),
+      ]);
     if (identity.subject !== scopedPermissions.subject)
       throw new CliError("The active Weldall account changed while loading status", {
         hint: "Run `weldall status` again.",
@@ -350,8 +354,21 @@ export const statusCommand = define({
         // null means the live load failed; an empty string means none are configured.
         organizationInstructions: appendix ?? null,
         nativeDiscoveryVersion: 1,
+        // null means the live load failed, for example on a server without client policies.
+        policy: policy?.policy ?? null,
       });
     else printStatus(identity, permissions);
+  },
+});
+
+export const policyCommand = define({
+  name: "policy",
+  description: "Show the client policy that applies to the signed-in account",
+  args: { json: jsonArgument },
+  examples: "weldall policy\nweldall policy --json",
+  run: async (context) => {
+    const response = await getClientPolicy(await resolveWeldallConfig());
+    jsonOutput(context.values.json ? response : response.policy);
   },
 });
 

@@ -6,6 +6,7 @@ import * as auth from "../src/services/auth.js";
 import * as resources from "../src/services/resources.js";
 import * as settings from "../src/services/settings.js";
 import * as connections from "../src/services/connections.js";
+import * as policy from "../src/services/policy.js";
 import { appendixCache } from "../src/storage/appendix.js";
 
 const identity = {
@@ -16,6 +17,7 @@ const identity = {
 };
 const organizationInstructions =
   "Example Group's internal revenue is available via its skills.\nUse weldall skills list --agentic before looking elsewhere.";
+const clientPolicy = { version: 1, approvalMode: "auto" };
 const runStatus = () =>
   cli(["status", "--json"], mainCommand, {
     name: "weldall",
@@ -36,6 +38,12 @@ beforeEach(() => {
     result: { assignedScopes: ["reports:read"], resources: [] },
   });
   vi.spyOn(settings, "getCliAppendix").mockResolvedValue(organizationInstructions);
+  vi.spyOn(policy, "getClientPolicy").mockResolvedValue({
+    version: 1,
+    policy: clientPolicy,
+    updatedAt: null,
+    etag: "etag-1",
+  });
   // Older servers need not support connectors for status/context to remain usable.
   vi.spyOn(connections, "listConnectors").mockRejectedValue(new Error("Endpoint unavailable"));
   vi.spyOn(connections, "listConnections").mockRejectedValue(new Error("Endpoint unavailable"));
@@ -61,6 +69,7 @@ describe("status JSON organization context", () => {
       grants: [],
       organizationInstructions,
       nativeDiscoveryVersion: 1,
+      policy: clientPolicy,
     });
     expect(settings.getCliAppendix).toHaveBeenCalledOnce();
   });
@@ -83,10 +92,19 @@ describe("status JSON organization context", () => {
         grants: [],
         organizationInstructions: null,
         nativeDiscoveryVersion: 1,
+        policy: clientPolicy,
       });
       expect(output).not.toContain("stale cached organization");
     },
   );
+
+  it("reports policy null when the policy load fails", async () => {
+    vi.mocked(policy.getClientPolicy).mockRejectedValue(new Error("older server without policy"));
+    await runStatus();
+    const output = JSON.parse(vi.mocked(console.log).mock.calls[0]![0]);
+    expect(output.organizationInstructions).toBe(organizationInstructions);
+    expect(output.policy).toBeNull();
+  });
 
   it("does not publish context when identity and permission subjects differ", async () => {
     vi.mocked(resources.listScopesWithSubject).mockResolvedValue({
