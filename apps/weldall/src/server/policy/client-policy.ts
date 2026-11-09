@@ -106,17 +106,19 @@ export function withoutInstructions(policy: ClientPolicy): ClientPolicyWithoutIn
   return rest;
 }
 
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+/** Sorted-key JSON; `null` and `undefined` both serialise as `null`. */
+export function canonicalPolicyJson(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalPolicyJson).join(",")}]`;
   if (value && typeof value === "object")
     return `{${Object.entries(value)
       .filter(([, item]) => item !== undefined)
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-      .map(([name, item]) => `${JSON.stringify(name)}:${canonical(item)}`)
+      .map(([name, item]) => `${JSON.stringify(name)}:${canonicalPolicyJson(item)}`)
       .join(",")}}`;
   return JSON.stringify(value);
 }
 
 export function policyEtag(policy: ClientPolicyWithoutInstructions): string {
-  return createHash("sha256").update(canonical(policy)).digest("base64url");
+  return createHash("sha256").update(canonicalPolicyJson(policy)).digest("base64url");
 }

@@ -13,6 +13,11 @@ import {
 import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
 import { prismaAuditWriter, type AuditEventType } from "../audit/service";
+import {
+  canonicalPolicyJson,
+  clientPolicySchema,
+  type ClientPolicy,
+} from "../policy/client-policy";
 import { scopeKeySchema } from "../policy/scope-key";
 
 export type MutationSource =
@@ -635,13 +640,27 @@ export async function mutateEmailAssignment(
 export async function mutateGroupAssignment(
   tx: Prisma.TransactionClient,
   input:
-    | { action: "create"; providerKey: string; groupId: string; scopeKeys: string[] }
-    | { action: "update"; id: string; scopeKeys: string[]; expectedVersion: number }
+    | {
+        action: "create";
+        providerKey: string;
+        groupId: string;
+        scopeKeys: string[];
+        policy?: ClientPolicy | null;
+      }
+    | {
+        action: "update";
+        id: string;
+        scopeKeys: string[];
+        expectedVersion: number;
+        /** `undefined` keeps the stored policy; `null` clears it. */
+        policy?: ClientPolicy | null;
+      }
     | { action: "delete"; id: string; expectedVersion: number },
   actor: MutationActor,
 ): Promise<any> {
   if (input.action === "create") {
     const keys = parseScopeKeys(input.scopeKeys, true);
+    const policy = parseGroupPolicy(input.policy);
     const groupId = z.string().trim().min(1).max(191).parse(input.groupId);
     const provider = await tx.groupProvider.findUnique({ where: { key: input.providerKey } });
     if (!provider)
@@ -662,6 +681,7 @@ export async function mutateGroupAssignment(
       data: {
         providerId: provider.id,
         groupId,
+        ...(policy ? { policy } : {}),
         createdBy: actor.id,
         updatedBy: actor.id,
         grants: { create: scopes.map((scope) => ({ scopeId: scope.id, createdBy: actor.id })) },
@@ -696,19 +716,29 @@ export async function mutateGroupAssignment(
     return { id: current.id };
   }
   const keys = parseScopeKeys(input.scopeKeys, true);
-  if (same(before, keys)) return current;
-  const scopes = await scopesByKeys(tx, keys);
-  await tx.groupScopeGrant.deleteMany({ where: { assignmentId: current.id } });
-  await tx.groupScopeGrant.createMany({
-    data: scopes.map((scope) => ({
-      assignmentId: current.id,
-      scopeId: scope.id,
-      createdBy: actor.id,
-    })),
-  });
+  const policy = parseGroupPolicy(input.policy);
+  const scopesChanged = !same(before, keys);
+  const policyChanged =
+    policy !== undefined && canonicalPolicyJson(current.policy) !== canonicalPolicyJson(policy);
+  if (!scopesChanged && !policyChanged) return current;
+  if (scopesChanged) {
+    const scopes = await scopesByKeys(tx, keys);
+    await tx.groupScopeGrant.deleteMany({ where: { assignmentId: current.id } });
+    await tx.groupScopeGrant.createMany({
+      data: scopes.map((scope) => ({
+        assignmentId: current.id,
+        scopeId: scope.id,
+        createdBy: actor.id,
+      })),
+    });
+  }
   const write = await tx.groupScopeAssignment.updateMany({
     where: { id: current.id, version: input.expectedVersion },
-    data: { version: { increment: 1 }, updatedBy: actor.id },
+    data: {
+      version: { increment: 1 },
+      updatedBy: actor.id,
+      ...(policyChanged ? { policy: policy ?? Prisma.DbNull } : {}),
+    },
   });
   if (write.count !== 1) conflict("group assignment");
   const saved = await tx.groupScopeAssignment.findUniqueOrThrow({
@@ -1099,6 +1129,16 @@ function assertVersion(current: number, expected: number, label: string) {
 }
 function conflict(label: string): never {
   throw new PrimitiveMutationError("CONFLICT", `The ${label} changed. Reload and try again.`);
+}
+function parseGroupPolicy(value: ClientPolicy | null | undefined) {
+  if (value === undefined || value === null) return value;
+  const parsed = clientPolicySchema.safeParse(value);
+  if (!parsed.success)
+    throw new PrimitiveMutationError(
+      "INVALID_RESOURCE",
+      `Invalid client policy: ${parsed.error.issues[0]?.message ?? "unknown error"}.`,
+    );
+  return parsed.data;
 }
 function same(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
