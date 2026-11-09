@@ -40,7 +40,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.groupScopeAssignment.deleteMany({ where: { provider: { key: { startsWith: prefix } } } });
+  await db.groupScopeAssignment.deleteMany({
+    where: { provider: { key: { startsWith: prefix } } },
+  });
   await db.groupProvider.deleteMany({ where: { key: { startsWith: prefix } } });
   await db.auditEvent.deleteMany({ where: { actorId: { startsWith: prefix } } });
   await db.scope.deleteMany({ where: { key: { startsWith: prefix } } });

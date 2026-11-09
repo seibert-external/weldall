@@ -12,9 +12,10 @@ describe("client policy", () => {
   });
 
   it("keeps a default field no group sets and lets a group replace it", () => {
-    const merged = mergeClientPolicies({ version: 1, approvalMode: "smart_approve", shell: false }, [
-      { version: 1, approvalMode: "chat" },
-    ]);
+    const merged = mergeClientPolicies(
+      { version: 1, approvalMode: "smart_approve", shell: false },
+      [{ version: 1, approvalMode: "chat" }],
+    );
     expect(merged).toEqual({ version: 1, approvalMode: "chat", shell: false });
   });
 
