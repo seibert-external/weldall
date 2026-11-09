@@ -64,6 +64,55 @@ describe("native YAML workspaces", () => {
     ).rejects.toThrow(/HTTPS/);
   });
 
+  it("sends client policies on the cli block and group assignments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(
+      root,
+      [
+        'cli:\n  logoUrl: ""\n  policy:\n    version: 1\n    approvalMode: smart_approve\n',
+        "groupAssignments:\n  dev:\n    provider: directory\n    groupId: dev\n    scopes: [expenses:read]\n",
+        "    policy:\n      version: 1\n      shell: true\n      instructions: Run the tests.\n",
+      ].join(""),
+    );
+    const loaded = await loadWorkspace(root);
+    const manifest = serverManifest(loaded.manifest, newLock(loaded.manifest));
+    expect(manifest.cli).toEqual({
+      logoUrl: "",
+      policy: { version: 1, approvalMode: "smart_approve" },
+    });
+    expect(manifest.groupAssignments.dev.policy).toEqual({
+      version: 1,
+      shell: true,
+      instructions: "Run the tests.",
+    });
+  });
+
+  it("sends a null default policy to clear it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(root, 'cli:\n  logoUrl: ""\n  policy: null\n');
+    const loaded = await loadWorkspace(root);
+    expect(serverManifest(loaded.manifest, newLock(loaded.manifest)).cli).toEqual({
+      logoUrl: "",
+      policy: null,
+    });
+  });
+
+  it("rejects an invalid client policy locally", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    await workspace(
+      root,
+      'cli:\n  logoUrl: ""\n  policy:\n    version: 1\n    approvalMode: yolo\n',
+    );
+    await expect(loadWorkspace(root)).rejects.toThrow(/cli.policy/);
+    await workspace(root, 'cli:\n  logoUrl: ""\n  policy:\n    version: 1\n    instructions: x\n');
+    await expect(loadWorkspace(root)).rejects.toThrow(/cli.policy/);
+    await workspace(
+      root,
+      "groupAssignments:\n  dev:\n    provider: directory\n    groupId: dev\n    scopes: [expenses:read]\n    policy:\n      version: 2\n",
+    );
+    await expect(loadWorkspace(root)).rejects.toThrow(/groupAssignments.policy/);
+  });
+
   it("rejects a noncanonical HTTPS init issuer without creating workspace files", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
     const previous = process.cwd();

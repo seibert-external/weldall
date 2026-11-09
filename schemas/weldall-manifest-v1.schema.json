@@ -35,6 +35,16 @@
           "type": "string",
           "maxLength": 2000,
           "pattern": "^(|https://)"
+        },
+        "policy": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/defaultClientPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -1567,6 +1577,9 @@
               "minLength": 1,
               "maxLength": 160
             }
+          },
+          "policy": {
+            "$ref": "#/$defs/clientPolicy"
           }
         }
       }
@@ -1607,6 +1620,136 @@
         },
         "use": {
           "const": "sig"
+        }
+      }
+    },
+    "defaultClientPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "approvalMode": {
+          "enum": ["auto", "smart_approve", "approve", "chat"]
+        },
+        "extensions": {
+          "type": "object",
+          "maxProperties": 100,
+          "propertyNames": {
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "shell": {
+          "type": "boolean"
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "allowed"],
+          "properties": {
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "allowed": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "context_limit", "supports_vision"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "context_limit": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "supports_vision": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "clientPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "approvalMode": {
+          "enum": ["auto", "smart_approve", "approve", "chat"]
+        },
+        "extensions": {
+          "type": "object",
+          "maxProperties": 100,
+          "propertyNames": {
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "shell": {
+          "type": "boolean"
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "allowed"],
+          "properties": {
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "allowed": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "context_limit", "supports_vision"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "context_limit": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "supports_vision": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 100000
         }
       }
     }

@@ -191,6 +191,44 @@ cli:
   logoUrl: https://example.com/brand-logo.svg
 ```
 
+### Client policy
+
+A client policy sets how a desktop client with the Weldall extension behaves for a user: the approval mode, which extensions are forced on or off, whether the shell is available, and which models the user may pick. Set a default on the `cli` block and a policy per group assignment:
+
+```yaml
+cli:
+  logoUrl: https://example.com/brand-logo.svg
+  policy:
+    version: 1
+    approvalMode: smart_approve
+    shell: false
+
+groupAssignments:
+  developers:
+    provider: company-directory
+    groupId: developers
+    scopes:
+      - expenses:read
+    policy:
+      version: 1
+      approvalMode: auto
+      shell: true
+      extensions:
+        developer: true
+      models:
+        provider: example-provider
+        allowed:
+          - name: example-large
+            context_limit: 200000
+            supports_vision: true
+      instructions: |
+        Run the test suite before you propose a commit.
+```
+
+Every policy has `version: 1` plus any of `approvalMode` (`auto`, `smart_approve`, `approve` or `chat`), `extensions`, `shell` and `models`. Group policies may also carry `instructions`. Weldall starts from the default, and a field that any of the user's groups sets replaces the default's value. Where groups disagree, the most permissive value wins: the higher approval mode, an extension or the shell turned on, and the union of the allowed models of one model provider. Group instructions are appended to the organization instructions the CLI serves. `weldall policy --json` prints the merged policy of the signed-in user.
+
+Leaving out `cli.policy` keeps the current default and `null` removes it. A group assignment without `policy` has no policy. Because `logoUrl` is required in the `cli` block, restate the current logo when you set a default policy.
+
 Administrator-managed skills use inline Markdown and explicitly declare every configurable field:
 
 ```yaml

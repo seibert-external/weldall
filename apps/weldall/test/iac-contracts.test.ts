@@ -696,3 +696,81 @@ describe("native YAML IaC contracts", () => {
     expect(tombstone.actions[0]).toMatchObject({ action: "recreate", drift: true });
   });
 });
+
+describe("client policy in IaC", () => {
+  const group = { provider: "idp", groupId: "dev", scopes: ["expenses:read"] };
+  const issuePath = (value: unknown) => {
+    try {
+      parseDesiredState(value);
+    } catch (error) {
+      return (error as { issues: Array<{ path: PropertyKey[] }> }).issues[0]?.path;
+    }
+    return undefined;
+  };
+  const cliSettings = {
+    logoUrl: "https://example.com/logo.svg",
+    darkLogoUrl: "",
+    policy: { version: 1, approvalMode: "smart_approve" },
+    version: 2,
+  };
+  const cliAction = (cli: unknown) =>
+    createPlan(parseDesiredState({ ...manifest(), cli }), {
+      revision: 1,
+      objects: [],
+      cliSettings,
+    }).actions.find((action) => action.address === "cli.default")?.action;
+
+  it("rejects a group policy with an unknown approval mode", () => {
+    expect(
+      issuePath({
+        ...manifest(),
+        groupAssignments: { dev: { ...group, policy: { version: 1, approvalMode: "yolo" } } },
+      }),
+    ).toEqual(["groupAssignments", "dev", "policy", "approvalMode"]);
+  });
+
+  it("rejects instructions in the default policy", () => {
+    expect(
+      issuePath({
+        ...manifest(),
+        cli: { logoUrl: "", policy: { version: 1, instructions: "x" } },
+      }),
+    ).toEqual(["cli", "policy"]);
+  });
+
+  it("plans an update when only a group policy changes", () => {
+    const desired = parseDesiredState({
+      ...manifest(),
+      groupAssignments: { dev: { ...group, policy: { version: 1, shell: true } } },
+    });
+    const plan = createPlan(desired, {
+      revision: 1,
+      objects: [
+        {
+          address: "groupAssignment.dev",
+          kind: "groupAssignment",
+          id: "assignment-1",
+          identity: "idp:dev",
+          version: 3,
+          ownerWorkspaceId: desired.workspace.id,
+          state: group,
+        },
+      ],
+    });
+    expect(plan.actions.find((action) => action.address === "groupAssignment.dev")?.action).toBe(
+      "update",
+    );
+  });
+
+  it("plans a cli update when only the default policy changes", () => {
+    expect(
+      cliAction({ logoUrl: cliSettings.logoUrl, policy: { version: 1, approvalMode: "auto" } }),
+    ).toBe("update");
+    expect(cliAction({ logoUrl: cliSettings.logoUrl, policy: null })).toBe("update");
+    expect(cliAction({ logoUrl: cliSettings.logoUrl, policy: cliSettings.policy })).toBe("noop");
+  });
+
+  it("keeps the default policy when cli.policy is absent", () => {
+    expect(cliAction({ logoUrl: cliSettings.logoUrl })).toBe("noop");
+  });
+});

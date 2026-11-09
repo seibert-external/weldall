@@ -1620,6 +1620,101 @@ describe("IaC database transaction contracts", () => {
     });
   });
 
+  it("applies and re-imports a group policy without drift", async () => {
+    const runner = await db.machineClient.findUniqueOrThrow({
+      where: { clientId: `${prefix}-apply-runner` },
+      include: { keys: true },
+    });
+    const iacActor = (name: string): IacActor => ({
+      clientId: runner.clientId,
+      keyId: runner.keys[0]!.kid,
+      keyThumbprint: runner.keys[0]!.thumbprint,
+      requestId: `${prefix}-${name}-request`,
+    });
+    const provider = await db.groupProvider.create({
+      data: {
+        key: `${prefix}-policy-provider`,
+        name: "Policy provider",
+        adapterType: "management-api-v1",
+        baseUrl: "https://unavailable.invalid",
+        encryptedToken: "not-used",
+        encryptionKeyVersion: 1,
+        enabled: false,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      },
+    });
+    const policy = { version: 1 as const, approvalMode: "auto" as const, shell: true };
+    const workspace = {
+      id: randomUUID(),
+      name: `${prefix}-policy-workspace`,
+      issuer: "https://weldall.example.com",
+    };
+    const manifest = (groups: Record<string, unknown>) =>
+      parseDesiredState({ apiVersion: "weldall.dev/v1", workspace, groupAssignments: groups });
+    const group = (groupId: string, extra: object = {}) => ({
+      provider: provider.key,
+      groupId,
+      scopes: [`${prefix}:managed`],
+      ...extra,
+    });
+    const applied = manifest({ dev: group("dev", { policy }) });
+    const plan = await planIac(applied);
+    await applyIac(
+      {
+        manifest: applied,
+        plannedRevision: plan.revision,
+        configDigest: plan.configDigest,
+        planDigest: plan.digest,
+        operationId: randomUUID(),
+      },
+      iacActor("policy-apply"),
+    );
+    const row = await db.groupScopeAssignment.findUniqueOrThrow({
+      where: { providerId_groupId: { providerId: provider.id, groupId: "dev" } },
+    });
+    expect(row.policy).toEqual(policy);
+    const groupAction = async (desired: ReturnType<typeof manifest>, address: string) =>
+      (await planIac(desired)).actions.find((action) => action.address === address)?.action;
+    await expect(groupAction(applied, "groupAssignment.dev")).resolves.toBe("noop");
+
+    const unmanaged = await db.groupScopeAssignment.create({
+      data: {
+        providerId: provider.id,
+        groupId: "ops",
+        policy,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+        grants: {
+          create: [
+            {
+              scopeId: (await db.scope.findUniqueOrThrow({ where: { key: `${prefix}:managed` } }))
+                .id,
+              createdBy: actor.id,
+            },
+          ],
+        },
+      },
+    });
+    const imported = await importIac(
+      {
+        workspace,
+        kind: "groupAssignment",
+        identity: `${provider.key}:${unmanaged.groupId}`,
+        address: "groupAssignment.ops",
+        operationId: randomUUID(),
+      },
+      iacActor("policy-import"),
+    );
+    expect(imported).toMatchObject({ state: { policy } });
+    await expect(
+      groupAction(
+        manifest({ dev: group("dev", { policy }), ops: group("ops", { policy }) }),
+        "groupAssignment.ops",
+      ),
+    ).resolves.toBe("noop");
+  });
+
   it("enforces declaration absence for REST unmanage and replays idempotently", async () => {
     const owned = await db.iacObjectBinding.findFirstOrThrow({
       where: { workspace: { name: `${prefix}-workspace` }, address: "scope.managed" },

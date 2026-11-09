@@ -10,6 +10,7 @@ import {
 import { z } from "zod";
 import { parseCliLogoUrl } from "../branding";
 import { connectorConfig } from "../connectors/contracts";
+import { clientPolicySchema, defaultClientPolicySchema } from "../policy/client-policy";
 import { skillMcpDependenciesSchema } from "@weldall/sdk/mcp";
 import {
   sharedConnectionConfigSchema,
@@ -109,6 +110,8 @@ export const desiredStateSchema = z
           ])
           .transform(parseCliLogoUrl)
           .optional(),
+        /** Absent keeps the current default policy; `null` clears it. */
+        policy: defaultClientPolicySchema.nullable().optional(),
       })
       .strict()
       .optional(),
@@ -203,7 +206,17 @@ export const desiredStateSchema = z
       )
       .default({}),
     groupAssignments: z
-      .record(addressKey, z.object({ provider: key, groupId, scopes: nonEmptyStringSet }).strict())
+      .record(
+        addressKey,
+        z
+          .object({
+            provider: key,
+            groupId,
+            scopes: nonEmptyStringSet,
+            policy: clientPolicySchema.optional(),
+          })
+          .strict(),
+      )
       .default({}),
   })
   .strict()

@@ -7,6 +7,7 @@ import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
 import { skillMcpDependenciesSchema, atlassianMcpConfigSchema } from "@weldall/sdk/mcp";
 import { CliError } from "../errors.js";
 import { secretSections, secretPrimitiveSchemas } from "./secret-primitives.js";
+import { clientPolicySchema, defaultClientPolicySchema } from "./client-policy.js";
 import { isRecord } from "../http.js";
 import { validateAtlassianConfiguration, canonicalAtlassianConfiguration } from "./atlassian.js";
 
@@ -20,7 +21,7 @@ export interface Manifest {
   apiVersion: typeof MANIFEST_VERSION;
   workspace: { name: string; issuer: string };
   include?: string[];
-  cli?: { logoUrl: string; darkLogoUrl?: string };
+  cli?: { logoUrl: string; darkLogoUrl?: string; policy?: Record<string, unknown> | null };
   sharedConnections?: Record<string, unknown>;
   groupProviders?: Record<string, unknown>;
   loginProviders?: Record<string, unknown>;
@@ -148,8 +149,14 @@ export function validateRoot(value: Manifest) {
 function validateManifest(value: Manifest) {
   if (value.cli !== undefined) {
     const cli = record(value.cli);
-    if (Object.keys(cli).some((field) => field !== "logoUrl" && field !== "darkLogoUrl"))
+    if (Object.keys(cli).some((field) => !["logoUrl", "darkLogoUrl", "policy"].includes(field)))
       throw new CliError("Unknown cli field");
+    if (
+      cli.policy !== undefined &&
+      cli.policy !== null &&
+      !defaultClientPolicySchema.safeParse(cli.policy).success
+    )
+      throw new CliError("Invalid cli.policy");
     if (typeof cli.logoUrl !== "string" || cli.logoUrl.length > 2_000)
       throw new CliError("Invalid cli.logoUrl");
     if (cli.logoUrl && canonicalHttpsUrl(cli.logoUrl, "cli.logoUrl", "asset") !== cli.logoUrl)
@@ -305,15 +312,20 @@ function validatePrimitive({
     ],
     machines: ["clientId", "name", "enabled", "publicKeys", "resources", "scopes"],
     emailAssignments: ["email", "scopes"],
-    groupAssignments: ["provider", "groupId", "scopes"],
+    groupAssignments: ["provider", "groupId", "scopes", "policy"],
   };
   for (const field of Object.keys(object))
     if (!fields[section].includes(field)) throw new CliError(`Unknown ${section} field ${field}`);
   const required = fields[section].filter(
     (field) =>
-      !["skillDiscoveryEnabled", "publicKeys", "meta", "lastUpdatedAt", "mcpDependencies"].includes(
-        field,
-      ),
+      ![
+        "skillDiscoveryEnabled",
+        "publicKeys",
+        "meta",
+        "lastUpdatedAt",
+        "mcpDependencies",
+        "policy",
+      ].includes(field),
   );
   for (const field of required)
     if (!(field in object)) throw new CliError(`${section}.${field} is required`);
@@ -499,6 +511,8 @@ function validatePrimitive({
     validateText({ field: "provider", max: 160 });
     validateText({ field: "groupId", max: 191 });
     validateStringList({ field: "scopes", nonEmpty: true });
+    if (object.policy !== undefined && !clientPolicySchema.safeParse(object.policy).success)
+      throw new CliError("Invalid groupAssignments.policy");
   }
 }
 
@@ -598,6 +612,7 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
             ...(manifest.cli.darkLogoUrl !== undefined
               ? { darkLogoUrl: manifest.cli.darkLogoUrl }
               : {}),
+            ...(manifest.cli.policy !== undefined ? { policy: manifest.cli.policy } : {}),
           },
         }
       : {}),
