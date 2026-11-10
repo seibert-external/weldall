@@ -35,6 +35,11 @@
           "type": "string",
           "maxLength": 2000,
           "pattern": "^(|https://)"
+        },
+        "darkLogoUrl": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^(|https://)"
         }
       }
     },
