@@ -184,11 +184,12 @@ connectors:
 
 Connector manifests can be planned and applied like any other object. Manual UI edits to managed connector policy appear as drift, while provider secrets remain outside the manifest.
 
-The CLI welcome page logo can be managed as a singleton setting. An empty URL removes the company logo:
+The CLI welcome page logo can be managed as a singleton setting. An empty URL removes the company logo. `darkLogoUrl` is optional and sets the logo for dark mode. An empty value falls back to `logoUrl`, and without the field the next apply keeps the current value:
 
 ```yaml
 cli:
   logoUrl: https://example.com/brand-logo.svg
+  darkLogoUrl: https://example.com/brand-logo-dark.svg
 ```
 
 Administrator-managed skills use inline Markdown and explicitly declare every configurable field:

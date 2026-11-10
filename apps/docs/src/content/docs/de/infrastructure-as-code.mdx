@@ -184,11 +184,12 @@ connectors:
 
 Connector-Manifeste lassen sich wie jedes andere Objekt planen und anwenden. Manuelle Änderungen an der verwalteten Connector-Policy erscheinen als Drift, während Provider-Secrets außerhalb des Manifests bleiben.
 
-Das Logo auf der CLI-Willkommensseite lässt sich als Singleton-Einstellung verwalten. Eine leere URL entfernt das Unternehmenslogo:
+Das Logo auf der CLI-Willkommensseite lässt sich als Singleton-Einstellung verwalten. Eine leere URL entfernt das Unternehmenslogo. `darkLogoUrl` ist optional und legt das Logo für den Dark Mode fest. Ein leerer Wert fällt auf `logoUrl` zurück, und ohne das Feld behält das nächste Apply den aktuellen Wert:
 
 ```yaml
 cli:
   logoUrl: https://example.com/brand-logo.svg
+  darkLogoUrl: https://example.com/brand-logo-dark.svg
 ```
 
 Administrativ verwaltete Skills enthalten das Markdown direkt und geben alle konfigurierbaren Felder explizit an:
