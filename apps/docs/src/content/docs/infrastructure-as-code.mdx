@@ -225,9 +225,11 @@ groupAssignments:
         Run the test suite before you propose a commit.
 ```
 
-Every policy has `version: 1` plus any of `approvalMode` (`auto`, `smart_approve`, `approve` or `chat`), `extensions`, `shell` and `models`. Group policies may also carry `instructions`. Weldall starts from the default, and a field that any of the employee's groups sets replaces the default's value. Where groups disagree, the most permissive value wins: the higher approval mode, an extension or the shell turned on, and the union of the allowed models of one model provider. Group instructions are appended to the organization instructions the CLI serves. `weldall policy --json` prints the merged policy of the signed-in employee.
+Every policy has `version: 1` plus any of `approvalMode` (`auto`, `smart_approve`, `approve` or `chat`), `extensions`, `shell` and `models`. Group policies may also carry `instructions`. Weldall starts from the default, and a field that any of the employee's groups sets replaces the default's value. In `extensions` each key counts on its own: a group that sets `developer` replaces only the default's `developer`, and the default's other keys stay. Where groups disagree, the most permissive value wins: the higher approval mode, an extension or the shell turned on, and the union of the allowed models of one model provider. Group instructions are appended to the organization instructions the CLI serves. `weldall policy --json` prints the merged policy of the signed-in employee.
 
-Leaving out `cli.policy` keeps the current default and `null` removes it. A group assignment without `policy` has no policy. Because `logoUrl` is required in the `cli` block, restate the current logo when you set a default policy.
+A policy can turn an extension that ships with the client on or off, and any other extension only off. The client applies this rule, so Weldall accepts `true` for any extension name.
+
+Leaving out `cli.policy` keeps the current default and `null` removes it. A group assignment without `policy` has no policy. A group assignment needs at least one scope, so a group that only needs a policy still lists one scope. Because `logoUrl` is required in the `cli` block, restate the current logo when you set a default policy.
 
 Administrator-managed skills use inline Markdown and explicitly declare every configurable field:
 
