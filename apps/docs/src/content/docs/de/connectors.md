@@ -50,11 +50,10 @@ weldall request --connection my-google \
   'https://chat.googleapis.com/v1/spaces/<space-id>/messages?pageSize=20&orderBy=createTime%20DESC'
 ```
 
-Außerdem gibt es Google-Ads-Zugriff. Google kennt dafür nur die Berechtigung `adwords`, die auch Änderungen erlaubt; eine Verbindung, die nur Berichte braucht, kann also trotzdem Kampagnen ändern. Gib deinen Developer Token mit und `login-customer-id`, wenn du das Konto über ein Verwaltungskonto erreichst. Eine GAQL-Suche zum Beispiel:
+Außerdem gibt es Google-Ads-Zugriff. Google kennt dafür nur die Berechtigung `adwords`, die auch Änderungen erlaubt; eine Verbindung, die nur Berichte braucht, kann also trotzdem Kampagnen ändern. Im Google-Cloud-Projekt des OAuth-Clients muss die Google Ads API aktiv sein und eine Zugriffsstufe über Test haben; die beantragst du auf der Übersichtsseite der API in der Cloud Console. Einen Developer Token verlangt Google nicht mehr. Gib `login-customer-id` mit, wenn du das Konto über ein Verwaltungskonto erreichst. Eine GAQL-Suche zum Beispiel:
 
 ```sh
 weldall request --connection my-google -X POST \
-  -H 'developer-token: <developer-token>' \
   -H 'login-customer-id: <manager-customer-id>' \
   --json '{"query":"SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS"}' \
   https://googleads.googleapis.com/v26/customers/<customer-id>/googleAds:search
