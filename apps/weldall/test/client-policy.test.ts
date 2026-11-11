@@ -37,6 +37,14 @@ describe("client policy", () => {
     });
   });
 
+  it("merges extensions per key, keeping default keys no group sets", () => {
+    const merged = mergeClientPolicies(
+      { version: 1, extensions: { computercontroller: false, developer: false } },
+      [{ version: 1, extensions: { developer: true } }],
+    );
+    expect(merged.extensions).toEqual({ computercontroller: false, developer: true });
+  });
+
   it("unions models of the same provider and drops another provider's", () => {
     const model = (name: string) => ({ name, context_limit: 1, supports_vision: false });
     const merged = mergeClientPolicies(null, [

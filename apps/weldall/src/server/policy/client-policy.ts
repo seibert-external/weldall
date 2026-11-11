@@ -64,14 +64,13 @@ export function mergeClientPolicies(
     : defaultPolicy?.approvalMode;
   if (approvalMode) merged.approvalMode = approvalMode;
 
-  const extensionSets = set("extensions");
-  if (extensionSets.length) {
-    const extensions: Record<string, boolean> = {};
-    for (const entries of extensionSets)
-      for (const [name, enabled] of Object.entries(entries))
-        extensions[name] = (extensions[name] ?? false) || enabled;
-    merged.extensions = extensions;
-  } else if (defaultPolicy?.extensions) merged.extensions = defaultPolicy.extensions;
+  // Per key: a key any group sets replaces the default's value; the default's other keys stay.
+  const groupExtensions: Record<string, boolean> = {};
+  for (const entries of set("extensions"))
+    for (const [name, enabled] of Object.entries(entries))
+      groupExtensions[name] = (groupExtensions[name] ?? false) || enabled;
+  const extensions = { ...defaultPolicy?.extensions, ...groupExtensions };
+  if (Object.keys(extensions).length) merged.extensions = extensions;
 
   const shells = set("shell");
   const shell = shells.length ? shells.some(Boolean) : defaultPolicy?.shell;
