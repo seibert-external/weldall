@@ -9,6 +9,16 @@ import * as connections from "../src/services/connections.js";
 import * as policy from "../src/services/policy.js";
 import { appendixCache } from "../src/storage/appendix.js";
 
+vi.mock("@weldall/sdk", async (original) => ({
+  ...(await original<object>()),
+  createDpopProof: vi.fn().mockResolvedValue("weldall-proof"),
+}));
+vi.mock("../src/services/auth.js", async (original) => ({
+  ...(await original<object>()),
+  withAccess: (_config: unknown, operation: (session: unknown) => unknown) =>
+    operation({ accessToken: "weldall-token", credentials: { refreshToken: "weldall-refresh" } }),
+}));
+
 const identity = {
   issuer: "https://weldall.example.com",
   subject: "user-1",
@@ -57,7 +67,10 @@ beforeEach(() => {
   });
   vi.spyOn(console, "log").mockImplementation(() => undefined);
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("status JSON organization context", () => {
   it("adds the live instructions verbatim while retaining existing fields", async () => {
@@ -98,9 +111,17 @@ describe("status JSON organization context", () => {
     },
   );
 
-  it("reports policy null when the policy load fails", async () => {
-    vi.mocked(policy.getClientPolicy).mockRejectedValue(new Error("older server without policy"));
+  it("reports policy null against an older server without the policy endpoint", async () => {
+    vi.mocked(policy.getClientPolicy).mockRestore();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(Response.json({ error: "not_found" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetcher);
     await runStatus();
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://weldall.example.com/api/me/policy",
+      expect.anything(),
+    );
     const output = JSON.parse(vi.mocked(console.log).mock.calls[0]![0]);
     expect(output.organizationInstructions).toBe(organizationInstructions);
     expect(output.policy).toBeNull();
