@@ -48,11 +48,9 @@ beforeEach(() => {
     result: { assignedScopes: ["reports:read"], resources: [] },
   });
   vi.spyOn(settings, "getCliAppendix").mockResolvedValue(organizationInstructions);
-  vi.spyOn(policy, "getClientPolicy").mockResolvedValue({
-    version: 1,
-    policy: clientPolicy,
-    updatedAt: null,
-    etag: "etag-1",
+  vi.spyOn(policy, "getClientPolicyWithSubject").mockResolvedValue({
+    result: { version: 1, policy: clientPolicy, updatedAt: null, etag: "etag-1" },
+    subject: identity.subject,
   });
   // Older servers need not support connectors for status/context to remain usable.
   vi.spyOn(connections, "listConnectors").mockRejectedValue(new Error("Endpoint unavailable"));
@@ -85,6 +83,12 @@ describe("status JSON organization context", () => {
       policy: clientPolicy,
     });
     expect(settings.getCliAppendix).toHaveBeenCalledOnce();
+    expect(appendixCache.updateSnapshot).toHaveBeenCalledWith(
+      identity.issuer,
+      expect.objectContaining({
+        policy: { policy: clientPolicy, updatedAt: null, etag: "etag-1" },
+      }),
+    );
   });
 
   it("distinguishes an explicitly empty configuration from failed loading", async () => {
@@ -112,7 +116,7 @@ describe("status JSON organization context", () => {
   );
 
   it("reports policy null against an older server without the policy endpoint", async () => {
-    vi.mocked(policy.getClientPolicy).mockRestore();
+    vi.mocked(policy.getClientPolicyWithSubject).mockRestore();
     const fetcher = vi
       .fn()
       .mockResolvedValue(Response.json({ error: "not_found" }, { status: 404 }));

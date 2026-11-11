@@ -11,7 +11,9 @@ export interface ClientPolicyResponse {
   etag: string;
 }
 
-export async function getClientPolicy(config: WeldallConfig): Promise<ClientPolicyResponse> {
+export async function getClientPolicyWithSubject(
+  config: WeldallConfig,
+): Promise<{ result: ClientPolicyResponse; subject: string }> {
   const url = `${config.issuer}/api/me/policy`;
   return withAccess(config, async (session) => {
     const proof = await createDpopProof({
@@ -43,10 +45,13 @@ export async function getClientPolicy(config: WeldallConfig): Promise<ClientPoli
       throw new CliError("Weldall returned an invalid client policy");
     }
     return {
-      version: 1,
-      policy: value.policy,
-      updatedAt: value.updatedAt,
-      etag: value.etag,
+      result: {
+        version: 1,
+        policy: value.policy,
+        updatedAt: value.updatedAt,
+        etag: value.etag,
+      },
+      subject: session.subject,
     };
   });
 }

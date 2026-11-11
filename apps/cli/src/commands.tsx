@@ -48,7 +48,7 @@ import {
   type ConnectionSummary,
   type ConnectorSummary,
 } from "./services/connections.js";
-import { getClientPolicy } from "./services/policy.js";
+import { getClientPolicyWithSubject, type ClientPolicyResponse } from "./services/policy.js";
 import { getCliAppendix } from "./services/settings.js";
 import {
   listScopes,
@@ -187,6 +187,12 @@ const cacheSkills = async (issuer: string, skills: Skill[], subject: string) => 
     ...patch,
   }));
 };
+
+const cachedPolicy = ({ policy, updatedAt, etag }: ClientPolicyResponse) => ({
+  policy,
+  updatedAt,
+  etag,
+});
 
 const updateSnapshotBestEffort = (
   issuer: string,
@@ -332,7 +338,7 @@ export const statusCommand = define({
         listConnectors(config).catch(() => undefined),
         listConnections(config).catch(() => undefined),
         // Older servers have no policy endpoint; status must keep working against them.
-        getClientPolicy(config).catch(() => undefined),
+        getClientPolicyWithSubject(config).catch(() => undefined),
       ]);
     if (identity.subject !== scopedPermissions.subject)
       throw new CliError("The active Weldall account changed while loading status", {
@@ -345,6 +351,9 @@ export const statusCommand = define({
       ...(appendix === undefined ? {} : { appendix }),
       ...(connectors === undefined ? {} : { connectors: connectors.map(connectorPreview) }),
       ...(connections === undefined ? {} : { connections: connections.map(connectionPreview) }),
+      ...(policy?.subject === scopedPermissions.subject
+        ? { policy: cachedPolicy(policy.result) }
+        : {}),
     });
     if (context.values.json)
       jsonOutput({
@@ -355,7 +364,7 @@ export const statusCommand = define({
         organizationInstructions: appendix ?? null,
         nativeDiscoveryVersion: 1,
         // null means the live load failed, for example on a server without client policies.
-        policy: policy?.policy ?? null,
+        policy: policy?.result.policy ?? null,
       });
     else printStatus(identity, permissions);
   },
@@ -367,7 +376,25 @@ export const policyCommand = define({
   args: { json: jsonArgument },
   examples: "weldall policy\nweldall policy --json",
   run: async (context) => {
-    const response = await getClientPolicy(await resolveWeldallConfig());
+    const config = await resolveWeldallConfig();
+    let response: ClientPolicyResponse & { cached: boolean };
+    try {
+      const { result, subject } = await getClientPolicyWithSubject(config);
+      await updateSnapshotBestEffort(config.issuer, { subject, policy: cachedPolicy(result) });
+      response = { ...result, cached: false };
+    } catch (error) {
+      // Offline or a failing server: the last policy this account received still applies.
+      const snapshot = await appendixCache.readSnapshotForSubject(
+        config.issuer,
+        await cachedSubject(config.issuer),
+      );
+      if (!snapshot?.policy) throw error;
+      printWarning({
+        message: "Showing the cached client policy because the live load failed.",
+        hint: "Run `weldall policy` again once Weldall is reachable.",
+      });
+      response = { version: 1, ...snapshot.policy, cached: true };
+    }
     jsonOutput(context.values.json ? response : response.policy);
   },
 });

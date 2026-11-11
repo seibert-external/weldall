@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -154,6 +154,51 @@ describe("CLI appendix cache", () => {
         skills: [{ slug: "expenses", title: "Expenses", available: true }],
         skillsInitialized: true,
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("binds the cached client policy to its subject", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
+    try {
+      const cache = new AppendixCache(directory);
+      const policy = {
+        policy: { version: 1, approvalMode: "auto" },
+        updatedAt: null,
+        etag: "etag-1",
+      };
+      await cache.updateSnapshot(issuer, { subject: "account-a", policy });
+      await cache.updateSnapshot(issuer, { subject: "account-a", scopes: ["expenses:read"] });
+
+      await expect(cache.readSnapshotForSubject(issuer, "account-a")).resolves.toMatchObject({
+        policy,
+      });
+      expect((await cache.readSnapshotForSubject(issuer, "account-b"))?.policy).toBeUndefined();
+      expect((await cache.readSnapshotForSubject(issuer, null))?.policy).toBeUndefined();
+
+      await cache.updateSnapshot(issuer, { subject: "account-b" });
+      expect((await cache.readSnapshot(issuer))?.policy).toBeUndefined();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("drops an invalid cached client policy", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "weldall-appendix-test-"));
+    try {
+      const cache = new AppendixCache(directory);
+      await cache.updateSnapshot(issuer, {
+        subject: "account-a",
+        policy: { policy: { version: 1 }, updatedAt: null, etag: "etag-1" },
+      });
+      const [path] = await readdir(directory);
+      const stored = JSON.parse(await readFile(join(directory, path!), "utf8"));
+      await writeFile(
+        join(directory, path!),
+        JSON.stringify({ ...stored, policy: { policy: { version: 2 }, etag: "x" } }),
+      );
+      await expect(cache.readSnapshot(issuer)).resolves.toBeNull();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
