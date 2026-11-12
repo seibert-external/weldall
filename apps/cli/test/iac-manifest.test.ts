@@ -113,6 +113,22 @@ describe("native YAML workspaces", () => {
     await expect(loadWorkspace(root)).rejects.toThrow(/groupAssignments.policy/);
   });
 
+  it("declares the dark mode CLI logo in the manifest schema like the logo", async () => {
+    const schema = JSON.parse(
+      await readFile(
+        new URL("../../../schemas/weldall-manifest-v1.schema.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const cli = schema.properties.cli;
+    expect(cli.properties.darkLogoUrl).toEqual({
+      type: "string",
+      maxLength: 2000,
+      pattern: "^(|https://)",
+    });
+    expect(cli.required).toEqual(["logoUrl"]);
+  });
+
   it("rejects a noncanonical HTTPS init issuer without creating workspace files", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
     const previous = process.cwd();

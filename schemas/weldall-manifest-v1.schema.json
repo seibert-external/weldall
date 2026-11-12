@@ -45,6 +45,11 @@
               "type": "null"
             }
           ]
+        },
+        "darkLogoUrl": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^(|https://)"
         }
       }
     },
