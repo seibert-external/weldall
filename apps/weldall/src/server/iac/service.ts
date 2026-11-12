@@ -21,7 +21,13 @@ import {
 } from "../domain/secret-primitive-contracts";
 import { LoginError } from "../auth/oidc-config";
 import { AdminDomainError } from "../admin/service";
-import { digest, parseDesiredState, type DesiredState, type IacPlan } from "./contracts";
+import {
+  canonicalJson,
+  digest,
+  parseDesiredState,
+  type DesiredState,
+  type IacPlan,
+} from "./contracts";
 import { createPlan, desiredObjects, loadPlanningState, skillMcpState } from "./planner";
 import { skillMcpDependenciesSchema, mcpDependencyKey } from "@weldall/sdk/mcp";
 import { lockSkillScopeChanges } from "../domain/configuration";
@@ -460,12 +466,20 @@ async function executeDesiredState({
   if (manifest.cli) {
     const current = await tx.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
     const darkLogoUrl = manifest.cli.darkLogoUrl ?? current.darkLogoUrl;
-    if (current.logoUrl !== manifest.cli.logoUrl || current.darkLogoUrl !== darkLogoUrl)
+    const policyChanged =
+      manifest.cli.policy !== undefined &&
+      canonicalJson(current.policy) !== canonicalJson(manifest.cli.policy);
+    if (
+      current.logoUrl !== manifest.cli.logoUrl ||
+      current.darkLogoUrl !== darkLogoUrl ||
+      policyChanged
+    )
       await tx.cliSettings.update({
         where: { id: current.id },
         data: {
           logoUrl: manifest.cli.logoUrl,
           darkLogoUrl,
+          ...(policyChanged ? { policy: manifest.cli.policy ?? Prisma.DbNull } : {}),
           version: { increment: 1 },
           updatedBy: actor.clientId,
         },
@@ -763,6 +777,8 @@ async function upsertObject({
             id: current.id,
             scopeKeys: state.scopes,
             expectedVersion: current.version,
+            // IaC is declarative: a group without `policy` has none.
+            policy: state.policy ?? null,
           },
           mutation,
         )
@@ -775,6 +791,7 @@ async function upsertObject({
           providerKey: state.provider,
           groupId: state.groupId,
           scopeKeys: state.scopes,
+          policy: state.policy ?? null,
         },
         mutation,
       )
@@ -1640,6 +1657,7 @@ async function findNatural({
                           provider: row.provider.key,
                           groupId: row.groupId,
                           scopes: row.grants.map((item: any) => item.scope.key).sort(),
+                          ...(row.policy !== null ? { policy: row.policy } : {}),
                         }
                       : {
                           slug: row.slug,

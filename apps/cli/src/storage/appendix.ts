@@ -36,6 +36,13 @@ export interface CachedSkillPreview {
   sourceName?: string;
 }
 
+/** The last client policy served live, so `weldall policy` has an answer offline. */
+export interface CachedClientPolicy {
+  policy: Record<string, unknown>;
+  updatedAt: string | null;
+  etag: string;
+}
+
 export interface CliHeaderSnapshot {
   appendix: string;
   scopes: string[];
@@ -43,6 +50,7 @@ export interface CliHeaderSnapshot {
   connectors: CachedConnectorPreview[];
   connections: CachedConnectionPreview[];
   skillsInitialized?: boolean;
+  policy?: CachedClientPolicy;
   subject?: string;
 }
 
@@ -114,6 +122,20 @@ const validSkills = (value: unknown): value is CachedSkillPreview[] =>
         typeof (item as Partial<CachedSkillPreview>).sourceName === "string"),
   );
 
+const validPolicy = (value: unknown): value is CachedClientPolicy => {
+  if (typeof value !== "object" || value === null) return false;
+  const { policy, updatedAt, etag } = value as Partial<CachedClientPolicy>;
+  return (
+    typeof policy === "object" &&
+    policy !== null &&
+    !Array.isArray(policy) &&
+    policy.version === 1 &&
+    JSON.stringify(policy).length <= MAX_APPENDIX_LENGTH &&
+    (updatedAt === null || typeof updatedAt === "string") &&
+    typeof etag === "string"
+  );
+};
+
 export class AppendixCache {
   constructor(private readonly directory = join(homedir(), ".weldall")) {}
 
@@ -133,7 +155,8 @@ export class AppendixCache {
         (value.skills !== undefined && !validSkills(value.skills)) ||
         (value.connectors !== undefined && !validConnectors(value.connectors)) ||
         (value.connections !== undefined && !validConnections(value.connections)) ||
-        (value.skillsInitialized !== undefined && typeof value.skillsInitialized !== "boolean")
+        (value.skillsInitialized !== undefined && typeof value.skillsInitialized !== "boolean") ||
+        (value.policy !== undefined && !validPolicy(value.policy))
       )
         return null;
       const skills = value.skills ?? [];
@@ -144,6 +167,7 @@ export class AppendixCache {
         connectors: value.connectors ?? [],
         connections: value.connections ?? [],
         skillsInitialized: value.skillsInitialized ?? skills.length > 0,
+        ...(value.policy === undefined ? {} : { policy: value.policy }),
         ...(value.subject === undefined ? {} : { subject: value.subject }),
       };
       return snapshot;
@@ -157,17 +181,18 @@ export class AppendixCache {
     subject: string | null,
   ): Promise<CliHeaderSnapshot | null> {
     const snapshot = await this.readSnapshot(issuer);
-    if (!snapshot || !subject || snapshot.subject !== subject)
-      return snapshot
-        ? {
-            ...snapshot,
-            scopes: [],
-            skills: [],
-            connectors: [],
-            connections: [],
-            skillsInitialized: false,
-          }
-        : null;
+    if (!snapshot || !subject || snapshot.subject !== subject) {
+      if (!snapshot) return null;
+      const { policy: _policy, ...shared } = snapshot;
+      return {
+        ...shared,
+        scopes: [],
+        skills: [],
+        connectors: [],
+        connections: [],
+        skillsInitialized: false,
+      };
+    }
     return snapshot;
   }
 
@@ -184,7 +209,8 @@ export class AppendixCache {
       !validConnections(snapshot.connections) ||
       (snapshot.skillsInitialized !== undefined &&
         typeof snapshot.skillsInitialized !== "boolean") ||
-      (snapshot.subject !== undefined && !snapshot.subject.trim())
+      (snapshot.subject !== undefined && !snapshot.subject.trim()) ||
+      (snapshot.policy !== undefined && !validPolicy(snapshot.policy))
     )
       return;
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -213,6 +239,7 @@ export class AppendixCache {
           skillsInitialized: false,
         };
         const subjectChanged = patch.subject !== undefined && patch.subject !== current.subject;
+        const policy = patch.policy ?? (subjectChanged ? undefined : current.policy);
         const next: CliHeaderSnapshot = {
           appendix: patch.appendix ?? current.appendix,
           scopes: patch.scopes ?? (subjectChanged ? [] : current.scopes),
@@ -222,6 +249,7 @@ export class AppendixCache {
           skillsInitialized:
             patch.skillsInitialized ??
             (subjectChanged ? false : (current.skillsInitialized ?? false)),
+          ...(policy === undefined ? {} : { policy }),
           ...(patch.subject === undefined
             ? current.subject === undefined
               ? {}
@@ -247,6 +275,7 @@ export class AppendixCache {
       connectors: current?.connectors ?? [],
       connections: current?.connections ?? [],
       skillsInitialized: current?.skillsInitialized ?? false,
+      ...(current?.policy === undefined ? {} : { policy: current.policy }),
       ...(current?.subject === undefined ? {} : { subject: current.subject }),
     });
   }
