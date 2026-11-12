@@ -3,11 +3,15 @@ import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { parseDocument } from "yaml";
-import { SKILL_TAG_LENGTH_LIMIT, SKILL_TAG_LIMIT } from "@weldall/sdk";
+import {
+  SKILL_TAG_LENGTH_LIMIT,
+  SKILL_TAG_LIMIT,
+  clientPolicySchema,
+  defaultClientPolicySchema,
+} from "@weldall/sdk";
 import { skillMcpDependenciesSchema, atlassianMcpConfigSchema } from "@weldall/sdk/mcp";
 import { CliError } from "../errors.js";
 import { secretSections, secretPrimitiveSchemas } from "./secret-primitives.js";
-import { clientPolicySchema, defaultClientPolicySchema } from "./client-policy.js";
 import { isRecord } from "../http.js";
 import { validateAtlassianConfiguration, canonicalAtlassianConfiguration } from "./atlassian.js";
 

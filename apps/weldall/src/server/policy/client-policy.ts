@@ -1,48 +1,21 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import {
+  CLIENT_POLICY_APPROVAL_MODES,
+  type ClientPolicy,
+  type ClientPolicyApprovalMode,
+  type ClientPolicyWithoutInstructions,
+} from "@weldall/sdk";
 import { logger } from "../observability/logger";
 
-const APPROVAL_MODES = ["chat", "approve", "smart_approve", "auto"] as const;
-type ApprovalMode = (typeof APPROVAL_MODES)[number];
+export {
+  clientPolicySchema,
+  defaultClientPolicySchema,
+  type ClientPolicy,
+  type ClientPolicyWithoutInstructions,
+} from "@weldall/sdk";
 
-const policyFields = {
-  version: z.literal(1),
-  approvalMode: z.enum(APPROVAL_MODES).optional(),
-  extensions: z
-    .record(z.string().min(1).max(100), z.boolean())
-    .refine((value) => Object.keys(value).length <= 100, "At most 100 extensions.")
-    .optional(),
-  shell: z.boolean().optional(),
-  models: z
-    .object({
-      provider: z.string().min(1).max(100),
-      allowed: z
-        .array(
-          z
-            .object({
-              name: z.string().min(1).max(200),
-              context_limit: z.number().int().positive(),
-              supports_vision: z.boolean(),
-            })
-            .strict(),
-        )
-        .min(1)
-        .max(200),
-    })
-    .strict()
-    .optional(),
-};
-
-export const clientPolicySchema = z
-  .object({ ...policyFields, instructions: z.string().max(100_000).optional() })
-  .strict();
-
-export const defaultClientPolicySchema = z.object(policyFields).strict();
-
-export type ClientPolicy = z.infer<typeof clientPolicySchema>;
-export type ClientPolicyWithoutInstructions = Omit<ClientPolicy, "instructions">;
-
-const permissiveness = (mode: ApprovalMode) => APPROVAL_MODES.indexOf(mode);
+const permissiveness = (mode: ClientPolicyApprovalMode) =>
+  CLIENT_POLICY_APPROVAL_MODES.indexOf(mode);
 
 /**
  * Merges the default policy with the caller's group policies (already in stable order). A field
