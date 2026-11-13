@@ -182,7 +182,12 @@ export const atlassianProvider = {
   buildUpstreamRequest({ credentials, request, signal }) {
     const headers = new Headers(request.headers);
     for (const name of [...headers.keys()])
-      if (name.startsWith("x-atlassian-") || name === "x-http-method-override")
+      // Jira requires X-Atlassian-Token: no-check for multipart uploads such as attachments.
+      // It only opts out of Jira's cookie XSRF check; the upstream call is bearer-authenticated.
+      if (
+        (name.startsWith("x-atlassian-") && name !== "x-atlassian-token") ||
+        name === "x-http-method-override"
+      )
         headers.delete(name);
     headers.set("authorization", `Bearer ${credentialsSchema.parse(credentials).accessToken}`);
     return {
