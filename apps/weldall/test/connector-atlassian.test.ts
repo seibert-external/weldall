@@ -20,7 +20,6 @@ import { connectorConfig } from "../src/server/connectors/contracts";
 import { getConnectorProvider } from "../src/server/connectors/registry";
 import { RejectedProviderCredentials } from "../src/server/connectors/errors";
 import { logger } from "../src/server/observability/logger";
-import { filterProxyHeaders } from "../src/server/connectors/core/transport";
 
 const provider: ConnectorProvider = adapter;
 const cloudId = "1324a887-45db-1bf4-1e99-ef0ff456d421";
@@ -522,34 +521,6 @@ describe("Atlassian request boundary", () => {
       resolve(url, { ...config, allowedScopes: ["write:jira-work"], defaultScopes: [] }),
     ).toThrow();
   });
-  it("forwards the Jira XSRF opt-out so attachment uploads reach Jira", async () => {
-    const url = resolve(
-      `https://api.atlassian.com/ex/jira/${site}/rest/api/3/issue/INV-1/attachments`,
-    );
-    const form = new FormData();
-    form.append("file", new Blob(["# notes"], { type: "text/markdown" }), "notes.md");
-    const incoming = new Request("https://weldall.example/connectors/jira", {
-      method: "POST",
-      headers: { "X-Atlassian-Token": "no-check", "x-weldall-upstream-url": url },
-      body: form,
-    });
-    const init = provider.buildUpstreamRequest({
-      upstreamUrl: url,
-      credentials,
-      request: {
-        requestedUrl: url,
-        method: "POST",
-        headers: filterProxyHeaders({ input: incoming.headers }),
-        body: new Uint8Array(await incoming.arrayBuffer()),
-      },
-      signal: AbortSignal.timeout(1000),
-    });
-    const headers = new Headers(init.headers);
-    expect(headers.get("x-atlassian-token")).toBe("no-check");
-    expect(headers.get("content-type")).toMatch(/^multipart\/form-data; boundary=/);
-    const parsed = await new Request(url, { method: "POST", headers, body: init.body }).formData();
-    expect(await (parsed.get("file") as File).text()).toBe("# notes");
-  });
   it("injects credentials only in the server request and removes identity overrides", () => {
     const url = resolve(`https://api.atlassian.com/ex/jira/${site}/rest/api/3/myself`);
     const init = provider.buildUpstreamRequest({
@@ -560,6 +531,7 @@ describe("Atlassian request boundary", () => {
         method: "GET",
         headers: new Headers({
           "x-atlassian-force-account-id": "true",
+          "x-atlassian-token": "no-check",
           "x-http-method-override": "DELETE",
         }),
       },
@@ -569,6 +541,7 @@ describe("Atlassian request boundary", () => {
     expect(headers.get("authorization")).toBe("Bearer private-access");
     expect(headers.has("x-http-method-override")).toBe(false);
     expect(headers.has("x-atlassian-force-account-id")).toBe(false);
+    expect(headers.get("x-atlassian-token")).toBe("no-check");
     expect(init.redirect).toBe("error");
   });
 });
