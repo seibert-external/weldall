@@ -530,7 +530,8 @@ describe("Atlassian request boundary", () => {
         requestedUrl: url,
         method: "GET",
         headers: new Headers({
-          "x-atlassian-token": "override",
+          "x-atlassian-force-account-id": "true",
+          "x-atlassian-token": "no-check",
           "x-http-method-override": "DELETE",
         }),
       },
@@ -539,7 +540,8 @@ describe("Atlassian request boundary", () => {
     const headers = new Headers(init.headers);
     expect(headers.get("authorization")).toBe("Bearer private-access");
     expect(headers.has("x-http-method-override")).toBe(false);
-    expect(headers.has("x-atlassian-token")).toBe(false);
+    expect(headers.has("x-atlassian-force-account-id")).toBe(false);
+    expect(headers.get("x-atlassian-token")).toBe("no-check");
     expect(init.redirect).toBe("error");
   });
 });
