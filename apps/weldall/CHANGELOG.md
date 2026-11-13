@@ -1,5 +1,17 @@
 # @weldall/weldall
 
+## 0.9.0
+
+### Minor Changes
+
+- 2955f1d: Group assignments and the CLI settings can now carry a client policy. A policy sets the approval mode, extensions, shell access and allowed models, and a group policy can add instructions. Set it with IaC under `groupAssignments.<name>.policy` and `cli.policy`. The new `GET /api/me/policy` endpoint returns the caller's merged policy, and `GET /api/me/cli` appends the caller's group instructions to the organization appendix.
+
+### Patch Changes
+
+- 5a7f46c: Forward `X-Atlassian-Token` on Atlassian connections, so Jira attachment uploads no longer fail with "XSRF check failed".
+- Updated dependencies [2955f1d]
+  - @weldall/sdk@0.13.0
+
 ## 0.8.0
 
 ### Minor Changes
