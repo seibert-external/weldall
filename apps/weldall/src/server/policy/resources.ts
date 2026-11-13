@@ -8,6 +8,12 @@ import { createGroupProviderAdapter } from "../group-providers/registry";
 import { errorForLog, logger } from "../observability/logger";
 import { scopeKeySchema, type ScopeKey } from "./scope-key";
 import { isProtectedSystemScope } from "./system-scopes";
+import {
+  clientPolicySchema,
+  defaultClientPolicySchema,
+  mergeClientPolicies,
+  type ClientPolicy,
+} from "./client-policy";
 
 const sortedUnique = <T extends string>(values: T[]): T[] => [...new Set(values)].sort();
 const emailSchema = z.string().trim().toLowerCase().email().max(320);
@@ -54,6 +60,63 @@ export async function effectiveScopeAccessFor(email: string): Promise<EffectiveS
   );
   return {
     effectiveScopes,
+    unavailableGroupProviders: resolution.unavailableGroupProviders,
+  };
+}
+
+export interface EffectiveClientPolicy {
+  /** `instructions` holds only the group instructions; the organization appendix is separate. */
+  policy: ClientPolicy;
+  updatedAt: Date | null;
+  unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"];
+}
+
+export async function effectivePolicyFor(email: string): Promise<EffectiveClientPolicy> {
+  const normalizedEmail = normalizePolicyEmail(email);
+  const resolution = await resolveProviderMemberships(normalizedEmail);
+  const filters = groupAssignmentFilters(resolution.memberships);
+  const [settings, assignments] = await db.$transaction(
+    (tx) =>
+      Promise.all([
+        tx.cliSettings.findUnique({
+          where: { id: "default" },
+          select: { policy: true, updatedAt: true },
+        }),
+        filters.length
+          ? tx.groupScopeAssignment.findMany({
+              where: { OR: filters, policy: { not: Prisma.DbNull } },
+              orderBy: [{ provider: { key: "asc" } }, { groupId: "asc" }],
+              select: { id: true, policy: true, updatedAt: true },
+            })
+          : Promise.resolve([]),
+      ]),
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
+  // An invalid stored value is skipped and logged, never served. `updatedAt` is the latest
+  // change among the values that contributed.
+  const contributedAt: Date[] = [];
+  let defaultPolicy: ClientPolicy | null = null;
+  if (settings?.policy != null) {
+    const parsed = defaultClientPolicySchema.safeParse(settings.policy);
+    if (parsed.success) {
+      defaultPolicy = parsed.data;
+      contributedAt.push(settings.updatedAt);
+    } else logger.warn({ event: "client_policy.invalid_stored", setting: "cli" });
+  }
+  const groupPolicies = assignments.flatMap((assignment) => {
+    const parsed = clientPolicySchema.safeParse(assignment.policy);
+    if (!parsed.success) {
+      logger.warn({ event: "client_policy.invalid_stored", assignmentId: assignment.id });
+      return [];
+    }
+    contributedAt.push(assignment.updatedAt);
+    return [parsed.data];
+  });
+  return {
+    policy: mergeClientPolicies(defaultPolicy, groupPolicies),
+    updatedAt: contributedAt.length
+      ? new Date(Math.max(...contributedAt.map((date) => date.getTime())))
+      : null,
     unavailableGroupProviders: resolution.unavailableGroupProviders,
   };
 }

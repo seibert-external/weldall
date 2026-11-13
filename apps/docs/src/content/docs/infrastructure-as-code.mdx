@@ -184,12 +184,53 @@ connectors:
 
 Connector manifests can be planned and applied like any other object. Manual UI edits to managed connector policy appear as drift, while provider secrets remain outside the manifest.
 
-The CLI welcome page logo can be managed as a singleton setting. An empty URL removes the company logo:
+The CLI welcome page logo can be managed as a singleton setting. An empty URL removes the company logo. `darkLogoUrl` is optional and sets the logo for dark mode. An empty value falls back to `logoUrl`, and without the field the next apply keeps the current value:
 
 ```yaml
 cli:
   logoUrl: https://example.com/brand-logo.svg
+  darkLogoUrl: https://example.com/brand-logo-dark.svg
 ```
+
+### Client policy
+
+A client policy sets how a desktop client with the Weldall extension behaves for an employee: the approval mode, which extensions are forced on or off, whether the shell is available, and which models the employee may pick. Set a default on the `cli` block and a policy per group assignment:
+
+```yaml
+cli:
+  logoUrl: https://example.com/brand-logo.svg
+  policy:
+    version: 1
+    approvalMode: smart_approve
+    shell: false
+
+groupAssignments:
+  developers:
+    provider: company-directory
+    groupId: developers
+    scopes:
+      - expenses:read
+    policy:
+      version: 1
+      approvalMode: auto
+      shell: true
+      extensions:
+        developer: true
+      models:
+        provider: example-provider
+        allowed:
+          - name: example-large
+            context_limit: 200000
+            supports_vision: true
+      instructions: |
+        Run the test suite before you propose a commit.
+```
+
+Every policy has `version: 1` plus any of `approvalMode` (`auto`, `smart_approve`, `approve` or `chat`), `extensions`, `shell` and `models`. Group policies may also carry `instructions`. Weldall starts from the default, and a field that any of the employee's groups sets replaces the default's value. In `extensions` each key counts on its own: a group that sets `developer` replaces only the default's `developer`, and the default's other keys stay. Where groups disagree, the most permissive value wins: the higher approval mode, an extension or the shell turned on, and the union of the allowed models of one model provider. Group instructions are appended to the organization instructions the CLI serves. `weldall policy --json` prints the merged policy of the signed-in employee.
+
+A policy can turn an extension that ships with the client on or off, and any other extension only off. The client applies this rule, so Weldall accepts `true` for any extension name.
+
+Leaving out `cli.policy` keeps the current default and `null` removes it. A group assignment without `policy` has no policy. A group assignment needs at least one scope, so a group that only needs a policy still lists one scope. Because `logoUrl` is required in the `cli` block, restate the current logo when you set a default policy.
 
 Administrator-managed skills use inline Markdown and explicitly declare every configurable field:
 

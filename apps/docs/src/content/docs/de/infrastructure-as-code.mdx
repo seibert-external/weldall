@@ -184,12 +184,53 @@ connectors:
 
 Connector-Manifeste lassen sich wie jedes andere Objekt planen und anwenden. Manuelle Änderungen an der verwalteten Connector-Policy erscheinen als Drift, während Provider-Secrets außerhalb des Manifests bleiben.
 
-Das Logo auf der CLI-Willkommensseite lässt sich als Singleton-Einstellung verwalten. Eine leere URL entfernt das Unternehmenslogo:
+Das Logo auf der CLI-Willkommensseite lässt sich als Singleton-Einstellung verwalten. Eine leere URL entfernt das Unternehmenslogo. `darkLogoUrl` ist optional und legt das Logo für den Dark Mode fest. Ein leerer Wert fällt auf `logoUrl` zurück, und ohne das Feld behält das nächste Apply den aktuellen Wert:
 
 ```yaml
 cli:
   logoUrl: https://example.com/brand-logo.svg
+  darkLogoUrl: https://example.com/brand-logo-dark.svg
 ```
+
+### Client-Policy
+
+Eine Client-Policy legt fest, wie sich ein Desktop-Client mit der Weldall-Extension für Mitarbeitende verhält: den Freigabemodus, welche Extensions erzwungen an oder aus sind, ob die Shell verfügbar ist und welche Modelle zur Auswahl stehen. Eine Standard-Policy steht im `cli`-Block, eine Policy pro Gruppenzuweisung in der Zuweisung:
+
+```yaml
+cli:
+  logoUrl: https://example.com/brand-logo.svg
+  policy:
+    version: 1
+    approvalMode: smart_approve
+    shell: false
+
+groupAssignments:
+  developers:
+    provider: company-directory
+    groupId: developers
+    scopes:
+      - expenses:read
+    policy:
+      version: 1
+      approvalMode: auto
+      shell: true
+      extensions:
+        developer: true
+      models:
+        provider: example-provider
+        allowed:
+          - name: example-large
+            context_limit: 200000
+            supports_vision: true
+      instructions: |
+        Run the test suite before you propose a commit.
+```
+
+Jede Policy hat `version: 1` und beliebige der Felder `approvalMode` (`auto`, `smart_approve`, `approve` oder `chat`), `extensions`, `shell` und `models`. Gruppen-Policies dürfen zusätzlich `instructions` enthalten. Weldall beginnt mit der Standard-Policy; ein Feld, das eine Gruppe der angemeldeten Mitarbeitenden setzt, ersetzt den Standardwert. In `extensions` zählt jeder Schlüssel einzeln: Setzt eine Gruppe `developer`, ersetzt das nur `developer` aus der Standard-Policy, die übrigen Schlüssel bleiben. Widersprechen sich Gruppen, gewinnt der freizügigste Wert: der höhere Freigabemodus, eine eingeschaltete Extension oder Shell und die Vereinigung der erlaubten Modelle eines Modell-Providers. Gruppen-Instructions werden an die Organisations-Instructions angehängt, die die CLI ausliefert. `weldall policy --json` gibt die zusammengeführte Policy der angemeldeten Mitarbeitenden aus.
+
+Eine Extension, die mit dem Client ausgeliefert wird, kann eine Policy an- oder ausschalten, jede andere Extension nur ausschalten. Diese Regel setzt der Client um; Weldall akzeptiert `true` daher für jeden Extension-Namen.
+
+Fehlt `cli.policy`, bleibt die aktuelle Standard-Policy erhalten; `null` entfernt sie. Eine Gruppenzuweisung ohne `policy` hat keine Policy. Eine Gruppenzuweisung braucht mindestens einen Scope, deshalb führt auch eine Gruppe, die nur eine Policy braucht, einen Scope auf. Da `logoUrl` im `cli`-Block Pflicht ist, muss beim Setzen einer Standard-Policy das aktuelle Logo mit angegeben werden.
 
 Administrativ verwaltete Skills enthalten das Markdown direkt und geben alle konfigurierbaren Felder explizit an:
 
