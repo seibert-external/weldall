@@ -55,6 +55,17 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
       <main className="skill-detail-main">
         <div className="skill-detail-layout">
           <div className="skill-detail-primary">
+            {skill.missingScopes.length ? (
+              <div className="skill-detail-warning">
+                <Banner
+                  container="card"
+                  description={`Your account is missing the following required scopes: ${skill.missingScopes.join(", ")}.`}
+                  status="warning"
+                  title="Missing required scopes"
+                />
+              </div>
+            ) : null}
+
             <div className="skill-detail-intro">
               <Card padding={8}>
                 <div className="skill-detail-toolbar">
@@ -86,17 +97,6 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
                 ) : null}
               </Card>
             </div>
-
-            {skill.missingScopes.length ? (
-              <div className="skill-detail-warning">
-                <Banner
-                  container="card"
-                  description={`Your account is missing the following required scopes: ${skill.missingScopes.join(", ")}.`}
-                  status="warning"
-                  title="Missing required scopes"
-                />
-              </div>
-            ) : null}
           </div>
           <aside className="skill-detail-sidebar" aria-label="Skill information">
             <Card padding={6}>

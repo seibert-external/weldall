@@ -1119,8 +1119,9 @@
   .skill-card-tags :is(span:not([class]), .skill-card-resource-tag, .skill-card-tag-more),
   .skill-noise-surface:is([data-tone="tag"], [data-tone="resource"]) {
     border-radius: var(--radius-full);
-    background: var(--color-accent-muted);
-    color: var(--color-text-accent);
+    /* Dark mode swaps the accent pair so the chips read lighter on dark cards. */
+    background: light-dark(#eeebfa, #9ca3ec);
+    color: light-dark(#5730cc, #2c1866);
     padding: 0.25rem 0.625rem;
     font-size: 0.75rem;
     font-weight: var(--font-weight-medium);
@@ -1456,8 +1457,8 @@
     margin-bottom: 1rem;
     overflow: hidden;
     border-radius: 0.75rem;
-    background: #18181b;
-    color: #e4e4e7;
+    background: var(--color-background-muted);
+    color: var(--color-text-primary);
   }
 
   .skill-prompt-terminal-bar {
@@ -1476,7 +1477,7 @@
     width: 0.625rem;
     height: 0.625rem;
     border-radius: 50%;
-    background: #71717a;
+    background: var(--color-text-secondary);
   }
 
   .skill-prompt-terminal-copy {
@@ -1487,7 +1488,7 @@
     border: 0;
     border-radius: 0.5rem;
     background: transparent;
-    color: #a1a1aa;
+    color: var(--color-text-secondary);
     cursor: pointer;
     transition:
       background-color 140ms ease,
@@ -1495,12 +1496,12 @@
   }
 
   .skill-prompt-terminal-copy:hover {
-    background: rgb(255 255 255 / 10%);
-    color: #fafafa;
+    background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+    color: var(--color-text-primary);
   }
 
   .skill-prompt-terminal-copy:focus-visible {
-    outline: 2px solid #fafafa;
+    outline: 2px solid var(--color-text-primary);
     outline-offset: -2px;
   }
 
@@ -1535,11 +1536,11 @@
   }
 
   .skill-prompt-terminal-setup {
-    color: #71717a;
+    color: var(--color-text-secondary);
   }
 
   .skill-prompt-terminal-sign {
-    color: #a1a1aa;
+    color: var(--color-text-secondary);
     user-select: none;
   }
 
