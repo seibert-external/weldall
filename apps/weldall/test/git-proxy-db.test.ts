@@ -60,6 +60,7 @@ const fakeHost: GitHost = {
   setupMode: "customer-managed",
   protectedPaths: [],
   readCommitIdentity: () => Promise.reject(new Error("not used")),
+  checkSetup: () => Promise.reject(new Error("not used")),
   async getForwardingTarget({ repository }) {
     // The registry spelling reaches the host, whatever case the URL used.
     return {

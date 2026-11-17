@@ -6,6 +6,7 @@ import {
   GITHUB_PULL_REQUEST_PERMISSIONS,
   readGitHubBranchPullRequestState,
 } from "./pull-requests";
+import { createGitHubChecks } from "./checks";
 import { commitIdentities, readGitHubCommitIdentity, type CommitIdentityCache } from "./identity";
 import { createGitHubRepositories, GITHUB_REPOSITORY_PERMISSIONS } from "./repositories";
 import { installationTokens, type GitHubPermissions, type InstallationTokenCache } from "./tokens";
@@ -96,6 +97,17 @@ export function createGitHubAppHost({
   return {
     setupMode: config.setupMode,
     protectedPaths: GITHUB_PROTECTED_PATHS,
+    // A fresh checklist per call: it shares upstream answers only within one run.
+    checkSetup: (input, signal) =>
+      createGitHubChecks({
+        config,
+        app,
+        webBaseUrl,
+        loadPrivateKey,
+        tokens,
+        repositories,
+        operationPermissions: GITHUB_OPERATION_PERMISSIONS,
+      })(input, signal),
     async readCommitIdentity({ repository }, signal) {
       assertRepository(repository);
       return identities.resolve(`${config.apiBaseUrl}#${config.appId}`, () =>

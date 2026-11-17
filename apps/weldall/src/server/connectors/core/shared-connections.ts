@@ -46,7 +46,8 @@ export const rotateSharedCredentialSchema = sharedVersionSchema.extend({
   providerInput: z.unknown(),
 });
 
-async function assertAdmin(actor: ConnectorActor, tx: Prisma.TransactionClient = db) {
+/** Requires a person with `weldall:administer`, checked live; machines are never administrators. */
+export async function assertAdmin(actor: ConnectorActor, tx: Prisma.TransactionClient = db) {
   if (actor.type === "machine")
     throw new ConnectorError("forbidden", "Administrator required.", 403);
   const user = await tx.user.findUnique({ where: { id: actor.id }, select: { email: true } });

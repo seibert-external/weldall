@@ -57,6 +57,7 @@ export const AUDIT_EVENT_TYPES = [
   "git_credential.issued",
   "git_credential.denied",
   "git_credential.failed",
+  "git_host.checked",
 ] as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];

@@ -430,6 +430,9 @@ export function createGitHubRepositories({
   }
 
   return {
+    /** The 3b checks on an existing repository, reused by the connect checklist. */
+    checkBranchRules,
+    checkReviewerTeam,
     resolveNewRepository(input: { template: string; name: string }): GitRepositoryRef {
       templateFor(config, input.template);
       return { owner: organization, name: repositoryNameFor(config, input.name) };

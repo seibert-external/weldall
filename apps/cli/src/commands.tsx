@@ -86,6 +86,13 @@ import {
   publishJson,
 } from "./publish/report.js";
 import { directPublishApi } from "./publish/weldall-api.js";
+import {
+  CONNECTOR_CHECK_FAILED_EXIT_CODE,
+  directConnectorCheckSend,
+  formatConnectorCheck,
+  readConnectorCheck,
+  requiredCheckFailed,
+} from "./connector-check.js";
 
 const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
@@ -1055,6 +1062,47 @@ const connectionsListCommand = define({
     printConnections({ asJson: context.values.json, asAgentic: context.values.agentic }),
 });
 
+const connectorCheckCommand = define({
+  name: "check",
+  description:
+    "Administrators: check a Git host connector against the live host (App, installation, permissions, templates, reviewer team, branch rule); changes nothing",
+  args: {
+    connector: {
+      type: "positional",
+      required: true,
+      description: "Connector key, as in the IaC manifest",
+    },
+    json: jsonArgument,
+  },
+  examples:
+    "weldall connectors check github\nweldall connectors check github --json\n" +
+    `Exits with ${CONNECTOR_CHECK_FAILED_EXIT_CODE} when a required check failed.`,
+  run: async ({ values }) => {
+    try {
+      const report = await readConnectorCheck({
+        connector: values.connector,
+        send: directConnectorCheckSend(await resolveWeldallConfig()),
+      });
+      if (values.json) console.log(JSON.stringify(report, null, 2));
+      else console.log(formatConnectorCheck(report));
+      if (requiredCheckFailed(report)) process.exitCode = CONNECTOR_CHECK_FAILED_EXIT_CODE;
+    } catch (error) {
+      if (!values.json || !(error instanceof CliError)) throw error;
+      console.log(
+        JSON.stringify(
+          {
+            outcome: "error",
+            error: { message: error.message, ...(error.hint ? { hint: error.hint } : {}) },
+          },
+          null,
+          2,
+        ),
+      );
+      process.exitCode = error.exitCode;
+    }
+  },
+});
+
 export const connectorsCommand = define({
   name: "connectors",
   description: "Discover connectors, their permissions, and how to make provider requests",
@@ -1064,7 +1112,9 @@ export const connectorsCommand = define({
     "weldall connections connect <connector-key> --name <connection-name>\n" +
     "weldall request --connection <connection-name> <provider-https-url>\n" +
     "weldall connectors --json\n" +
-    "weldall connectors --agentic",
+    "weldall connectors --agentic\n" +
+    "weldall connectors check <connector-key>",
+  subCommands: { check: connectorCheckCommand },
   run: async (context) => {
     assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
     const config = await resolveWeldallConfig();

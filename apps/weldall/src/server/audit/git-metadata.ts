@@ -20,6 +20,8 @@ export const GIT_AUDIT_LIMITS = {
   commits: 100,
   /** Warning codes recorded per created repository or opened pull request. */
   warnings: 10,
+  /** Failed check ids recorded per checklist run. */
+  checks: 70,
 } as const;
 
 export const TRUNCATION_MARKER = "…[truncated]";
@@ -156,6 +158,24 @@ const credentialIssued = z
   .strict();
 const credentialRejected = z.object({ ...rejectedTarget, access: access.nullable() }).strict();
 
+/**
+ * An administrator ran the connect checklist of a Git host connector (read-only on the host, but
+ * it uses the stored credential). Records the counts and the ids of failed checks, not the texts.
+ */
+const hostChecked = z
+  .object({
+    connectorId: id,
+    /** The existing app repository that checks needing one used; null when none exists yet. */
+    repositoryOwner: gitText(GIT_AUDIT_LIMITS.repositoryPart).nullable(),
+    repositoryName: gitText(GIT_AUDIT_LIMITS.repositoryPart).nullable(),
+    passed: count,
+    failed: count,
+    unverifiable: count,
+    failedChecks: z.array(z.string().regex(/^[a-z0-9._-]{1,120}$/)).max(GIT_AUDIT_LIMITS.checks),
+    durationMs: count,
+  })
+  .strict();
+
 export const gitMetadataSchemas = {
   "git_repository.created": repositoryCreated,
   "git_repository.denied": repositoryRejected,
@@ -173,6 +193,7 @@ export const gitMetadataSchemas = {
   "git_credential.issued": credentialIssued,
   "git_credential.denied": credentialRejected,
   "git_credential.failed": credentialRejected,
+  "git_host.checked": hostChecked,
 } as const;
 
 export type GitAuditEventType = keyof typeof gitMetadataSchemas;

@@ -177,8 +177,47 @@ export interface GitCommitIdentity {
   email: string;
 }
 
-/** The four operations every Git host provides, plus the lookups the git proxy's rules need. */
+export type GitHostCheckState = "pass" | "fail" | "unverifiable";
+
+/**
+ * One line of the connect checklist. Texts are written by Weldall from validated configuration
+ * and parsed host fields, never copied from a host response, and never contain a credential.
+ */
+export interface GitHostCheck {
+  /** Stable identifier, e.g. `installation` or `template.react`. */
+  id: string;
+  /** What is checked, in a few words. */
+  title: string;
+  state: GitHostCheckState;
+  /** False for a recommendation: a failure does not stop publishing. */
+  required: boolean;
+  /** What was found, or why it could not be verified (including rate limiting). */
+  reason: string;
+  /** What the administrator or the host organisation's admin must do; null when nothing. */
+  action: string | null;
+}
+
+/** An existing repository of the connector, used for checks that need one (rules, team access). */
+export interface GitHostCheckRepository extends GitRepositoryRef {
+  defaultBranch: string;
+}
+
+/**
+ * The four operations every Git host provides, the lookups the git proxy's rules need and the
+ * connect checklist.
+ */
 export interface GitHost {
+  /**
+   * Checks the host-side prerequisites of this connector and returns one line per check. Each
+   * check runs on its own: a failing or unverifiable check never stops the others. Read-only: it
+   * creates, changes and deletes nothing on the host (short-lived tokens it mints expire unused).
+   * Checks that need a repository use `repository` when one exists, otherwise they report
+   * that they cannot be verified yet.
+   */
+  checkSetup(
+    input: { repository: GitHostCheckRepository | null },
+    signal: AbortSignal,
+  ): Promise<GitHostCheck[]>;
   readonly setupMode: GitHostSetupMode;
   /**
    * Repository paths (directories or files, relative to the root) that a publish always takes

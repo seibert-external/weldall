@@ -146,7 +146,7 @@ export async function saveConnectorConfiguration({
   )
     throw new ConnectorError(
       "in_use",
-      "Disconnect and delete connections and attempts before changing the OAuth client.",
+      "Disconnect and delete connections and attempts before changing the OAuth client or the GitHub App (App ID or GitHub API).",
       409,
     );
   if (

@@ -3,6 +3,7 @@ import { ConnectorError } from "../../errors";
 import type { GitCommitIdentity } from "../../git-host";
 import { githubApi, segment } from "./api";
 import { createAppJwt } from "./jwt";
+import { rateLimited, unexpected } from "./repositories";
 
 /** The App's slug and bot user change only when the App is renamed or recreated. */
 const IDENTITY_TTL_MS = 60 * 60_000;
@@ -72,6 +73,8 @@ export async function readGitHubCommitIdentity({
     token: createAppJwt({ appId, privateKey: await loadPrivateKey() }),
     signal,
   });
+  // A rate limit is reported as such, not as a missing identity.
+  if (rateLimited(app)) throw unexpected(app);
   const parsedApp = app.status === 200 ? appResponse.safeParse(app.json) : null;
   if (!parsedApp?.success)
     throw unavailable(`GitHub did not return the App's name (HTTP ${app.status}).`);
@@ -83,6 +86,7 @@ export async function readGitHubCommitIdentity({
     token: await mintToken(signal),
     signal,
   });
+  if (rateLimited(user)) throw unexpected(user);
   const parsedUser = user.status === 200 ? userResponse.safeParse(user.json) : null;
   if (
     !parsedUser?.success ||

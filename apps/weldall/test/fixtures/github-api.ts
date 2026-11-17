@@ -342,3 +342,111 @@ export function mockGitHubPullRequests(scenario: PullRequestScenario = {}) {
     calls.filter(({ path }) => path.endsWith("/access_tokens")).map(({ body }) => body);
   return { calls, pulls, tokenRequests };
 }
+
+/** Every permission the product needs, as the installation of the checklist mock grants it. */
+export const fullInstallationPermissions = {
+  contents: "write",
+  metadata: "read",
+  pull_requests: "write",
+  checks: "read",
+  statuses: "read",
+  deployments: "read",
+  members: "read",
+  repository_creation: "write",
+};
+
+export interface ChecksScenario {
+  /** `GET /app` (App JWT). */
+  app?: Override;
+  /** `GET /orgs/acme-apps/installation` (App JWT); `permissions` replaces the granted set. */
+  installation?: Override;
+  permissions?: Record<string, string>;
+  /** Permission names GitHub refuses to put in a token (422 "not granted to this installation"). */
+  refusePermissions?: string[];
+  /** Repositories outside the installation's selection: restricted tokens for them get 422. */
+  outsideInstallation?: string[];
+  /** `GET /repos/acme-apps/<name>` per repository name. */
+  repositories?: Record<string, Override>;
+  /** `GET /orgs/acme-apps/teams/app-reviewers`. */
+  team?: Override;
+  /** `GET /orgs/acme-apps/teams/app-reviewers/repos/acme-apps/<repository>`. */
+  teamAccess?: Override;
+  /** `GET /repos/acme-apps/<repository>/rules/branches/main`. */
+  rules?: Override;
+  botUser?: Override;
+}
+
+/**
+ * Mocked GitHub REST API for the connect checklist (organisation `acme-apps`, installation
+ * 987654, template `acme-apps/react-starter`, reviewer team `app-reviewers`, App `weldall-app`).
+ * Answers only reads and token requests; any other write fails the test with 500.
+ */
+export function mockGitHubChecks(scenario: ChecksScenario = {}) {
+  const calls: Call[] = [];
+  let issued = 0;
+  const reply = (override: Override | undefined, body: unknown) =>
+    Response.json(override?.body ?? body, {
+      status: override?.status ?? 200,
+      headers: override?.headers ?? {},
+    });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      calls.push({ method, path, headers: new Headers(init?.headers), body });
+      if (path === "/app/installations/987654/access_tokens" && method === "POST") {
+        const requested = Object.keys(body.permissions ?? {});
+        if (requested.some((name) => scenario.refusePermissions?.includes(name)))
+          return Response.json({ message: "not granted" }, { status: 422 });
+        const repositories = (body.repositories ?? null) as string[] | null;
+        if (repositories?.some((name) => scenario.outsideInstallation?.includes(name)))
+          return Response.json({ message: "not accessible" }, { status: 422 });
+        issued += 1;
+        return Response.json(
+          {
+            token: `ghs_check_${issued}`,
+            expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+            permissions: { metadata: "read", ...body.permissions },
+            repository_selection: "selected",
+            ...(repositories ? { repositories: repositories.map((name) => ({ name })) } : {}),
+          },
+          { status: 201 },
+        );
+      }
+      if (method !== "GET") return Response.json({ message: "unexpected" }, { status: 500 });
+      if (path === "/app") return reply(scenario.app, { id: 123456, slug: "weldall-app" });
+      if (path === "/orgs/acme-apps/installation")
+        return reply(scenario.installation, {
+          id: 987654,
+          account: { login: "acme-apps" },
+          suspended_at: null,
+          repository_selection: "selected",
+          permissions: scenario.permissions ?? fullInstallationPermissions,
+        });
+      if (path === "/orgs/acme-apps/teams/app-reviewers")
+        return reply(scenario.team, { slug: "app-reviewers" });
+      if (/^\/orgs\/acme-apps\/teams\/app-reviewers\/repos\/acme-apps\/[^/]+$/.test(path))
+        return reply(scenario.teamAccess, {
+          permissions: { admin: false, push: true, pull: true },
+        });
+      if (path === "/users/weldall-app%5Bbot%5D")
+        return reply(scenario.botUser, { id: 41898282, login: "weldall-app[bot]", type: "Bot" });
+      const [, name, rest] = /^\/repos\/acme-apps\/([^/]+)(\/.*)?$/.exec(path) ?? [];
+      if (name && !rest)
+        return reply(scenario.repositories?.[name], {
+          name,
+          owner: { login: "acme-apps" },
+          private: true,
+          is_template: true,
+        });
+      if (name && rest === "/rules/branches/main") return reply(scenario.rules, fullRules);
+      return Response.json({ message: "unexpected" }, { status: 500 });
+    }),
+  );
+  const tokenRequests = () =>
+    calls.filter(({ path }) => path.endsWith("/access_tokens")).map(({ body }) => body);
+  return { calls, tokenRequests };
+}

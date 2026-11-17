@@ -609,7 +609,8 @@ export async function loadPlanningState({
       externalBlockers.push({
         code: "CLIENT_IN_USE",
         address: `connector.${address}`,
-        message: "Disconnect and remove connections/attempts before replacing the OAuth client.",
+        message:
+          "Disconnect and remove connections/attempts before replacing the OAuth client or the GitHub App (App ID or GitHub API).",
       });
   }
   const addReferenceBlocker = (

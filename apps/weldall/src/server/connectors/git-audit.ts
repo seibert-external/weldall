@@ -262,3 +262,40 @@ export function writeGitCredentialAudit(
       : { access: input.access ?? null },
   );
 }
+
+/** `git_host.checked`: an administrator ran the connect checklist of a Git host connector (step 3g). */
+export function writeGitHostCheckAudit(input: {
+  actor: ConnectorActor;
+  connectorId: string;
+  /** The existing app repository the checks used, if any. */
+  repository: GitRepositoryRef | null;
+  checks: readonly { id: string; state: "pass" | "fail" | "unverifiable" }[];
+  durationMs: number;
+}) {
+  const count = (state: string) => input.checks.filter((check) => check.state === state).length;
+  return prismaAuditWriter.write({
+    eventType: "git_host.checked",
+    actorType: input.actor.type ?? "user",
+    actorId: input.actor.id,
+    ...(input.actor.email ? { actorEmail: input.actor.email } : {}),
+    ...(input.actor.clientId ? { clientId: input.actor.clientId } : {}),
+    requestId: input.actor.requestId,
+    ...(input.actor.correlationId ? { correlationId: input.actor.correlationId } : {}),
+    outcome: "success",
+    subjectType: "connector",
+    subjectId: input.connectorId,
+    metadata: {
+      connectorId: input.connectorId,
+      repositoryOwner: input.repository?.owner ?? null,
+      repositoryName: input.repository?.name ?? null,
+      passed: count("pass"),
+      failed: count("fail"),
+      unverifiable: count("unverifiable"),
+      failedChecks: capped(
+        input.checks.filter((check) => check.state === "fail").map((check) => check.id),
+        GIT_AUDIT_LIMITS.checks,
+      ).items,
+      durationMs: Math.max(0, Math.round(input.durationMs)),
+    },
+  });
+}
