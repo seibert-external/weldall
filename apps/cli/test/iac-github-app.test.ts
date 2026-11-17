@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
@@ -123,4 +123,31 @@ it.each([
     "does not support Git host connectors",
   );
   expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it("declares the GitHub App connector and its key connection in the published manifest schema", async () => {
+  const schema = JSON.parse(
+    await readFile(
+      new URL("../../../schemas/weldall-manifest-v1.schema.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const connector = schema.properties.connectors.additionalProperties;
+  expect(connector.properties.type.enum).toContain("github-app");
+  const branch = connector.properties.provider.oneOf.find(
+    (candidate: { properties?: Record<string, unknown> }) => candidate.properties?.reviewerTeam,
+  );
+  expect(Object.keys(branch.properties).sort()).toEqual(Object.keys(serverSchema.shape).sort());
+  expect(branch.required.sort()).toEqual(
+    Object.entries(serverSchema.shape)
+      .filter(([, field]) => !field.safeParse(undefined).success)
+      .map(([key]) => key)
+      .sort(),
+  );
+  expect(branch.properties.setupMode.enum).toEqual(serverSchema.shape.setupMode.options);
+  expect(
+    schema.properties.sharedConnections.additionalProperties.properties.provider.oneOf.map(
+      (candidate: { properties: { kind: { const: string } } }) => candidate.properties.kind.const,
+    ),
+  ).toEqual(["service-account-api-key", "github-app-private-key"]);
 });

@@ -96,7 +96,14 @@ const RETRY = "Run the check again later.";
  */
 function cannotVerify(error: unknown, organization: string): Outcome {
   if (error instanceof ConnectorError) {
-    if (["credential_unavailable", "grant_mismatch", "credential_rejected"].includes(error.code))
+    if (
+      [
+        "credential_unavailable",
+        "credential_ambiguous",
+        "grant_mismatch",
+        "credential_rejected",
+      ].includes(error.code)
+    )
       return unverifiable(
         `Needs a working App credential (see ${AUTHENTICATION}).`,
         `Fix ${AUTHENTICATION} first.`,
@@ -282,6 +289,11 @@ export function createGitHubChecks({
           "No private key is provisioned for this connector.",
           "Upload the GitHub App's private key (.pem) on the connector's shared connection in the admin UI (Connections).",
         );
+      if (error instanceof ConnectorError && error.code === "credential_ambiguous")
+        return fail(
+          "More than one enabled shared connection holds a private key for this connector, so Weldall uses none of them.",
+          "Keep exactly one of them enabled and disable or delete the others.",
+        );
       if (error instanceof ConnectorError && error.code === "grant_mismatch")
         return fail(
           "The provisioned private key was uploaded for a different App ID or GitHub API.",
@@ -453,6 +465,25 @@ export function createGitHubChecks({
         "Cannot verify before a repository exists: GitHub shows a team's access only per repository.",
         howTo,
       );
+    // `checkReviewerTeam` reads a refused token as a missing "Members" permission, which holds
+    // while publishing (the repository was just read). Here the repository may be gone, so its
+    // reachability is checked first and a later refusal really is the permission.
+    try {
+      await tokens.mint({
+        app,
+        loadPrivateKey,
+        repository: repository.name,
+        permissions: { metadata: "read" },
+        signal,
+      });
+    } catch (error) {
+      if (error instanceof ConnectorError && error.code === "token_refused")
+        return unverifiable(
+          `The App cannot access ${organization}/${repository.name} any more (it was deleted or removed from the installation).`,
+          "Run the check again after the next publish.",
+        );
+      throw error;
+    }
     try {
       await repositories.checkReviewerTeam(repository.name, signal);
     } catch (error) {
@@ -465,11 +496,6 @@ export function createGitHubChecks({
         return unverifiable(
           `The App lacks ${teamPermission}, so it cannot read the team's access.`,
           grantInstructions([teamPermission]),
-        );
-      if (error instanceof ConnectorError && error.code === "token_refused")
-        return unverifiable(
-          `The App cannot access ${organization}/${repository.name} any more (it was deleted or removed from the installation).`,
-          "Run the check again after the next publish.",
         );
       throw error;
     }

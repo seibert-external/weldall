@@ -1,11 +1,11 @@
 ---
 title: Connectors
-description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person aufrufen.
+description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person aufrufen und Apps auf GitHub veröffentlichen.
 ---
 
 Connectors rufen einen Dienst **im Namen der nutzenden Person** auf. Jede Person verbindet ihr eigenes Konto und gibt den Zugriff frei. Weldall speichert die Zugangsdaten verschlüsselt auf dem Server und führt die Aufrufe aus; Provider-Tokens gelangen nie in die CLI.
 
-Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt.
+Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Ein GitHub-App-Connector [veröffentlicht Apps auf GitHub](#apps-auf-github-veröffentlichen), auch für Personen ohne GitHub-Konto. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt.
 
 Connectoren/geteilte Verbindungen können deaktiviert angelegt, in der UI provisioniert und anschließend ausdrücklich aktiviert werden. Provisionierung/Rotation aktiviert sie nicht; beide müssen für Aufrufe aktiv sein. [IaC](../infrastructure-as-code/#öffentliche-konfiguration-secrets-nur-in-der-ui) verwaltet öffentliche Konfiguration/Import, niemals Secrets.
 
@@ -87,6 +87,73 @@ Requests verwenden `api.atlassian.com`, nicht die Domain der Site. Für Confluen
 
 :::note[Verbindung entfernen]
 `weldall connections disconnect my-jira` entfernt die Verbindung aus Weldall. Um den Atlassian-Zugriff zu widerrufen, entferne die App in deinen [Atlassian-Kontoeinstellungen](https://id.atlassian.com/manage-profile/apps). Das kann weitere Verbindungen derselben App betreffen.
+:::
+
+## Apps auf GitHub veröffentlichen
+
+Eine Mitarbeiterin baut mit einem Agenten auf ihrem Rechner eine kleine App und bittet ihn, sie zu veröffentlichen. Ein GitHub-Konto hat sie nicht. Weldall legt für die App ein privates Repository in deiner GitHub-Organisation an, überträgt die Änderungen und öffnet einen Pull Request. Ein Reviewer in deiner Organisation gibt ihn auf GitHub frei und mergt ihn. Ohne diesen Pull Request gelangt nichts in den Default-Branch. Jede weitere Veröffentlichung schickt die nächste Änderung in dasselbe Repository, wieder als Pull Request.
+
+Das übernimmt ein **GitHub-App-Connector**. Er hat keine persönlichen Verbindungen: Eine geteilte Verbindung verwahrt den privaten Schlüssel der App, und nur der Weldall-Server verwendet ihn. In `weldall connectors` taucht der Connector nicht auf. Die Einrichtung beschreibt [How to: GitHub anbinden](../github-app/).
+
+### Was die Mitarbeiterin tut
+
+Der Agent führt im Ordner der App einen Befehl aus. Beim ersten Veröffentlichen bekommt die App einen Namen und einen Zweck:
+
+```sh
+weldall app publish --name expenses --purpose "Track team expenses" --json
+weldall app publish --title "Add receipt upload" --json
+weldall app status --json
+```
+
+Jede Veröffentlichung holt den aktuellen Stand des Repositorys, führt ihn mit dem Ordner zusammen und schickt das Ergebnis als einen Commit auf einen Branch namens `weldall/publish-*`. Solange der vorige Pull Request offen ist, aktualisiert Publish ihn. Ist er gemergt oder geschlossen, öffnet die nächste Veröffentlichung einen neuen. Haben Ordner und Repository dieselben Zeilen geändert, hält Publish an und schickt nichts. Dateien, die nach Geheimnissen oder Daten aussehen, etwa `.env`-Dateien, private Schlüssel oder Datenbank-Dumps, lehnt Publish ebenfalls ab. `weldall app sync` holt nur den Stand des Repositorys in den Ordner. `weldall app status` zeigt den Pull Request mit Reviews und Checks sowie die Vorschau- und Live-Links, die die CI der App meldet. In einem Desktop-Client mit der Weldall-Erweiterung nutzt der Agent die Werkzeuge `publish_app` und `app_status`, die dieselben Befehle ausführen.
+
+Autor der Commits ist das Bot-Konto der App, und jeder Commit trägt einen `Weldall-App:`-Trailer. Im Pull Request steht von der veröffentlichenden Person nur ihre Weldall-Nutzer-ID. Ihr Name steht im Audit-Log von Weldall.
+
+### Der Git-Proxy
+
+Git auf dem Rechner der Mitarbeiterin spricht nie mit GitHub. Es pusht zu Weldall und holt von dort, unter `https://weldall.example.com/git/<connector>/<owner>/<repository>.git`. Weldall prüft jede Anfrage, bevor es etwas weiterleitet:
+
+- Die Person besitzt die App, die für dieses Repository registriert ist, und darf den Connector nutzen.
+- Ein Push ändert nur Branches namens `weldall/publish-*`. Weldall lehnt Pushes auf den Default-Branch ab, ebenso Tags, das Löschen von Branches, Push-Optionen, signierte Pushes und Pushes auf den Branch eines geschlossenen oder gemergten Pull Requests. Git zeigt den Grund als `! [remote rejected] … (weldall: …)`.
+
+Erst dann holt Weldall einen Installations-Token von GitHub für genau dieses Repository, mit Lese- oder Schreibrecht auf die Inhalte, und leitet die Anfrage als Stream an GitHub weiter. Der Token bleibt auf dem Server.
+
+### Was auf den Rechner gelangt
+
+Provider-Tokens gelangen nie in die CLI, auch bei GitHub nicht. Kein GitHub-Token verlässt den Weldall-Server.
+
+Git kann die DPoP-gebundene Anmeldung von Weldall nicht senden. Deshalb arbeitet die CLI als Credential-Helper für Git (`weldall git-credential`). Für jeden Git-Befehl holt sie mit der bestehenden Anmeldung eine **Git-Anmeldung** bei Weldall und gibt sie Git als Passwort. Die Git-Anmeldung ist ein Geheimnis von Weldall, kein GitHub-Token:
+
+- Sie gilt fünf Minuten lang, für das Repository einer App und für eine Person. Weldall speichert nur ihren Hash.
+- Sie erlaubt nur Lesen, es sei denn, Publish fordert Schreibrecht an.
+- Sie funktioniert nur am Git-Proxy von Weldall und unterliegt allen seinen Regeln. Die GitHub-API und andere Repositorys erreicht sie nicht.
+- Anders als die Access Tokens von Weldall ist sie **nicht an den Geräteschlüssel gebunden**. Wer sie innerhalb dieser fünf Minuten kopiert, kann das Repository holen und, falls sie Schreibrecht gewährt, auf seine Publish-Branches pushen.
+
+Git fragt den Helper nur für die Adresse des Proxys, und Publish leert für diese Adresse alle anderen Helper. Die Git-Anmeldung landet deshalb nicht im Schlüsselbund.
+
+### Was Weldall protokolliert
+
+Das Audit-Log enthält das Anlegen von Repositorys (`git_repository.*`), jeden Push vor dem Weiterleiten und sein Ergebnis (`git_push.*`, mit Person, Repository, Branch, altem und neuem Commit, Größe und Ergebnis), jeden Abruf (`git_fetch.*`), Pull Requests mit ihren Commits (`git_pull_request.*`), jede ausgegebene oder verweigerte Git-Anmeldung (`git_credential.*`) und jede Connector-Prüfung (`git_host.checked`). Auch Ablehnungen stehen darin. Ausgenommen ist die erste Anfrage jedes Git-Befehls, denn Git schickt sie immer ohne Anmeldung.
+
+### Grenzen
+
+| Grenze                          | Wert                                |
+| ------------------------------- | ----------------------------------- |
+| Anfrage eines Pushes            | 100 MiB                             |
+| Antwort eines Abrufs            | 1 GiB                               |
+| Dauer einer Git-Anfrage         | 280 Sekunden                        |
+| Gleichzeitige Git-Übertragungen | 16 pro Server-Prozess, 4 pro Person |
+| Git-Anmeldungen                 | 20 pro Person und Minute            |
+| Dateien einer Veröffentlichung  | 10 MiB pro Datei, 100 MiB insgesamt |
+
+Eine typische Veröffentlichung überträgt wenige Kilobyte. Publish braucht Git 2.39 oder neuer.
+
+### Was Weldall nicht durchsetzen kann
+
+Der Git-Proxy sieht, welchen Branch ein Push ändert, aber nicht, ob der Push Historie umschreibt. Einen Force-Push auf einen Publish-Branch erkennt er nicht. Die Rulesets deiner Organisation kann Weldall ebenfalls nicht lesen, nur die Regeln, die für ein bestehendes Repository gelten. Schütze den Default-Branch deshalb auf GitHub mit einer Regel, die einen geprüften Pull Request verlangt und Force-Pushes und Löschen verhindert. Die empfohlene Regel beschreibt [How to: GitHub anbinden](../github-app/#default-branch-schützen).
+
+:::caution[Stand]
+Veröffentlichen ist gegen eine nachgebildete GitHub-API und einen lokalen Git-Server getestet. Die einzelnen Bausteine wurden von Hand gegen github.com ausprobiert, der vollständige Ablauf lief aber noch nicht gegen github.com. GitHub Enterprise Cloud mit Datenresidenz (`https://api.<subdomain>.ghe.com`) akzeptiert die Konfiguration, getestet ist es aber nicht. GitHub Enterprise Server wird nicht unterstützt. Die Vorschau- und Live-Links hängen davon ab, dass die CI des App-Templates GitHub-Deployments meldet.
 :::
 
 ## Anfragelimits

@@ -23,7 +23,14 @@ import {
   rotateSharedConnectionCredential,
   setSharedConnectionEnabled,
 } from "../src/server/connectors/core/shared-connections";
-import { deleteConnection, getConnectionDetails } from "../src/server/connectors/core/connections";
+import {
+  deleteConnection,
+  getConnectionDetails,
+  listAccessibleConnections,
+  listConnectors,
+  startConnection,
+} from "../src/server/connectors/core/connections";
+import { canAccessConnector, connectorScopeInclude } from "../src/server/connectors/access";
 import { openGitHost } from "../src/server/connectors/core/git-hosts";
 import { GET } from "../src/app/api/admin/connectors/[key]/check/route";
 import { WELDALL_ISSUER } from "../src/server/oauth/constants";
@@ -350,6 +357,121 @@ describe.skipIf(!approved)(
       expect(json.repository).toEqual({ owner: "acme-apps", name: "app-expenses" });
       expect(stateOf(json, "branch-rule")).toBe("fail");
       expect(stateOf(json, "reviewer-team-access")).toBe("pass");
+    });
+
+    it("names several enabled key connections in the credential and App authentication lines", async () => {
+      const m = manifest();
+      m.sharedConnections!.second = {
+        ...m.sharedConnections!.key!,
+        key: `${m.sharedConnections!.key!.key}-2`,
+        name: "Second GitHub App key",
+      };
+      await apply(m);
+      const connectorKey = m.connectors.github!.key;
+      for (const name of ["key", "second"]) {
+        const shared = await db.connection.findUniqueOrThrow({
+          where: { key: m.sharedConnections![name]!.key },
+        });
+        await rotateSharedConnectionCredential(
+          { id: shared.id, version: shared.version, providerInput: { privateKey } },
+          adminActor,
+        );
+        const current = await db.connection.findUniqueOrThrow({ where: { id: shared.id } });
+        await setSharedConnectionEnabled(
+          { id: shared.id, version: current.version, enabled: true },
+          adminActor,
+        );
+      }
+      const { json } = await runCheck(admin, connectorKey);
+      const line = (id: string) =>
+        json.checks.find((check: { id: string }) => check.id === id) as Record<string, unknown>;
+      expect(line("credential")).toMatchObject({
+        state: "fail",
+        reason: expect.stringContaining("2 enabled shared connections"),
+      });
+      expect(line("app-authentication")).toMatchObject({
+        state: "fail",
+        reason: expect.stringContaining("More than one enabled shared connection"),
+      });
+      expect(line("app-authentication")!.reason).not.toContain("No private key");
+    });
+
+    // Cross-version: a CLI released before Git hosts knows only google, atlassian and
+    // atlassian-mcp, and validates every listed connector and connection. Its existing commands
+    // must keep working while this server holds a fully set-up GitHub App connector.
+    it("keeps an older CLI's listings, connects and connector-free IaC working beside a GitHub App connector", async () => {
+      const m = manifest();
+      await apply(m);
+      const connectorKey = m.connectors.github!.key;
+      const publishScope = m.scopes.publish!.key;
+      const shared = await db.connection.findUniqueOrThrow({
+        where: { key: m.sharedConnections!.key!.key },
+      });
+      await rotateSharedConnectionCredential(
+        { id: shared.id, version: shared.version, providerInput: { privateKey } },
+        adminActor,
+      );
+      await setSharedConnectionEnabled(
+        {
+          id: shared.id,
+          version: (await db.connection.findUniqueOrThrow({ where: { id: shared.id } })).version,
+          enabled: true,
+        },
+        adminActor,
+      );
+      await db.emailScopeAssignment.update({
+        where: { normalizedEmail: member.email },
+        data: {
+          grants: { create: { scope: { connect: { key: publishScope } }, createdBy: prefix } },
+        },
+      });
+      const memberActor = {
+        id: member.id,
+        email: member.email,
+        requestId: prefix,
+        type: "user" as const,
+        scopeKeys: ["weldall:login", publishScope],
+      };
+      // The person may use the connector, so only its server-only nature hides it.
+      const connector = await db.connector.findUniqueOrThrow({
+        where: { key: connectorKey },
+        include: connectorScopeInclude,
+      });
+      expect(canAccessConnector({ connector, actor: memberActor })).toBe(true);
+
+      // `weldall connectors` and `weldall connections`: neither the connector nor its key
+      // connection is listed, so an older CLI never meets the unknown type.
+      expect((await listConnectors(memberActor)).map(({ key }) => key)).not.toContain(connectorKey);
+      expect(
+        (await listAccessibleConnections(memberActor)).map(({ connectorId }) => connectorId),
+      ).not.toContain(connector.id);
+      // `weldall connections connect <key>` gets the plain "not found" every CLI understands.
+      await expect(
+        startConnection({ actor: memberActor, input: { connector: connectorKey, name: "mine" } }),
+      ).rejects.toMatchObject({ code: "not_found", status: 404 });
+
+      // IaC of another workspace in the frozen pre-connector wire format plans and applies
+      // without touching, or being blocked by, the GitHub App connector.
+      const id = randomUUID();
+      workspaces.push(id);
+      const legacy = parseDesiredState({
+        apiVersion: "weldall.dev/v1",
+        workspace: { id, name: `${prefix}-legacy`, issuer: "https://weldall.example.com" },
+        scopes: { read: { key: `${prefix}-legacy:read`, description: "Read" } },
+      });
+      const plan = await planIac(legacy);
+      expect(plan.blockers).toEqual([]);
+      expect(plan.actions.map(({ address, action }) => [address, action])).toEqual([
+        ["scope.read", "create"],
+      ]);
+      await apply(legacy);
+      expect(await db.connector.findUniqueOrThrow({ where: { key: connectorKey } })).toMatchObject({
+        enabled: true,
+        providerType: "github-app",
+        version: connector.version,
+      });
+      const after = await planIac(legacy);
+      expect(after.actions.every(({ action }) => action === "noop")).toBe(true);
     });
 
     it("is for administrators only and names unknown or unsuitable connectors", async () => {

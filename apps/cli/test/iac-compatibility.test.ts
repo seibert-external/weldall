@@ -189,3 +189,31 @@ it("does not unmanage or update the lockfile if obtaining the server digest fail
   expect(request.mock.calls.map(([path]) => path)).toEqual(["/plan"]);
   expect(await readFile(join(root, "weldall.lock.yml"), "utf8")).toBe(originalLock);
 });
+
+it("still connects to a server without Git hosts when the manifest declares no GitHub App", async () => {
+  const { manifest } = await loadWorkspace(root);
+  manifest.connectors = { work: { type: "atlassian-mcp" } };
+  manifest.sharedConnections = {
+    bot: { connectorKey: "jira", provider: { kind: "service-account-api-key", cloudIds: [] } },
+  };
+  const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({
+      issuer: manifest.workspace.issuer,
+      token_endpoint: `${manifest.workspace.issuer}/api/auth/oauth2/token`,
+      weldall_iac: {
+        endpoint: `${manifest.workspace.issuer}/api/iac/v1`,
+        installationId,
+        scope: "weldall:iac",
+        features: ["mcp", "mcp-discovery-v1", "iac-ui-secrets-v1"],
+      },
+    }),
+  );
+  // Every compatibility gate passes; only the missing machine credentials (not set in this
+  // test) stop the connection.
+  vi.stubEnv("WELDALL_M2M_PRIVATE_JWK", "");
+  await expect(IacClient.connect(manifest, null)).rejects.toThrow(
+    "M2M JWK environment values must be valid JSON",
+  );
+  vi.unstubAllEnvs();
+  expect(fetcher).toHaveBeenCalledOnce();
+});

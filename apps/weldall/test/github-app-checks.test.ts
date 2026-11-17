@@ -156,9 +156,14 @@ describe("GitHub App connect checklist", () => {
       reason: expect.stringContaining("Organization permissions > Members: Read-only"),
     });
 
+    // A deleted repository is named as such, never blamed on the Members permission.
     const gone = await check({ outsideInstallation: ["app-expenses"] }, { repository: existing });
     expect(gone.byId["branch-rule"]!.state).toBe("unverifiable");
-    expect(gone.byId["reviewer-team-access"]!.state).toBe("unverifiable");
+    expect(gone.byId["reviewer-team-access"]).toMatchObject({
+      state: "unverifiable",
+      reason: expect.stringContaining("deleted or removed from the installation"),
+    });
+    expect(gone.byId["reviewer-team-access"]!.reason).not.toContain("Members");
   });
 
   describe("App authentication", () => {
@@ -180,6 +185,22 @@ describe("GitHub App connect checklist", () => {
         expect(line.state, line.id).toBe("unverifiable");
       expect(byId.installation!.reason).toContain("App authentication");
       expect(github.calls).toEqual([]);
+    });
+
+    it("names several enabled key connections instead of a missing key", async () => {
+      const { byId } = await check(
+        {},
+        {
+          loadPrivateKey: () =>
+            Promise.reject(new ConnectorError("credential_ambiguous", "several", 503)),
+        },
+      );
+      expect(byId["app-authentication"]).toMatchObject({
+        state: "fail",
+        reason: expect.stringContaining("More than one enabled shared connection"),
+        action: expect.stringContaining("exactly one"),
+      });
+      expect(byId.installation!.state).toBe("unverifiable");
     });
 
     it("fails for a key of another App and for a rejected JWT", async () => {

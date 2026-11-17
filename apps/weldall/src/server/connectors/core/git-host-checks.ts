@@ -115,7 +115,12 @@ export async function checkGitHostConnector({
   const repository: GitHostCheckRepository | null = app
     ? { owner: app.repositoryOwner, name: app.repositoryName, defaultBranch: app.defaultBranch }
     : null;
-  const host = openGitHostWith({ provider, connector, connection });
+  const host = openGitHostWith({
+    provider,
+    connector,
+    connection,
+    ambiguous: usable.length > 1,
+  });
   checks.push(...(await host.checkSetup({ repository }, signal)));
 
   await writeGitHostCheckAudit({

@@ -184,6 +184,8 @@ connectors:
 
 Connector manifests can be planned and applied like any other object. Manual UI edits to managed connector policy appear as drift, while provider secrets remain outside the manifest.
 
+A GitHub App connector (`type: github-app`) has no OAuth client. Its provider block names the App, the organisation, the templates, the repository name prefix and the reviewer team, and a shared connection with `provider: { kind: github-app-private-key }` holds the App's private key, uploaded in the admin UI. These require discovery feature `git-hosts-v1`; against an older server the CLI refuses them before anything changes. [How to: Connect GitHub](../github-app/#5-configure-the-connector) has a complete example and every field.
+
 The CLI welcome page logo can be managed as a singleton setting. An empty URL removes the company logo. `darkLogoUrl` is optional and sets the logo for dark mode. An empty value falls back to `logoUrl`, and without the field the next apply keeps the current value:
 
 ```yaml

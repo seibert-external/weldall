@@ -1,11 +1,11 @@
 ---
 title: Connectors
-description: Call Google and Atlassian Cloud APIs on behalf of the signed-in user.
+description: Call Google and Atlassian Cloud APIs on behalf of the signed-in user, and publish apps to GitHub.
 ---
 
 Connectors let you call a service **on behalf of the user**. Each person connects their own account and approves access. Weldall keeps the credentials encrypted on the server and makes the calls; provider tokens never reach the CLI.
 
-Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side.
+Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. A GitHub App connector [publishes apps to GitHub](#publish-apps-to-github) for people without a GitHub account. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side.
 
 Connectors/shared connections can be created disabled and provisioned in the UI, then explicitly enabled. Provisioning/rotation does not enable them; both must be enabled for use. [IaC](../infrastructure-as-code/#public-configuration-ui-only-credentials) manages public configuration/import, never secrets.
 
@@ -87,6 +87,73 @@ Requests use `api.atlassian.com`, not the site's own domain. For Confluence page
 
 :::note[Disconnect]
 `weldall connections disconnect my-jira` removes the connection from Weldall. To revoke Atlassian access, remove the app in your [Atlassian account settings](https://id.atlassian.com/manage-profile/apps). This can affect other connections using that app.
+:::
+
+## Publish apps to GitHub
+
+An employee builds a small app with an agent on their own machine and asks the agent to publish it. They have no GitHub account. Weldall creates a private repository for the app in your GitHub organisation, sends the changes, and opens a pull request. A reviewer in your organisation approves and merges it on GitHub; nothing reaches the default branch without that pull request. Each later publish sends the next change to the same repository, again as a pull request.
+
+A **GitHub App connector** does this. It has no personal connections: one shared connection holds the App's private key, and only Weldall's server uses it. The connector does not appear in `weldall connectors`. [How to: Connect GitHub](../github-app/) describes the setup.
+
+### What the employee does
+
+The agent runs one command in the app's folder. The first publish names the app and its purpose:
+
+```sh
+weldall app publish --name expenses --purpose "Track team expenses" --json
+weldall app publish --title "Add receipt upload" --json
+weldall app status --json
+```
+
+Each publish fetches the repository's current state, merges it with the folder, and sends the result as one commit to a branch named `weldall/publish-*`. While the previous pull request is open, publish updates it; after it is merged or closed, the next publish opens a new one. When the folder and the repository changed the same lines, publish stops and sends nothing. Publish also refuses files that look like secrets or data, such as `.env` files, private keys and database dumps. `weldall app sync` only brings the repository's state into the folder. `weldall app status` shows the pull request, its reviews and checks, and the preview and live links the app's CI reports. In a desktop client with the Weldall extension, the agent uses the `publish_app` and `app_status` tools, which run the same commands.
+
+The commits are authored by the App's bot account and carry a `Weldall-App:` trailer. The pull request names only the Weldall user ID of the person who published. Their name stays in Weldall's audit log.
+
+### The git proxy
+
+Git on the employee's machine never talks to GitHub. It pushes to and fetches from Weldall at `https://weldall.example.com/git/<connector>/<owner>/<repository>.git`. Weldall checks every request before it forwards anything:
+
+- The person owns the app registered for this repository and may use the connector.
+- A push updates only branches named `weldall/publish-*`. Weldall refuses pushes to the default branch, tags, branch deletion, push options, signed pushes, and pushes to the branch of a closed or merged pull request. Git shows the reason as `! [remote rejected] … (weldall: …)`.
+
+Only then does Weldall fetch a GitHub installation token for this one repository, with read or write access to its contents, and stream the request to GitHub. The token stays on the server.
+
+### What reaches the machine
+
+Provider tokens never reach the CLI, and this holds for GitHub too. No GitHub token leaves the Weldall server.
+
+Git cannot send Weldall's DPoP-bound login, so the CLI acts as git's credential helper (`weldall git-credential`). For each git command it requests a **git credential** from Weldall with the existing login and hands it to git as a password. The git credential is a Weldall secret, not a GitHub token:
+
+- It is valid for five minutes and for one app's repository and one person. Weldall stores only its hash.
+- It is read-only unless publish asks for write access.
+- It works only on Weldall's git proxy, with all of the proxy's rules. It cannot call GitHub's API or reach any other repository.
+- Unlike Weldall's access tokens, it is **not bound to the device key**. Whoever copies it within those five minutes can fetch that repository, or push to its publish branches if it grants write access.
+
+Git asks the helper only for the proxy's URL, and publish clears all other helpers for that URL, so the git credential is not stored in a keychain.
+
+### What Weldall records
+
+The audit log records repository creation (`git_repository.*`), every push before it is forwarded and its result (`git_push.*`, with person, repository, branch, old and new commit, size and outcome), every fetch (`git_fetch.*`), pull requests with their commits (`git_pull_request.*`), every git credential issued or refused (`git_credential.*`), and every connector check (`git_host.checked`). Refusals are recorded too, except the first request of each git command, which git always sends without a credential.
+
+### Limits
+
+| Limit                       | Value                               |
+| --------------------------- | ----------------------------------- |
+| Request body of one push    | 100 MiB                             |
+| Response of one fetch       | 1 GiB                               |
+| Duration of one git request | 280 seconds                         |
+| Concurrent git transfers    | 16 per server process, 4 per person |
+| Git credentials             | 20 per person per minute            |
+| Files in a publish          | 10 MiB per file, 100 MiB in total   |
+
+A typical publish sends a few kilobytes. Publish needs git 2.39 or newer.
+
+### What Weldall cannot enforce
+
+The git proxy sees which branch a push updates, but not whether the push rewrites history. It cannot detect a force push to a publish branch. Weldall also cannot read your organisation's rulesets, only the rules that apply to an existing repository. Protect the default branch on GitHub with a rule that requires a reviewed pull request and blocks force pushes and deletion. [How to: Connect GitHub](../github-app/#protect-the-default-branch) explains the recommended rule.
+
+:::caution[Status]
+Publishing is tested against a simulated GitHub API and a local git server. The building blocks were tried against github.com by hand, but the complete flow has not yet run against github.com. GitHub Enterprise Cloud with data residency (`https://api.<subdomain>.ghe.com`) is accepted by the configuration but has not been tested. GitHub Enterprise Server is not supported. The preview and live links depend on the app template's CI reporting GitHub deployments.
 :::
 
 ## Request limits

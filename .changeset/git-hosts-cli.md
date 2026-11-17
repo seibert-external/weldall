@@ -1,0 +1,5 @@
+---
+"@weldall/cli": minor
+---
+
+Add `weldall app publish`, `weldall app sync` and `weldall app status` to publish a locally built app through Weldall without a Git account: publish merges the repository's state into the folder, pushes one commit through Weldall's git proxy and opens or updates a pull request; it stops on conflicts (exit code 3) and on files that look like secrets or data (exit code 4). Add `weldall git-credential`, the git credential helper git runs for the git proxy (it stores nothing and never prompts), and `weldall connectors check <connector>` for administrators to verify a GitHub App connector against GitHub (exit code 3 when a required check fails). IaC accepts `github-app` connectors and `github-app-private-key` shared connections and refuses them for servers without `git-hosts-v1`; the manifest JSON schema declares both. Against an older server the new commands fail with a clear message and change nothing.

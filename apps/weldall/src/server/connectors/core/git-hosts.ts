@@ -20,16 +20,19 @@ export function gitHostProvider(connector: Connector): GitHostProvider {
 /**
  * Opens the host with the credential of `connection`, decrypted lazily, only when the host needs
  * it (e.g. on a token cache miss). Without a connection, every credential use fails with
- * `credential_unavailable`.
+ * `credential_unavailable`, or with `credential_ambiguous` when several enabled shared
+ * connections hold one, so that the caller can report the real cause.
  */
 export function openGitHostWith({
   provider,
   connector,
   connection,
+  ambiguous = false,
 }: {
   provider: GitHostProvider;
   connector: Connector;
   connection: Connection | null;
+  ambiguous?: boolean;
 }): GitHost {
   const config = provider.parseConfiguration(connector.providerConfig);
   if (connection) provider.validateSetupInput({ config, value: connection.providerSelection });
@@ -37,6 +40,12 @@ export function openGitHostWith({
   return provider.gitHost.open({
     config,
     async loadCredentials() {
+      if (!connection && ambiguous)
+        throw new ConnectorError(
+          "credential_ambiguous",
+          "More than one enabled shared connection provides this Git host's credential. Keep one enabled.",
+          503,
+        );
       if (!connection?.credentialId || !grant)
         throw new ConnectorError(
           "credential_unavailable",

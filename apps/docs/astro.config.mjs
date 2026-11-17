@@ -89,6 +89,11 @@ export default defineConfig({
               ],
             },
             { slug: "connectors" },
+            {
+              label: "How to: Connect GitHub",
+              translations: { de: "How to: GitHub anbinden" },
+              link: "/github-app/",
+            },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {
