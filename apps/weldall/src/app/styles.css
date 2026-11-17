@@ -38,128 +38,90 @@
   [data-astryx-theme] {
     --color-border: light-dark(#ebebeb, #ffffff1a);
     --color-border-emphasized: light-dark(#ebebeb, #525252);
-    --radius-inner: 0;
-    --radius-element: 0;
-    --radius-container: 0;
-    --radius-page: 0;
-    --radius-full: 0;
+
+    /* Brand alignment with the Weldall website: lilac accent, blue-gray canvas,
+       generous radii and pill buttons. Colors come from corporate-palette.ts. */
+    --brand-lilac: #5730cc;
+    --color-accent: light-dark(#5730cc, #828be2);
+    --color-accent-muted: light-dark(#eeebfa, #2c1866);
+    --color-on-accent: light-dark(#ffffff, #1e0f4b);
+    --color-text-accent: light-dark(#5730cc, #9ca3ec);
+    --color-icon-accent: light-dark(#5730cc, #9ca3ec);
+    --color-background-body: light-dark(#eef0f4, #1b1b1b);
+    /* Cards share the sidebar surface so tables stand off the canvas in dark mode. */
+    --color-background-card: var(--color-background-surface);
+    --radius-container: 1rem;
+    --radius-page: 1.5rem;
+    --_button-radius: var(--radius-full);
   }
 
+  /* Flat sidebar matching the Weldall website mockup: pill items, gray active state. */
   .astryx-app-shell-sidenav {
     overflow: clip !important;
-    background: linear-gradient(100deg, #fff -21.3%, #e8e8e8 89.88%) !important;
-  }
-
-  [data-theme="dark"] .astryx-app-shell-sidenav {
-    background: linear-gradient(100deg, #262626 -21.3%, #383838 89.88%) !important;
+    background: var(--color-background-surface) !important;
   }
 
   .admin-brand {
     background: var(--color-background-surface);
   }
 
-  .admin-brand-noise {
-    opacity: 0.3;
+  /* Gray canvas as on the website; tables sit in Astryx Cards. */
+  .astryx-app-shell .astryx-layout-content {
+    background: var(--color-background-body) !important;
   }
 
-  [data-theme="dark"] .admin-brand-noise {
-    filter: invert(1);
-    opacity: 0.12;
-  }
-
-  .admin-section-nav {
-    --admin-nav-neutral-from: #fff;
-    --admin-nav-neutral-to: #e8e8e8;
-
-    width: calc(100% + 1rem);
-    margin-top: -0.25rem;
-    margin-inline: -0.5rem;
+  .admin-section-nav,
+  .admin-footer-nav {
     padding-block: 0 !important;
   }
 
-  [data-theme="dark"] .admin-section-nav {
-    --admin-nav-neutral-from: #262626;
-    --admin-nav-neutral-to: #383838;
-  }
-
-  .admin-section-nav > :last-child {
-    gap: 0 !important;
-  }
-
-  .admin-section-nav .admin-section-nav-item > div > :is(a, button) {
-    position: relative;
-    height: 2.75rem !important;
-    padding-inline-start: 1rem !important;
-    overflow: hidden;
-    border-radius: 0 !important;
-    background-color: var(--admin-nav-neutral-from) !important;
-    background-image: linear-gradient(
-      100deg,
-      var(--admin-nav-neutral-from) -21.3%,
-      var(--admin-nav-neutral-to) 89.88%
-    ) !important;
+  .admin-section-nav .admin-section-nav-item > div > :is(a, button),
+  .admin-footer-nav > :last-child > div > :is(a, button) {
+    height: 2.25rem !important;
+    border-radius: var(--radius-full) !important;
+    background: transparent !important;
     color: var(--color-text-primary) !important;
-  }
-
-  .admin-section-nav .admin-section-nav-item > div > :is(a, button)::before {
-    position: absolute;
-    inset: 0;
-    background-image: url("/assets/images/noise.png");
-    background-repeat: repeat;
-    content: "";
-    opacity: 0.3;
-    pointer-events: none;
-  }
-
-  .admin-section-nav .admin-section-nav-item > div > :is(a, button) > * {
-    position: relative;
   }
 
   .admin-section-nav .admin-section-nav-item > div > :is(a, button) svg {
     color: inherit !important;
   }
 
-  .admin-section-nav .admin-section-nav-item > div > :is(a, button):hover {
-    filter: brightness(1.05);
+  .admin-section-nav .admin-section-nav-item > div > :is(a, button):hover,
+  .admin-footer-nav > :last-child > div > :is(a, button):hover {
+    background: var(--color-background-body) !important;
   }
 
   .admin-section-nav .admin-section-nav-item[data-selected] > div > :is(a, button) {
-    background-color: var(--admin-nav-from) !important;
-    background-image: linear-gradient(
-      100deg,
-      var(--admin-nav-from) -21.3%,
-      var(--admin-nav-to) 89.88%
-    ) !important;
-    color: white !important;
+    background: light-dark(#e4e5ea, #383838) !important;
     font-weight: var(--font-weight-semibold);
-    text-shadow: 0 1px 1px rgb(0 0 0 / 20%);
   }
 
-  .admin-footer-nav {
-    --admin-footer-hover: rgb(0 0 0 / 6%);
-
-    width: calc(100% + 1rem);
-    margin-inline: -0.5rem;
-    padding-block: 0 !important;
+  /* Shared 36px control height: admin header buttons, sidebar items, Copy Prompt. */
+  .herocrumbs-actions .astryx-button {
+    height: 2.25rem !important;
   }
 
-  [data-theme="dark"] .admin-footer-nav {
-    --admin-footer-hover: rgb(255 255 255 / 8%);
+  /* All single-line inputs and selects share the 36px control height (Astryx "lg"). */
+  .astryx-text-input,
+  .astryx-selector,
+  .astryx-date-input,
+  .astryx-date-range-input,
+  .astryx-date-time-input {
+    height: 2.25rem !important;
   }
 
-  .admin-footer-nav > :last-child {
-    gap: 0 !important;
+  /* Multi-selects with badges may grow, so only set a minimum. */
+  .astryx-multi-selector {
+    min-height: 2.25rem !important;
+    height: auto !important;
+    padding-block: 0.375rem !important;
   }
 
-  .admin-footer-nav > :last-child > div > :is(a, button) {
-    height: 2.75rem !important;
-    padding-inline-start: 1rem !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-  }
-
-  .admin-footer-nav > :last-child > div > :is(a, button):hover {
-    background: var(--admin-footer-hover) !important;
+  /* Search field inside Selector/MultiSelector dropdowns (no size prop in Astryx). */
+  input[role="combobox"][aria-label="Search options"] {
+    box-sizing: border-box;
+    height: 2.25rem !important;
   }
 
   .herocrumbs-actions .astryx-button[data-variant="secondary"] {
@@ -281,6 +243,11 @@
     cursor: col-resize;
     touch-action: none;
     user-select: none;
+  }
+
+  /* The last column has no neighbour; keep its handle inside so it adds no overflow. */
+  .admin-resizable-table th:last-child .admin-table-resizer {
+    transform: none;
   }
 
   .admin-table-resizer::after {
@@ -420,6 +387,12 @@
     color: var(--color-text-primary);
   }
 
+  /* Gray canvas so the surface-colored cards stand out. */
+  .skill-directory-page,
+  .skill-detail-page {
+    background: var(--color-background-body);
+  }
+
   .directory-header {
     display: flex;
     min-height: 4.5rem;
@@ -444,7 +417,7 @@
     display: block;
     width: auto;
     max-width: 8.5rem;
-    height: 2rem;
+    height: 2.25rem;
     object-fit: contain;
   }
 
@@ -453,6 +426,7 @@
     min-width: 0;
     flex: 1;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.75rem;
   }
 
@@ -463,39 +437,6 @@
     gap: 0.25rem;
   }
 
-  .directory-nav-highlight {
-    position: absolute;
-    z-index: 0;
-    top: 0;
-    left: 0;
-    width: 0;
-    height: 2.25rem;
-    overflow: hidden;
-    border-radius: var(--radius-element);
-    background-color: var(--directory-nav-from);
-    background-image: linear-gradient(
-      100deg,
-      var(--directory-nav-from) -21.3%,
-      var(--directory-nav-to) 89.88%
-    );
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .directory-nav-highlight::before {
-    position: absolute;
-    inset: 0;
-    background-image: url("/assets/images/noise.png");
-    background-repeat: repeat;
-    content: "";
-    opacity: 0.3;
-  }
-
-  [data-theme="dark"] .directory-nav-highlight::before {
-    filter: invert(1);
-    opacity: 0.12;
-  }
-
   .directory-nav-item {
     position: relative;
     z-index: 1;
@@ -503,7 +444,7 @@
     align-items: center;
     gap: 0.5rem;
     height: 2.25rem;
-    border-radius: var(--radius-element);
+    border-radius: var(--radius-full);
     padding-inline: 0.75rem;
     color: var(--color-text-secondary);
     font-size: 0.8125rem;
@@ -511,7 +452,9 @@
     line-height: 1;
     text-decoration: none;
     white-space: nowrap;
-    transition: color 140ms ease;
+    transition:
+      background-color 140ms ease,
+      color 140ms ease;
   }
 
   .directory-nav-item > svg {
@@ -525,38 +468,16 @@
     z-index: 1;
   }
 
-  .directory-nav:not([data-highlight-ready]) .directory-nav-item[aria-current="page"] {
-    overflow: hidden;
-    background-color: var(--directory-nav-from);
-    background-image: linear-gradient(
-      100deg,
-      var(--directory-nav-from) -21.3%,
-      var(--directory-nav-to) 89.88%
-    );
-    color: #fff;
-    text-shadow: 0 1px 1px rgb(0 0 0 / 20%);
+  /* Same hover/active treatment as the admin sidebar. */
+  .directory-nav-item:hover {
+    background: var(--color-background-body);
+    color: var(--color-text-primary);
   }
 
-  .directory-nav:not([data-highlight-ready]) .directory-nav-item[aria-current="page"]::before {
-    position: absolute;
-    z-index: 0;
-    inset: 0;
-    background-image: url("/assets/images/noise.png");
-    background-repeat: repeat;
-    content: "";
-    opacity: 0.3;
-  }
-
-  [data-theme="dark"]
-    .directory-nav:not([data-highlight-ready])
-    .directory-nav-item[aria-current="page"]::before {
-    filter: invert(1);
-    opacity: 0.12;
-  }
-
-  .directory-nav[data-highlight-ready] .directory-nav-item[data-highlighted] {
-    color: #fff;
-    text-shadow: 0 1px 1px rgb(0 0 0 / 20%);
+  .directory-nav-item[aria-current="page"] {
+    background: light-dark(#e4e5ea, #383838);
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-semibold);
   }
 
   .directory-nav-item:focus-visible {
@@ -568,8 +489,8 @@
     display: inline-flex;
     width: auto;
     min-width: 0;
-    height: 2.5rem;
-    flex: 1;
+    height: 2.25rem;
+    flex: 0 1 18rem;
     align-items: center;
     gap: 0.5rem;
     border: 1px solid var(--color-border);
@@ -667,7 +588,7 @@
   }
 
   .directory-avatar-trigger {
-    height: 2.5rem !important;
+    height: 2.25rem !important;
     aspect-ratio: 1 / 1 !important;
     padding: 0 !important;
     overflow: hidden;
@@ -675,7 +596,7 @@
 
   .public-page {
     min-height: 100dvh;
-    background: var(--color-background-surface);
+    background: var(--color-background-body);
     color: var(--color-text-primary);
   }
 
@@ -842,7 +763,6 @@
   .directory-table-viewport {
     width: 100%;
     overflow-x: auto;
-    border-bottom: 1px solid var(--color-border);
   }
 
   .directory-table-viewport:focus-visible {
@@ -989,136 +909,6 @@
     gap: 2rem;
   }
 
-  .skill-directory-tags {
-    position: relative;
-    min-width: 0;
-  }
-
-  .skill-directory-tag-viewport {
-    min-width: 0;
-    overflow-x: auto;
-    padding-bottom: 0.25rem;
-    scrollbar-width: none;
-  }
-
-  .skill-directory-tag-viewport::-webkit-scrollbar {
-    display: none;
-  }
-
-  .skill-directory-tags[data-can-scroll-right] .skill-directory-tag-viewport {
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 3.5rem), transparent);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 3.5rem), transparent);
-  }
-
-  .skill-directory-tags[data-can-scroll-left]:not([data-can-scroll-right])
-    .skill-directory-tag-viewport {
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 3.5rem, #000 100%);
-    mask-image: linear-gradient(to right, transparent, #000 3.5rem, #000 100%);
-  }
-
-  .skill-directory-tags[data-can-scroll-left][data-can-scroll-right] .skill-directory-tag-viewport {
-    -webkit-mask-image: linear-gradient(
-      to right,
-      transparent,
-      #000 3.5rem,
-      #000 calc(100% - 3.5rem),
-      transparent
-    );
-    mask-image: linear-gradient(
-      to right,
-      transparent,
-      #000 3.5rem,
-      #000 calc(100% - 3.5rem),
-      transparent
-    );
-  }
-
-  .skill-directory-tag-scroll-button {
-    position: absolute !important;
-    z-index: 4;
-    top: calc(50% - 0.125rem);
-    width: 1.75rem !important;
-    height: 1.75rem !important;
-    border: 0 !important;
-    background: color-mix(in srgb, var(--color-background-surface) 82%, transparent) !important;
-    color: var(--color-text-secondary) !important;
-    opacity: 0.62;
-    transform: translateY(-50%);
-    transition: opacity 140ms ease !important;
-  }
-
-  .skill-directory-tag-scroll-button:hover {
-    background: color-mix(in srgb, var(--color-background-surface) 92%, transparent) !important;
-    color: var(--color-text-primary) !important;
-    opacity: 1;
-  }
-
-  .skill-directory-tag-scroll-button-left {
-    left: 0;
-  }
-
-  .skill-directory-tag-scroll-button-right {
-    right: 0;
-  }
-
-  .skill-directory-tag-list {
-    width: max-content;
-    min-width: 100%;
-  }
-
-  .skill-directory-tag-list [role="group"] {
-    display: flex;
-    width: max-content;
-    min-width: 100%;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 0.5rem;
-  }
-
-  .skill-directory-tag-list [role="group"] > button {
-    height: 2.75rem !important;
-    flex-shrink: 0;
-    border: 1px solid var(--color-border) !important;
-    background: var(--color-background-surface) !important;
-    padding-inline: 0.875rem !important;
-    font-weight: var(--font-weight-medium) !important;
-    transform: none !important;
-  }
-
-  .skill-directory-tag-list [role="group"] > button span {
-    font-weight: inherit !important;
-  }
-
-  .skill-directory-tag-list [role="group"] > button:focus-visible {
-    outline-offset: -3px !important;
-  }
-
-  .skill-directory-tag-list [role="group"] > button:hover {
-    border-color: var(--color-border-emphasized) !important;
-  }
-
-  .skill-directory-tag-list [role="group"] > button[aria-pressed="true"] {
-    background-color: var(--skill-tag-light-from) !important;
-    background-image:
-      url("/assets/images/noise.png"),
-      linear-gradient(100deg, var(--skill-tag-light-from) -21.3%, var(--skill-tag-light-to) 89.88%) !important;
-    background-blend-mode: soft-light, normal;
-    background-repeat: repeat, no-repeat !important;
-    color: #fff !important;
-    text-shadow: none !important;
-  }
-
-  [data-theme="dark"] .skill-directory-tag-list [role="group"] > button[aria-pressed="true"] {
-    background-color: var(--skill-tag-dark-from) !important;
-    background-image:
-      url("/assets/images/noise.png"),
-      linear-gradient(100deg, var(--skill-tag-dark-from) -21.3%, var(--skill-tag-dark-to) 89.88%) !important;
-  }
-
-  .skill-directory-tag-list [role="group"] > button[aria-pressed="true"] * {
-    color: #fff !important;
-  }
-
   .skill-directory-results {
     min-width: 0;
   }
@@ -1167,49 +957,23 @@
     min-height: 15rem;
     overflow: hidden;
     flex-direction: column;
-    background-color: var(--skill-card-light-from);
-    background-image: linear-gradient(
-      110deg,
-      var(--skill-card-light-from) -18%,
-      var(--skill-card-light-to) 96%
-    );
-    color: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-container);
+    background: var(--color-background-surface);
+    color: var(--color-text-primary);
     padding: 1.25rem;
-    animation: skill-card-enter 240ms ease-out both;
+    animation: skill-card-enter 240ms ease-out backwards;
     animation-delay: calc(var(--skill-card-animation-order, 0) * 70ms);
     transition:
-      filter 160ms ease,
-      transform 160ms ease;
-  }
-
-  [data-theme="dark"] .skill-card {
-    background-color: var(--skill-card-dark-from);
-    background-image: linear-gradient(
-      110deg,
-      var(--skill-card-dark-from) -18%,
-      var(--skill-card-dark-to) 96%
-    );
-  }
-
-  .skill-card::before {
-    position: absolute;
-    z-index: -1;
-    inset: 0;
-    background-image: url("/assets/images/noise.png");
-    background-repeat: repeat;
-    content: "";
-    opacity: 0.3;
-    pointer-events: none;
-  }
-
-  [data-theme="dark"] .skill-card::before {
-    filter: invert(1);
-    opacity: 0.12;
+      border-color 250ms ease-out,
+      box-shadow 250ms ease-out;
   }
 
   .skill-card:hover {
-    filter: brightness(1.06);
-    transform: translateY(-2px);
+    border-color: var(--color-border-emphasized);
+    box-shadow:
+      0 1px 2px rgb(30 15 75 / 6%),
+      0 8px 24px rgb(30 15 75 / 10%);
   }
 
   .skill-card-link {
@@ -1220,28 +984,22 @@
   }
 
   .skill-card-link:focus-visible {
-    outline: 2px solid #fff;
+    outline: 2px solid var(--color-text-primary);
     outline-offset: -4px;
   }
 
-  .skill-card-icon {
-    position: absolute;
-    z-index: 0;
-    top: 1rem;
-    right: 1rem;
-    color: #fff;
-    opacity: 0.2;
-    pointer-events: none;
+  /* One heading line tall, so lock and flame stay centered on the first title line. */
+  .skill-card-status {
+    display: flex;
+    height: calc(1.25rem * 1.25);
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.375rem;
   }
 
-  .skill-card-icon svg {
-    width: 5rem !important;
-    height: 5rem !important;
-  }
-
+  /* No z-index here: a stacking context would trap lock, flame and "+N" below the card link. */
   .skill-card-heading {
     position: relative;
-    z-index: 1;
     display: flex;
     min-width: 0;
     min-height: 100%;
@@ -1252,17 +1010,17 @@
   .skill-card-title {
     display: flex;
     min-width: 0;
-    align-items: center;
+    align-items: flex-start;
     justify-content: flex-start;
-    gap: 0.375rem;
-    padding-right: 3.5rem;
+    gap: 0.625rem;
   }
 
   .skill-card h2 {
     min-width: 0;
+    flex: 1;
     margin: 0;
     overflow-wrap: anywhere;
-    color: #fff;
+    color: var(--color-text-primary);
     font-size: 1.25rem;
     font-weight: 650;
     letter-spacing: -0.02em;
@@ -1275,17 +1033,18 @@
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
-    color: #fff;
+    color: var(--color-text-secondary);
   }
 
   .skill-card-preview {
     display: -webkit-box;
+    max-width: 80%;
     overflow: hidden;
     margin: 0.75rem 0 1.25rem;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
-    color: rgb(255 255 255 / 82%);
-    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+    font-size: 1rem;
     line-height: 1.5;
   }
 
@@ -1297,43 +1056,146 @@
     margin-top: auto;
   }
 
-  .skill-card-tags > span {
-    border: 1px solid rgb(255 255 255 / 24%);
-    background: rgb(255 255 255 / 13%);
-    padding: 0.3125rem 0.625rem;
-    font-size: 0.6875rem;
+  /* List view: one line of chips; the overflow collapses into a "+N" chip. */
+  /* clip, not hidden: a hidden overflow is still scrollable and can shift the chips. */
+  .skill-card-tags[data-single-line] {
+    position: relative;
+    flex-wrap: nowrap;
+    overflow: clip;
+  }
+
+  .skill-card-tags[data-single-line] > span,
+  .skill-card-tags-measure > span,
+  .skill-card-tag-more {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .skill-card-tags-measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    gap: inherit;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  /* Above the card link overlay so the hover card trigger stays hoverable. */
+  .skill-card-tag-more {
+    position: relative;
+    z-index: 3;
+    cursor: default;
+  }
+
+  /* A clamped preview sits above the card link for its hover card; clicks are forwarded to the link. */
+  .skill-card-preview[data-truncated] {
+    position: relative;
+    z-index: 3;
+    cursor: pointer;
+  }
+
+  /* Astryx 0.1.4 drops HoverCard's className, so the content sets the card's width. */
+  .skill-card-hovercard {
+    display: block;
+    width: max-content;
+    max-width: min(28rem, calc(100vw - 2rem));
+    white-space: normal;
+  }
+
+  .skill-card-hovercard-text {
+    color: var(--color-text-primary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .skill-card-hovercard-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  /* One tinted chip style for every tag, like the chips on the Weldall website. */
+  .skill-card-tags :is(span:not([class]), .skill-card-resource-tag, .skill-card-tag-more),
+  .skill-noise-surface:is([data-tone="tag"], [data-tone="resource"]) {
+    border-radius: var(--radius-full);
+    background: var(--color-accent-muted);
+    color: var(--color-text-accent);
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: var(--font-weight-medium);
     line-height: 1.25;
   }
 
-  .skill-card-tags > .skill-card-resource-tag {
-    border-color: rgb(255 255 255 / 36%);
-    background: linear-gradient(100deg, rgb(151, 132, 48), rgb(181, 111, 45));
-    font-weight: var(--font-weight-semibold);
+  /* List view: the card markup laid out as compact rows for quick scanning. */
+  .skill-directory-list[data-view="list"] {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .skill-directory-list[data-view="list"] .skill-card {
+    min-height: 0;
+    padding: 0.75rem 1.25rem;
+  }
+
+  .skill-directory-list[data-view="list"] .skill-card-heading {
+    display: grid;
+    min-height: 0;
+    /* Fixed tracks so the columns line up across rows. */
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) 20rem 4.5rem;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .skill-directory-list[data-view="list"] .skill-card-title {
+    display: contents;
+  }
+
+  .skill-directory-list[data-view="list"] .skill-card h2 {
+    order: 1;
+    font-size: 1rem;
+  }
+
+  .skill-directory-list[data-view="list"] .skill-card-preview {
+    order: 2;
+    max-width: none;
+    margin: 0;
+    -webkit-line-clamp: 1;
+    font-size: 0.875rem;
+  }
+
+  .skill-directory-list[data-view="list"] .skill-card-tags {
+    order: 3;
+    margin-top: 0;
+  }
+
+  .skill-directory-list[data-view="list"] .skill-card-status {
+    order: 4;
+    height: auto;
+    justify-content: flex-end;
+  }
+
+  @media (max-width: 52rem) {
+    .skill-directory-list[data-view="list"] .skill-card-heading {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.5rem 1rem;
+    }
+
+    .skill-directory-list[data-view="list"] .skill-card-status {
+      order: 2;
+    }
+
+    .skill-directory-list[data-view="list"] :is(.skill-card-preview, .skill-card-tags) {
+      grid-column: 1 / -1;
+      order: 3;
+    }
   }
 
   .skill-noise-surface {
     position: relative;
-    isolation: isolate;
-    overflow: hidden;
-    background-color: var(--skill-noise-from);
-    background-image: linear-gradient(
-      100deg,
-      var(--skill-noise-from) -21.3%,
-      var(--skill-noise-to) 89.88%
-    );
+    border-radius: var(--radius-full);
+    background: var(--skill-noise-from);
     color: #fff;
-    text-shadow: 0 1px 1px rgb(0 0 0 / 20%);
-  }
-
-  .skill-noise-surface::before {
-    position: absolute;
-    z-index: -1;
-    inset: 0;
-    background-image: url("/assets/images/noise.png");
-    background-repeat: repeat;
-    content: "";
-    opacity: 0.3;
-    pointer-events: none;
   }
 
   .skill-noise-surface > span {
@@ -1341,8 +1203,8 @@
   }
 
   .skill-scope-list .skill-noise-surface {
-    padding: 0.3125rem 0.625rem;
-    font-size: 0.6875rem;
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
     line-height: 1.25;
   }
 
@@ -1359,9 +1221,51 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* In the card row flex handles spacing; in the headline the flame follows the last character. */
+  /* Detail page: "All skills" left, "Copy Prompt" right on the same row. */
+  .skill-detail-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .skill-detail-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: var(--font-weight-medium);
+    text-decoration: none;
+    transition: color 140ms ease;
+  }
+
+  .skill-detail-back:hover {
+    color: var(--color-text-primary);
+  }
+
+  .skill-detail-back:focus-visible {
+    border-radius: 0.25rem;
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+  }
+
+  .skill-detail-back svg {
+    width: 1rem;
+    height: 1rem;
+    transition: transform 140ms ease;
+  }
+
+  .skill-detail-back:hover svg {
+    transform: translateX(-2px);
+  }
+
+  .skill-detail-toolbar .welcome-copy-action {
+    width: auto;
+  }
+
+  /* In the headline the flame follows the last character. */
   .skill-detail-hero .skill-retrieval-flame {
-    vertical-align: middle;
     margin-inline-start: 0.375rem;
   }
 
@@ -1430,22 +1334,18 @@
     padding-top: 2rem;
   }
 
+  .skill-detail-intro {
+    margin-bottom: 1.5rem;
+  }
+
   .skill-detail-hero {
-    border-bottom: 1px solid var(--color-border-emphasized);
-    padding-block: 2.5rem;
+    padding-top: 1.5rem;
   }
 
   .skill-detail-hero h1 {
     overflow-wrap: anywhere;
     font-size: clamp(1.5rem, 3vw, 2rem);
     display: flex;
-  }
-
-  .skill-headline-char {
-    display: inline-block;
-    opacity: 0;
-    filter: blur(4px);
-    transform: translateY(10px);
   }
 
   .welcome-prompt {
@@ -1467,11 +1367,12 @@
     align-items: center;
     justify-self: start;
     gap: 0.625rem;
-    border: 1px solid #555bd6;
-    border-radius: 0;
-    background: #555bd6;
+    border: 1px solid var(--brand-lilac);
+    border-radius: var(--radius-full);
+    background: var(--brand-lilac);
     color: #fff;
-    padding: 0.75rem 1.25rem;
+    height: 2.25rem;
+    padding: 0 1.25rem;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
     font: inherit;
     font-size: 0.875rem;
@@ -1482,8 +1383,8 @@
   }
 
   .welcome-copy-button:hover {
-    border-color: #454bc5;
-    background: #454bc5;
+    border-color: #4a26b3;
+    background: #4a26b3;
   }
 
   .welcome-copy-button:active {
@@ -1541,80 +1442,126 @@
     transform: translateX(0.25rem) rotate(12deg);
   }
 
-  .welcome-copy-subline {
-    display: grid;
-    width: 100%;
-    min-width: 0;
-    min-height: 1.4em;
-    text-align: left;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.75rem;
-    line-height: 1.4;
+  /* Same size as the markdown h2 ("Expected result") below. */
+  .skill-prompt-heading {
+    margin: 0 0 0.75rem;
+    color: var(--color-text-primary);
+    font-size: 1.25rem;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
   }
 
-  .welcome-copy-preview,
-  .welcome-copy-feedback {
-    grid-area: 1 / 1;
-    min-width: 0;
+  /* Always-visible copy of the prompt, styled like a terminal window. */
+  .skill-prompt-terminal {
+    margin-bottom: 1rem;
     overflow: hidden;
-    opacity: 0;
-    text-overflow: ellipsis;
-    transform: translateY(0.25rem);
-    transition:
-      opacity 200ms ease,
-      transform 200ms ease;
-    white-space: nowrap;
+    border-radius: 0.75rem;
+    background: #18181b;
+    color: #e4e4e7;
   }
 
-  .welcome-copy-preview {
+  .skill-prompt-terminal-bar {
     display: flex;
-    justify-content: flex-start;
-    color: var(--color-text-secondary);
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.5rem 0 1rem;
   }
 
-  .welcome-copy-preview-text {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .skill-prompt-terminal-dots {
+    display: flex;
+    gap: 0.375rem;
   }
 
-  .welcome-copy-quote {
-    flex-shrink: 0;
-    color: var(--color-text-blue);
+  .skill-prompt-terminal-dots span {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    background: #71717a;
   }
 
-  .welcome-copy-action:hover .welcome-copy-preview[data-visible="true"],
-  .welcome-copy-action:focus-within .welcome-copy-preview[data-visible="true"],
-  .welcome-copy-feedback[data-visible="true"] {
-    opacity: 1;
-    transform: translateY(0);
+  .skill-prompt-terminal-copy {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: #a1a1aa;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease,
+      color 140ms ease;
   }
 
-  .welcome-copy-feedback {
-    color: var(--color-text-blue);
-    text-align: left;
+  .skill-prompt-terminal-copy:hover {
+    background: rgb(255 255 255 / 10%);
+    color: #fafafa;
   }
 
-  .welcome-copy-action[data-state="failed"] .welcome-copy-feedback {
-    color: var(--color-text-secondary);
+  .skill-prompt-terminal-copy:focus-visible {
+    outline: 2px solid #fafafa;
+    outline-offset: -2px;
+  }
+
+  .skill-prompt-terminal-copy[data-state="copied"] {
+    color: #28c840;
+  }
+
+  .skill-prompt-terminal-copy[data-state="failed"] {
+    color: #ff5f57;
+  }
+
+  .skill-prompt-terminal-copy svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .skill-prompt-terminal-body {
+    margin: 0;
+    padding: 0.75rem 1rem 1rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .skill-prompt-terminal-body code {
+    font: inherit;
+    color: inherit;
+    background: none;
+    padding: 0;
+  }
+
+  .skill-prompt-terminal-setup {
+    color: #71717a;
+  }
+
+  .skill-prompt-terminal-sign {
+    color: #a1a1aa;
+    user-select: none;
   }
 
   .skill-detail-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 18rem;
-    column-gap: 4rem;
-    row-gap: 3rem;
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    gap: 1.5rem;
     align-items: start;
-    padding-top: 3rem;
   }
 
   .skill-detail-warning {
-    grid-column: 1 / -1;
+    margin-bottom: 1.5rem;
+  }
+
+  /* Intro under the title, then the prompt button, then the remaining sections. */
+  .skill-detail-hero > .skill-markdown {
+    margin-block: 0.75rem 1.5rem;
   }
 
   .skill-detail-instructions {
     min-width: 0;
+    margin-top: 2rem;
   }
 
   .skill-markdown {
@@ -1645,8 +1592,6 @@
   }
 
   .skill-markdown h2 {
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: 0.5rem;
     font-size: 1.25rem;
   }
 
@@ -1702,11 +1647,14 @@
     font-style: italic;
   }
 
-  .skill-detail-sidebar {
+  .skill-detail-sidebar-sections {
     display: grid;
     gap: 1rem;
-    border-left: 1px solid var(--color-border-emphasized);
-    padding-left: 2rem;
+  }
+
+  .skill-detail-sidebar-sections > section + section {
+    border-top: 1px solid var(--color-border);
+    padding-top: 1rem;
   }
 
   .skill-detail-sidebar h2 {
@@ -1753,7 +1701,8 @@
     list-style: none;
   }
 
-  .skill-scope-list li {
+  /* Scope names are identifiers; tags and resources are plain labels. */
+  .skill-scope-list .skill-noise-surface:is([data-tone="granted"], [data-tone="missing"]) {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
@@ -1816,9 +1765,9 @@
     }
 
     .directory-search-trigger {
-      width: 2.5rem;
-      min-width: 2.5rem;
-      flex: 0 0 2.5rem;
+      width: 2.25rem;
+      min-width: 2.25rem;
+      flex: 0 0 2.25rem;
       justify-content: center;
       padding: 0;
     }
@@ -1839,15 +1788,31 @@
 
     .skill-detail-layout {
       grid-template-columns: 1fr;
-      gap: 3rem;
+    }
+
+    /* One column: the sidebar moves between the hero and the instructions. */
+    .skill-detail-primary {
+      display: contents;
+    }
+
+    .skill-detail-intro,
+    .skill-detail-warning {
+      margin-bottom: 0;
     }
 
     .skill-detail-sidebar {
-      grid-row: 1;
+      order: 1;
+    }
+
+    .skill-detail-sidebar-sections {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      border-left: 0;
-      border-bottom: 1px solid var(--color-border-emphasized);
-      padding: 0 0 2rem;
+      gap: 1.5rem;
+    }
+
+    /* Two columns: spacing separates the sections instead of rules. */
+    .skill-detail-sidebar-sections > section + section {
+      border-top: 0;
+      padding-top: 0;
     }
   }
 
@@ -1907,7 +1872,7 @@
       min-height: 13rem;
     }
 
-    .skill-detail-sidebar {
+    .skill-detail-sidebar-sections {
       grid-template-columns: 1fr;
     }
   }
@@ -1922,11 +1887,5 @@
     animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-  }
-
-  .skill-headline-char {
-    opacity: 1;
-    filter: none;
-    transform: none;
   }
 }

@@ -238,21 +238,13 @@ function WeldallHeader() {
           W
         </div>
       ) : (
-        <div className="admin-brand relative -m-2 flex h-20 w-[calc(100%+1rem)] items-center justify-center overflow-hidden">
-          <div
-            aria-hidden="true"
-            className="admin-brand-noise pointer-events-none absolute inset-0"
-            style={{
-              backgroundImage: "url(/assets/images/noise.png)",
-              backgroundRepeat: "repeat",
-            }}
-          />
+        <div className="admin-brand relative -m-2 flex h-20 w-[calc(100%+1rem)] items-center justify-start overflow-hidden pl-4">
           <img
             src="/assets/images/weldall.png"
             alt="Weldall"
             width={144}
             height={40}
-            className="relative h-10 w-auto"
+            className="relative h-9 w-auto"
           />
         </div>
       )}

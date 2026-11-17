@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ManagementBadge } from "@/components/admin/management-badge";
 import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import { Card } from "@astryxdesign/core/Card";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -278,62 +279,68 @@ export function ConnectionsTable() {
           verticalAlign: "middle",
         }}
       >
-        <div className="w-full overflow-x-auto" role="group" aria-label="Managed connections table">
-          <table
-            className="admin-resizable-table table-fixed border-collapse text-left"
-            style={{ minWidth: "100%", width: table.getTotalSize() }}
+        <Card>
+          <div
+            className="w-full overflow-x-auto"
+            role="group"
+            aria-label="Managed connections table"
           >
-            <ResizableTableHeader table={table} />
-            <TableBody>
-              {table.getRowModel().rows.map((row) => {
-                const href = `/admin/connections/${encodeURIComponent(row.original.id)}`;
-                return (
-                  <TableRow
-                    key={row.id}
-                    aria-label={`Open ${row.original.name}`}
-                    data-clickable="true"
-                    onClick={(event) => {
-                      if (!isInteractiveTableTarget(event.target, event.currentTarget))
-                        router.push(href);
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell, index) => (
-                      <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                        {index === 0 ? (
-                          <TableRowAction href={href} label={`Open ${row.original.name}`}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableRowAction>
-                        ) : (
-                          flexRender(cell.column.columnDef.cell, cell.getContext())
-                        )}
-                      </TableCell>
-                    ))}
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
+              <TableBody>
+                {table.getRowModel().rows.map((row) => {
+                  const href = `/admin/connections/${encodeURIComponent(row.original.id)}`;
+                  return (
+                    <TableRow
+                      key={row.id}
+                      aria-label={`Open ${row.original.name}`}
+                      data-clickable="true"
+                      onClick={(event) => {
+                        if (!isInteractiveTableTarget(event.target, event.currentTarget))
+                          router.push(href);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 ? (
+                            <TableRowAction href={href} label={`Open ${row.original.name}`}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
+                {!connectionsQuery.isPending &&
+                !connectionsQuery.error &&
+                table.getRowModel().rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <Text color="secondary">
+                        {hasFilters
+                          ? "No connections match these filters."
+                          : "No managed connections have been created."}
+                      </Text>
+                    </TableCell>
                   </TableRow>
-                );
-              })}
-              {!connectionsQuery.isPending &&
-              !connectionsQuery.error &&
-              table.getRowModel().rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length}>
-                    <Text color="secondary">
-                      {hasFilters
-                        ? "No connections match these filters."
-                        : "No managed connections have been created."}
-                    </Text>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-              {connectionsQuery.isPending ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length}>
-                    <Text color="secondary">Loading connections…</Text>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </table>
-        </div>
+                ) : null}
+                {connectionsQuery.isPending ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <Text color="secondary">Loading connections…</Text>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </table>
+          </div>
+        </Card>
       </TableContext.Provider>
     </>
   );

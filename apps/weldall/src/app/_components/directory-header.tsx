@@ -10,8 +10,8 @@ export function DirectoryHeader({
 }) {
   return (
     <header className="directory-header">
-      {logoUrls.light ? (
-        <a className="directory-brand" href="/" aria-label="Skill directory home">
+      <a className="directory-brand" href="/" aria-label="Skill directory home">
+        {logoUrls.light ? (
           <ThemeLogo
             lightUrl={logoUrls.light}
             darkUrl={logoUrls.dark}
@@ -19,8 +19,11 @@ export function DirectoryHeader({
             width={958}
             height={245}
           />
-        </a>
-      ) : null}
+        ) : (
+          // Same mark as the admin sidebar when no custom branding logo is configured.
+          <img src="/assets/images/weldall.png" alt="Weldall" width={144} height={40} />
+        )}
+      </a>
       <div className="directory-header-actions">{children}</div>
     </header>
   );

@@ -1,52 +1,13 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
+import { useState, type ReactNode, type SVGProps } from "react";
 import { usePathname } from "next/navigation";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
-import { useGSAP } from "@gsap/react";
-import gsap from "gsap";
 import { authClient } from "@/lib/auth-client";
-import { useThemeMode } from "../providers";
 import { DirectoryPrimitiveSearch } from "./directory-primitive-search";
-import { corporateGradients } from "./corporate-palette";
 
-gsap.registerPlugin(useGSAP);
-
-/**
- * On-brand gradient designs for the public directory nav items.
- * Mirrors the admin sidebar palette (see adminSectionDesigns) so the
- * hover/active treatment stays consistent across the app — all drawn from
- * the corporate identity palette instead of a rainbow.
- */
-const publicSectionDesigns = {
-  resources: {
-    light: toPair(corporateGradients.darkLilac.light),
-    dark: toPair(corporateGradients.darkLilac.dark),
-  },
-  skills: {
-    light: toPair(corporateGradients.pineApple.light),
-    dark: toPair(corporateGradients.pineApple.dark),
-  },
-  scopes: {
-    light: toPair(corporateGradients.lavender.light),
-    dark: toPair(corporateGradients.lavender.dark),
-  },
-  statistics: {
-    light: toPair(corporateGradients.lake.light),
-    dark: toPair(corporateGradients.lake.dark),
-  },
-  administration: {
-    light: toPair(corporateGradients.pineTeal.light),
-    dark: toPair(corporateGradients.pineTeal.dark),
-  },
-} as const;
-
-function toPair(tuple: readonly [string, string]) {
-  return { from: tuple[0], to: tuple[1] };
-}
-
-type SectionKey = keyof typeof publicSectionDesigns;
+type SectionKey = "skills" | "resources" | "scopes" | "statistics" | "administration";
 
 export function DirectoryUserMenu({
   email,
@@ -58,80 +19,8 @@ export function DirectoryUserMenu({
   canViewStatistics: boolean;
 }) {
   const pathname = usePathname();
-  const { mode } = useThemeMode();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [hoveredSection, setHoveredSection] = useState<SectionKey | null>(null);
-  const navRef = useRef<HTMLElement>(null);
-  const highlightRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef(new Map<SectionKey, HTMLAnchorElement>());
-  const hasPositionedHighlight = useRef(false);
   const activeSection = getActiveSection(pathname);
-  const highlightedSection = hoveredSection ?? activeSection;
-  const highlightedGradient = highlightedSection
-    ? publicSectionDesigns[highlightedSection][mode]
-    : null;
-
-  useGSAP(
-    () => {
-      const highlight = highlightRef.current;
-      const item = highlightedSection ? itemRefs.current.get(highlightedSection) : null;
-      if (!highlight || !item || !highlightedGradient) {
-        if (highlight) gsap.to(highlight, { opacity: 0, duration: 0.15 });
-        return;
-      }
-
-      const properties = {
-        left: item.offsetLeft,
-        width: item.offsetWidth,
-        opacity: 1,
-        "--directory-nav-from": highlightedGradient.from,
-        "--directory-nav-to": highlightedGradient.to,
-      };
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-      if (!hasPositionedHighlight.current) {
-        // Keep the SSR-rendered active link intact until the first interaction.
-        // Then place the shared highlight exactly underneath it before handing
-        // off to GSAP, avoiding even a sub-pixel swap during initial loading.
-        if (!hoveredSection) return;
-        const originSection = activeSection ?? highlightedSection;
-        const originItem = originSection ? itemRefs.current.get(originSection) : null;
-        const originGradient = originSection ? publicSectionDesigns[originSection][mode] : null;
-        gsap.set(highlight, {
-          left: originItem?.offsetLeft ?? item.offsetLeft,
-          width: originItem?.offsetWidth ?? item.offsetWidth,
-          opacity: 1,
-          "--directory-nav-from": originGradient?.from ?? highlightedGradient.from,
-          "--directory-nav-to": originGradient?.to ?? highlightedGradient.to,
-        });
-        navRef.current?.setAttribute("data-highlight-ready", "true");
-        hasPositionedHighlight.current = true;
-      }
-
-      if (reduceMotion) {
-        gsap.set(highlight, properties);
-      } else {
-        gsap.to(highlight, {
-          ...properties,
-          duration: 0.32,
-          ease: "power3.out",
-          overwrite: "auto",
-        });
-      }
-    },
-    {
-      dependencies: [
-        activeSection,
-        canViewStatistics,
-        highlightedSection,
-        highlightedGradient,
-        hoveredSection,
-        isAdmin,
-        mode,
-      ],
-      scope: navRef,
-    },
-  );
 
   const logOut = async () => {
     if (isLoggingOut) return;
@@ -140,76 +29,35 @@ export function DirectoryUserMenu({
     window.location.assign("/");
   };
 
-  const setItemRef = (section: SectionKey, element: HTMLAnchorElement | null) => {
-    if (element) itemRefs.current.set(section, element);
-    else itemRefs.current.delete(section);
-  };
-
   return (
     <>
       <DirectoryPrimitiveSearch />
 
-      <nav
-        ref={navRef}
-        className="directory-nav"
-        aria-label="Browse"
-        onMouseLeave={() => setHoveredSection(null)}
-      >
-        <div
-          ref={highlightRef}
-          className="directory-nav-highlight"
-          aria-hidden="true"
-          style={
-            {
-              "--directory-nav-from": highlightedGradient?.from,
-              "--directory-nav-to": highlightedGradient?.to,
-            } as CSSProperties
-          }
-        />
+      <nav className="directory-nav" aria-label="Browse">
         <DirectoryNavLink
           href="/skills"
           label="Skills"
           icon={<SkillIcon />}
-          section="skills"
           isActive={activeSection === "skills"}
-          isHighlighted={highlightedSection === "skills"}
-          gradient={publicSectionDesigns.skills[mode]}
-          onPreview={setHoveredSection}
-          setItemRef={setItemRef}
         />
         <DirectoryNavLink
           href="/resources"
           label="Resources"
           icon={<ResourceIcon />}
-          section="resources"
           isActive={activeSection === "resources"}
-          isHighlighted={highlightedSection === "resources"}
-          gradient={publicSectionDesigns.resources[mode]}
-          onPreview={setHoveredSection}
-          setItemRef={setItemRef}
         />
         <DirectoryNavLink
           href="/scopes"
           label="Scopes"
           icon={<ScopeIcon />}
-          section="scopes"
           isActive={activeSection === "scopes"}
-          isHighlighted={highlightedSection === "scopes"}
-          gradient={publicSectionDesigns.scopes[mode]}
-          onPreview={setHoveredSection}
-          setItemRef={setItemRef}
         />
         {canViewStatistics ? (
           <DirectoryNavLink
             href="/statistics"
             label="Statistics"
             icon={<StatisticsIcon />}
-            section="statistics"
             isActive={activeSection === "statistics"}
-            isHighlighted={highlightedSection === "statistics"}
-            gradient={publicSectionDesigns.statistics[mode]}
-            onPreview={setHoveredSection}
-            setItemRef={setItemRef}
           />
         ) : null}
         {isAdmin ? (
@@ -217,12 +65,7 @@ export function DirectoryUserMenu({
             href="/admin/resources"
             label="Administration"
             icon={<AdministrationIcon />}
-            section="administration"
             isActive={activeSection === "administration"}
-            isHighlighted={highlightedSection === "administration"}
-            gradient={publicSectionDesigns.administration[mode]}
-            onPreview={setHoveredSection}
-            setItemRef={setItemRef}
           />
         ) : null}
       </nav>
@@ -231,7 +74,7 @@ export function DirectoryUserMenu({
         button={{
           isIconOnly: true,
           label: "Account",
-          icon: <Avatar name={email} alt={email} size={40} />,
+          icon: <Avatar name={email} alt={email} size={36} />,
           variant: "ghost",
           className: "directory-avatar-trigger",
         }}
@@ -269,40 +112,19 @@ function DirectoryNavLink({
   href,
   label,
   icon,
-  section,
   isActive,
-  isHighlighted,
-  gradient,
-  onPreview,
-  setItemRef,
 }: {
   href: string;
   label: string;
   icon: ReactNode;
-  section: SectionKey;
   isActive: boolean;
-  isHighlighted: boolean;
-  gradient: { readonly from: string; readonly to: string };
-  onPreview: (section: SectionKey | null) => void;
-  setItemRef: (section: SectionKey, element: HTMLAnchorElement | null) => void;
 }) {
   return (
     <a
-      ref={(element) => setItemRef(section, element)}
       href={href}
       className="directory-nav-item"
       aria-current={isActive ? "page" : undefined}
       aria-label={label}
-      data-highlighted={isHighlighted || undefined}
-      style={
-        {
-          "--directory-nav-from": gradient.from,
-          "--directory-nav-to": gradient.to,
-        } as CSSProperties
-      }
-      onMouseEnter={() => onPreview(section)}
-      onFocus={() => onPreview(section)}
-      onBlur={() => onPreview(null)}
     >
       {icon}
       <span>{label}</span>

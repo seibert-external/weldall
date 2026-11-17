@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
+import { Card } from "@astryxdesign/core/Card";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -199,58 +200,62 @@ export function ResourcesTable() {
             verticalAlign: "middle",
           }}
         >
-          <div className="w-full overflow-x-auto" role="group" aria-label="Resources table">
-            <table
-              className="admin-resizable-table table-fixed border-collapse text-left"
-              style={{ minWidth: "100%", width: table.getTotalSize() }}
-            >
-              <ResizableTableHeader table={table} />
-              <TableBody>
-                {table.getRowModel().rows.map((row) => {
-                  const href = `/admin/resources/${row.original.id}`;
-                  return (
-                    <TableRow
-                      key={row.id}
-                      aria-label={`Open ${row.original.name}`}
-                      data-clickable="true"
-                      onClick={(event) => {
-                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
-                        router.push(href);
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell, index) => (
-                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                          {index === 0 ? (
-                            <TableRowAction href={href} label={`Open ${row.original.name}`}>
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </TableRowAction>
-                          ) : (
-                            flexRender(cell.column.columnDef.cell, cell.getContext())
-                          )}
-                        </TableCell>
-                      ))}
+          <Card>
+            <div className="w-full overflow-x-auto" role="group" aria-label="Resources table">
+              <table
+                className="admin-resizable-table table-fixed border-collapse text-left"
+                style={{ minWidth: "100%", width: table.getTotalSize() }}
+              >
+                <ResizableTableHeader table={table} />
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => {
+                    const href = `/admin/resources/${row.original.id}`;
+                    return (
+                      <TableRow
+                        key={row.id}
+                        aria-label={`Open ${row.original.name}`}
+                        data-clickable="true"
+                        onClick={(event) => {
+                          if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                          router.push(href);
+                        }}
+                      >
+                        {row.getVisibleCells().map((cell, index) => (
+                          <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                            {index === 0 ? (
+                              <TableRowAction href={href} label={`Open ${row.original.name}`}>
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              </TableRowAction>
+                            ) : (
+                              flexRender(cell.column.columnDef.cell, cell.getContext())
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
+                  {!resourcesQuery.isPending && table.getRowModel().rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">
+                          {q
+                            ? "No resources match this search."
+                            : "No resources have been created."}
+                        </Text>
+                      </TableCell>
                     </TableRow>
-                  );
-                })}
-                {!resourcesQuery.isPending && table.getRowModel().rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">
-                        {q ? "No resources match this search." : "No resources have been created."}
-                      </Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-                {resourcesQuery.isPending ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">Loading resources…</Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </table>
-          </div>
+                  ) : null}
+                  {resourcesQuery.isPending ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">Loading resources…</Text>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </table>
+            </div>
+          </Card>
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination
