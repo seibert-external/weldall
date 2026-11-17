@@ -175,8 +175,8 @@ describe("CLI branding", () => {
       ),
     );
     const cardTagsIndex = html.indexOf('class="skill-card-tags"');
-    const resourceTagIndex = html.indexOf("contract-service", cardTagsIndex);
-    const regularTagIndex = html.indexOf(">contracts</span>", resourceTagIndex);
+    const resourceTagIndex = html.indexOf("Contract-service", cardTagsIndex);
+    const regularTagIndex = html.indexOf(">Contracts</span>", resourceTagIndex);
 
     expect(cardTagsIndex).toBeGreaterThan(-1);
     expect(resourceTagIndex).toBeGreaterThan(cardTagsIndex);
