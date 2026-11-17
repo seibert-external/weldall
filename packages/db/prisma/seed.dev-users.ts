@@ -165,6 +165,10 @@ export async function seedDevelopmentUsers(db: PrismaClient): Promise<void> {
       update: { name: user.name, email: user.email, emailVerified: true },
     });
   }
+  // Apps restrict deleting their owner; seeded apps of removed seed users go with them.
+  await db.app.deleteMany({
+    where: { ownerId: { startsWith: USER_ID_PREFIX, notIn: SEEDED_USER_IDS } },
+  });
   await db.user.deleteMany({
     where: { id: { startsWith: USER_ID_PREFIX, notIn: SEEDED_USER_IDS } },
   });

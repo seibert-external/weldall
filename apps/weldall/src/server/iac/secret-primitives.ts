@@ -4,6 +4,7 @@ import type { GroupProvider, LoginProvider } from "@prisma/client";
 import type { DesiredState, IacBlocker } from "./contracts";
 import { desiredObjects, type CurrentObject } from "./planner";
 import { sharedConfigInclude } from "../connectors/core/shared-connections";
+import { connectorProviders } from "../connectors/registry";
 import { publicLoginProvider } from "../domain/secret-primitive-contracts";
 
 /** Presence and public binding checks only: no decryption, upstream requests, or envelope I/O. */
@@ -61,11 +62,19 @@ export async function secretPrimitiveBlockers(input: {
     const connector = final.find(
       (o) => o.kind === "connector" && o.identity === config.connectorKey,
     )?.state as { type?: string } | undefined;
-    if (connector?.type !== "atlassian-mcp")
+    const sharedKind = connectorProviders.find((p) => p.type === connector?.type)?.staticConnection
+      ?.kind;
+    if (!sharedKind)
       block(
         address,
         "INVALID_CONNECTOR",
-        "A configured Atlassian MCP connector is required (it may be disabled).",
+        "A configured connector that supports shared connections is required (it may be disabled).",
+      );
+    else if (sharedKind !== config.provider.kind)
+      block(
+        address,
+        "INVALID_CONNECTOR",
+        `This connector's shared connections use provider.kind ${sharedKind}.`,
       );
     if (!users.some((u) => u.email === config.credentialManagerEmail))
       block(

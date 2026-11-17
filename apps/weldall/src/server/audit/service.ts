@@ -10,6 +10,8 @@ import {
   type AuditReasonCode,
 } from "../../lib/audit";
 import { requestIdentifiers } from "../observability/http";
+import { redactCredentialsDeep } from "../observability/redaction";
+import { gitMetadataSchemas } from "./git-metadata";
 
 export { AUDIT_EVENT_TYPES } from "../../lib/audit";
 export type { AuditEventDto, AuditEventType } from "../../lib/audit";
@@ -351,6 +353,7 @@ const metadataSchemas = {
   "iac.object.imported": iacMetadata,
   "iac.object.unmanaged": iacMetadata,
   "iac.state.moved": iacMetadata,
+  ...gitMetadataSchemas,
 } satisfies Record<AuditEventType, z.ZodType>;
 
 const auditInputSchema = z
@@ -420,7 +423,8 @@ export interface AuditWriter {
 export const prismaAuditWriter: AuditWriter = {
   async write(input, transaction) {
     const event = auditInputSchema.parse(input);
-    const metadata = metadataSchemas[event.eventType].parse(event.metadata);
+    // Credentials never belong in audit metadata, whatever a caller passes in free text.
+    const metadata = metadataSchemas[event.eventType].parse(redactCredentialsDeep(event.metadata));
     const client = transaction ?? db;
     await client.auditEvent.create({
       data: {

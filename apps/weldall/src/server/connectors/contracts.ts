@@ -3,6 +3,7 @@ import { mcpConnectorKeySchema } from "@weldall/sdk/mcp";
 import { googleConfigSchema } from "./providers/google/config";
 import { atlassianConfigSchema } from "./providers/atlassian/config";
 import { atlassianMcpConfigSchema } from "./providers/atlassian-mcp/config";
+import { githubAppConfigSchema } from "./providers/github-app/config";
 import { scopeKeySchema, type ScopeKey } from "../policy/scope-key";
 export { ConnectorError } from "./errors";
 
@@ -24,6 +25,7 @@ export const connectorConfig = z.discriminatedUnion("type", [
   connectorBase.extend({ type: z.literal("google"), provider: googleConfigSchema }),
   connectorBase.extend({ type: z.literal("atlassian"), provider: atlassianConfigSchema }),
   connectorBase.extend({ type: z.literal("atlassian-mcp"), provider: atlassianMcpConfigSchema }),
+  connectorBase.extend({ type: z.literal("github-app"), provider: githubAppConfigSchema }),
 ]);
 export type ConnectorConfig = z.infer<typeof connectorConfig>;
 export type ConnectorConfigInput = z.input<typeof connectorConfig>;

@@ -199,6 +199,7 @@ try {
   });
   await seedDevelopmentUsers(db);
   await seedDevelopmentManagedConnectors();
+  await seedDevelopmentGitHostApp();
   await seedDevelopmentSkillRetrievals(db);
   await seedDevelopmentUsageEvents(db);
 
@@ -372,6 +373,56 @@ async function seedDevelopmentResourceSkill(
       meta: { tags: skill.tags },
       lastUpdatedAt: "development-seed",
     },
+  });
+}
+
+/**
+ * A disabled GitHub App connector without a private key and one registered demo app, so the app
+ * registry has a row to show. Nothing here reaches GitHub.
+ */
+async function seedDevelopmentGitHostApp() {
+  const providerConfig = {
+    appId: "1000001",
+    organization: "acme-apps",
+    installationId: "2000002",
+    apiBaseUrl: "https://api.github.com",
+    templates: [{ name: "react", repository: "acme-apps/react-starter" }],
+    repositoryNamePrefix: "app-",
+    reviewerTeam: "app-reviewers",
+    setupMode: "customer-managed",
+  };
+  const connector = await db.connector.upsert({
+    where: { key: "github-apps" },
+    create: {
+      id: "dev-connector-github",
+      key: "github-apps",
+      name: "Published apps on GitHub",
+      enabled: false,
+      providerType: "github-app",
+      providerConfig,
+      envelopeProvider: "LOCAL_ENV",
+      createdBy: actor,
+      updatedBy: actor,
+    },
+    update: { providerType: "github-app", providerConfig, updatedBy: actor },
+  });
+  const app = {
+    name: "expense-tracker",
+    purpose: "Tracks team expenses until the finance tool supports receipts.",
+    ownerId: "dev-user-jane-adams",
+    connectorId: connector.id,
+    repositoryOwner: "acme-apps",
+    repositoryName: "app-expense-tracker",
+    repositoryId: "900000001",
+    defaultBranch: "main",
+    template: "react",
+    templateCommit: "0123456789abcdef0123456789abcdef01234567",
+    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+  };
+  await db.app.upsert({
+    where: { id: "dev-app-expense-tracker" },
+    create: { id: "dev-app-expense-tracker", ...app },
+    update: app,
   });
 }
 

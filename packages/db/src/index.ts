@@ -18,6 +18,7 @@ export {
   SkillVisibility,
 } from "@prisma/client";
 export type {
+  App,
   OAuthDeviceRefreshBinding,
   Connector,
   ConnectorRegistration,

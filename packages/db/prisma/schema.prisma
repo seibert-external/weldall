@@ -20,6 +20,8 @@ model User {
   completedLoginInstallations LoginInstallation[]
   connections                 Connection[]
   connectionAttempts          ConnectionAuthorization[]
+  apps                        App[]
+  gitCredentials              GitCredential[]
 }
 
 model Scope {
@@ -438,6 +440,7 @@ model Connector {
   requiredScopes           ConnectorRequiredScope[]
   iacBinding               IacObjectBinding?
   registration             ConnectorRegistration?
+  apps                     App[]
 }
 
 /// Public-client DCR state; contains no client secret or user token. A claimed registration is
@@ -538,6 +541,63 @@ model ConnectionAuthorization {
   connection        Connection?     @relation(fields: [connectionId], references: [id], onDelete: Restrict)
   payload           EncryptedValue? @relation(fields: [payloadId], references: [id], onDelete: Restrict)
 
+  @@index([expiresAt])
+}
+
+/// App registry entry: one published app and the repository it lives in on a Git host connector.
+/// Host-side names are stored in the spelling the host returns; registry lookups match them
+/// exactly, the git proxy case-insensitively (`git-proxy/resolve.ts`).
+model App {
+  id              String    @id @default(cuid())
+  name            String
+  purpose         String
+  ownerId         String
+  connectorId     String
+  /// Host-side owner of the repository (organisation or user), e.g. the GitHub organisation.
+  repositoryOwner String
+  repositoryName  String
+  /// Stable host-side repository id that survives renames, when the host has one.
+  repositoryId    String?
+  /// Branch the git proxy never accepts pushes to; changes reach it only through reviewed pull requests.
+  defaultBranch   String
+  /// Template the app started from, as named in the connector configuration; null for registered repos.
+  template        String?
+  templateCommit  String?
+  previewUrl      String?
+  liveUrl         String?
+  /// Date by which the owner must re-confirm the app; set by the code that creates the entry.
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  owner           User      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  connector       Connector @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  gitCredentials  GitCredential[]
+
+  @@unique([connectorId, repositoryOwner, repositoryName])
+  @@unique([connectorId, repositoryId])
+  @@index([ownerId, createdAt])
+}
+
+enum GitCredentialAccess {
+  READ
+  WRITE
+}
+
+/// Short-lived Basic credential for the git proxy, bound to one person, one app and an access
+/// level. Only the SHA-256 of its secret is stored; expired rows are deleted lazily on issuance.
+model GitCredential {
+  id         String              @id @default(cuid())
+  secretHash Bytes
+  userId     String
+  appId      String
+  access     GitCredentialAccess
+  expiresAt  DateTime
+  createdAt  DateTime            @default(now())
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  app        App                 @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([appId])
   @@index([expiresAt])
 }
 

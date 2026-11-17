@@ -9,7 +9,7 @@ import {
   type ConnectorConfig,
 } from "./contracts";
 import { getConnectorProvider } from "./registry";
-import { connectorCapabilities } from "./provider";
+import { connectorCapabilities, requiresClientSecret } from "./provider";
 import { encrypt } from "./encryption";
 import { writeConnectorAuditLog } from "./audit";
 import { getConnectorRequiredScopeKeys, connectorScopeInclude } from "./access";
@@ -74,7 +74,7 @@ async function resolveRequiredScopes({
 /** Reads fixed application encryption, never the connector envelope provider. */
 export function readConnectorSecrets(connector: Connector) {
   const provider = getConnectorProvider(connector.providerType);
-  if (provider.registration) return provider.parseSecrets({});
+  if (!requiresClientSecret(provider)) return provider.parseSecrets({});
   if (!connector.encryptedProviderSecrets)
     throw new ConnectorError("unavailable", "Connector is not configured.", 503);
   try {
@@ -149,7 +149,12 @@ export async function saveConnectorConfiguration({
       "Disconnect and delete connections and attempts before changing the OAuth client.",
       409,
     );
-  if (clientIdChanged && config.enabled && providerSecrets === undefined && !provider.registration)
+  if (
+    clientIdChanged &&
+    config.enabled &&
+    providerSecrets === undefined &&
+    requiresClientSecret(provider)
+  )
     throw new ConnectorError(
       "missing_secret",
       "Provision the new OAuth client secret before enabling the connector.",
@@ -169,7 +174,7 @@ export async function saveConnectorConfiguration({
       : clientIdChanged
         ? null
         : (current?.encryptedProviderSecrets ?? null);
-  if (config.enabled && !provider.registration) {
+  if (config.enabled && requiresClientSecret(provider)) {
     if (!encryptedProviderSecrets)
       throw new ConnectorError(
         "missing_secret",
@@ -295,6 +300,9 @@ export async function deleteConnectorConfiguration({
       "Remove skill MCP dependencies before deleting this connector.",
       409,
     );
+  // Registered apps keep their repository reference; the registry has no removal path yet.
+  if (await tx.app.count({ where: { connectorId: id } }))
+    throw new ConnectorError("in_use", "Apps in the app registry still use this connector.", 409);
   await deleteConnectionState({ tx, target: { connectorId: id }, actor });
   await tx.connector.delete({ where: { id, version } });
   await writeConnectorAuditLog({
@@ -345,6 +353,7 @@ export async function listManagedConnectorConfiguration() {
       config: buildConnectorState(row),
       capabilities: connectorCapabilities(getConnectorProvider(row.providerType)),
       staticProvisioning: Boolean(getConnectorProvider(row.providerType).staticConnection),
+      secretRequired: requiresClientSecret(getConnectorProvider(row.providerType)),
       managed: Boolean(row.iacBinding),
       secretConfigured: Boolean(row.encryptedProviderSecrets),
     })),

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@astryxdesign/core/Button";
 import { Banner } from "@astryxdesign/core/Banner";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { FileInput } from "@astryxdesign/core/FileInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
 import { Switch } from "@astryxdesign/core/Switch";
@@ -14,6 +15,8 @@ import type { ConnectionRow } from "./connection-view";
 
 const warning =
   "Token permissions are managed in Atlassian, not Weldall. Some tools require OAuth; API-key calls may require explicit cloudId arguments. Revoke keys in Atlassian administration: disabling or deleting here only blocks Weldall access.";
+const githubWarning =
+  "The App's permissions are managed in GitHub, not Weldall. Weldall keeps the key on the server and mints short-lived tokens for one repository at a time. Revoke keys in the App settings on GitHub: disabling or deleting here only blocks Weldall access.";
 
 export function SharedConnectionForm({
   connection,
@@ -26,11 +29,13 @@ export function SharedConnectionForm({
   const client = useQueryClient();
   const configuration = useQuery(trpc.admin.managed.configuration.queryOptions());
   const scopes = useQuery(trpc.admin.scopes.options.queryOptions());
-  const connectors =
-    configuration.data?.connectors.filter(
-      (row) => row.staticProvisioning && row.config.type === "atlassian-mcp",
-    ) ?? [];
+  const connectors = configuration.data?.connectors.filter((row) => row.staticProvisioning) ?? [];
   const [connectorId, setConnectorId] = useState("");
+  const [keyFile, setKeyFile] = useState<File | null>(null);
+  const isGitHubApp =
+    connectors.find((row) => row.id === (connection?.connectorId ?? connectorId))?.config.type ===
+    "github-app";
+  const credentialLabel = isGitHubApp ? "private key" : "API key";
   const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -40,6 +45,7 @@ export function SharedConnectionForm({
   const [cloudIds, setCloudIds] = useState("");
   const saved = async () => {
     setApiKey("");
+    setKeyFile(null);
     await Promise.all([
       client.invalidateQueries({ queryKey: trpc.admin.managed.connections.queryKey() }),
       client.invalidateQueries({ queryKey: trpc.admin.managed.connection.queryKey() }),
@@ -89,7 +95,11 @@ export function SharedConnectionForm({
       className="grid gap-4"
       aria-label={connection ? "Manage shared connection" : "Add shared connection"}
     >
-      <Banner status="warning" title="Atlassian service account API key" description={warning} />
+      <Banner
+        status="warning"
+        title={isGitHubApp ? "GitHub App private key" : "Atlassian service account API key"}
+        description={isGitHubApp ? githubWarning : warning}
+      />
       <Text color="secondary">
         IaC manages public configuration only and may reset public UI changes. Provisioning a
         credential does not enable a disabled connection.
@@ -98,7 +108,7 @@ export function SharedConnectionForm({
         <Banner
           status="warning"
           title="Disabled — credential missing"
-          description="Provision an API key here, then explicitly enable the connection."
+          description={`Provision the ${credentialLabel} here, then explicitly enable the connection.`}
         />
       ) : null}
       {!connection ? (
@@ -122,16 +132,19 @@ export function SharedConnectionForm({
             secret.
           </Text>
           <TextInput label="Display name" isRequired value={name} onChange={setName} />
-          <TextInput
-            label="Configured cloud IDs (comma-separated, optional)"
-            value={cloudIds}
-            onChange={setCloudIds}
-          />
+          {isGitHubApp ? null : (
+            <TextInput
+              label="Configured cloud IDs (comma-separated, optional)"
+              value={cloudIds}
+              onChange={setCloudIds}
+            />
+          )}
         </>
       ) : null}
       <Text color="secondary">
-        Weldall use scopes control who can use this connection, not the token’s Atlassian
-        permissions.
+        {isGitHubApp
+          ? "Weldall use scopes control who can use this connection, not the App’s GitHub permissions."
+          : "Weldall use scopes control who can use this connection, not the token’s Atlassian permissions."}
       </Text>
       <ScopeChecklist
         value={useScopes}
@@ -153,24 +166,40 @@ export function SharedConnectionForm({
           }
         />
       ) : null}
-      <TextInput
-        label={connection ? "New Atlassian API token (secret)" : "Atlassian API token (secret)"}
-        type="password"
-        value={apiKey}
-        onChange={setApiKey}
-      />
+      {isGitHubApp ? (
+        <FileInput
+          label={connection ? "New GitHub App private key (.pem)" : "GitHub App private key (.pem)"}
+          accept=".pem"
+          maxSize={16 * 1024}
+          value={keyFile}
+          onChange={(file) => {
+            const selected = Array.isArray(file) ? (file[0] ?? null) : file;
+            setKeyFile(selected);
+            setApiKey("");
+            void selected?.text().then(setApiKey);
+          }}
+        />
+      ) : (
+        <TextInput
+          label={connection ? "New Atlassian API token (secret)" : "Atlassian API token (secret)"}
+          type="password"
+          value={apiKey}
+          onChange={setApiKey}
+        />
+      )}
       {connection ? (
         <div className="flex gap-2">
           <Button
-            label={connection.hasCredential ? "Rotate API key" : "Provision API key"}
+            label={`${connection.hasCredential ? "Rotate" : "Provision"} ${credentialLabel}`}
             isDisabled={busy || !apiKey}
             onClick={() => {
               rotate.mutate({
                 id: connection.id,
                 version: connection.version,
-                providerInput: { apiKey },
+                providerInput: isGitHubApp ? { privateKey: apiKey } : { apiKey },
               });
               setApiKey("");
+              setKeyFile(null);
             }}
           />
           <Button
@@ -206,16 +235,19 @@ export function SharedConnectionForm({
                 name,
                 enabled,
                 useScopeKeys: useScopes,
-                providerInput: {
-                  kind: "service-account-api-key",
-                  ...(apiKey ? { apiKey } : {}),
-                  cloudIds: cloudIds
-                    .split(",")
-                    .map((id) => id.trim())
-                    .filter(Boolean),
-                },
+                providerInput: isGitHubApp
+                  ? { kind: "github-app-private-key", ...(apiKey ? { privateKey: apiKey } : {}) }
+                  : {
+                      kind: "service-account-api-key",
+                      ...(apiKey ? { apiKey } : {}),
+                      cloudIds: cloudIds
+                        .split(",")
+                        .map((id) => id.trim())
+                        .filter(Boolean),
+                    },
               });
               setApiKey("");
+              setKeyFile(null);
             }}
           />
         </>

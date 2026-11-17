@@ -41,6 +41,22 @@ export const AUDIT_EVENT_TYPES = [
   "iac.object.imported",
   "iac.object.unmanaged",
   "iac.state.moved",
+  "git_repository.created",
+  "git_repository.denied",
+  "git_repository.failed",
+  "git_push.forwarded",
+  "git_push.completed",
+  "git_push.denied",
+  "git_push.failed",
+  "git_fetch.completed",
+  "git_fetch.denied",
+  "git_fetch.failed",
+  "git_pull_request.opened",
+  "git_pull_request.denied",
+  "git_pull_request.failed",
+  "git_credential.issued",
+  "git_credential.denied",
+  "git_credential.failed",
 ] as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];

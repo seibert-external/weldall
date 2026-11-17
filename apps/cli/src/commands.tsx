@@ -74,6 +74,16 @@ import { weldallConfigCache } from "./storage/config-cache.js";
 import { keychain } from "./storage/keychain.js";
 import { issuerPreferences } from "./storage/preferences.js";
 import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transfers.js";
+import { runGitCredentialHelper } from "./git/credential-helper.js";
+import { directWeldallAccess } from "./git/weldall-access.js";
+import { publishApp, type PublishOptions } from "./publish/publish.js";
+import {
+  parseDecisions,
+  printPublishResult,
+  PUBLISH_EXIT_CODES,
+  publishJson,
+} from "./publish/report.js";
+import { directPublishApi } from "./publish/weldall-api.js";
 
 const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
@@ -1353,6 +1363,130 @@ export const configCommand = define({
     refresh: refreshConfigCommand,
   },
   run: () => info("Run `weldall config --help` to see configuration commands."),
+});
+
+export const gitCredentialCommand = define({
+  name: "git-credential",
+  description: "Git credential helper for Weldall's git proxy; git runs it, not people",
+  args: {
+    operation: {
+      type: "positional",
+      required: true,
+      description: "Operation from git: get, store, or erase (store and erase do nothing)",
+    },
+  },
+  examples:
+    "git config credential.https://weldall.example.com/git/.helper '!weldall git-credential'",
+  // stdout belongs to git's credential protocol: no Ink output, no colors, no notices.
+  run: (context) =>
+    runGitCredentialHelper({
+      operation: context.values.operation,
+      input: process.stdin,
+      output: process.stdout,
+      errors: process.stderr,
+      environment: process.env,
+      weldall: directWeldallAccess(),
+    }),
+});
+
+const publishFolderArguments = {
+  dir: {
+    type: "string",
+    description:
+      "The app's folder (top level of its git repository); defaults to the current folder",
+  },
+  resolve: {
+    type: "boolean",
+    description:
+      "On conflict, write the merge result with conflict markers into the folder so they can be resolved",
+  },
+  decide: {
+    type: "string",
+    multiple: true,
+    description:
+      "After --resolve: `<path>=folder|local|repo` for each conflicted file; repeat per file",
+  },
+  json: jsonArgument,
+} as const;
+
+/** Runs publish or sync and prints the result; with --json also errors become JSON on stdout. */
+async function runPublishCommand(
+  values: { dir?: string | undefined; json?: boolean | undefined; decide?: string[] | undefined },
+  options: Omit<PublishOptions, "directory" | "api" | "decisions">,
+) {
+  try {
+    const result = await publishApp({
+      ...options,
+      directory: values.dir ?? process.cwd(),
+      decisions: parseDecisions(values.decide),
+      api: directPublishApi(await resolveWeldallConfig()),
+    });
+    if (values.json) console.log(publishJson(result));
+    else printPublishResult(result);
+    if (result.outcome === "conflict") process.exitCode = PUBLISH_EXIT_CODES.conflict;
+    if (result.outcome === "refused") process.exitCode = PUBLISH_EXIT_CODES.refused;
+  } catch (error) {
+    if (!values.json || !(error instanceof CliError)) throw error;
+    console.log(publishJson(error));
+    process.exitCode = error.exitCode;
+  }
+}
+
+const appPublishCommand = define({
+  name: "publish",
+  description:
+    "Publish the app folder: create its repository on first use, merge the repository's state, push one commit and open or update the pull request",
+  args: {
+    ...publishFolderArguments,
+    name: { type: "string", description: "App name (first publish only)" },
+    purpose: { type: "string", description: "What the app is for (first publish only)" },
+    template: {
+      type: "string",
+      description: "Template name, when the folder does not record it in `weldall.template`",
+    },
+    connector: {
+      type: "string",
+      description: "Git host connector key, when more than one is available (first publish only)",
+    },
+    title: { type: "string", description: "Pull request title" },
+    body: { type: "string", description: "Pull request description" },
+  },
+  examples:
+    'weldall app publish --name expenses --purpose "Track team expenses" --json\n' +
+    "weldall app publish --title 'Add receipt upload' --json\n" +
+    "weldall app publish --resolve --json\n" +
+    "weldall app publish --decide src/total.ts=folder --decide logo.png=repo --json",
+  run: ({ values }) =>
+    runPublishCommand(values, {
+      resolve: values.resolve ?? false,
+      app: {
+        ...(values.name === undefined ? {} : { name: values.name }),
+        ...(values.purpose === undefined ? {} : { purpose: values.purpose }),
+        ...(values.template === undefined ? {} : { template: values.template }),
+        ...(values.connector === undefined ? {} : { connector: values.connector }),
+      },
+      pullRequest: {
+        ...(values.title === undefined ? {} : { title: values.title }),
+        ...(values.body === undefined ? {} : { body: values.body }),
+      },
+    }),
+});
+
+const appSyncCommand = define({
+  name: "sync",
+  description:
+    "Bring the app repository's current state into the folder without publishing anything",
+  args: publishFolderArguments,
+  examples: "weldall app sync --json\nweldall app sync --resolve --json",
+  run: ({ values }) =>
+    runPublishCommand(values, { syncOnly: true, resolve: values.resolve ?? false }),
+});
+
+export const appCommand = define({
+  name: "app",
+  description: "Publish a locally built app through Weldall, without a Git account",
+  subCommands: { publish: appPublishCommand, sync: appSyncCommand },
+  run: () => info("Run `weldall app publish --help` or `weldall app sync --help`."),
 });
 
 export const mainCommand = define({

@@ -2,12 +2,14 @@ import { ConnectorError } from "./errors";
 import { googleProvider } from "./providers/google";
 import { atlassianProvider } from "./providers/atlassian";
 import { atlassianMcpProvider } from "./providers/atlassian-mcp";
+import { githubAppProvider } from "./providers/github-app";
 import type { ConnectorProvider } from "./provider";
 
 export const connectorProviders: readonly ConnectorProvider[] = [
   googleProvider,
   atlassianProvider,
   atlassianMcpProvider,
+  githubAppProvider,
 ];
 
 /** Unknown persisted or caller-provided discriminators never fall back to another provider. */

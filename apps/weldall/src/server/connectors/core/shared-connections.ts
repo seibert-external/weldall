@@ -7,14 +7,16 @@ import { hasEffectiveSystemScopeFor } from "../../policy/resources";
 import {
   sharedConnectionConfigSchema,
   publicSharedConnection,
-  sharedSelectionSchema,
+  atlassianSharedSelectionSchema,
+  githubAppSharedSelectionSchema,
 } from "../../domain/secret-primitive-contracts";
 import { ConnectorError, type ConnectorActor } from "../contracts";
 import { runConnectorTransaction } from "../configuration";
 import { getConnectorProvider } from "../registry";
+import type { ConnectorProvider } from "../provider";
 import { prepareSecretEnvelope, persistSecretEnvelope } from "../encryption";
-import { serviceGrantSchema, apiKeySchema } from "../providers/atlassian-mcp/static";
-import { ATLASSIAN_MCP } from "../providers/atlassian-mcp/config";
+import { apiKeySchema } from "../providers/atlassian-mcp/static";
+import { PRIVATE_KEY_INPUT_LIMIT } from "../providers/github-app/private-key";
 import { writeConnectorAuditLog } from "../audit";
 
 export const sharedUseScopesSchema = sharedConnectionConfigSchema.shape.useScopes;
@@ -24,7 +26,13 @@ export const createSharedConnectionSchema = z.strictObject({
   name: z.string().trim().min(1).max(200),
   enabled: z.boolean().default(true),
   useScopeKeys: sharedUseScopesSchema,
-  providerInput: sharedSelectionSchema.extend({ apiKey: apiKeySchema.optional() }),
+  /** Public selection plus the optional write-only credential; providers validate the credential. */
+  providerInput: z.discriminatedUnion("kind", [
+    atlassianSharedSelectionSchema.extend({ apiKey: apiKeySchema.optional() }),
+    githubAppSharedSelectionSchema.extend({
+      privateKey: z.string().min(1).max(PRIVATE_KEY_INPUT_LIMIT).optional(),
+    }),
+  ]),
 });
 export const sharedVersionSchema = z.strictObject({
   id: z.string().min(1).max(160),
@@ -56,6 +64,23 @@ async function resolveScopes(tx: Prisma.TransactionClient, keys: readonly string
   return scopes.map(({ id }) => ({ scopeId: id }));
 }
 const json = (value: object) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
+/** Resolves a provider that supports administrator-provisioned shared credentials of `kind`. */
+function sharedProvider(providerType: string, kind?: string) {
+  const provider = getConnectorProvider(providerType);
+  if (!provider.staticConnection)
+    throw new ConnectorError(
+      "invalid_connector",
+      "Choose a connector that supports shared connections.",
+    );
+  if (kind !== undefined && kind !== provider.staticConnection.kind)
+    throw new ConnectorError(
+      "invalid_connector",
+      `This connector's shared connections use the credential kind ${provider.staticConnection.kind}.`,
+    );
+  return provider as ConnectorProvider & {
+    staticConnection: NonNullable<ConnectorProvider["staticConnection"]>;
+  };
+}
 const conflict = () =>
   new ConnectorError("conflict", "Connection changed. Reload before editing.", 409);
 export const sharedConfigInclude = {
@@ -93,9 +118,12 @@ export async function saveSharedConnectionConfiguration(input: {
       409,
     );
   const connector = await tx.connector.findUnique({ where: { key: config.connectorKey } });
-  if (!connector || connector.providerType !== "atlassian-mcp")
-    throw new ConnectorError("invalid_connector", "Choose an Atlassian MCP connector.");
-  const provider = getConnectorProvider(connector.providerType);
+  if (!connector)
+    throw new ConnectorError(
+      "invalid_connector",
+      "Choose a connector that supports shared connections.",
+    );
+  const provider = sharedProvider(connector.providerType, config.provider.kind);
   provider.parseConfiguration(connector.providerConfig);
   provider.validateSetupInput({ config: connector.providerConfig, value: config.provider });
   const owner = await tx.user.findUnique({
@@ -176,21 +204,27 @@ export async function createSharedConnection(value: unknown, actor: ConnectorAct
   const user = await assertAdmin(actor);
   const input = createSharedConnectionSchema.parse(value);
   const connector = await db.connector.findUnique({ where: { id: input.connectorId } });
-  if (!connector || connector.providerType !== "atlassian-mcp")
-    throw new ConnectorError("invalid_connector", "Choose an Atlassian MCP connector.");
-  const { apiKey, ...selection } = input.providerInput;
-  if (input.enabled && !apiKey)
+  if (!connector)
+    throw new ConnectorError(
+      "invalid_connector",
+      "Choose a connector that supports shared connections.",
+    );
+  const provider = sharedProvider(connector.providerType, input.providerInput.kind);
+  const { selection, credentials } = provider.staticConnection.parseCreateInput(
+    input.providerInput,
+  );
+  if (input.enabled && !credentials)
     throw new ConnectorError(
       "MISSING_CREDENTIAL",
       "A credential is required to enable the connection.",
     );
   const id = randomUUID();
-  const envelope = apiKey
+  const envelope = credentials
     ? await prepareSecretEnvelope({
         provider: connector.envelopeProvider,
         connectorId: connector.id,
         context: `connection:${id}:credentials`,
-        plaintext: JSON.stringify({ kind: selection.kind, apiKey }),
+        plaintext: JSON.stringify(credentials),
       })
     : null;
   return runConnectorTransaction(async (tx) => {
@@ -222,7 +256,7 @@ export async function createSharedConnection(value: unknown, actor: ConnectorAct
           credentialId: credential.id,
           enabled: input.enabled,
           providerGrant: json(
-            serviceGrantSchema.parse({ ...selection, resource: ATLASSIAN_MCP.resource }),
+            provider.staticConnection.buildGrant({ config: latest.providerConfig, selection }),
           ),
         },
       });
@@ -263,16 +297,15 @@ export async function rotateSharedConnectionCredential(value: unknown, actor: Co
   const input = rotateSharedCredentialSchema.parse(value);
   const row = await sharedRow(db, input);
   const provider = getConnectorProvider(row.connector.providerType);
-  if (!provider.staticConnection || row.connector.providerType !== "atlassian-mcp")
-    throw conflict();
+  if (!provider.staticConnection) throw conflict();
   provider.validateSetupInput({
     config: row.connector.providerConfig,
     value: row.providerSelection,
   });
   const credentials = provider.staticConnection.parseRotateInput(input.providerInput);
-  const grant = serviceGrantSchema.parse({
-    ...sharedSelectionSchema.parse(row.providerSelection),
-    resource: ATLASSIAN_MCP.resource,
+  const grant = provider.staticConnection.buildGrant({
+    config: row.connector.providerConfig,
+    selection: row.providerSelection,
   });
   await provider.ensureGrantCurrent({
     config: row.connector.providerConfig,

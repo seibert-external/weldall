@@ -119,6 +119,8 @@ export function printUpdateAdvice(
 }
 
 export function shouldRunUpdateCheck(argv: string[]): boolean {
+  // Git runs the credential helper and shows its stderr; a notice there would be noise.
+  if (argv[0] === "git-credential") return false;
   return !argv.some((argument) => argument === "--json" || argument.startsWith("--json="));
 }
 

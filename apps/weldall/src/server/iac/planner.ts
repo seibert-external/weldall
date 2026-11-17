@@ -16,6 +16,8 @@ import type { ConnectorConfig } from "../connectors/contracts";
 import { buildConnectorState } from "../connectors/configuration";
 import { connectorScopeInclude } from "../connectors/access";
 import { getConnectorProvider } from "../connectors/registry";
+import { requiresClientSecret } from "../connectors/provider";
+import { ConnectorError } from "../connectors/errors";
 import {
   canonicalJson,
   digest,
@@ -561,12 +563,20 @@ export async function loadPlanningState({
   for (const [address, config] of Object.entries(manifest.connectors)) {
     try {
       getConnectorProvider(config.type).parseConfiguration(config.provider);
-    } catch {
-      externalBlockers.push({
-        code: "INVALID_SCOPES",
-        address: `connector.${address}`,
-        message: "Scopes must be known to the provider and defaults must be allowed.",
-      });
+    } catch (error) {
+      externalBlockers.push(
+        error instanceof ConnectorError && error.code === "unsupported_setup_mode"
+          ? {
+              code: "UNSUPPORTED_SETUP_MODE",
+              address: `connector.${address}`,
+              message: error.message,
+            }
+          : {
+              code: "INVALID_SCOPES",
+              address: `connector.${address}`,
+              message: "Scopes must be known to the provider and defaults must be allowed.",
+            },
+      );
       continue;
     }
     const current = connectors.find((c) => c.key === config.key);
@@ -582,7 +592,7 @@ export async function loadPlanningState({
     if (
       config.enabled &&
       !current?.encryptedProviderSecrets &&
-      !getConnectorProvider(config.type).registration
+      requiresClientSecret(getConnectorProvider(config.type))
     )
       externalBlockers.push({
         code: "MISSING_SECRET",
