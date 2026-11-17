@@ -9,7 +9,7 @@ Use Weldall skills and connected services in Goose through a local stdio MCP ext
 
 ## Setup
 
-Add a **Command-Line Extension** in Goose with a 300-second timeout:
+Add a **Command-Line Extension** in Goose with a 660-second timeout (longer than the ten minutes a publish may take):
 
 ```sh
 npx -y @weldall/goose@0.1.0
@@ -97,6 +97,32 @@ their existing bridge. See the SDK README for capability negotiation and host-sp
 See [the Expenses demo](../expenses/README.md#show-the-demo-ui-in-goose) for the first UI.
 Restart the branch extension after rebuilding. The MCP integration tests cover metadata and HTML
 transport; actual iframe rendering in an installed Goose remains a separate acceptance check.
+
+## Publishing apps (development branch)
+
+`publish_app({ folder, name?, purpose?, template?, connector?, title?, body?, resolve?, decisions? })`
+runs `weldall app publish --json` for an app folder (see "Publishing an app" in the CLI README) and
+`app_status({ folder } | { appId })` runs `weldall app status --json`. Both need a CLI built from
+this branch; an older CLI yields `cli_outdated`. Every value is passed as one `--option=value`
+argument without a shell; `folder` must be the absolute path of an existing folder, and decision
+paths must be relative to it.
+
+Results carry `outcome`, `summary` and `nextSteps` built from fixed text, counts and states, plus
+`data` with everything that comes from the repository, the Git host or other people: file paths,
+conflict details, notices, Weldall warnings, links, review texts, reviewer and check names, and the
+CLI's error message and hint. `data` is bounded (at most 200 entries per list, with an `omitted`
+count, and length-limited texts), stripped of control, bidirectional and zero-width characters, and
+links other than HTTPS are dropped. On `conflict` and `refused` nothing is published and the result
+is not an error: `nextSteps` names the way forward (`resolve`, then one decision per file; remove a
+refused file or add it to `.gitignore`). `pull_request_not_opened` means the change was sent but its
+pull request is missing (`published: false`, `sent: true`); publishing again opens it without
+pushing again. A CLI error returns its validated `cliCode` with fixed `nextSteps` for known codes
+and its message and hint under `error.data`.
+
+A publish may take up to ten minutes (repository creation, then a push of up to about five
+minutes), so the Goose extension timeout must be longer: 660 seconds, as in Setup. A timeout,
+cancellation or oversized output is reported as `publish_interrupted`: the publish is never retried
+automatically, and a new publish continues where the interrupted one stopped.
 
 ## Textual response content types
 

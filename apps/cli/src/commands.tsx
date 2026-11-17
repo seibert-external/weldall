@@ -77,8 +77,10 @@ import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transf
 import { runGitCredentialHelper } from "./git/credential-helper.js";
 import { directWeldallAccess } from "./git/weldall-access.js";
 import { publishApp, type PublishOptions } from "./publish/publish.js";
+import { readAppStatus } from "./publish/status.js";
 import {
   parseDecisions,
+  printAppStatus,
   printPublishResult,
   PUBLISH_EXIT_CODES,
   publishJson,
@@ -1482,11 +1484,41 @@ const appSyncCommand = define({
     runPublishCommand(values, { syncOnly: true, resolve: values.resolve ?? false }),
 });
 
+const appStatusCommand = define({
+  name: "status",
+  description:
+    "Show the app's pull request with its reviews and checks, and the preview and live links",
+  args: {
+    dir: publishFolderArguments.dir,
+    app: { type: "string", description: "App id; reads that app instead of the folder's" },
+    json: jsonArgument,
+  },
+  examples: "weldall app status --json\nweldall app status --app cm123 --json",
+  run: async ({ values }) => {
+    try {
+      const status = await readAppStatus({
+        directory: values.dir ?? process.cwd(),
+        ...(values.app === undefined ? {} : { appId: values.app }),
+        api: directPublishApi(await resolveWeldallConfig()),
+      });
+      if (values.json) console.log(publishJson(status));
+      else printAppStatus(status);
+    } catch (error) {
+      if (!values.json || !(error instanceof CliError)) throw error;
+      console.log(publishJson(error));
+      process.exitCode = error.exitCode;
+    }
+  },
+});
+
 export const appCommand = define({
   name: "app",
   description: "Publish a locally built app through Weldall, without a Git account",
-  subCommands: { publish: appPublishCommand, sync: appSyncCommand },
-  run: () => info("Run `weldall app publish --help` or `weldall app sync --help`."),
+  subCommands: { publish: appPublishCommand, sync: appSyncCommand, status: appStatusCommand },
+  run: () =>
+    info(
+      "Run `weldall app publish --help`, `weldall app sync --help` or `weldall app status --help`.",
+    ),
 });
 
 export const mainCommand = define({

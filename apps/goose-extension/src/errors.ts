@@ -27,6 +27,15 @@ export const messages = {
   mcp_rebind:
     "This MCP connector is already bound to a different connection. Start a new session to change accounts.",
   busy: "Too many concurrent operations. Wait for the current operations to finish.",
+  cli_outdated:
+    "This Weldall CLI cannot publish apps or read their status. Ask the person to update the Weldall CLI, then try again.",
+  folder_invalid:
+    "folder must be the absolute path of an existing folder on this computer: the top folder of the app.",
+  publish_interrupted:
+    "Publishing was interrupted (timeout or cancellation) and may have stopped partway; nothing is lost. Do not publish again automatically: call app_status to see what reached the pull request, tell the person, and publish again only when they ask. A new publish continues where this one stopped.",
+  publish_stopped:
+    "Publishing stopped and nothing new was published. Follow nextSteps. Do not publish another way.",
+  status_unavailable: "The app's status could not be read. Follow nextSteps.",
 } as const;
 export type ErrorCode = keyof typeof messages;
 export class ExtensionError extends Error {

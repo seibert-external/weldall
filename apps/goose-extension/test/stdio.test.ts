@@ -15,7 +15,7 @@ beforeAll(() => {
 });
 
 describe.skipIf(process.platform === "win32")("real stdio MCP", () => {
-  it("initializes, lists and calls all six tools through the CLI", async () => {
+  it("initializes, lists all eight tools and calls the six skill and request tools through the CLI", async () => {
     const f = await fixture();
     const calls = path.join(f.root, "calls");
     const client = new Client({ name: "test", version: "1" });
@@ -43,7 +43,7 @@ describe.skipIf(process.platform === "win32")("real stdio MCP", () => {
       );
       expect(client.getInstructions()).toContain("including a read-only POST query transport");
       expect(await client.ping()).toEqual({});
-      expect((await client.listTools()).tools).toHaveLength(6);
+      expect((await client.listTools()).tools).toHaveLength(8);
       for (const [name, args] of [
         ["search_skills", { query: "expenses" }],
         ["list_skills", {}],

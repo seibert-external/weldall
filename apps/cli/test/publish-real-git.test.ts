@@ -4,6 +4,9 @@ import { mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { publishApp, type PublishOptions } from "../src/publish/publish.js";
+import { readAppStatus } from "../src/publish/status.js";
+import type { PublishError } from "../src/publish/errors.js";
+import { publishJson } from "../src/publish/report.js";
 import { createPublishApi } from "../src/publish/weldall-api.js";
 import {
   BOT_IDENTITY,
@@ -167,6 +170,35 @@ describe.skipIf(reason !== null)(
       expect(await inFolder(folder, ["config", "remote.weldall.url"])).toBe(
         `${fake.issuer}/git/github/acme/app-${name}.git`,
       );
+    });
+
+    it("reads the status of the folder's pull request, or of an app id without a folder", async () => {
+      const { folder, first } = await published();
+      const options = { api: fake.api, git: GIT, environment: fake.publishEnvironment() };
+
+      const status = await readAppStatus({ ...options, directory: folder });
+
+      expect(status).toEqual({
+        outcome: "status",
+        app: { id: first.app!.id, name: first.app!.name },
+        pullRequest: expect.objectContaining({
+          number: first.pullRequest!.number,
+          state: "open",
+          headBranch: first.pullRequest!.branch,
+          reviews: [],
+          checks: [],
+        }),
+        links: { preview: expect.stringContaining("https://preview.example/"), live: null },
+        warnings: [],
+      });
+      expect(
+        await readAppStatus({ ...options, directory: "/nonexistent", appId: first.app!.id }),
+      ).toEqual(status);
+      const fresh = await fake.createFolder(`unpublished${++counter}`, "react", TEMPLATE);
+      await expect(readAppStatus({ ...options, directory: fresh })).rejects.toMatchObject({
+        code: "not_published",
+        hint: expect.stringContaining("weldall app publish"),
+      });
     });
 
     it("later publish after a squash merge: a new branch and pull request with only the new changes", async () => {
@@ -368,8 +400,17 @@ describe.skipIf(reason !== null)(
       );
       const branch = await inFolder(folder, ["config", "weldall.prBranch"]);
       expect(failure).toMatchObject({
-        code: "upstream_unavailable",
+        code: "pull_request_not_opened",
         message: expect.stringContaining(`was pushed to branch ${branch}`),
+        details: {
+          commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+          branch,
+          cause: "upstream_unavailable",
+        },
+      });
+      expect(JSON.parse(publishJson(failure as PublishError)).error).toMatchObject({
+        code: "pull_request_not_opened",
+        details: { branch, cause: "upstream_unavailable" },
       });
       const pushes = fake.pushes.length;
 

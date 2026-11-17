@@ -5,12 +5,22 @@ import { CliError } from "../errors.js";
  * says what happened and what to do next. Unless the code says otherwise, nothing was published.
  */
 export class PublishError extends CliError {
+  /** Fixed facts about the stop for agents; `--json` prints them as `error.details`. */
+  readonly details: Readonly<Record<string, string>> | undefined;
+
   constructor(
     readonly code: string,
     message: string,
-    options: { cause?: unknown; hint?: string; exitCode?: number } = {},
+    options: {
+      cause?: unknown;
+      hint?: string;
+      exitCode?: number;
+      details?: Record<string, string>;
+    } = {},
   ) {
-    super(message, options);
+    const { details, ...rest } = options;
+    super(message, rest);
     this.name = "PublishError";
+    this.details = details;
   }
 }

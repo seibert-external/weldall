@@ -48,6 +48,22 @@ const appStatus = z.object({
       state: z.enum(["open", "merged", "closed"]),
       headBranch: z.string(),
       headCommit: z.string(),
+      // Written in the customer's Git: the server sanitises and bounds them; they stay data.
+      reviews: z.array(
+        z.object({
+          author: z.string(),
+          state: z.enum(["approved", "changes_requested", "commented", "dismissed"]),
+          body: z.string(),
+          submittedAt: z.string().nullable(),
+        }),
+      ),
+      checks: z.array(
+        z.object({
+          name: z.string(),
+          state: z.enum(["pending", "success", "failure", "neutral"]),
+          detailsUrl: z.string().nullable(),
+        }),
+      ),
     })
     .nullable(),
   links: z.object({ preview: z.string().nullable(), live: z.string().nullable() }),

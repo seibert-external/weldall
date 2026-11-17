@@ -3,6 +3,7 @@ import { info, printFields, success, terminalText, warning } from "../output.js"
 import type { ConflictChoice } from "./conflicts.js";
 import { PublishError } from "./errors.js";
 import type { PublishResult } from "./publish.js";
+import type { AppStatusReport } from "./status.js";
 
 /** Exit codes an agent can branch on; the JSON output carries the details. */
 export const PUBLISH_EXIT_CODES = { conflict: 3, refused: 4 } as const;
@@ -35,7 +36,9 @@ const list = (paths: readonly string[], limit = 20) =>
   ].join("\n");
 
 /** The result as JSON on stdout; an error as `{ outcome: "error", error }`. */
-export function publishJson(value: PublishResult | PublishError | CliError): string {
+export function publishJson(
+  value: PublishResult | AppStatusReport | PublishError | CliError,
+): string {
   if (value instanceof CliError)
     return JSON.stringify(
       {
@@ -44,6 +47,7 @@ export function publishJson(value: PublishResult | PublishError | CliError): str
           code: value instanceof PublishError ? value.code : "error",
           message: value.message,
           ...(value.hint ? { hint: value.hint } : {}),
+          ...(value instanceof PublishError && value.details ? { details: value.details } : {}),
         },
       },
       null,
@@ -99,4 +103,33 @@ export function printPublishResult(result: PublishResult) {
       message: notice.paths.length ? `${notice.message}\n${list(notice.paths)}` : notice.message,
     });
   for (const item of result.warnings) warning({ message: `Weldall: ${item.message}` });
+}
+
+const REVIEW_STATE = {
+  approved: "approved",
+  changes_requested: "changes requested",
+  commented: "commented",
+  dismissed: "dismissed",
+} as const;
+
+export function printAppStatus(status: AppStatusReport) {
+  const fields: Array<[string, string]> = [["App", `${status.app.name} (${status.app.id})`]];
+  const pull = status.pullRequest;
+  if (pull) {
+    fields.push(["Pull request", `${pull.webUrl} (${pull.state})`]);
+    const failed = pull.checks.filter(({ state }) => state === "failure").length;
+    const pending = pull.checks.filter(({ state }) => state === "pending").length;
+    if (pull.checks.length)
+      fields.push(["Checks", `${pull.checks.length} (${failed} failed, ${pending} pending)`]);
+  } else fields.push(["Pull request", "none"]);
+  if (status.links.preview) fields.push(["Preview", status.links.preview]);
+  if (status.links.live) fields.push(["Live", status.links.live]);
+  printFields({ fields, title: "App status" });
+  for (const review of pull?.reviews ?? [])
+    info(
+      `Review by ${terminalText(review.author)} (${REVIEW_STATE[review.state]})${
+        review.body ? `:\n${terminalText(review.body)}` : ""
+      }`,
+    );
+  for (const item of status.warnings) warning({ message: `Weldall: ${item.message}` });
 }

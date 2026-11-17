@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { access, realpath } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { isIssuerHost } from "../git/credential-helper.js";
 import { configureGitProxyRepository, parseGitProxyRemote } from "../git/repository-setup.js";
@@ -99,7 +99,17 @@ const changeName = { A: "added", M: "modified", T: "modified", D: "deleted" } as
 const readable = (text: string) =>
   text.replaceAll(LOCAL_SIDE_REF, "the local folder").replaceAll(REPO_SIDE_REF, "the repository");
 
-async function openRepository(options: PublishOptions) {
+/** Opens the app folder's repository after checking git and that the folder is its top level. */
+export async function openRepository(
+  options: Pick<PublishOptions, "directory" | "git" | "environment">,
+) {
+  // Checked first: git started in a missing folder fails like a missing git.
+  const folder = await stat(options.directory).catch(() => null);
+  if (!folder?.isDirectory())
+    throw new PublishError(
+      "folder_missing",
+      `${options.directory} does not exist or is not a folder. Name the app's folder.`,
+    );
   const git = new GitRepository(
     options.git ?? "git",
     options.directory,
@@ -404,10 +414,16 @@ class PublishRun {
         });
       } catch (error) {
         if (!(error instanceof PublishError) || !pushed) throw error;
+        // The change was sent: a fixed code, so an agent does not read this as "nothing published".
         throw new PublishError(
-          error.code,
+          "pull_request_not_opened",
           `Commit ${pushed} was pushed to branch ${branch}, but opening its pull request failed: ${error.message} Run publish again to open it; nothing is pushed twice.`,
-          { cause: error, ...(error.hint ? { hint: error.hint } : {}) },
+          {
+            cause: error,
+            hint:
+              error.hint ?? "Run publish again to open the pull request; nothing is pushed twice.",
+            details: { commit: pushed, branch, cause: error.code },
+          },
         );
       }
       await git.setConfig(CONFIG.prNumber, String(opened.pullRequest.number));

@@ -62,6 +62,12 @@ export async function resolveCli(env = process.env, cwd = process.cwd()): Promis
   throw new ExtensionError("cli_missing");
 }
 
+export interface CliResult {
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+}
+
 export interface CliRunner {
   nativeDiscoveryVersion?: 1 | undefined;
   run(
@@ -70,6 +76,11 @@ export interface CliRunner {
     timeout?: number,
     maximumOutput?: number,
   ): Promise<string>;
+  /**
+   * Runs once, without retries, and resolves with stdout and stderr also on a non-zero exit, for
+   * commands that report their outcome as JSON with an exit code (app publish and status).
+   */
+  runForResult?(args: string[], signal?: AbortSignal, timeout?: number): Promise<CliResult>;
 }
 
 export class WeldallCli implements CliRunner {
@@ -77,7 +88,7 @@ export class WeldallCli implements CliRunner {
   private readonly operations = new Set<AbortController>();
   private running = 0;
   private readonly waiting = new Set<(error?: ExtensionError) => void>();
-  private readonly pending = new Set<Promise<string>>();
+  private readonly pending = new Set<Promise<CliResult>>();
   private closed = false;
   constructor(
     readonly executable: string,
@@ -120,9 +131,18 @@ export class WeldallCli implements CliRunner {
   ): Promise<string> {
     // Retries share one deadline, so waiting for a slot never extends a call past its timeout.
     const deadline = Date.now() + timeout;
+    const once = async () => {
+      const result = await this.runOnce(args, signal, deadline, maximumOutput);
+      if (result.exitCode !== 0)
+        throw new ExtensionError("cli_failed", {
+          exitCode: result.exitCode,
+          stderr: result.stderr,
+        });
+      return result.stdout;
+    };
     for (const pause of KEYCHAIN_RETRY_MS) {
       try {
-        return await this.runOnce(args, signal, deadline, maximumOutput);
+        return await once();
       } catch (error) {
         if (!(error instanceof ExtensionError && error.stderr?.startsWith(KEYCHAIN_READ_FAILED)))
           throw error;
@@ -135,7 +155,11 @@ export class WeldallCli implements CliRunner {
         }
       }
     }
-    return this.runOnce(args, signal, deadline, maximumOutput);
+    return once();
+  }
+
+  runForResult(args: string[], signal?: AbortSignal, timeout = CATALOG_TIMEOUT) {
+    return this.runOnce(args, signal, Date.now() + timeout, MAX_OUTPUT_BYTES);
   }
 
   private async runOnce(
@@ -143,7 +167,7 @@ export class WeldallCli implements CliRunner {
     signal: AbortSignal | undefined,
     deadline: number,
     maximumOutput: number,
-  ): Promise<string> {
+  ): Promise<CliResult> {
     if (
       !Number.isSafeInteger(maximumOutput) ||
       maximumOutput < 1 ||
@@ -171,7 +195,7 @@ export class WeldallCli implements CliRunner {
       "WELDALL_DEBUG_TIMINGS",
     ])
       delete env[key as keyof typeof env];
-    const promise = new Promise<string>((resolve, reject) => {
+    const promise = new Promise<CliResult>((resolve, reject) => {
       const child = spawn(this.executable, args, {
         cwd: path.parse(this.executable).root,
         env,
@@ -228,14 +252,11 @@ export class WeldallCli implements CliRunner {
           reject(failure);
           return;
         }
-        if (code !== 0) {
-          reject(
-            new ExtensionError("cli_failed", {
-              exitCode: code,
-              stderr: Buffer.concat(stderr).toString("utf8"),
-            }),
-          );
-        } else resolve(Buffer.concat(stdout).toString("utf8"));
+        resolve({
+          exitCode: code,
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr: Buffer.concat(stderr).toString("utf8"),
+        });
       });
     }).finally(() => {
       signal?.removeEventListener("abort", abort);
