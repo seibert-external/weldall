@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
+import { Card } from "@astryxdesign/core/Card";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -253,122 +254,124 @@ export function MachineDetail({ machineId }: { machineId: string | null }) {
                   : "Register a machine client with its initial public key and allowed access."}
               </Text>
             </div>
-            <FormLayout>
-              <machineForm.Field
-                name="clientId"
-                validators={{
-                  onBlur: ({ value }) => validateClientId(value),
-                  onChange: ({ value }) => validateClientId(value),
-                  onSubmit: ({ value }) => validateClientId(value),
-                }}
-              >
-                {(field) => (
-                  <TextInput
-                    isDisabled={!isNew}
-                    isRequired
-                    label="Client ID"
-                    onBlur={field.handleBlur}
-                    onChange={field.handleChange}
-                    placeholder="expenses-a"
-                    {...fieldStatusProps(field)}
-                    value={field.state.value}
-                    width="100%"
-                  />
-                )}
-              </machineForm.Field>
-              <machineForm.Field
-                name="name"
-                validators={{
-                  onBlur: ({ value }) => validateRequiredText(value, "Name", 200),
-                  onSubmit: ({ value }) => validateRequiredText(value, "Name", 200),
-                }}
-              >
-                {(field) => (
-                  <TextInput
-                    isRequired
-                    label="Name"
-                    onBlur={field.handleBlur}
-                    onChange={field.handleChange}
-                    placeholder="Expenses A"
-                    {...fieldStatusProps(field)}
-                    value={field.state.value}
-                    width="100%"
-                  />
-                )}
-              </machineForm.Field>
-              {!isNew ? (
-                <machineForm.Field name="enabled">
+            <Card padding={6}>
+              <FormLayout>
+                <machineForm.Field
+                  name="clientId"
+                  validators={{
+                    onBlur: ({ value }) => validateClientId(value),
+                    onChange: ({ value }) => validateClientId(value),
+                    onSubmit: ({ value }) => validateClientId(value),
+                  }}
+                >
                   {(field) => (
-                    <Switch
-                      description="Deactivation blocks new tokens immediately; existing tokens expire within five minutes."
-                      label="Enabled"
-                      labelPosition="start"
-                      labelSpacing="spread"
+                    <TextInput
+                      isDisabled={!isNew}
+                      isRequired
+                      label="Client ID"
+                      onBlur={field.handleBlur}
                       onChange={field.handleChange}
+                      placeholder="expenses-a"
+                      {...fieldStatusProps(field)}
                       value={field.state.value}
                       width="100%"
                     />
                   )}
                 </machineForm.Field>
-              ) : null}
-            </FormLayout>
+                <machineForm.Field
+                  name="name"
+                  validators={{
+                    onBlur: ({ value }) => validateRequiredText(value, "Name", 200),
+                    onSubmit: ({ value }) => validateRequiredText(value, "Name", 200),
+                  }}
+                >
+                  {(field) => (
+                    <TextInput
+                      isRequired
+                      label="Name"
+                      onBlur={field.handleBlur}
+                      onChange={field.handleChange}
+                      placeholder="Expenses A"
+                      {...fieldStatusProps(field)}
+                      value={field.state.value}
+                      width="100%"
+                    />
+                  )}
+                </machineForm.Field>
+                {!isNew ? (
+                  <machineForm.Field name="enabled">
+                    {(field) => (
+                      <Switch
+                        description="Deactivation blocks new tokens immediately; existing tokens expire within five minutes."
+                        label="Enabled"
+                        labelPosition="start"
+                        labelSpacing="spread"
+                        onChange={field.handleChange}
+                        value={field.state.value}
+                        width="100%"
+                      />
+                    )}
+                  </machineForm.Field>
+                ) : null}
+              </FormLayout>
+            </Card>
           </section>
 
           {isNew ? (
             <>
-              <hr className="border-border m-0 border-0 border-t" />
               <section className="grid gap-4" aria-labelledby="initial-key-title">
                 <SectionHeading
                   description="Register an ES256 P-256 public JWK. Weldall never stores private key material."
                   id="initial-key-title"
                   title="Initial public key"
                 />
-                <FormLayout>
-                  <machineForm.Field
-                    name="kid"
-                    validators={{
-                      onBlur: ({ value }) => validateKid(value),
-                      onChange: ({ value }) => validateKid(value),
-                      onSubmit: ({ value }) => validateKid(value),
-                    }}
-                  >
-                    {(field) => (
-                      <TextInput
-                        isRequired
-                        label="Key ID (kid)"
-                        onBlur={field.handleBlur}
-                        onChange={field.handleChange}
-                        placeholder="expenses-a-2026-01"
-                        {...fieldStatusProps(field)}
-                        value={field.state.value}
-                        width="100%"
-                      />
-                    )}
-                  </machineForm.Field>
-                  <machineForm.Field
-                    name="publicJwk"
-                    validators={{
-                      onBlur: ({ value }) => validatePublicJwk(value),
-                      onSubmit: ({ value }) => validatePublicJwk(value),
-                    }}
-                  >
-                    {(field) => (
-                      <TextArea
-                        isRequired
-                        label="Public JWK JSON"
-                        onBlur={field.handleBlur}
-                        onChange={field.handleChange}
-                        placeholder={'{"kty":"EC","crv":"P-256","x":"…","y":"…"}'}
-                        rows={7}
-                        {...fieldStatusProps(field)}
-                        value={field.state.value}
-                      />
-                    )}
-                  </machineForm.Field>
-                </FormLayout>
+                <Card padding={6}>
+                  <FormLayout>
+                    <machineForm.Field
+                      name="kid"
+                      validators={{
+                        onBlur: ({ value }) => validateKid(value),
+                        onChange: ({ value }) => validateKid(value),
+                        onSubmit: ({ value }) => validateKid(value),
+                      }}
+                    >
+                      {(field) => (
+                        <TextInput
+                          isRequired
+                          label="Key ID (kid)"
+                          onBlur={field.handleBlur}
+                          onChange={field.handleChange}
+                          placeholder="expenses-a-2026-01"
+                          {...fieldStatusProps(field)}
+                          value={field.state.value}
+                          width="100%"
+                        />
+                      )}
+                    </machineForm.Field>
+                    <machineForm.Field
+                      name="publicJwk"
+                      validators={{
+                        onBlur: ({ value }) => validatePublicJwk(value),
+                        onSubmit: ({ value }) => validatePublicJwk(value),
+                      }}
+                    >
+                      {(field) => (
+                        <TextArea
+                          isRequired
+                          label="Public JWK JSON"
+                          onBlur={field.handleBlur}
+                          onChange={field.handleChange}
+                          placeholder={'{"kty":"EC","crv":"P-256","x":"…","y":"…"}'}
+                          rows={7}
+                          {...fieldStatusProps(field)}
+                          value={field.state.value}
+                        />
+                      )}
+                    </machineForm.Field>
+                  </FormLayout>
+                </Card>
               </section>
 
-              <hr className="border-border m-0 border-0 border-t" />
               <section className="grid gap-4" aria-labelledby="initial-access-title">
                 <SectionHeading
                   description="Select resources and scopes independently. Requested scopes must be supported by the requested resource."
@@ -376,42 +379,44 @@ export function MachineDetail({ machineId }: { machineId: string | null }) {
                   title="Machine access"
                 />
                 <AccessOptionsError query={accessOptionsQuery} />
-                <FormLayout>
-                  <machineForm.Field name="resourceIds">
-                    {(field) => (
-                      <MultiSelector
-                        hasClear
-                        hasSearch
-                        hasSelectAll
-                        label="Resources"
-                        onChange={field.handleChange}
-                        options={resourceOptions}
-                        placeholder="Choose resources…"
-                        searchPlaceholder="Find resources…"
-                        triggerDisplay="badges"
-                        value={field.state.value}
-                        width="100%"
-                      />
-                    )}
-                  </machineForm.Field>
-                  <machineForm.Field name="scopeIds">
-                    {(field) => (
-                      <MultiSelector
-                        hasClear
-                        hasSearch
-                        hasSelectAll
-                        label="Scopes"
-                        onChange={field.handleChange}
-                        options={scopeOptions}
-                        placeholder="Choose scopes…"
-                        searchPlaceholder="Find scopes…"
-                        triggerDisplay="badges"
-                        value={field.state.value}
-                        width="100%"
-                      />
-                    )}
-                  </machineForm.Field>
-                </FormLayout>
+                <Card padding={6}>
+                  <FormLayout>
+                    <machineForm.Field name="resourceIds">
+                      {(field) => (
+                        <MultiSelector
+                          hasClear
+                          hasSearch
+                          hasSelectAll
+                          label="Resources"
+                          onChange={field.handleChange}
+                          options={resourceOptions}
+                          placeholder="Choose resources…"
+                          searchPlaceholder="Find resources…"
+                          triggerDisplay="badges"
+                          value={field.state.value}
+                          width="100%"
+                        />
+                      )}
+                    </machineForm.Field>
+                    <machineForm.Field name="scopeIds">
+                      {(field) => (
+                        <MultiSelector
+                          hasClear
+                          hasSearch
+                          hasSelectAll
+                          label="Scopes"
+                          onChange={field.handleChange}
+                          options={scopeOptions}
+                          placeholder="Choose scopes…"
+                          searchPlaceholder="Find scopes…"
+                          triggerDisplay="badges"
+                          value={field.state.value}
+                          width="100%"
+                        />
+                      )}
+                    </machineForm.Field>
+                  </FormLayout>
+                </Card>
               </section>
             </>
           ) : null}
@@ -419,7 +424,6 @@ export function MachineDetail({ machineId }: { machineId: string | null }) {
 
         {!isNew && machine ? (
           <>
-            <hr className="border-border m-0 border-0 border-t" />
             <section className="grid gap-4" aria-labelledby="registered-keys-title">
               <SectionHeading
                 description="Overlapping active keys allow zero-downtime rotation. Revoke the old key after every caller has switched."
@@ -431,76 +435,77 @@ export function MachineDetail({ machineId }: { machineId: string | null }) {
                 isRevoking={revokeKeyMutation.isPending}
                 onRevoke={setKeyToRevoke}
               />
-              <form
-                className="admin-dialog-form"
-                id={keyFormId}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void keyForm.handleSubmit();
-                }}
-              >
-                <FormLayout>
-                  <keyForm.Field
-                    name="kid"
-                    validators={{
-                      onBlur: ({ value }) => validateKid(value),
-                      onChange: ({ value }) => validateKid(value),
-                      onSubmit: ({ value }) => validateKid(value),
-                    }}
-                  >
-                    {(field) => (
-                      <TextInput
-                        isRequired
-                        label="New key ID (kid)"
-                        onBlur={field.handleBlur}
-                        onChange={field.handleChange}
-                        placeholder="expenses-a-2026-02"
-                        {...fieldStatusProps(field)}
-                        value={field.state.value}
-                        width="100%"
-                      />
-                    )}
-                  </keyForm.Field>
-                  <keyForm.Field
-                    name="publicJwk"
-                    validators={{
-                      onBlur: ({ value }) => validatePublicJwk(value),
-                      onSubmit: ({ value }) => validatePublicJwk(value),
-                    }}
-                  >
-                    {(field) => (
-                      <TextArea
-                        isRequired
-                        label="New public JWK JSON"
-                        onBlur={field.handleBlur}
-                        onChange={field.handleChange}
-                        placeholder={'{"kty":"EC","crv":"P-256","x":"…","y":"…"}'}
-                        rows={7}
-                        {...fieldStatusProps(field)}
-                        value={field.state.value}
-                      />
-                    )}
-                  </keyForm.Field>
-                </FormLayout>
-                <div className="flex justify-end">
-                  <keyForm.Subscribe selector={(state) => state.canSubmit}>
-                    {(canSubmit) => (
-                      <Button
-                        form={keyFormId}
-                        isDisabled={!canSubmit}
-                        isLoading={registerKeyMutation.isPending}
-                        label="Register public key"
-                        type="submit"
-                        variant="secondary"
-                      />
-                    )}
-                  </keyForm.Subscribe>
-                </div>
-              </form>
+              <Card padding={6}>
+                <form
+                  className="admin-dialog-form"
+                  id={keyFormId}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void keyForm.handleSubmit();
+                  }}
+                >
+                  <FormLayout>
+                    <keyForm.Field
+                      name="kid"
+                      validators={{
+                        onBlur: ({ value }) => validateKid(value),
+                        onChange: ({ value }) => validateKid(value),
+                        onSubmit: ({ value }) => validateKid(value),
+                      }}
+                    >
+                      {(field) => (
+                        <TextInput
+                          isRequired
+                          label="New key ID (kid)"
+                          onBlur={field.handleBlur}
+                          onChange={field.handleChange}
+                          placeholder="expenses-a-2026-02"
+                          {...fieldStatusProps(field)}
+                          value={field.state.value}
+                          width="100%"
+                        />
+                      )}
+                    </keyForm.Field>
+                    <keyForm.Field
+                      name="publicJwk"
+                      validators={{
+                        onBlur: ({ value }) => validatePublicJwk(value),
+                        onSubmit: ({ value }) => validatePublicJwk(value),
+                      }}
+                    >
+                      {(field) => (
+                        <TextArea
+                          isRequired
+                          label="New public JWK JSON"
+                          onBlur={field.handleBlur}
+                          onChange={field.handleChange}
+                          placeholder={'{"kty":"EC","crv":"P-256","x":"…","y":"…"}'}
+                          rows={7}
+                          {...fieldStatusProps(field)}
+                          value={field.state.value}
+                        />
+                      )}
+                    </keyForm.Field>
+                  </FormLayout>
+                  <div className="flex justify-end">
+                    <keyForm.Subscribe selector={(state) => state.canSubmit}>
+                      {(canSubmit) => (
+                        <Button
+                          form={keyFormId}
+                          isDisabled={!canSubmit}
+                          isLoading={registerKeyMutation.isPending}
+                          label="Register public key"
+                          type="submit"
+                          variant="secondary"
+                        />
+                      )}
+                    </keyForm.Subscribe>
+                  </div>
+                </form>
+              </Card>
             </section>
 
-            <hr className="border-border m-0 border-0 border-t" />
             <section className="grid gap-4" aria-labelledby="machine-access-title">
               <SectionHeading
                 description="Select resources and scopes independently. Requested scopes must be supported by the requested resource."
@@ -508,70 +513,72 @@ export function MachineDetail({ machineId }: { machineId: string | null }) {
                 title="Machine access"
               />
               <AccessOptionsError query={accessOptionsQuery} />
-              <form
-                className="admin-dialog-form"
-                id={accessFormId}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void accessForm.handleSubmit();
-                }}
-              >
-                <FormLayout>
-                  <accessForm.Field name="resourceIds">
-                    {(field) => (
-                      <MultiSelector
-                        hasClear
-                        hasSearch
-                        hasSelectAll
-                        label="Resources"
-                        onChange={field.handleChange}
-                        options={resourceOptions}
-                        placeholder="Choose resources…"
-                        searchPlaceholder="Find resources…"
-                        triggerDisplay="badges"
-                        value={field.state.value}
-                        width="100%"
-                      />
-                    )}
-                  </accessForm.Field>
-                  <accessForm.Field name="scopeIds">
-                    {(field) => (
-                      <MultiSelector
-                        hasClear
-                        hasSearch
-                        hasSelectAll
-                        label="Scopes"
-                        onChange={field.handleChange}
-                        options={scopeOptions}
-                        placeholder="Choose scopes…"
-                        searchPlaceholder="Find scopes…"
-                        triggerDisplay="badges"
-                        value={field.state.value}
-                        width="100%"
-                      />
-                    )}
-                  </accessForm.Field>
-                </FormLayout>
-                <div className="flex justify-end">
-                  <accessForm.Subscribe selector={(state) => state.canSubmit}>
-                    {(canSubmit) => (
-                      <Button
-                        form={accessFormId}
-                        isDisabled={
-                          !canSubmit ||
-                          accessOptionsQuery.isPending ||
-                          Boolean(accessOptionsQuery.error)
-                        }
-                        isLoading={replaceAccessMutation.isPending}
-                        label="Save access"
-                        type="submit"
-                        variant="primary"
-                      />
-                    )}
-                  </accessForm.Subscribe>
-                </div>
-              </form>
+              <Card padding={6}>
+                <form
+                  className="admin-dialog-form"
+                  id={accessFormId}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void accessForm.handleSubmit();
+                  }}
+                >
+                  <FormLayout>
+                    <accessForm.Field name="resourceIds">
+                      {(field) => (
+                        <MultiSelector
+                          hasClear
+                          hasSearch
+                          hasSelectAll
+                          label="Resources"
+                          onChange={field.handleChange}
+                          options={resourceOptions}
+                          placeholder="Choose resources…"
+                          searchPlaceholder="Find resources…"
+                          triggerDisplay="badges"
+                          value={field.state.value}
+                          width="100%"
+                        />
+                      )}
+                    </accessForm.Field>
+                    <accessForm.Field name="scopeIds">
+                      {(field) => (
+                        <MultiSelector
+                          hasClear
+                          hasSearch
+                          hasSelectAll
+                          label="Scopes"
+                          onChange={field.handleChange}
+                          options={scopeOptions}
+                          placeholder="Choose scopes…"
+                          searchPlaceholder="Find scopes…"
+                          triggerDisplay="badges"
+                          value={field.state.value}
+                          width="100%"
+                        />
+                      )}
+                    </accessForm.Field>
+                  </FormLayout>
+                  <div className="flex justify-end">
+                    <accessForm.Subscribe selector={(state) => state.canSubmit}>
+                      {(canSubmit) => (
+                        <Button
+                          form={accessFormId}
+                          isDisabled={
+                            !canSubmit ||
+                            accessOptionsQuery.isPending ||
+                            Boolean(accessOptionsQuery.error)
+                          }
+                          isLoading={replaceAccessMutation.isPending}
+                          label="Save access"
+                          type="submit"
+                          variant="primary"
+                        />
+                      )}
+                    </accessForm.Subscribe>
+                  </div>
+                </form>
+              </Card>
             </section>
           </>
         ) : null}
@@ -653,51 +660,53 @@ function RegisteredKeysTable({
         verticalAlign: "middle",
       }}
     >
-      <div className="w-full overflow-x-auto" role="group" aria-label="Registered public keys">
-        <table className="w-full min-w-[720px] border-collapse text-left">
-          <TableHeader>
-            <TableRow isHeaderRow>
-              <TableHeaderCell scope="col">Key ID</TableHeaderCell>
-              <TableHeaderCell scope="col">Status</TableHeaderCell>
-              <TableHeaderCell scope="col">Thumbprint</TableHeaderCell>
-              <TableHeaderCell scope="col">Registered</TableHeaderCell>
-              <TableHeaderCell scope="col" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {keys.map((key) => (
-              <TableRow key={key.id}>
-                <TableCell>
-                  <code className="text-sm">{key.kid}</code>
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    label={key.revokedAt ? "Revoked" : "Active"}
-                    variant={key.revokedAt ? "purple" : "success"}
-                  />
-                </TableCell>
-                <TableCell>
-                  <code className="text-xs">{key.thumbprint}</code>
-                </TableCell>
-                <TableCell>{dateFormatter.format(new Date(key.createdAt))}</TableCell>
-                <TableCell>
-                  <div className="flex justify-end">
-                    {!key.revokedAt ? (
-                      <Button
-                        isDisabled={isRevoking}
-                        label="Revoke"
-                        onClick={() => onRevoke(key)}
-                        size="sm"
-                        variant="destructive"
-                      />
-                    ) : null}
-                  </div>
-                </TableCell>
+      <Card>
+        <div className="w-full overflow-x-auto" role="group" aria-label="Registered public keys">
+          <table className="w-full min-w-[720px] border-collapse text-left">
+            <TableHeader>
+              <TableRow isHeaderRow>
+                <TableHeaderCell scope="col">Key ID</TableHeaderCell>
+                <TableHeaderCell scope="col">Status</TableHeaderCell>
+                <TableHeaderCell scope="col">Thumbprint</TableHeaderCell>
+                <TableHeaderCell scope="col">Registered</TableHeaderCell>
+                <TableHeaderCell scope="col" />
               </TableRow>
-            ))}
-          </TableBody>
-        </table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {keys.map((key) => (
+                <TableRow key={key.id}>
+                  <TableCell>
+                    <code className="text-sm">{key.kid}</code>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      label={key.revokedAt ? "Revoked" : "Active"}
+                      variant={key.revokedAt ? "purple" : "success"}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <code className="text-xs">{key.thumbprint}</code>
+                  </TableCell>
+                  <TableCell>{dateFormatter.format(new Date(key.createdAt))}</TableCell>
+                  <TableCell>
+                    <div className="flex justify-end">
+                      {!key.revokedAt ? (
+                        <Button
+                          isDisabled={isRevoking}
+                          label="Revoke"
+                          onClick={() => onRevoke(key)}
+                          size="sm"
+                          variant="destructive"
+                        />
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </table>
+        </div>
+      </Card>
     </TableContext.Provider>
   );
 }

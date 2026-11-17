@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Card } from "@astryxdesign/core/Card";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -269,171 +270,173 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
             description={scopeOptionsQuery.error.message}
           />
         ) : null}
-        <form
-          className="admin-dialog-form"
-          id={formId}
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <FormLayout>
-            <form.Field name="key" validators={{ onSubmit: ({ value }) => validateKey(value) }}>
-              {(field) => (
-                <TextInput
-                  isDisabled={!isNew}
-                  isRequired
-                  label="Resource key"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="expenses"
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="name"
-              validators={{
-                onSubmit: ({ value }) => required(value, "Name", 200),
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  isRequired
-                  label="Name"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="Expenses"
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="resourceIdentifier"
-              validators={{
-                onSubmit: ({ value }) => validateHttps(value, "Resource identifier"),
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  isDisabled={!isNew}
-                  isRequired
-                  label="Resource identifier"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="https://expenses.example/api"
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="authorizationServer"
-              validators={{ onSubmit: ({ value }) => validateOrigin(value) }}
-            >
-              {(field) => (
-                <TextInput
-                  isRequired
-                  label="Authorization server"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="https://expenses.example"
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="downstreamClientId"
-              validators={{
-                onSubmit: ({ value }) => required(value, "Downstream client ID", 200),
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  isRequired
-                  label="Downstream client ID"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="weldall-cli-at-expenses"
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="requestPrefixes"
-              validators={{ onSubmit: ({ value }) => validatePrefixes(value) }}
-            >
-              {(field) => (
-                <TextArea
-                  isRequired
-                  label="Request prefixes"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="https://expenses.example/api"
-                  rows={5}
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                />
-              )}
-            </form.Field>
-            <form.Field name="scopeIds">
-              {(field) => (
-                <MultiSelector
-                  hasClear
-                  hasSearch
-                  hasSelectAll
-                  label="Supported scopes"
-                  onChange={field.handleChange}
-                  options={scopeOptions.map((scope) => ({
-                    value: scope.id,
-                    label: scope.key,
-                  }))}
-                  placeholder="Choose scopes…"
-                  searchPlaceholder="Find scopes…"
-                  triggerDisplay="badges"
-                  value={field.state.value}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="enabled">
-              {(field) => (
-                <Switch
-                  description="Disabled resources are hidden from the CLI and rejected during token exchange."
-                  label="Enabled"
-                  labelPosition="start"
-                  labelSpacing="spread"
-                  onChange={field.handleChange}
-                  value={field.state.value}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="skillDiscoveryEnabled">
-              {(field) => (
-                <Switch
-                  description="Trust this resource to publish read-only agent instructions. Discovered documents and refresh status are stored in PostgreSQL."
-                  label="Discover skills from this resource"
-                  labelPosition="start"
-                  labelSpacing="spread"
-                  onChange={field.handleChange}
-                  value={field.state.value}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-          </FormLayout>
-        </form>
+        <Card padding={6}>
+          <form
+            className="admin-dialog-form"
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void form.handleSubmit();
+            }}
+          >
+            <FormLayout>
+              <form.Field name="key" validators={{ onSubmit: ({ value }) => validateKey(value) }}>
+                {(field) => (
+                  <TextInput
+                    isDisabled={!isNew}
+                    isRequired
+                    label="Resource key"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="expenses"
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="name"
+                validators={{
+                  onSubmit: ({ value }) => required(value, "Name", 200),
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    isRequired
+                    label="Name"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="Expenses"
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="resourceIdentifier"
+                validators={{
+                  onSubmit: ({ value }) => validateHttps(value, "Resource identifier"),
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    isDisabled={!isNew}
+                    isRequired
+                    label="Resource identifier"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="https://expenses.example/api"
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="authorizationServer"
+                validators={{ onSubmit: ({ value }) => validateOrigin(value) }}
+              >
+                {(field) => (
+                  <TextInput
+                    isRequired
+                    label="Authorization server"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="https://expenses.example"
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="downstreamClientId"
+                validators={{
+                  onSubmit: ({ value }) => required(value, "Downstream client ID", 200),
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    isRequired
+                    label="Downstream client ID"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="weldall-cli-at-expenses"
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="requestPrefixes"
+                validators={{ onSubmit: ({ value }) => validatePrefixes(value) }}
+              >
+                {(field) => (
+                  <TextArea
+                    isRequired
+                    label="Request prefixes"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="https://expenses.example/api"
+                    rows={5}
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                  />
+                )}
+              </form.Field>
+              <form.Field name="scopeIds">
+                {(field) => (
+                  <MultiSelector
+                    hasClear
+                    hasSearch
+                    hasSelectAll
+                    label="Supported scopes"
+                    onChange={field.handleChange}
+                    options={scopeOptions.map((scope) => ({
+                      value: scope.id,
+                      label: scope.key,
+                    }))}
+                    placeholder="Choose scopes…"
+                    searchPlaceholder="Find scopes…"
+                    triggerDisplay="badges"
+                    value={field.state.value}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="enabled">
+                {(field) => (
+                  <Switch
+                    description="Disabled resources are hidden from the CLI and rejected during token exchange."
+                    label="Enabled"
+                    labelPosition="start"
+                    labelSpacing="spread"
+                    onChange={field.handleChange}
+                    value={field.state.value}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="skillDiscoveryEnabled">
+                {(field) => (
+                  <Switch
+                    description="Trust this resource to publish read-only agent instructions. Discovered documents and refresh status are stored in PostgreSQL."
+                    label="Discover skills from this resource"
+                    labelPosition="start"
+                    labelSpacing="spread"
+                    onChange={field.handleChange}
+                    value={field.state.value}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+            </FormLayout>
+          </form>
+        </Card>
       </div>
       <AlertDialog
         actionLabel="Delete resource"

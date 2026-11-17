@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
+import { Card } from "@astryxdesign/core/Card";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -55,27 +56,29 @@ export function UserDetail({ userId }: { userId: string }) {
           </h2>
           <Text color="secondary">{user.email}</Text>
         </div>
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="grid gap-1">
-            <dt className="text-xs text-[var(--color-text-secondary)]">Identity</dt>
-            <dd className="m-0">
-              <Badge
-                label={user.emailVerified ? "Verified" : "Unverified"}
-                variant={user.emailVerified ? "success" : "warning"}
-              />
-            </dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-xs text-[var(--color-text-secondary)]">First signed in</dt>
-            <dd className="m-0 text-sm font-normal">
-              {dateFormatter.format(new Date(user.createdAt))}
-            </dd>
-          </div>
-          <div className="grid gap-1 sm:col-span-2">
-            <dt className="text-xs text-[var(--color-text-secondary)]">User ID</dt>
-            <dd className="m-0 break-all font-mono text-sm">{user.id}</dd>
-          </div>
-        </dl>
+        <Card padding={6}>
+          <dl className="m-0 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-1">
+              <dt className="text-xs text-[var(--color-text-secondary)]">Identity</dt>
+              <dd className="m-0">
+                <Badge
+                  label={user.emailVerified ? "Verified" : "Unverified"}
+                  variant={user.emailVerified ? "success" : "warning"}
+                />
+              </dd>
+            </div>
+            <div className="grid gap-1">
+              <dt className="text-xs text-[var(--color-text-secondary)]">First signed in</dt>
+              <dd className="m-0 text-sm font-normal">
+                {dateFormatter.format(new Date(user.createdAt))}
+              </dd>
+            </div>
+            <div className="grid gap-1 sm:col-span-2">
+              <dt className="text-xs text-[var(--color-text-secondary)]">User ID</dt>
+              <dd className="m-0 break-all font-mono text-sm">{user.id}</dd>
+            </div>
+          </dl>
+        </Card>
       </section>
       <hr className="border-border m-0 border-0 border-t" />
       <section className="grid gap-5" aria-labelledby="user-access-title">
@@ -102,7 +105,7 @@ export function UserDetail({ userId }: { userId: string }) {
         ) : null}
         <AccessTabs access={user.access} />
       </section>
-      <section className="grid gap-4" aria-labelledby="user-audit-title">
+      <section className="grid grid-cols-1 gap-4" aria-labelledby="user-audit-title">
         <div className="grid gap-1">
           <h2 className="m-0 text-xl font-semibold" id="user-audit-title">
             Audit activity
@@ -258,35 +261,37 @@ function AccessTable({
         verticalAlign: "middle",
       }}
     >
-      <div className="w-full overflow-x-auto" role="group" aria-label={label}>
-        <table className="w-full min-w-[640px] table-fixed border-collapse text-left">
-          <colgroup>
-            <col className="w-2/5" />
-            <col className="w-3/5" />
-          </colgroup>
-          <TableHeader>
-            <TableRow isHeaderRow>
-              <TableHeaderCell scope="col">Name</TableHeaderCell>
-              <TableHeaderCell scope="col">Reason</TableHeaderCell>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.key}>
-                <TableCell>{row.name}</TableCell>
-                <TableCell>{row.reason}</TableCell>
+      <Card>
+        <div className="w-full overflow-x-auto" role="group" aria-label={label}>
+          <table className="w-full min-w-[640px] table-fixed border-collapse text-left">
+            <colgroup>
+              <col className="w-2/5" />
+              <col className="w-3/5" />
+            </colgroup>
+            <TableHeader>
+              <TableRow isHeaderRow>
+                <TableHeaderCell scope="col">Name</TableHeaderCell>
+                <TableHeaderCell scope="col">Reason</TableHeaderCell>
               </TableRow>
-            ))}
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={2}>
-                  <Text color="secondary">{emptyMessage}</Text>
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.key}>
+                  <TableCell>{row.name}</TableCell>
+                  <TableCell>{row.reason}</TableCell>
+                </TableRow>
+              ))}
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={2}>
+                    <Text color="secondary">{emptyMessage}</Text>
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </table>
+        </div>
+      </Card>
     </TableContext.Provider>
   );
 }

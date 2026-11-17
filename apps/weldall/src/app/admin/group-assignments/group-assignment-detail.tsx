@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Card } from "@astryxdesign/core/Card";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -172,88 +173,90 @@ export function GroupAssignmentDetail({ assignmentId }: { assignmentId: string |
           />
         ) : null}
 
-        <form
-          className="admin-dialog-form"
-          id={formId}
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <FormLayout>
-            {isNew ? (
-              <>
-                <form.Field
-                  name="providerId"
-                  validators={{
-                    onChange: ({ value }) => requiredSelection(value, "provider"),
-                    onSubmit: ({ value }) => requiredSelection(value, "provider"),
-                  }}
-                >
-                  {(field) => (
-                    <Selector
-                      isLoading={providersQuery.isPending}
-                      isRequired
-                      label="Provider"
-                      onChange={(value) => {
-                        field.handleChange(value);
-                        form.setFieldValue("groupId", "");
-                      }}
-                      options={(providersQuery.data ?? []).map((provider) => ({
-                        value: provider.id,
-                        label: provider.enabled ? provider.name : `${provider.name} (disabled)`,
-                      }))}
-                      placeholder="Choose a provider…"
-                      {...fieldStatusProps(field)}
-                      value={field.state.value}
-                      width="100%"
-                    />
-                  )}
-                </form.Field>
-                <form.Field
-                  name="groupId"
-                  validators={{
-                    onBlur: ({ value }) => validateGroupId(value),
-                    onChange: ({ value }) => validateGroupId(value),
-                    onSubmit: ({ value }) => validateGroupId(value),
-                  }}
-                >
-                  {(field) => (
-                    <TextInput
-                      isRequired
-                      label="Group ID"
-                      onBlur={field.handleBlur}
-                      onChange={field.handleChange}
-                      placeholder="team:finance"
-                      {...fieldStatusProps(field)}
-                      value={field.state.value}
-                      width="100%"
-                    />
-                  )}
-                </form.Field>
-              </>
-            ) : null}
+        <Card padding={6}>
+          <form
+            className="admin-dialog-form"
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void form.handleSubmit();
+            }}
+          >
+            <FormLayout>
+              {isNew ? (
+                <>
+                  <form.Field
+                    name="providerId"
+                    validators={{
+                      onChange: ({ value }) => requiredSelection(value, "provider"),
+                      onSubmit: ({ value }) => requiredSelection(value, "provider"),
+                    }}
+                  >
+                    {(field) => (
+                      <Selector
+                        isLoading={providersQuery.isPending}
+                        isRequired
+                        label="Provider"
+                        onChange={(value) => {
+                          field.handleChange(value);
+                          form.setFieldValue("groupId", "");
+                        }}
+                        options={(providersQuery.data ?? []).map((provider) => ({
+                          value: provider.id,
+                          label: provider.enabled ? provider.name : `${provider.name} (disabled)`,
+                        }))}
+                        placeholder="Choose a provider…"
+                        {...fieldStatusProps(field)}
+                        value={field.state.value}
+                        width="100%"
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field
+                    name="groupId"
+                    validators={{
+                      onBlur: ({ value }) => validateGroupId(value),
+                      onChange: ({ value }) => validateGroupId(value),
+                      onSubmit: ({ value }) => validateGroupId(value),
+                    }}
+                  >
+                    {(field) => (
+                      <TextInput
+                        isRequired
+                        label="Group ID"
+                        onBlur={field.handleBlur}
+                        onChange={field.handleChange}
+                        placeholder="team:finance"
+                        {...fieldStatusProps(field)}
+                        value={field.state.value}
+                        width="100%"
+                      />
+                    )}
+                  </form.Field>
+                </>
+              ) : null}
 
-            <form.Field
-              name="scopeKeys"
-              validators={{
-                onChange: ({ value }) => requiredList(value, "scope"),
-                onSubmit: ({ value }) => requiredList(value, "scope"),
-              }}
-            >
-              {(field) => (
-                <ScopeChecklist
-                  error={fieldError(field)}
-                  isLoading={scopesQuery.isPending}
-                  onChange={field.handleChange}
-                  scopes={scopes}
-                  value={field.state.value}
-                />
-              )}
-            </form.Field>
-          </FormLayout>
-        </form>
+              <form.Field
+                name="scopeKeys"
+                validators={{
+                  onChange: ({ value }) => requiredList(value, "scope"),
+                  onSubmit: ({ value }) => requiredList(value, "scope"),
+                }}
+              >
+                {(field) => (
+                  <ScopeChecklist
+                    error={fieldError(field)}
+                    isLoading={scopesQuery.isPending}
+                    onChange={field.handleChange}
+                    scopes={scopes}
+                    value={field.state.value}
+                  />
+                )}
+              </form.Field>
+            </FormLayout>
+          </form>
+        </Card>
       </div>
       <AlertDialog
         actionLabel="Delete assignment"

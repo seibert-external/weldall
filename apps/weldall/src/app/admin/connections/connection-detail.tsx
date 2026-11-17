@@ -6,6 +6,7 @@ import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
 import { Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
@@ -144,56 +145,60 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
             description={connection.revocationError}
           />
         ) : null}
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {connection.key ? (
-            <DetailValue label="Connection identifier">
-              <code>{connection.key}</code>
-            </DetailValue>
-          ) : null}
-          <DetailValue label={connection.accessMode === "SCOPED" ? "Credential manager" : "Owner"}>
-            <a
-              className="underline"
-              href={`/admin/users/${encodeURIComponent(connection.ownerId)}`}
+        <Card padding={6}>
+          <dl className="m-0 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {connection.key ? (
+              <DetailValue label="Connection identifier">
+                <code>{connection.key}</code>
+              </DetailValue>
+            ) : null}
+            <DetailValue
+              label={connection.accessMode === "SCOPED" ? "Credential manager" : "Owner"}
             >
-              {connection.owner.name ?? connection.owner.email}
-            </a>
-            <div>{connection.owner.email}</div>
-          </DetailValue>
-          <DetailValue label="Connector">
-            <a className="underline" href="/admin/connectors">
-              {connection.connectorKey}
-            </a>
-          </DetailValue>
-          <DetailValue label="Connection ID">
-            <code>{connection.id}</code>
-          </DetailValue>
-          {connection.accessMode === "OWNER_ONLY" ? (
-            <DetailValue label="Provider account ID">
-              <code>{connection.accountId}</code>
+              <a
+                className="underline"
+                href={`/admin/users/${encodeURIComponent(connection.ownerId)}`}
+              >
+                {connection.owner.name ?? connection.owner.email}
+              </a>
+              <div>{connection.owner.email}</div>
             </DetailValue>
-          ) : null}
-          {connection.details?.map((detail) => (
-            <DetailValue key={detail.label} label={detail.label}>
-              {detail.value}
+            <DetailValue label="Connector">
+              <a className="underline" href="/admin/connectors">
+                {connection.connectorKey}
+              </a>
             </DetailValue>
-          ))}
-        </dl>
+            <DetailValue label="Connection ID">
+              <code>{connection.id}</code>
+            </DetailValue>
+            {connection.accessMode === "OWNER_ONLY" ? (
+              <DetailValue label="Provider account ID">
+                <code>{connection.accountId}</code>
+              </DetailValue>
+            ) : null}
+            {connection.details?.map((detail) => (
+              <DetailValue key={detail.label} label={detail.label}>
+                {detail.value}
+              </DetailValue>
+            ))}
+          </dl>
+        </Card>
       </section>
-      <hr className="border-border m-0 border-0 border-t" />
       <section className="grid gap-4" aria-labelledby="connection-usage-title">
         <h2 className="m-0 text-xl font-semibold" id="connection-usage-title">
           Usage
         </h2>
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <DetailValue label="Request dispatches">
-            {connection.requestCount.toLocaleString()}
-          </DetailValue>
-          <DetailValue label="Last used">{formatDate(connection.lastUsedAt)}</DetailValue>
-          <DetailValue label="Created">{formatDate(connection.createdAt)}</DetailValue>
-          <DetailValue label="Updated">{formatDate(connection.updatedAt)}</DetailValue>
-        </dl>
+        <Card padding={6}>
+          <dl className="m-0 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <DetailValue label="Request dispatches">
+              {connection.requestCount.toLocaleString()}
+            </DetailValue>
+            <DetailValue label="Last used">{formatDate(connection.lastUsedAt)}</DetailValue>
+            <DetailValue label="Created">{formatDate(connection.createdAt)}</DetailValue>
+            <DetailValue label="Updated">{formatDate(connection.updatedAt)}</DetailValue>
+          </dl>
+        </Card>
       </section>
-      <hr className="border-border m-0 border-0 border-t" />
       <section className="grid gap-4" aria-labelledby="connection-access-title">
         <h2 className="m-0 text-xl font-semibold" id="connection-access-title">
           Effective access
@@ -208,27 +213,29 @@ export function ConnectionSummary({ connection }: { connection: ConnectionRow })
               : "Ready connections may call operations authorized by the provider's granted permissions, within the connector's request restrictions."
             : "No access is currently available."}
         </Text>
-        {connection.accessMode === "SCOPED" ? (
-          <ScopeList
-            title="Required Weldall use scopes (all required)"
-            scopes={connection.useScopes}
-            labels={{}}
-          />
-        ) : null}
-        {connection.accessMode === "OWNER_ONLY" ? (
-          <div className="grid gap-6 lg:grid-cols-2">
+        <Card padding={6}>
+          {connection.accessMode === "SCOPED" ? (
             <ScopeList
-              title="Selected permissions"
-              scopes={connection.selectedScopes}
-              labels={connection.scopeLabels}
+              title="Required Weldall use scopes (all required)"
+              scopes={connection.useScopes}
+              labels={{}}
             />
-            <ScopeList
-              title="Granted permissions"
-              scopes={connection.grantedScopes}
-              labels={connection.scopeLabels}
-            />
-          </div>
-        ) : null}
+          ) : null}
+          {connection.accessMode === "OWNER_ONLY" ? (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <ScopeList
+                title="Selected permissions"
+                scopes={connection.selectedScopes}
+                labels={connection.scopeLabels}
+              />
+              <ScopeList
+                title="Granted permissions"
+                scopes={connection.grantedScopes}
+                labels={connection.scopeLabels}
+              />
+            </div>
+          ) : null}
+        </Card>
       </section>
     </>
   );

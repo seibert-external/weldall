@@ -6,6 +6,7 @@ import type { AnyFieldApi, FieldValidateOrFn } from "@tanstack/react-form";
 import { useForm } from "@tanstack/react-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Banner } from "@astryxdesign/core/Banner";
+import { Card } from "@astryxdesign/core/Card";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -318,175 +319,180 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
             </Text>
           )}
         </div>
-        <form
-          className="admin-dialog-form"
-          id={formId}
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <FormLayout>
-            {field("name", "Internal name", setupFieldSchemas.name)}
-            {field("buttonLabel", "Login button label", setupFieldSchemas.buttonLabel)}
-            {field("buttonColor", "Button color", setupFieldSchemas.buttonColor, {
-              placeholder: "#2563eb",
-              description: "Six-digit hex color. Login text contrast is calculated automatically.",
-            })}
-            {field("sortOrder", "Order (lower first)", validateSortOrder)}
-            {field(
-              "issuer",
-              editing ? "Exact issuer (immutable once set)" : "Exact HTTPS issuer",
-              setupFieldSchemas.issuer,
-              { placeholder: "https://identity.example.com", isDisabled: editing },
-            )}
-            {field("discoveryUrl", "Discovery URL override", setupFieldSchemas.discoveryUrl, {
-              optional: true,
-              description: "Leave empty to discover configuration from the issuer.",
-            })}
-            <div className="grid gap-2">
-              <TextInput
-                description="Register this exact URL with your identity provider. It stays the same after installation."
-                isDisabled
-                label="Callback URL"
-                value={draft.callbackUrl}
-                width="100%"
-              />
-              <Button
-                label="Copy callback URL"
-                onClick={() => void navigator.clipboard.writeText(draft.callbackUrl)}
-                type="button"
-                variant="secondary"
-              />
-            </div>
-            {field("clientId", "Client ID", setupFieldSchemas.clientId)}
-            {field(
-              "clientSecret",
-              editing ? "Client secret (write-only; blank keeps existing)" : "Client secret",
-              ({ value }) =>
-                validateClientSecret(
-                  value,
-                  Boolean(provider?.hasClientSecret) || !form.state.values.enabled,
-                ),
-              {
-                type: "password",
+        <Card padding={6}>
+          <form
+            className="admin-dialog-form"
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void form.handleSubmit();
+            }}
+          >
+            <FormLayout>
+              {field("name", "Internal name", setupFieldSchemas.name)}
+              {field("buttonLabel", "Login button label", setupFieldSchemas.buttonLabel)}
+              {field("buttonColor", "Button color", setupFieldSchemas.buttonColor, {
+                placeholder: "#2563eb",
+                description:
+                  "Six-digit hex color. Login text contrast is calculated automatically.",
+              })}
+              {field("sortOrder", "Order (lower first)", validateSortOrder)}
+              {field(
+                "issuer",
+                editing ? "Exact issuer (immutable once set)" : "Exact HTTPS issuer",
+                setupFieldSchemas.issuer,
+                { placeholder: "https://identity.example.com", isDisabled: editing },
+              )}
+              {field("discoveryUrl", "Discovery URL override", setupFieldSchemas.discoveryUrl, {
+                optional: true,
+                description: "Leave empty to discover configuration from the issuer.",
+              })}
+              <div className="grid gap-2">
+                <TextInput
+                  description="Register this exact URL with your identity provider. It stays the same after installation."
+                  isDisabled
+                  label="Callback URL"
+                  value={draft.callbackUrl}
+                  width="100%"
+                />
+                <Button
+                  label="Copy callback URL"
+                  onClick={() => void navigator.clipboard.writeText(draft.callbackUrl)}
+                  type="button"
+                  variant="secondary"
+                />
+              </div>
+              {field("clientId", "Client ID", setupFieldSchemas.clientId)}
+              {field(
+                "clientSecret",
+                editing ? "Client secret (write-only; blank keeps existing)" : "Client secret",
+                ({ value }) =>
+                  validateClientSecret(
+                    value,
+                    Boolean(provider?.hasClientSecret) || !form.state.values.enabled,
+                  ),
+                {
+                  type: "password",
+                  optional: true,
+                  description:
+                    "Optional for disabled drafts. IaC manages public configuration, never this secret.",
+                },
+              )}
+              <form.Field
+                name="tokenEndpointAuthMethod"
+                validators={{
+                  onChange: setupFieldSchemas.tokenEndpointAuthMethod,
+                  onSubmit: setupFieldSchemas.tokenEndpointAuthMethod,
+                }}
+              >
+                {(fieldApi) => (
+                  <Selector
+                    isRequired
+                    label="Token endpoint authentication"
+                    onBlur={fieldApi.handleBlur}
+                    onChange={(value) => {
+                      invalidate();
+                      fieldApi.handleChange(setupFieldSchemas.tokenEndpointAuthMethod.parse(value));
+                    }}
+                    options={["client_secret_basic", "client_secret_post"]}
+                    value={fieldApi.state.value}
+                    width="100%"
+                    {...fieldStatusProps(fieldApi)}
+                  />
+                )}
+              </form.Field>
+              {field("scopes", "Scopes", setupFieldSchemas.scopes, {
+                description: "Space-separated scopes; openid and email are required.",
+              })}
+              {field("domains", "Allowed email domains", setupFieldSchemas.domains, {
                 optional: true,
                 description:
-                  "Optional for disabled drafts. IaC manages public configuration, never this secret.",
-              },
-            )}
-            <form.Field
-              name="tokenEndpointAuthMethod"
-              validators={{
-                onChange: setupFieldSchemas.tokenEndpointAuthMethod,
-                onSubmit: setupFieldSchemas.tokenEndpointAuthMethod,
-              }}
-            >
-              {(fieldApi) => (
-                <Selector
-                  isRequired
-                  label="Token endpoint authentication"
-                  onBlur={fieldApi.handleBlur}
-                  onChange={(value) => {
-                    invalidate();
-                    fieldApi.handleChange(setupFieldSchemas.tokenEndpointAuthMethod.parse(value));
-                  }}
-                  options={["client_secret_basic", "client_secret_post"]}
-                  value={fieldApi.state.value}
-                  width="100%"
-                  {...fieldStatusProps(fieldApi)}
-                />
-              )}
-            </form.Field>
-            {field("scopes", "Scopes", setupFieldSchemas.scopes, {
-              description: "Space-separated scopes; openid and email are required.",
-            })}
-            {field("domains", "Allowed email domains", setupFieldSchemas.domains, {
-              optional: true,
-              description:
-                "Comma-separated exact domains. Leave empty to trust all verified emails.",
-            })}
-            <form.Field name="enabled">
-              {(fieldApi) => (
-                <Switch
-                  description="Disabled providers are not offered on the login page but remain configured."
-                  label="Enabled"
-                  labelPosition="start"
-                  labelSpacing="spread"
-                  onChange={(value) => {
-                    invalidate();
-                    fieldApi.handleChange(value);
-                  }}
-                  value={fieldApi.state.value}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="acknowledgeAuthority"
-              validators={{
-                onChange: acknowledgeAuthorityValidator,
-                onSubmit: acknowledgeAuthorityValidator,
-              }}
-            >
-              {(fieldApi) => (
-                <CheckboxInput
-                  description="Verified email is the provider's assertion, not independent proof. Domain restrictions limit its authority but cannot make a malicious provider safe. Acknowledge before every enabled save."
-                  isRequired
-                  label="I trust this provider to assert email identities"
-                  onBlur={fieldApi.handleBlur}
-                  onChange={(value) => {
-                    invalidate();
-                    fieldApi.handleChange(value);
-                  }}
-                  value={fieldApi.state.value}
-                  width="100%"
-                  {...fieldStatusProps(fieldApi)}
-                />
-              )}
-            </form.Field>
-            <form.Subscribe selector={(state) => state.values.enabled}>
-              {(enabled) => {
-                const lastEnabled =
-                  Boolean(provider) &&
-                  (providersQuery.data ?? []).filter((p) => p.enabled).length === 1 &&
-                  (providersQuery.data ?? []).some((p) => p.id === draft.providerId && p.enabled) &&
-                  !enabled;
-                return lastEnabled ? (
-                  <form.Field
-                    name="acknowledgeLockout"
-                    validators={{
-                      onChange: acknowledgeLockoutValidator,
-                      onSubmit: acknowledgeLockoutValidator,
+                  "Comma-separated exact domains. Leave empty to trust all verified emails.",
+              })}
+              <form.Field name="enabled">
+                {(fieldApi) => (
+                  <Switch
+                    description="Disabled providers are not offered on the login page but remain configured."
+                    label="Enabled"
+                    labelPosition="start"
+                    labelSpacing="spread"
+                    onChange={(value) => {
+                      invalidate();
+                      fieldApi.handleChange(value);
                     }}
-                  >
-                    {(fieldApi) => (
-                      <CheckboxInput
-                        description="Keep an administrator session open."
-                        isRequired
-                        label="I understand disabling the last enabled provider may make new login impossible"
-                        onBlur={fieldApi.handleBlur}
-                        onChange={(value) => {
-                          invalidate();
-                          fieldApi.handleChange(value);
-                        }}
-                        value={fieldApi.state.value}
-                        width="100%"
-                        {...fieldStatusProps(fieldApi)}
-                      />
-                    )}
-                  </form.Field>
-                ) : null;
-              }}
-            </form.Subscribe>
-            {testing ? (
-              <Text color="secondary" role="status">
-                Test login in progress in the new tab. If it closes or expires, retry Test login.
-              </Text>
-            ) : null}
-          </FormLayout>
-        </form>
+                    value={fieldApi.state.value}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="acknowledgeAuthority"
+                validators={{
+                  onChange: acknowledgeAuthorityValidator,
+                  onSubmit: acknowledgeAuthorityValidator,
+                }}
+              >
+                {(fieldApi) => (
+                  <CheckboxInput
+                    description="Verified email is the provider's assertion, not independent proof. Domain restrictions limit its authority but cannot make a malicious provider safe. Acknowledge before every enabled save."
+                    isRequired
+                    label="I trust this provider to assert email identities"
+                    onBlur={fieldApi.handleBlur}
+                    onChange={(value) => {
+                      invalidate();
+                      fieldApi.handleChange(value);
+                    }}
+                    value={fieldApi.state.value}
+                    width="100%"
+                    {...fieldStatusProps(fieldApi)}
+                  />
+                )}
+              </form.Field>
+              <form.Subscribe selector={(state) => state.values.enabled}>
+                {(enabled) => {
+                  const lastEnabled =
+                    Boolean(provider) &&
+                    (providersQuery.data ?? []).filter((p) => p.enabled).length === 1 &&
+                    (providersQuery.data ?? []).some(
+                      (p) => p.id === draft.providerId && p.enabled,
+                    ) &&
+                    !enabled;
+                  return lastEnabled ? (
+                    <form.Field
+                      name="acknowledgeLockout"
+                      validators={{
+                        onChange: acknowledgeLockoutValidator,
+                        onSubmit: acknowledgeLockoutValidator,
+                      }}
+                    >
+                      {(fieldApi) => (
+                        <CheckboxInput
+                          description="Keep an administrator session open."
+                          isRequired
+                          label="I understand disabling the last enabled provider may make new login impossible"
+                          onBlur={fieldApi.handleBlur}
+                          onChange={(value) => {
+                            invalidate();
+                            fieldApi.handleChange(value);
+                          }}
+                          value={fieldApi.state.value}
+                          width="100%"
+                          {...fieldStatusProps(fieldApi)}
+                        />
+                      )}
+                    </form.Field>
+                  ) : null;
+                }}
+              </form.Subscribe>
+              {testing ? (
+                <Text color="secondary" role="status">
+                  Test login in progress in the new tab. If it closes or expires, retry Test login.
+                </Text>
+              ) : null}
+            </FormLayout>
+          </form>
+        </Card>
       </div>
     </>
   );

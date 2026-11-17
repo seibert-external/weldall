@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Card } from "@astryxdesign/core/Card";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -234,284 +235,288 @@ export function SkillDetail({
           />
         ) : null}
 
-        <form
-          className="admin-dialog-form"
-          id={formId}
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <FormLayout>
-            <form.Field
-              name="slug"
-              validators={{
-                onBlur: ({ value }) => validateSlug(value),
-                onChange: ({ value }) => validateSlug(value),
-                onSubmit: ({ value }) => validateSlug(value),
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  isDisabled={!isNew || isReadOnly}
-                  isRequired
-                  label="Skill ID"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="expenses.list"
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="title"
-              validators={{
-                onBlur: ({ value }) => validateRequiredText(value, "Title", 200),
-                onSubmit: ({ value }) => validateRequiredText(value, "Title", 200),
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  isDisabled={isReadOnly}
-                  isRequired
-                  label="Title"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="Load expenses"
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="requiredScopes">
-              {(field) => (
-                <MultiSelector
-                  hasClear
-                  isDisabled={isReadOnly}
-                  hasSearch
-                  hasSelectAll
-                  label="Required scopes"
-                  onChange={field.handleChange}
-                  options={scopes.map((scope) => ({
-                    value: scope.key,
-                    label: scope.key,
-                  }))}
-                  placeholder="Choose scopes…"
-                  renderOption={(option) => {
-                    const scope = scopes.find((candidate) => candidate.key === option.value);
-                    return (
-                      <div className="admin-dropdown-option">
-                        <span>{option.label ?? option.value}</span>
-                        {scope ? (
-                          <span className="admin-dropdown-option-subtitle">
-                            {scope.description}
-                          </span>
-                        ) : null}
-                      </div>
-                    );
-                  }}
-                  searchPlaceholder="Find scopes…"
-                  triggerDisplay="badges"
-                  value={field.state.value}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="visibility">
-              {(field) => (
-                <Selector
-                  isDisabled={isReadOnly}
-                  label="Visibility"
-                  onChange={(value) =>
-                    field.handleChange(value as "DEFAULT" | "HIDDEN_IF_UNALLOWED")
-                  }
-                  options={[
-                    { value: "DEFAULT", label: "Default" },
-                    {
-                      value: "HIDDEN_IF_UNALLOWED",
-                      label: "Hidden if unallowed",
-                    },
-                  ]}
-                  value={field.state.value}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="tags">
-              {(field) => (
-                <TextArea
-                  isDisabled={isReadOnly}
-                  label="Tags (one per line)"
-                  onChange={field.handleChange}
-                  placeholder={"automation\nfinance"}
-                  rows={4}
-                  value={String(field.state.value)}
-                />
-              )}
-            </form.Field>
-            <form.Field name="owner">
-              {(field) => (
-                <TextInput
-                  isDisabled={isReadOnly}
-                  label="Owner user ID"
-                  onChange={field.handleChange}
-                  placeholder="user-id"
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="icon">
-              {(field) => {
-                const value = String(field.state.value);
-                const query = value.trim().toLocaleLowerCase();
-                const suggestions = query
-                  ? iconOptions.filter((name) => name !== value && name.includes(query)).slice(0, 8)
-                  : [];
-                const isKnownIcon = iconOptions.includes(value);
-                return (
-                  <div className="skill-icon-picker">
-                    <TextInput
-                      description="Canonical Lucide icon name; unknown values use the slug-hashed fallback."
-                      hasClear
-                      isDisabled={isReadOnly}
-                      label="Card icon"
-                      labelTooltip="Browse available names at lucide.dev/icons"
-                      onChange={field.handleChange}
-                      placeholder="file-text"
-                      startIcon={
-                        isKnownIcon ? (
-                          <img
-                            alt=""
-                            aria-hidden="true"
-                            height={16}
-                            src={`/api/lucide-icons/${encodeURIComponent(value)}`}
-                            width={16}
-                          />
-                        ) : undefined
-                      }
-                      value={value}
-                      width="100%"
-                    />
-                    {suggestions.length ? (
-                      <div aria-label="Matching Lucide icons" className="skill-icon-suggestions">
-                        {suggestions.map((name) => (
-                          <Button
-                            icon={
-                              <img
-                                alt=""
-                                aria-hidden="true"
-                                height={16}
-                                src={`/api/lucide-icons/${encodeURIComponent(name)}`}
-                                width={16}
-                              />
-                            }
-                            key={name}
-                            label={`Use ${name}`}
-                            onClick={() => field.handleChange(name)}
-                            size="sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            {name}
-                          </Button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              }}
-            </form.Field>
-            <form.Field name="gradientFrom">
-              {(field) => (
-                <TextInput
-                  isDisabled={isReadOnly}
-                  label="Light gradient from"
-                  onChange={field.handleChange}
-                  placeholder="#555BD6"
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="gradientTo">
-              {(field) => (
-                <TextInput
-                  isDisabled={isReadOnly}
-                  label="Light gradient to"
-                  onChange={field.handleChange}
-                  placeholder="#7773E5"
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="darkGradientFrom">
-              {(field) => (
-                <TextInput
-                  isDisabled={isReadOnly}
-                  label="Dark gradient from"
-                  onChange={field.handleChange}
-                  placeholder="#2A2660"
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="darkGradientTo">
-              {(field) => (
-                <TextInput
-                  isDisabled={isReadOnly}
-                  label="Dark gradient to"
-                  onChange={field.handleChange}
-                  placeholder="#403A86"
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field name="lastUpdatedAt">
-              {(field) => (
-                <TextInput
-                  isDisabled={isReadOnly}
-                  label="Last updated at"
-                  onChange={field.handleChange}
-                  placeholder="2026-06-25T12:00:00Z"
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="content"
-              validators={{
-                onBlur: ({ value }) => validateRequiredText(value, "Markdown", 100_000),
-                onSubmit: ({ value }) => validateRequiredText(value, "Markdown", 100_000),
-              }}
-            >
-              {(field) => (
-                <TextArea
-                  isDisabled={isReadOnly}
-                  isRequired
-                  label="Markdown instructions"
-                  maxLength={100_000}
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder={
-                    "Use `weldall request --scope expenses:read https://…` to load expenses.\n\nThis is useful when…"
-                  }
-                  rows={22}
-                  {...fieldStatusProps(field)}
-                  value={String(field.state.value)}
-                />
-              )}
-            </form.Field>
-          </FormLayout>
-        </form>
+        <Card padding={6}>
+          <form
+            className="admin-dialog-form"
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void form.handleSubmit();
+            }}
+          >
+            <FormLayout>
+              <form.Field
+                name="slug"
+                validators={{
+                  onBlur: ({ value }) => validateSlug(value),
+                  onChange: ({ value }) => validateSlug(value),
+                  onSubmit: ({ value }) => validateSlug(value),
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    isDisabled={!isNew || isReadOnly}
+                    isRequired
+                    label="Skill ID"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="expenses.list"
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="title"
+                validators={{
+                  onBlur: ({ value }) => validateRequiredText(value, "Title", 200),
+                  onSubmit: ({ value }) => validateRequiredText(value, "Title", 200),
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    isDisabled={isReadOnly}
+                    isRequired
+                    label="Title"
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="Load expenses"
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="requiredScopes">
+                {(field) => (
+                  <MultiSelector
+                    hasClear
+                    isDisabled={isReadOnly}
+                    hasSearch
+                    hasSelectAll
+                    label="Required scopes"
+                    onChange={field.handleChange}
+                    options={scopes.map((scope) => ({
+                      value: scope.key,
+                      label: scope.key,
+                    }))}
+                    placeholder="Choose scopes…"
+                    renderOption={(option) => {
+                      const scope = scopes.find((candidate) => candidate.key === option.value);
+                      return (
+                        <div className="admin-dropdown-option">
+                          <span>{option.label ?? option.value}</span>
+                          {scope ? (
+                            <span className="admin-dropdown-option-subtitle">
+                              {scope.description}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    }}
+                    searchPlaceholder="Find scopes…"
+                    triggerDisplay="badges"
+                    value={field.state.value}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="visibility">
+                {(field) => (
+                  <Selector
+                    isDisabled={isReadOnly}
+                    label="Visibility"
+                    onChange={(value) =>
+                      field.handleChange(value as "DEFAULT" | "HIDDEN_IF_UNALLOWED")
+                    }
+                    options={[
+                      { value: "DEFAULT", label: "Default" },
+                      {
+                        value: "HIDDEN_IF_UNALLOWED",
+                        label: "Hidden if unallowed",
+                      },
+                    ]}
+                    value={field.state.value}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="tags">
+                {(field) => (
+                  <TextArea
+                    isDisabled={isReadOnly}
+                    label="Tags (one per line)"
+                    onChange={field.handleChange}
+                    placeholder={"automation\nfinance"}
+                    rows={4}
+                    value={String(field.state.value)}
+                  />
+                )}
+              </form.Field>
+              <form.Field name="owner">
+                {(field) => (
+                  <TextInput
+                    isDisabled={isReadOnly}
+                    label="Owner user ID"
+                    onChange={field.handleChange}
+                    placeholder="user-id"
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="icon">
+                {(field) => {
+                  const value = String(field.state.value);
+                  const query = value.trim().toLocaleLowerCase();
+                  const suggestions = query
+                    ? iconOptions
+                        .filter((name) => name !== value && name.includes(query))
+                        .slice(0, 8)
+                    : [];
+                  const isKnownIcon = iconOptions.includes(value);
+                  return (
+                    <div className="skill-icon-picker">
+                      <TextInput
+                        description="Canonical Lucide icon name; unknown values use the slug-hashed fallback."
+                        hasClear
+                        isDisabled={isReadOnly}
+                        label="Card icon"
+                        labelTooltip="Browse available names at lucide.dev/icons"
+                        onChange={field.handleChange}
+                        placeholder="file-text"
+                        startIcon={
+                          isKnownIcon ? (
+                            <img
+                              alt=""
+                              aria-hidden="true"
+                              height={16}
+                              src={`/api/lucide-icons/${encodeURIComponent(value)}`}
+                              width={16}
+                            />
+                          ) : undefined
+                        }
+                        value={value}
+                        width="100%"
+                      />
+                      {suggestions.length ? (
+                        <div aria-label="Matching Lucide icons" className="skill-icon-suggestions">
+                          {suggestions.map((name) => (
+                            <Button
+                              icon={
+                                <img
+                                  alt=""
+                                  aria-hidden="true"
+                                  height={16}
+                                  src={`/api/lucide-icons/${encodeURIComponent(name)}`}
+                                  width={16}
+                                />
+                              }
+                              key={name}
+                              label={`Use ${name}`}
+                              onClick={() => field.handleChange(name)}
+                              size="sm"
+                              type="button"
+                              variant="ghost"
+                            >
+                              {name}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }}
+              </form.Field>
+              <form.Field name="gradientFrom">
+                {(field) => (
+                  <TextInput
+                    isDisabled={isReadOnly}
+                    label="Light gradient from"
+                    onChange={field.handleChange}
+                    placeholder="#555BD6"
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="gradientTo">
+                {(field) => (
+                  <TextInput
+                    isDisabled={isReadOnly}
+                    label="Light gradient to"
+                    onChange={field.handleChange}
+                    placeholder="#7773E5"
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="darkGradientFrom">
+                {(field) => (
+                  <TextInput
+                    isDisabled={isReadOnly}
+                    label="Dark gradient from"
+                    onChange={field.handleChange}
+                    placeholder="#2A2660"
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="darkGradientTo">
+                {(field) => (
+                  <TextInput
+                    isDisabled={isReadOnly}
+                    label="Dark gradient to"
+                    onChange={field.handleChange}
+                    placeholder="#403A86"
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="lastUpdatedAt">
+                {(field) => (
+                  <TextInput
+                    isDisabled={isReadOnly}
+                    label="Last updated at"
+                    onChange={field.handleChange}
+                    placeholder="2026-06-25T12:00:00Z"
+                    value={String(field.state.value)}
+                    width="100%"
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="content"
+                validators={{
+                  onBlur: ({ value }) => validateRequiredText(value, "Markdown", 100_000),
+                  onSubmit: ({ value }) => validateRequiredText(value, "Markdown", 100_000),
+                }}
+              >
+                {(field) => (
+                  <TextArea
+                    isDisabled={isReadOnly}
+                    isRequired
+                    label="Markdown instructions"
+                    maxLength={100_000}
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder={
+                      "Use `weldall request --scope expenses:read https://…` to load expenses.\n\nThis is useful when…"
+                    }
+                    rows={22}
+                    {...fieldStatusProps(field)}
+                    value={String(field.state.value)}
+                  />
+                )}
+              </form.Field>
+            </FormLayout>
+          </form>
+        </Card>
       </div>
       <AlertDialog
         actionLabel="Delete skill"
