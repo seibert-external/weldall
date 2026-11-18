@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, Copy } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore, type SVGProps } from "react";
 
 // Split so the terminal can dim the install preamble; copying joins both parts.
 const promptParts = (origin: string, slug: string, title: string) => ({
@@ -100,7 +99,7 @@ export function SkillPromptTerminal({ slug, title }: { slug: string; title: stri
   const { copyState, copyPrompt } = useCopySkillPrompt(slug, title);
   const origin = useSyncExternalStore(subscribeToOrigin, getOrigin, getServerOrigin);
   const parts = promptParts(origin, slug, title);
-  const CopyIcon = copyState === "copied" ? Check : Copy;
+  const CopyIcon = copyState === "copied" ? CheckIcon : ClipboardCopyIcon;
 
   return (
     <section className="welcome-prompt" aria-labelledby="skill-prompt-heading">
@@ -135,5 +134,38 @@ export function SkillPromptTerminal({ slug, title }: { slug: string; title: stri
         </pre>
       </div>
     </section>
+  );
+}
+
+type IconProps = SVGProps<SVGSVGElement>;
+
+function IconBase(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    />
+  );
+}
+
+function ClipboardCopyIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M4 16V6a2 2 0 0 1 2-2h10" />
+    </IconBase>
+  );
+}
+
+function CheckIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M20 6 9 17l-5-5" />
+    </IconBase>
   );
 }

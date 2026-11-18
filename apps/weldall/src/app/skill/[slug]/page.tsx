@@ -1,6 +1,6 @@
 import { Banner } from "@astryxdesign/core/Banner";
-import { ArrowLeft } from "lucide-react";
 import { Card } from "@astryxdesign/core/Card";
+import type { SVGProps } from "react";
 import { after } from "next/server";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
@@ -70,7 +70,7 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
               <Card padding={8}>
                 <div className="skill-detail-toolbar">
                   <a className="skill-detail-back" href="/skills">
-                    <ArrowLeft aria-hidden="true" />
+                    <ArrowLeftIcon aria-hidden="true" />
                     Back to skills overview
                   </a>
                   <CopySkillPromptButton slug={skill.slug} title={skill.title} />
@@ -180,5 +180,21 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
         </div>
       </main>
     </div>
+  );
+}
+
+function ArrowLeftIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M19 12H5M12 19l-7-7 7-7" />
+    </svg>
   );
 }
