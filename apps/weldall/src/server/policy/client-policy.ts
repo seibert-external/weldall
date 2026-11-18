@@ -78,6 +78,23 @@ export function withoutInstructions(policy: ClientPolicy): ClientPolicyWithoutIn
   return rest;
 }
 
+type ClientPolicyField = Exclude<keyof ClientPolicy, "version">;
+
+/** Every policy field except `version`, sorted. Shared by the audit helper and its schema. */
+export const CLIENT_POLICY_FIELDS = [
+  "approvalMode",
+  "extensions",
+  "instructions",
+  "models",
+  "shell",
+] as const satisfies readonly ClientPolicyField[];
+
+// Fails to compile when the SDK schema gains a field that is missing above.
+const _everyClientPolicyField: Record<
+  Exclude<ClientPolicyField, (typeof CLIENT_POLICY_FIELDS)[number]>,
+  never
+> = {};
+
 /** Sorted-key JSON; `null` and `undefined` both serialise as `null`. */
 export function canonicalPolicyJson(value: unknown): string {
   if (value === null || value === undefined) return "null";
