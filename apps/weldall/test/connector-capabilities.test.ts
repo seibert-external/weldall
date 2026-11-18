@@ -11,6 +11,7 @@ describe("provider-derived connector capabilities", () => {
       ["atlassian", ["http"]],
       ["atlassian-mcp", ["mcp"]],
       ["github-app", []],
+      ["forgejo", []],
     ]);
     expect(
       connectorCapabilities({ ...getConnectorProvider("atlassian-mcp"), type: "future-provider" }),

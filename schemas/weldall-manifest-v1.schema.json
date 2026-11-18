@@ -139,6 +139,18 @@
                 },
                 "required": ["kind"],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "forgejo-bot-token",
+                    "description": "The access token of a Forgejo connector's bot user, pasted in the admin UI."
+                  }
+                },
+                "required": ["kind"],
+                "additionalProperties": false
               }
             ]
           }
@@ -315,7 +327,7 @@
             "maxLength": 200
           },
           "type": {
-            "enum": ["google", "atlassian", "atlassian-mcp", "github-app"]
+            "enum": ["google", "atlassian", "atlassian-mcp", "github-app", "forgejo"]
           },
           "enabled": {
             "type": "boolean"
@@ -1289,6 +1301,96 @@
                     }
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Forgejo connector (`type: forgejo`). Public policy only: the bot user's access token is pasted on a shared connection in the admin UI.",
+                "required": [
+                  "baseUrl",
+                  "organization",
+                  "botUser",
+                  "templates",
+                  "repositoryNamePrefix",
+                  "reviewerTeam",
+                  "setupMode"
+                ],
+                "properties": {
+                  "baseUrl": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "^https://[^/?#:@]+\\.[^/?#:@]+(/[^?#]*[^/?#])?$",
+                    "description": "https URL of the Forgejo instance without a trailing slash, e.g. https://forgejo.example.com (a sub-path is allowed). No IP address, port, credentials or local name."
+                  },
+                  "organization": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|[-._](?=[A-Za-z0-9]))*$",
+                    "description": "Organisation that owns published repositories."
+                  },
+                  "botUser": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|[-._](?=[A-Za-z0-9]))*$",
+                    "description": "Forgejo user whose access token the shared connection holds; a plain member of the organisation, never an owner or site administrator."
+                  },
+                  "templates": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "description": "Template repositories, each marked as a template and readable for the bot user. Names must be unique.",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["name", "repository"],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                        },
+                        "repository": {
+                          "type": "string",
+                          "maxLength": 141,
+                          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|[-._](?=[A-Za-z0-9]))*/[A-Za-z0-9._-]+$",
+                          "description": "owner/name"
+                        }
+                      }
+                    }
+                  },
+                  "repositoryNamePrefix": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^[A-Za-z0-9._-]*$",
+                    "description": "Prepended to every new repository name; may be empty."
+                  },
+                  "reviewerTeam": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                    "description": "Name of the organisation team that reviews pull requests; it needs write access to all repositories of the organisation."
+                  },
+                  "setupMode": {
+                    "enum": ["customer-managed", "weldall-managed"],
+                    "description": "Only customer-managed is available."
+                  },
+                  "previewStatusContext": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+                    "default": "weldall/preview",
+                    "description": "Commit status context whose target URL on the pull request's head commit is the preview link."
+                  },
+                  "liveStatusContext": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+                    "default": "weldall/live",
+                    "description": "Commit status context whose target URL on the default branch is the live link."
+                  }
+                }
               }
             ]
           }
@@ -1363,6 +1465,23 @@
               "properties": {
                 "provider": {
                   "required": ["appId"]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["type"],
+              "properties": {
+                "type": {
+                  "const": "forgejo"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "provider": {
+                  "required": ["botUser"]
                 }
               }
             }

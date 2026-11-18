@@ -135,7 +135,7 @@ it("declares the GitHub App connector and its key connection in the published ma
   const connector = schema.properties.connectors.additionalProperties;
   expect(connector.properties.type.enum).toContain("github-app");
   const branch = connector.properties.provider.oneOf.find(
-    (candidate: { properties?: Record<string, unknown> }) => candidate.properties?.reviewerTeam,
+    (candidate: { properties?: Record<string, unknown> }) => candidate.properties?.appId,
   );
   expect(Object.keys(branch.properties).sort()).toEqual(Object.keys(serverSchema.shape).sort());
   expect(branch.required.sort()).toEqual(
@@ -149,5 +149,5 @@ it("declares the GitHub App connector and its key connection in the published ma
     schema.properties.sharedConnections.additionalProperties.properties.provider.oneOf.map(
       (candidate: { properties: { kind: { const: string } } }) => candidate.properties.kind.const,
     ),
-  ).toEqual(["service-account-api-key", "github-app-private-key"]);
+  ).toEqual(["service-account-api-key", "github-app-private-key", "forgejo-bot-token"]);
 });

@@ -2,7 +2,7 @@ import { db, type App, type Prisma } from "@weldall/db";
 import { prismaAuditWriter } from "../audit/service";
 import { ConnectorError, type ConnectorActor } from "../connectors/contracts";
 import { safeHttpsUrl } from "../connectors/git-text";
-import { deriveWebBaseUrl, githubAppConfigSchema } from "../connectors/providers/github-app/config";
+import { connectorProviders } from "../connectors/registry";
 import { APP_REVERIFICATION_DAYS } from "./service";
 import { APP_EXPIRING_SOON_DAYS, appState, appStateWhere, type AppState } from "./state";
 
@@ -48,14 +48,23 @@ type RegistryRow = App & {
   connector: { key: string; providerType: string; providerConfig: Prisma.JsonValue };
 };
 
-/** Browser link of a repository, from the connector's configuration only (no host call). */
+/**
+ * Browser link of a repository, from the connector's configuration only (no host call). Null for
+ * an unknown provider type or an invalid stored configuration, never another provider's link.
+ */
 function repositoryWebUrl(row: RegistryRow): string | null {
-  if (row.connector.providerType !== "github-app") return null;
-  const config = githubAppConfigSchema.safeParse(row.connector.providerConfig);
-  const base = config.success ? deriveWebBaseUrl(config.data.apiBaseUrl) : null;
-  return base
-    ? `${base}/${encodeURIComponent(row.repositoryOwner)}/${encodeURIComponent(row.repositoryName)}`
-    : null;
+  const provider = connectorProviders.find(({ type }) => type === row.connector.providerType);
+  if (!provider?.gitHost) return null;
+  try {
+    return safeHttpsUrl(
+      provider.gitHost.repositoryWebUrl({
+        config: row.connector.providerConfig,
+        repository: { owner: row.repositoryOwner, name: row.repositoryName },
+      }),
+    );
+  } catch {
+    return null;
+  }
 }
 
 export function presentApp(row: RegistryRow, now: Date): AppRegistryEntry {

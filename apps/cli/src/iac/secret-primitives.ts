@@ -35,6 +35,7 @@ export const secretPrimitiveSchemas = {
         cloudIds: set(z.uuid()),
       }),
       z.strictObject({ kind: z.literal("github-app-private-key") }),
+      z.strictObject({ kind: z.literal("forgejo-bot-token") }),
     ]),
   }),
   groupProviders: z.strictObject({

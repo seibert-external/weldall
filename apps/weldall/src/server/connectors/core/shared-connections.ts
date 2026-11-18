@@ -9,6 +9,7 @@ import {
   publicSharedConnection,
   atlassianSharedSelectionSchema,
   githubAppSharedSelectionSchema,
+  forgejoSharedSelectionSchema,
 } from "../../domain/secret-primitive-contracts";
 import { ConnectorError, type ConnectorActor } from "../contracts";
 import { runConnectorTransaction } from "../configuration";
@@ -17,6 +18,7 @@ import type { ConnectorProvider } from "../provider";
 import { prepareSecretEnvelope, persistSecretEnvelope } from "../encryption";
 import { apiKeySchema } from "../providers/atlassian-mcp/static";
 import { PRIVATE_KEY_INPUT_LIMIT } from "../providers/github-app/private-key";
+import { FORGEJO_TOKEN_INPUT_LIMIT } from "../providers/forgejo";
 import { writeConnectorAuditLog } from "../audit";
 
 export const sharedUseScopesSchema = sharedConnectionConfigSchema.shape.useScopes;
@@ -31,6 +33,9 @@ export const createSharedConnectionSchema = z.strictObject({
     atlassianSharedSelectionSchema.extend({ apiKey: apiKeySchema.optional() }),
     githubAppSharedSelectionSchema.extend({
       privateKey: z.string().min(1).max(PRIVATE_KEY_INPUT_LIMIT).optional(),
+    }),
+    forgejoSharedSelectionSchema.extend({
+      token: z.string().min(1).max(FORGEJO_TOKEN_INPUT_LIMIT).optional(),
     }),
   ]),
 });

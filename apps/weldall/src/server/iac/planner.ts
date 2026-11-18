@@ -610,7 +610,7 @@ export async function loadPlanningState({
         code: "CLIENT_IN_USE",
         address: `connector.${address}`,
         message:
-          "Disconnect and remove connections/attempts before replacing the OAuth client or the GitHub App (App ID or GitHub API).",
+          "Disconnect and remove connections/attempts before replacing the OAuth client, the GitHub App (App ID or GitHub API) or the Forgejo instance or bot user.",
       });
   }
   const addReferenceBlocker = (

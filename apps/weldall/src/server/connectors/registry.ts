@@ -3,6 +3,7 @@ import { googleProvider } from "./providers/google";
 import { atlassianProvider } from "./providers/atlassian";
 import { atlassianMcpProvider } from "./providers/atlassian-mcp";
 import { githubAppProvider } from "./providers/github-app";
+import { forgejoProvider } from "./providers/forgejo";
 import type { ConnectorProvider } from "./provider";
 
 export const connectorProviders: readonly ConnectorProvider[] = [
@@ -10,6 +11,7 @@ export const connectorProviders: readonly ConnectorProvider[] = [
   atlassianProvider,
   atlassianMcpProvider,
   githubAppProvider,
+  forgejoProvider,
 ];
 
 /** Unknown persisted or caller-provided discriminators never fall back to another provider. */

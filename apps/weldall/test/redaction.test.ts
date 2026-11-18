@@ -30,6 +30,8 @@ const pemBody = Array.from({ length: 6 }, () => fill(64, "MIIEvQIBADANBgkq+/="))
 const pem = (label: string) => `-----BEGIN ${label}-----\n${pemBody}\n-----END ${label}-----`;
 const basic = (user: string, secret: string) => Buffer.from(`${user}:${secret}`).toString("base64");
 const installationToken = "gh" + "s_" + fill(40);
+/** Shaped like a Forgejo access token: 40 hex digits, indistinguishable from a SHA-1. */
+const forgejoToken = fill(40, "0123456789abcdef");
 
 describe("credential redaction", () => {
   const positions = [
@@ -138,6 +140,14 @@ describe("credential redaction", () => {
       `https://${gitCredential}@weldall.example.com/git/app`,
       `https://${R}@weldall.example.com/git/app`,
     ],
+    ["decoded Forgejo proxy credential", `weldall:${forgejoToken}`, `weldall:${R}`],
+    [
+      "Forgejo token scheme after an Authorization label",
+      `the request carried Authorization header token ${forgejoToken} and failed`,
+      `the request carried Authorization header token ${R} and failed`,
+    ],
+    ["Forgejo Authorization header", `authorization: token ${forgejoToken}`, `authorization: ${R}`],
+    ["Forgejo Basic credential", `Basic ${basic("weldall", forgejoToken)}`, `Basic ${R}`],
     [
       "URL in JSON",
       JSON.stringify({ remote: `https://u:${fill(10)}@h/r.git` }),
@@ -167,6 +177,14 @@ describe("credential redaction", () => {
     ["an e-mail address", "person@example.com"],
     ["a URL without credentials", "https://github.com/acme/app.git"],
     ["a reason", "Push to the default branch main is not allowed."],
+    ["a commit id after a token label", `token ${sha1} was pushed`],
+    ["a commit id after an Authorization error", `Authorization failed; commit ${sha1}`],
+    [
+      "a commit id after an Authorization label on an earlier line",
+      `Authorization checked.\ntoken ${sha1}`,
+    ],
+    ["a longer hex id after weldall:", `weldall:${sha256}`],
+    ["a ref update by the weldall user", `weldall pushed ${"0".repeat(40)} ${sha1}`],
   ])("leaves %s alone", (_, text) => {
     expect(redactCredentials(text)).toBe(text);
   });

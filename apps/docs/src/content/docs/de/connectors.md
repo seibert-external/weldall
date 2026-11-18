@@ -1,11 +1,11 @@
 ---
 title: Connectors
-description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person aufrufen und Apps auf GitHub veröffentlichen.
+description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person aufrufen und Apps auf GitHub oder Forgejo veröffentlichen.
 ---
 
 Connectors rufen einen Dienst **im Namen der nutzenden Person** auf. Jede Person verbindet ihr eigenes Konto und gibt den Zugriff frei. Weldall speichert die Zugangsdaten verschlüsselt auf dem Server und führt die Aufrufe aus; Provider-Tokens gelangen nie in die CLI.
 
-Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Ein GitHub-App-Connector [veröffentlicht Apps auf GitHub](#apps-auf-github-veröffentlichen), auch für Personen ohne GitHub-Konto. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt.
+Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Ein GitHub-App-Connector [veröffentlicht Apps auf GitHub](#apps-auf-github-veröffentlichen), auch für Personen ohne GitHub-Konto, und ein Forgejo-Connector macht dasselbe für ein [selbst betriebenes Forgejo](#forgejo). Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt.
 
 Connectoren/geteilte Verbindungen können deaktiviert angelegt, in der UI provisioniert und anschließend ausdrücklich aktiviert werden. Provisionierung/Rotation aktiviert sie nicht; beide müssen für Aufrufe aktiv sein. [IaC](../infrastructure-as-code/#öffentliche-konfiguration-secrets-nur-in-der-ui) verwaltet öffentliche Konfiguration/Import, niemals Secrets.
 
@@ -156,6 +156,21 @@ Der Git-Proxy sieht, welchen Branch ein Push ändert, aber nicht, ob der Push Hi
 
 :::caution[Stand]
 Veröffentlichen ist gegen eine nachgebildete GitHub-API und einen lokalen Git-Server getestet. Die einzelnen Bausteine wurden von Hand gegen github.com ausprobiert, der vollständige Ablauf lief aber noch nicht gegen github.com. GitHub Enterprise Cloud mit Datenresidenz (`https://api.<subdomain>.ghe.com`) akzeptiert die Konfiguration, getestet ist es aber nicht. GitHub Enterprise Server wird nicht unterstützt. Die Vorschau- und Live-Links hängen davon ab, dass die CI des App-Templates GitHub-Deployments meldet.
+:::
+
+### Forgejo
+
+Ein **Forgejo-Connector** (`type: forgejo`) veröffentlicht Apps auf dieselbe Weise in eine Organisation eines selbst betriebenen Forgejo: dieselben Befehle und Werkzeuge, derselbe Git-Proxy mit denselben Regeln, Protokollen und Grenzen. Die Einrichtung beschreibt [How to: Forgejo anbinden](../forgejo/). Das ist anders:
+
+- **Zugangsdaten.** Forgejo hat keine App mit kurzlebigen Installations-Tokens. Weldall nutzt für jeden Vorgang einen Access Token eines eigenen Bot-Benutzers. Der Token bleibt wie jeder Provider-Token auf dem Server, läuft aber nicht ab und reicht an jedes Repository, auf das der Bot-Benutzer zugreifen kann, nicht nur an ein Repository pro Anfrage. Widerrufen wird er in Forgejo.
+- **Zugriff auf neue Repositorys.** Forgejo macht den Bot-Benutzer zum Administrator jedes Repositorys, das er anlegt. Weldall senkt das sofort auf Schreibzugriff, damit der Bot-Benutzer danach weder den Branch-Schutz noch die Sichtbarkeit ändern kann.
+- **Regel für den Default-Branch.** Forgejo kennt keine Regeln für die ganze Organisation. Jedes neue Repository übernimmt den Branch-Schutz seines Templates, und Weldall prüft ihn am neuen Repository.
+- **Reviewer-Team.** Es braucht in der Organisation „Zugriff auf alle Repositorys“, weil der Bot-Benutzer von Weldall keine Teams zu Repositorys hinzufügen kann.
+- **Workflow-Dateien.** GitHub lehnt einen Push ab, der sie ändert; Forgejo nimmt ihn an, und Forgejo Actions führt die gepushten Definitionen vor jedem Review aus, mit jedem Actions-Secret, das das Repository erreicht (auch denen der Organisation), auf den Runnern des Repositorys und mit einem automatischen Token, der außerhalb der Regeln des Git-Proxys in das Repository schreiben kann. Publish übernimmt `.forgejo/workflows`, `.gitea/workflows` und `.github/workflows` immer aus dem Repository, aber nichts hält jemanden auf, der von Hand über den Git-Proxy pusht. Schalte Actions für App-Repositorys aus oder lege Zugangsdaten fürs Deployment nicht als Actions-Secrets ab, die sie erreichen; siehe [How to: Forgejo anbinden](../forgejo/#ci-secrets-und-workflows).
+- **Links.** Vorschau- und Live-Link kommen aus Commit-Status mit einstellbaren Kontexten, weil Forgejo keine Deployments kennt.
+
+:::caution[Stand]
+Der Forgejo-Connector ist gegen eine nachgebildete Forgejo-API getestet und einmal gegen eine lokale Forgejo-17-Instanz, ohne den Git-Proxy dazwischen. Gegen eine produktive Instanz lief er noch nicht.
 :::
 
 ## Anfragelimits

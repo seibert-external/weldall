@@ -266,3 +266,70 @@ describe("opening a Git host", () => {
     await expect(openGitHost({ connectorId: "connector" })).rejects.toMatchObject({ code });
   });
 });
+
+describe("shared connections for the Forgejo provider", () => {
+  const token = "0123456789abcdef0123456789abcdef01234567";
+  const forgejoConnector = {
+    ...githubConnector,
+    key: "forgejo",
+    providerType: "forgejo",
+    providerConfig: {
+      baseUrl: "https://forgejo.example.com",
+      organization: "example-org",
+      botUser: "weldall-bot",
+      templates: [{ name: "react", repository: "example-org/react-starter" }],
+      repositoryNamePrefix: "app-",
+      reviewerTeam: "app-reviewers",
+      setupMode: "customer-managed",
+    },
+  };
+  const forgejoGrant = {
+    kind: "forgejo-bot-token",
+    baseUrl: "https://forgejo.example.com",
+    botUser: "weldall-bot",
+  };
+  beforeEach(() => {
+    mocks.connector = forgejoConnector;
+  });
+
+  it("stores the token as the envelope-encrypted shared credential, bound to instance and bot user", async () => {
+    await createSharedConnection(input({ kind: "forgejo-bot-token", token: ` ${token}\n` }), admin);
+    expect(plaintexts()).toEqual([{ kind: "forgejo-bot-token", token }]);
+    expect(mocks.create.mock.calls[0]![0].data).toMatchObject({
+      providerSelection: { kind: "forgejo-bot-token" },
+    });
+    expect(JSON.stringify(mocks.create.mock.calls)).not.toContain(token);
+    expect(storedGrant()).toEqual(forgejoGrant);
+  });
+
+  it.each([
+    [{ kind: "forgejo-bot-token", token: "short" }, "invalid_token"],
+    [{ kind: "github-app-private-key", privateKey }, "invalid_connector"],
+  ])("rejects %j before encrypting or writing anything", async (providerInput, code) => {
+    await expect(createSharedConnection(input(providerInput), admin)).rejects.toMatchObject({
+      code,
+    });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+
+  it("opens the Forgejo host with the token, decrypted only when needed", async () => {
+    mocks.connections = [
+      {
+        id: "shared",
+        credentialId: "credential",
+        providerSelection: { kind: "forgejo-bot-token" },
+        providerGrant: forgejoGrant,
+      },
+    ];
+    mocks.decrypt.mockResolvedValue(JSON.stringify({ kind: "forgejo-bot-token", token }));
+    const host = await openGitHost({ connectorId: "connector" });
+    expect(mocks.decrypt).not.toHaveBeenCalled();
+    const target = await host.getForwardingTarget(
+      { repository: { owner: "example-org", name: "app-x" }, access: "write" },
+      AbortSignal.timeout(5_000),
+    );
+    expect(target).toMatchObject({ expiresAt: null });
+    expect(target.url.href).toBe("https://forgejo.example.com/example-org/app-x.git");
+    expect(mocks.decrypt).toHaveBeenCalledOnce();
+  });
+});

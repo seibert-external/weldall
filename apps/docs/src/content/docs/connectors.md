@@ -1,11 +1,11 @@
 ---
 title: Connectors
-description: Call Google and Atlassian Cloud APIs on behalf of the signed-in user, and publish apps to GitHub.
+description: Call Google and Atlassian Cloud APIs on behalf of the signed-in user, and publish apps to GitHub or Forgejo.
 ---
 
 Connectors let you call a service **on behalf of the user**. Each person connects their own account and approves access. Weldall keeps the credentials encrypted on the server and makes the calls; provider tokens never reach the CLI.
 
-Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. A GitHub App connector [publishes apps to GitHub](#publish-apps-to-github) for people without a GitHub account. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side.
+Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. A GitHub App connector [publishes apps to GitHub](#publish-apps-to-github) for people without a GitHub account, and a Forgejo connector does the same for a [self-hosted Forgejo](#forgejo). Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side.
 
 Connectors/shared connections can be created disabled and provisioned in the UI, then explicitly enabled. Provisioning/rotation does not enable them; both must be enabled for use. [IaC](../infrastructure-as-code/#public-configuration-ui-only-credentials) manages public configuration/import, never secrets.
 
@@ -156,6 +156,21 @@ The git proxy sees which branch a push updates, but not whether the push rewrite
 
 :::caution[Status]
 Publishing is tested against a simulated GitHub API and a local git server. The building blocks were tried against github.com by hand, but the complete flow has not yet run against github.com. GitHub Enterprise Cloud with data residency (`https://api.<subdomain>.ghe.com`) is accepted by the configuration but has not been tested. GitHub Enterprise Server is not supported. The preview and live links depend on the app template's CI reporting GitHub deployments.
+:::
+
+### Forgejo
+
+A **Forgejo connector** (`type: forgejo`) publishes apps to an organisation on a self-hosted Forgejo in the same way: the same commands and tools, the same git proxy with the same rules, records and limits. [How to: Connect Forgejo](../forgejo/) describes the setup. What is different:
+
+- **Credential.** Forgejo has no App with short-lived installation tokens. Weldall uses one access token of a dedicated bot user for every operation. The token stays on the server like every provider token, but it does not expire and reaches every repository the bot user can access, not just one repository per request. Revoking it is done in Forgejo.
+- **Access to new repositories.** Forgejo makes the bot user administrator of each repository it creates; Weldall lowers that to write right away, so the bot user cannot change the branch protection or the visibility afterwards.
+- **Default-branch rule.** Forgejo has no organisation-wide rules. Each new repository copies the branch protection of its template, and Weldall checks it on the new repository.
+- **Reviewer team.** It needs "access to all repositories" in the organisation, because Weldall's bot user cannot add teams to repositories.
+- **Workflow files.** GitHub refuses a push that changes them; Forgejo accepts it, and Forgejo Actions runs the pushed definitions before any review, with every Actions secret the repository can reach (including organisation secrets), on the repository's runners, and with an automatic token that can write to the repository outside the git proxy's rules. Publish keeps `.forgejo/workflows`, `.gitea/workflows` and `.github/workflows` from the repository, but nothing stops someone who pushes through the git proxy by hand. Switch Actions off for app repositories, or keep deployment credentials out of Actions secrets they can reach; see [How to: Connect Forgejo](../forgejo/#ci-secrets-and-workflows).
+- **Links.** The preview and live links come from commit statuses with configurable contexts, because Forgejo has no deployments.
+
+:::caution[Status]
+The Forgejo connector was tested against a simulated Forgejo API and once against a local Forgejo 17 instance, without the git proxy in between. It has not run against a production instance.
 :::
 
 ## Request limits

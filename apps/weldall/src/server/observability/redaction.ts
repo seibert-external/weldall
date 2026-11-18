@@ -40,6 +40,15 @@ const credentialRules: ReadonlyArray<{ pattern: RegExp; accept?: (match: string)
   { pattern: /(?<=\b[a-z][a-z0-9+.-]{0,30}:\/\/)[^\s/?#@"'<>]+(?=@)/gi },
   // Decoded Basic credentials of GitHub installation tokens outside a URL.
   { pattern: /(?<=\bx-access-token:)[^\s@"',;/]+/gi },
+  // Forgejo access tokens are 40 hex digits, the same shape as a SHA-1 commit id, so they are only
+  // recognised by their label: the decoded Basic userinfo the Forgejo provider sends
+  // (`weldall:<token>`), and `token <token>` (Forgejo's header scheme) after an Authorization
+  // label on the same line. A bare commit id stays readable.
+  { pattern: /(?<=\bweldall:)[0-9a-f]{40}(?![0-9a-zA-Z])/g },
+  {
+    pattern:
+      /(?<=\b(?:proxy-)?authorization\b[^\n]{0,64}?\btoken[ \t]{1,8})[0-9a-f]{40}(?![0-9a-zA-Z])/gi,
+  },
   // GitHub token families and the Weldall git credential, by prefix and of any length.
   {
     pattern: new RegExp(

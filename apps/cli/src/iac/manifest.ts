@@ -15,6 +15,7 @@ import { secretSections, secretPrimitiveSchemas } from "./secret-primitives.js";
 import { isRecord } from "../http.js";
 import { validateAtlassianConfiguration, canonicalAtlassianConfiguration } from "./atlassian.js";
 import { githubAppConfigSchema, validateGitHubAppConfiguration } from "./github-app.js";
+import { forgejoConfigSchema, validateForgejoConfiguration } from "./forgejo.js";
 
 export const MANIFEST_VERSION = "weldall.dev/v1";
 export const MANIFEST_FILE = "weldall.yml";
@@ -379,7 +380,9 @@ function validatePrimitive({
     if (object.envelopeProvider !== "LOCAL_ENV" && object.envelopeProvider !== "OPENBAO")
       throw new CliError("Envelope provider must be LOCAL_ENV or OPENBAO");
     if (
-      !["google", "atlassian", "atlassian-mcp", "github-app"].includes(String(object.type)) ||
+      !["google", "atlassian", "atlassian-mcp", "github-app", "forgejo"].includes(
+        String(object.type),
+      ) ||
       typeof object.enabled !== "boolean"
     )
       throw new CliError("Invalid connector type or enabled flag");
@@ -388,6 +391,7 @@ function validatePrimitive({
       throw new CliError("Invalid connectors.requiredScopes");
     if (object.type === "atlassian") validateAtlassianConfiguration(object.provider);
     else if (object.type === "github-app") validateGitHubAppConfiguration(object.provider);
+    else if (object.type === "forgejo") validateForgejoConfiguration(object.provider);
     else if (object.type === "atlassian-mcp") {
       if (!atlassianMcpConfigSchema.safeParse(object.provider).success)
         throw new CliError("Invalid Atlassian MCP scope policy");
@@ -631,13 +635,15 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
             provider:
               value.type === "github-app"
                 ? githubAppConfigSchema.parse(value.provider)
-                : {
-                    ...(value.type === "atlassian"
-                      ? canonicalAtlassianConfiguration(value.provider)
-                      : value.provider),
-                    allowedScopes: canonicalSet(value.provider.allowedScopes),
-                    defaultScopes: canonicalSet(value.provider.defaultScopes),
-                  },
+                : value.type === "forgejo"
+                  ? forgejoConfigSchema.parse(value.provider)
+                  : {
+                      ...(value.type === "atlassian"
+                        ? canonicalAtlassianConfiguration(value.provider)
+                        : value.provider),
+                      allowedScopes: canonicalSet(value.provider.allowedScopes),
+                      defaultScopes: canonicalSet(value.provider.defaultScopes),
+                    },
           })),
         }
       : {}),

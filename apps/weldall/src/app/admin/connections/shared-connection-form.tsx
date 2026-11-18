@@ -17,6 +17,8 @@ const warning =
   "Token permissions are managed in Atlassian, not Weldall. Some tools require OAuth; API-key calls may require explicit cloudId arguments. Revoke keys in Atlassian administration: disabling or deleting here only blocks Weldall access.";
 const githubWarning =
   "The App's permissions are managed in GitHub, not Weldall. Weldall keeps the key on the server and mints short-lived tokens for one repository at a time. Revoke keys in the App settings on GitHub: disabling or deleting here only blocks Weldall access.";
+const forgejoWarning =
+  "The token's scopes and the bot user's rights are managed in Forgejo, not Weldall. Weldall keeps the token on the server; it does not expire and reaches every repository the bot user can access. Revoke it in the bot user's settings in Forgejo: disabling or deleting here only blocks Weldall access.";
 
 export function SharedConnectionForm({
   connection,
@@ -32,10 +34,12 @@ export function SharedConnectionForm({
   const connectors = configuration.data?.connectors.filter((row) => row.staticProvisioning) ?? [];
   const [connectorId, setConnectorId] = useState("");
   const [keyFile, setKeyFile] = useState<File | null>(null);
-  const isGitHubApp =
-    connectors.find((row) => row.id === (connection?.connectorId ?? connectorId))?.config.type ===
-    "github-app";
-  const credentialLabel = isGitHubApp ? "private key" : "API key";
+  const connectorType = connectors.find(
+    (row) => row.id === (connection?.connectorId ?? connectorId),
+  )?.config.type;
+  const isGitHubApp = connectorType === "github-app";
+  const isForgejo = connectorType === "forgejo";
+  const credentialLabel = isGitHubApp ? "private key" : isForgejo ? "access token" : "API key";
   const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -97,8 +101,14 @@ export function SharedConnectionForm({
     >
       <Banner
         status="warning"
-        title={isGitHubApp ? "GitHub App private key" : "Atlassian service account API key"}
-        description={isGitHubApp ? githubWarning : warning}
+        title={
+          isGitHubApp
+            ? "GitHub App private key"
+            : isForgejo
+              ? "Forgejo bot user access token"
+              : "Atlassian service account API key"
+        }
+        description={isGitHubApp ? githubWarning : isForgejo ? forgejoWarning : warning}
       />
       <Text color="secondary">
         IaC manages public configuration only and may reset public UI changes. Provisioning a
@@ -132,7 +142,7 @@ export function SharedConnectionForm({
             secret.
           </Text>
           <TextInput label="Display name" isRequired value={name} onChange={setName} />
-          {isGitHubApp ? null : (
+          {isGitHubApp || isForgejo ? null : (
             <TextInput
               label="Configured cloud IDs (comma-separated, optional)"
               value={cloudIds}
@@ -144,7 +154,9 @@ export function SharedConnectionForm({
       <Text color="secondary">
         {isGitHubApp
           ? "Weldall use scopes control who can use this connection, not the App’s GitHub permissions."
-          : "Weldall use scopes control who can use this connection, not the token’s Atlassian permissions."}
+          : isForgejo
+            ? "Weldall use scopes control who can use this connection, not the token’s Forgejo scopes."
+            : "Weldall use scopes control who can use this connection, not the token’s Atlassian permissions."}
       </Text>
       <ScopeChecklist
         value={useScopes}
@@ -179,6 +191,17 @@ export function SharedConnectionForm({
             void selected?.text().then(setApiKey);
           }}
         />
+      ) : isForgejo ? (
+        <TextInput
+          label={
+            connection
+              ? "New Forgejo bot user access token (secret)"
+              : "Forgejo bot user access token (secret)"
+          }
+          type="password"
+          value={apiKey}
+          onChange={setApiKey}
+        />
       ) : (
         <TextInput
           label={connection ? "New Atlassian API token (secret)" : "Atlassian API token (secret)"}
@@ -196,7 +219,11 @@ export function SharedConnectionForm({
               rotate.mutate({
                 id: connection.id,
                 version: connection.version,
-                providerInput: isGitHubApp ? { privateKey: apiKey } : { apiKey },
+                providerInput: isGitHubApp
+                  ? { privateKey: apiKey }
+                  : isForgejo
+                    ? { token: apiKey }
+                    : { apiKey },
               });
               setApiKey("");
               setKeyFile(null);
@@ -237,14 +264,16 @@ export function SharedConnectionForm({
                 useScopeKeys: useScopes,
                 providerInput: isGitHubApp
                   ? { kind: "github-app-private-key", ...(apiKey ? { privateKey: apiKey } : {}) }
-                  : {
-                      kind: "service-account-api-key",
-                      ...(apiKey ? { apiKey } : {}),
-                      cloudIds: cloudIds
-                        .split(",")
-                        .map((id) => id.trim())
-                        .filter(Boolean),
-                    },
+                  : isForgejo
+                    ? { kind: "forgejo-bot-token", ...(apiKey ? { token: apiKey } : {}) }
+                    : {
+                        kind: "service-account-api-key",
+                        ...(apiKey ? { apiKey } : {}),
+                        cloudIds: cloudIds
+                          .split(",")
+                          .map((id) => id.trim())
+                          .filter(Boolean),
+                      },
               });
               setApiKey("");
               setKeyFile(null);

@@ -3,7 +3,9 @@ import { z } from "zod";
 import { ConnectorError } from "../../errors";
 import type { ConnectorProvider, ProviderGrant } from "../../provider";
 import {
+  deriveWebBaseUrl,
   GITHUB_APP_CREDENTIAL_KIND,
+  githubAppConfigSchema,
   parseGitHubAppConfiguration,
   type GitHubAppConfig,
 } from "./config";
@@ -76,6 +78,12 @@ export const githubAppProvider: ConnectorProvider = {
         config: parseGitHubAppConfiguration(config),
         loadPrivateKey: async () => credentialsSchema.parse(await loadCredentials()).privateKey,
       });
+    },
+    repositoryWebUrl({ config, repository }) {
+      const base = deriveWebBaseUrl(githubAppConfigSchema.parse(config).apiBaseUrl);
+      return base
+        ? `${base}/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`
+        : null;
     },
   },
   parseConfiguration: parseGitHubAppConfiguration,

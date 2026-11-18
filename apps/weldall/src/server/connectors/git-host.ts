@@ -1,5 +1,5 @@
 /**
- * Host-neutral seam for Git hosts (GitHub now, Forgejo later). Registry, permission checks, audit
+ * Host-neutral seam for Git hosts (GitHub and Forgejo). Registry, permission checks, audit
  * and publish stay host-independent; everything that depends on the host lives behind this
  * interface. Implementations are created per operation from a connector and its shared
  * connection; callers authorize the person (app registry ownership) before using one.
@@ -9,7 +9,7 @@
  * Who provides what a new repository needs (default-branch rule, reviewer team write access,
  * CI secrets). Only "customer-managed" is built: the organisation sets them up and Weldall
  * checks them. "weldall-managed" (Weldall sets them up after creating the repository) is
- * reserved and rejected by configuration validation until it exists.
+ * reserved and rejected by configuration validation of every host until it exists.
  */
 export type GitHostSetupMode = "customer-managed" | "weldall-managed";
 
@@ -35,7 +35,10 @@ export interface GitForwardingTarget {
   url: URL;
   /** Complete upstream `Authorization` header value. Never leaves the server. */
   authorization: string;
-  /** Do not start a request with this authorization after this time; null when it does not expire. */
+  /**
+   * Do not start a request with this authorization after this time; null when the host's
+   * credential does not expire (Forgejo access tokens).
+   */
   expiresAt: Date | null;
 }
 
@@ -165,8 +168,8 @@ export interface RepositoryStatus {
   /** Links the CI reported; null when none was found. */
   links: { preview: string | null; live: string | null };
   /**
-   * Parts the host could not read, typically a permission the App lacks; the rest of the status
-   * is still returned.
+   * Parts the host could not read, typically a permission or scope the host credential lacks;
+   * the rest of the status is still returned.
    */
   warnings: GitHostWarning[];
 }
@@ -221,8 +224,9 @@ export interface GitHost {
   readonly setupMode: GitHostSetupMode;
   /**
    * Repository paths (directories or files, relative to the root) that a publish always takes
-   * from the repository instead of the local folder, because the host refuses or restricts pushes
-   * that change them (GitHub: `.github/workflows` needs the `workflows` permission).
+   * from the repository instead of the local folder: CI workflow definitions, which the host
+   * refuses to accept from the integration (GitHub: `.github/workflows` needs the `workflows`
+   * permission) or would run as pushed (Forgejo Actions).
    */
   readonly protectedPaths: readonly string[];
   /**
@@ -268,7 +272,8 @@ export interface GitHost {
   openPullRequest(input: OpenPullRequestInput, signal: AbortSignal): Promise<OpenedPullRequest>;
   /**
    * Reads pull request state, reviews, checks and the CI's preview or live link. Parts the host
-   * cannot read (e.g. a missing App permission) become warnings instead of failing the call.
+   * cannot read (e.g. a missing permission of the host credential) become warnings instead of
+   * failing the call.
    */
   readStatus(input: ReadStatusInput, signal: AbortSignal): Promise<RepositoryStatus>;
 }
@@ -280,4 +285,10 @@ export interface GitHostFactory {
     /** Decrypts the shared connection's credential; called only when the host needs it. */
     loadCredentials: () => Promise<unknown>;
   }): GitHost;
+  /**
+   * Browser URL of a repository from the connector configuration alone (no host call, no
+   * credential); null when the configuration does not say where the host's web interface is.
+   * Throws when the configuration is invalid.
+   */
+  repositoryWebUrl(input: { config: unknown; repository: GitRepositoryRef }): string | null;
 }

@@ -31,10 +31,15 @@ export const atlassianSharedSelectionSchema = z.strictObject({
 export const githubAppSharedSelectionSchema = z.strictObject({
   kind: z.literal("github-app-private-key"),
 });
+/** The instance and bot user come from the connector configuration; the token is the only credential. */
+export const forgejoSharedSelectionSchema = z.strictObject({
+  kind: z.literal("forgejo-bot-token"),
+});
 /** `kind` must match the connector provider's shared credential kind. */
 export const sharedSelectionSchema = z.discriminatedUnion("kind", [
   atlassianSharedSelectionSchema,
   githubAppSharedSelectionSchema,
+  forgejoSharedSelectionSchema,
 ]);
 export const sharedConnectionConfigSchema = z.strictObject({
   key: mcpConnectorKeySchema,

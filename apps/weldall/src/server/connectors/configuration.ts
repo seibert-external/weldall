@@ -146,7 +146,7 @@ export async function saveConnectorConfiguration({
   )
     throw new ConnectorError(
       "in_use",
-      "Disconnect and delete connections and attempts before changing the OAuth client or the GitHub App (App ID or GitHub API).",
+      "Disconnect and delete connections and attempts before changing the OAuth client, the GitHub App (App ID or GitHub API) or the Forgejo instance or bot user.",
       409,
     );
   if (
