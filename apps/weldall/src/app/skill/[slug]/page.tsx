@@ -10,7 +10,6 @@ import { DirectoryUserMenu } from "../../_components/directory-user-menu";
 import { SkillRetrievalSummarySection } from "../../_components/skill-retrieval-summary";
 import { SkillRetrievalFlame } from "../../_components/skill-retrieval-flame";
 import { SkillContent } from "../../_components/skill-content";
-import { splitSkillContent } from "../../_components/split-skill-content";
 import { formatTagLabel } from "../../_components/format-tag";
 import { SkillNoiseBadge } from "../../_components/skill-noise-badge";
 import { isAdminEmail } from "@/server/admin/service";
@@ -41,7 +40,6 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
     retrievalSummaryPromise,
   ]);
   if (!skill) notFound();
-  const content = splitSkillContent(skill.content);
 
   return (
     <div className="skill-detail-page">
@@ -86,15 +84,12 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
                       />
                     ) : null}
                   </h1>
-                  {content.intro ? <SkillContent content={content.intro} /> : null}
                   <SkillPromptTerminal slug={skill.slug} title={skill.title} />
                 </header>
 
-                {content.rest ? (
-                  <div className="skill-detail-instructions">
-                    <SkillContent content={content.rest} />
-                  </div>
-                ) : null}
+                <div className="skill-detail-instructions">
+                  <SkillContent content={skill.content} />
+                </div>
               </Card>
             </div>
           </div>

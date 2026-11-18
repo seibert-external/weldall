@@ -1,16 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type SVGProps } from "react";
+import { useEffect, useRef, useState, type SVGProps } from "react";
 
-const promptParts = (origin: string, slug: string, title: string) => ({
-  setup: `Check if Weldall is installed. Otherwise, read ${origin}/install.md to install the Weldall CLI. Then`,
-  task: `run \`weldall skills show ${slug}\` and follow the returned instructions to help me with: ${title}.`,
-});
-
-const promptForSkill = (origin: string, slug: string, title: string) => {
-  const { setup, task } = promptParts(origin, slug, title);
-  return `${setup} ${task}`;
-};
+const promptForSkill = (origin: string, slug: string, title: string) =>
+  `Check if Weldall is installed. Otherwise, read ${origin}/install.md to install the Weldall CLI. Then run \`weldall skills show ${slug}\` and follow the returned instructions to help me with: ${title}.`;
 
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
@@ -32,10 +25,6 @@ async function copyToClipboard(text: string): Promise<boolean> {
     }
   }
 }
-
-const subscribeToOrigin = () => () => undefined;
-const getOrigin = () => window.location.origin;
-const getServerOrigin = () => "";
 
 type CopyState = "idle" | "copied" | "failed";
 
@@ -91,15 +80,10 @@ export function CopySkillPromptButton({ slug, title }: { slug: string; title: st
 
 export function SkillPromptTerminal({ slug, title }: { slug: string; title: string }) {
   const { copyState, copyPrompt } = useCopySkillPrompt(slug, title);
-  const origin = useSyncExternalStore(subscribeToOrigin, getOrigin, getServerOrigin);
-  const parts = promptParts(origin, slug, title);
   const CopyIcon = copyState === "copied" ? CheckIcon : ClipboardCopyIcon;
 
   return (
-    <section className="welcome-prompt" aria-labelledby="skill-prompt-heading">
-      <h2 className="skill-prompt-heading" id="skill-prompt-heading">
-        Prompt
-      </h2>
+    <section className="welcome-prompt" aria-label="Prompt">
       <div className="skill-prompt-terminal">
         <div className="skill-prompt-terminal-bar">
           <span className="skill-prompt-terminal-dots" aria-hidden="true">
@@ -122,9 +106,7 @@ export function SkillPromptTerminal({ slug, title }: { slug: string; title: stri
           <span className="skill-prompt-terminal-sign" aria-hidden="true">
             ${" "}
           </span>
-          <code>
-            <span className="skill-prompt-terminal-setup">{parts.setup}</span> {parts.task}
-          </code>
+          <code>{`Run weldall skills show ${slug} and follow the returned instructions.`}</code>
         </pre>
       </div>
     </section>
