@@ -112,24 +112,6 @@
     height: 2.25rem !important;
   }
 
-  /* Cards/list toggle styled like an input; 3px inset + 28px items keep it at 36px. */
-  .directory-heading-actions .astryx-segmented-control {
-    border: var(--border-width) solid var(--color-border-emphasized) !important;
-    background-color: var(--color-background-surface) !important;
-    padding: 3px !important;
-  }
-
-  .directory-heading-actions .astryx-segmented-control-item {
-    height: 1.75rem !important;
-  }
-
-  /* Active option: flat gray fill instead of a raised, shadowed pill. */
-  .directory-heading-actions .astryx-segmented-control-item.selected {
-    border-radius: 6px !important;
-    background-color: var(--color-neutral) !important;
-    box-shadow: none !important;
-  }
-
   /* Multi-selects with badges may grow, so only set a minimum. */
   .astryx-multi-selector {
     min-height: 2.25rem !important;
@@ -1011,7 +993,7 @@
     gap: 0.375rem;
   }
 
-  /* No z-index here: a stacking context would trap lock, flame and "+N" below the card link. */
+  /* No z-index here: a stacking context would trap lock and flame below the card link. */
   .skill-card-heading {
     position: relative;
     display: flex;
@@ -1070,67 +1052,8 @@
     margin-top: auto;
   }
 
-  /* List view: one line of chips; the overflow collapses into a "+N" chip. */
-  /* clip, not hidden: a hidden overflow is still scrollable and can shift the chips. */
-  .skill-card-tags[data-single-line] {
-    position: relative;
-    flex-wrap: nowrap;
-    overflow: clip;
-  }
-
-  .skill-card-tags[data-single-line] > span,
-  .skill-card-tags-measure > span,
-  .skill-card-tag-more {
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-
-  .skill-card-tags-measure {
-    position: absolute;
-    top: 0;
-    left: 0;
-    display: flex;
-    gap: inherit;
-    visibility: hidden;
-    pointer-events: none;
-  }
-
-  /* Above the card link overlay so the hover card trigger stays hoverable. */
-  .skill-card-tag-more {
-    position: relative;
-    z-index: 3;
-    cursor: default;
-  }
-
-  /* A clamped preview sits above the card link for its hover card; clicks are forwarded to the link. */
-  .skill-card-preview[data-truncated] {
-    position: relative;
-    z-index: 3;
-    cursor: pointer;
-  }
-
-  /* Astryx 0.1.4 drops HoverCard's className, so the content sets the card's width. */
-  .skill-card-hovercard {
-    display: block;
-    width: max-content;
-    max-width: min(28rem, calc(100vw - 2rem));
-    white-space: normal;
-  }
-
-  .skill-card-hovercard-text {
-    color: var(--color-text-primary);
-    font-size: 0.875rem;
-    line-height: 1.5;
-  }
-
-  .skill-card-hovercard-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-  }
-
   /* One tinted chip style for every tag, like the chips on the Weldall website. */
-  .skill-card-tags :is(span:not([class]), .skill-card-resource-tag, .skill-card-tag-more),
+  .skill-card-tags :is(span:not([class]), .skill-card-resource-tag),
   .skill-noise-surface:is([data-tone="tag"], [data-tone="resource"]) {
     border-radius: var(--radius-full);
     /* Dark mode swaps the accent pair so the chips read lighter on dark cards. */
@@ -1148,70 +1071,6 @@
     background: light-dark(#fbefd9, #e0b878);
     color: light-dark(#8c5f1e, #3d2a0d);
     font-weight: var(--font-weight-semibold);
-  }
-
-  /* List view: the card markup laid out as compact rows for quick scanning. */
-  .skill-directory-list[data-view="list"] {
-    grid-template-columns: 1fr;
-    gap: 0.5rem;
-  }
-
-  .skill-directory-list[data-view="list"] .skill-card {
-    min-height: 0;
-    padding: 0.75rem 1.25rem;
-  }
-
-  .skill-directory-list[data-view="list"] .skill-card-heading {
-    display: grid;
-    min-height: 0;
-    /* Fixed tracks so the columns line up across rows. */
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) 20rem 4.5rem;
-    align-items: center;
-    gap: 1.5rem;
-  }
-
-  .skill-directory-list[data-view="list"] .skill-card-title {
-    display: contents;
-  }
-
-  .skill-directory-list[data-view="list"] .skill-card h2 {
-    order: 1;
-    font-size: 1rem;
-  }
-
-  .skill-directory-list[data-view="list"] .skill-card-preview {
-    order: 2;
-    max-width: none;
-    margin: 0;
-    -webkit-line-clamp: 1;
-    font-size: 0.875rem;
-  }
-
-  .skill-directory-list[data-view="list"] .skill-card-tags {
-    order: 3;
-    margin-top: 0;
-  }
-
-  .skill-directory-list[data-view="list"] .skill-card-status {
-    order: 4;
-    height: auto;
-    justify-content: flex-end;
-  }
-
-  @media (max-width: 52rem) {
-    .skill-directory-list[data-view="list"] .skill-card-heading {
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 0.5rem 1rem;
-    }
-
-    .skill-directory-list[data-view="list"] .skill-card-status {
-      order: 2;
-    }
-
-    .skill-directory-list[data-view="list"] :is(.skill-card-preview, .skill-card-tags) {
-      grid-column: 1 / -1;
-      order: 3;
-    }
   }
 
   .skill-noise-surface {

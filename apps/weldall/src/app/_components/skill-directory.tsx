@@ -1,7 +1,6 @@
 "use client";
 
 import { Icon } from "@astryxdesign/core/Icon";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
@@ -19,14 +18,10 @@ import {
   type SkillDirectorySort,
 } from "./skill-directory-sorting";
 import { SkillRetrievalFlame } from "./skill-retrieval-flame";
-import { SkillCardPreview } from "./skill-card-preview";
-import { SkillTagList } from "./skill-tag-list";
 
 type DirectorySkill = VisibleSkill & { appearanceIconNode?: SkillAppearanceIconNode };
 
 const skillSortOptions = [...SKILL_DIRECTORY_SORT_OPTIONS];
-const SKILL_DIRECTORY_VIEWS = ["cards", "list"] as const;
-type SkillDirectoryView = (typeof SKILL_DIRECTORY_VIEWS)[number];
 
 export function SkillDirectory({
   retrievalCounts,
@@ -35,7 +30,7 @@ export function SkillDirectory({
   retrievalCounts: Record<string, number>;
   skills: DirectorySkill[];
 }) {
-  const [{ q: query, resource: resourceFilter, sort, tag: tagFilter, view }, setDirectoryQuery] =
+  const [{ q: query, resource: resourceFilter, sort, tag: tagFilter }, setDirectoryQuery] =
     useQueryStates(
       {
         q: parseAsString.withDefault(""),
@@ -44,9 +39,6 @@ export function SkillDirectory({
           DEFAULT_SKILL_DIRECTORY_SORT,
         ),
         tag: parseAsString.withDefault(""),
-        view: parseAsStringEnum<SkillDirectoryView>([...SKILL_DIRECTORY_VIEWS]).withDefault(
-          "cards",
-        ),
       },
       { history: "replace", shallow: true },
     );
@@ -185,38 +177,16 @@ export function SkillDirectory({
                 width="100%"
               />
             </div>
-            <SegmentedControl
-              label="Skill view"
-              onChange={(value) =>
-                void setDirectoryQuery({ view: value === "list" ? "list" : null })
-              }
-              size="lg"
-              value={view}
-            >
-              <SegmentedControlItem
-                icon={<Icon color="inherit" icon={GridIcon} size="sm" />}
-                isLabelHidden
-                label="Cards"
-                value="cards"
-              />
-              <SegmentedControlItem
-                icon={<Icon color="inherit" icon={ListIcon} size="sm" />}
-                isLabelHidden
-                label="List"
-                value="list"
-              />
-            </SegmentedControl>
           </div>
         </div>
         {sortedSkills.length ? (
-          <div className="skill-directory-list" data-view={view}>
+          <div className="skill-directory-list">
             {sortedSkills.map((skill, index) => (
               <SkillCard
                 animationOrder={Math.min(index, 8)}
                 key={skill.slug}
                 retrievalCount={retrievalCounts[skill.slug] ?? 0}
                 skill={skill}
-                view={view}
               />
             ))}
           </div>
@@ -235,12 +205,10 @@ function SkillCard({
   animationOrder,
   retrievalCount,
   skill,
-  view,
 }: {
   animationOrder: number;
   retrievalCount: number;
   skill: DirectorySkill;
-  view: SkillDirectoryView;
 }) {
   const resourceTag = getSkillResourceTag(skill);
   const style = {
@@ -276,22 +244,16 @@ function SkillCard({
             <SkillRetrievalFlame count={retrievalCount} />
           </div>
         </div>
-        {skill.preview ? (
-          <SkillCardPreview isTruncatable={view === "list"} text={skill.preview} />
-        ) : null}
+        {skill.preview ? <p className="skill-card-preview">{skill.preview}</p> : null}
         {resourceTag || skill.meta?.tags?.length ? (
-          <SkillTagList
-            isSingleLine={view === "list"}
-            tags={[
-              ...(resourceTag
-                ? [{ key: "resource", label: formatTagLabel(resourceTag), isResource: true }]
-                : []),
-              ...(skill.meta?.tags ?? []).map((tag, index) => ({
-                key: `${index}:${tag}`,
-                label: formatTagLabel(tag),
-              })),
-            ]}
-          />
+          <div className="skill-card-tags">
+            {resourceTag ? (
+              <span className="skill-card-resource-tag">{formatTagLabel(resourceTag)}</span>
+            ) : null}
+            {skill.meta?.tags?.map((tag, index) => (
+              <span key={`${index}:${tag}`}>{formatTagLabel(tag)}</span>
+            ))}
+          </div>
         ) : null}
       </div>
     </article>
@@ -337,25 +299,6 @@ function getSkillResourceTag(skill: VisibleSkill): string | undefined {
     .toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/gu, "");
-}
-
-function GridIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" {...props}>
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-    </svg>
-  );
-}
-
-function ListIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" {...props}>
-      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-    </svg>
-  );
 }
 
 function LockIcon(props: SVGProps<SVGSVGElement>) {
