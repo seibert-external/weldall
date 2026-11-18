@@ -25,7 +25,7 @@
 
 <p align="center">
   Want help installing Weldall CLI? We set it up on your servers for free.
-  <a href="https://seibert.link/freeweldallsetuphelp">How the free setup help works (video, 1:20)</a>
+  <a href="https://seibert.link/freeweldallsetuphelp">Promotional Video (80 secs)</a>
 </p>
 
 ---
