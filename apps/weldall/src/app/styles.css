@@ -610,6 +610,26 @@
     font-weight: var(--font-weight-semibold);
   }
 
+  .statistics-heading h1 {
+    font-size: 1.125rem;
+  }
+
+  .statistics-heading .astryx-segmented-control {
+    border: var(--border-width) solid var(--color-border-emphasized) !important;
+    background-color: var(--color-background-surface) !important;
+    padding: 3px !important;
+  }
+
+  .statistics-heading .astryx-segmented-control-item {
+    height: 1.75rem !important;
+  }
+
+  .statistics-heading .astryx-segmented-control-item.selected {
+    border-radius: 6px !important;
+    background-color: var(--color-neutral) !important;
+    box-shadow: none !important;
+  }
+
   .statistics-card {
     display: grid;
     align-content: start;
@@ -691,6 +711,8 @@
   }
 
   .statistics-charts {
+    --ts-chart-1: var(--color-accent);
+
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.5rem;
