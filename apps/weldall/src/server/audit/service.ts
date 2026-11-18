@@ -10,6 +10,7 @@ import {
   type AuditReasonCode,
 } from "../../lib/audit";
 import { requestIdentifiers } from "../observability/http";
+import { CLIENT_POLICY_FIELDS } from "../policy/client-policy";
 
 export { AUDIT_EVENT_TYPES } from "../../lib/audit";
 export type { AuditEventDto, AuditEventType } from "../../lib/audit";
@@ -193,20 +194,24 @@ const cliSettingsMetadata = z
   .strict();
 // Digests and field names only: the policy content, including internal instructions, stays in
 // the IaC repository.
-const clientPolicyMetadata = z
-  .object({
-    target: z.enum(["group", "default"]),
-    providerId: z.string().min(1).max(191).optional(),
-    providerKey: z.string().min(1).max(120).optional(),
-    groupId: z.string().min(1).max(191).optional(),
-    beforeSha256: digest.nullable(),
-    afterSha256: digest.nullable(),
-    changedFields: z.array(
-      z.enum(["approvalMode", "extensions", "shell", "models", "instructions"]),
-    ),
-    source: mutationSource,
-  })
-  .strict();
+const clientPolicyChange = {
+  beforeSha256: digest.nullable(),
+  afterSha256: digest.nullable(),
+  changedFields: z.array(z.enum(CLIENT_POLICY_FIELDS)),
+  source: mutationSource,
+};
+const clientPolicyMetadata = z.discriminatedUnion("target", [
+  z
+    .object({
+      target: z.literal("group"),
+      providerId: z.string().min(1).max(191),
+      providerKey: z.string().min(1).max(120),
+      groupId: z.string().min(1).max(191),
+      ...clientPolicyChange,
+    })
+    .strict(),
+  z.object({ target: z.literal("default"), ...clientPolicyChange }).strict(),
+]);
 const skillVisibility = z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]);
 const skillMeta = z
   .object({

@@ -218,25 +218,34 @@ describe("client_policy.updated audit event", () => {
     });
   });
 
+  const writeDefaultEvent = (extra: object) =>
+    prismaAuditWriter.write({
+      eventType: "client_policy.updated",
+      actorType: "machine",
+      actorId: `${prefix}-writer`,
+      requestId: `${prefix}-${randomUUID()}`,
+      outcome: "success",
+      subjectType: "cli_settings",
+      subjectId: "default",
+      metadata: {
+        target: "default",
+        beforeSha256: null,
+        afterSha256: "0".repeat(64),
+        changedFields: ["shell"],
+        source: "weldall_up",
+        ...extra,
+      },
+    });
+
+  it("accepts default policy metadata with digests and field names only", async () => {
+    await expect(writeDefaultEvent({})).resolves.toBeUndefined();
+  });
+
   it("rejects policy content in the metadata", async () => {
-    await expect(
-      prismaAuditWriter.write({
-        eventType: "client_policy.updated",
-        actorType: "machine",
-        actorId: `${prefix}-writer`,
-        requestId: `${prefix}-${randomUUID()}`,
-        outcome: "success",
-        subjectType: "cli_settings",
-        subjectId: "default",
-        metadata: {
-          target: "default",
-          beforeSha256: null,
-          afterSha256: null,
-          changedFields: ["instructions"],
-          source: "weldall_up",
-          instructions: "Internal text",
-        },
-      }),
-    ).rejects.toThrow();
+    await expect(writeDefaultEvent({ instructions: "Internal text" })).rejects.toThrow();
+  });
+
+  it("rejects group fields on a default policy event", async () => {
+    await expect(writeDefaultEvent({ groupId: "dev" })).rejects.toThrow();
   });
 });

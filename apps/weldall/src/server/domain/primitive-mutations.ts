@@ -14,6 +14,7 @@ import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
 import { prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
+  CLIENT_POLICY_FIELDS,
   canonicalPolicyJson,
   clientPolicySchema,
   type ClientPolicy,
@@ -1335,14 +1336,6 @@ async function groupAudit(
     versionAfter,
   });
 }
-const CLIENT_POLICY_FIELDS = [
-  "approvalMode",
-  "extensions",
-  "instructions",
-  "models",
-  "shell",
-] as const;
-
 /**
  * Records a client policy change with digests and changed field names only: the policy content
  * stays in the IaC repository. No-op when both sides are canonically equal.
