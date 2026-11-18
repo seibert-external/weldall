@@ -41,6 +41,7 @@ describe.skipIf(process.platform === "win32")("real stdio MCP", () => {
       expect(client.getInstructions()).toContain(
         "Before asking the user to confirm a provider write",
       );
+      expect(client.getInstructions()).toContain("including a read-only POST query transport");
       expect(await client.ping()).toEqual({});
       expect((await client.listTools()).tools).toHaveLength(6);
       for (const [name, args] of [

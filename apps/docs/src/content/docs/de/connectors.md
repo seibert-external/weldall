@@ -32,6 +32,33 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
+Außerdem gibt es Drive-Lesezugriff, mit dem eine Verbindung Dateien auflistet und liest, sowie Sheets- und Docs-Berechtigungen, mit denen sie Tabellen und Dokumente liest und bearbeitet. Vollen Drive-Zugriff gibt es nicht. Einen Bereich aus einer bestehenden Tabelle und danach ein bestehendes Dokument lesen zum Beispiel:
+
+```sh
+weldall request --connection my-google \
+  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/Sheet1!A1:D20'
+weldall request --connection my-google \
+  https://docs.googleapis.com/v1/documents/<document-id>
+```
+
+Bestätige dafür beim Einrichten die passende Berechtigung. Tabellennamen mit Leerzeichen oder Sonderzeichen müssen URL-kodiert werden. Zellen schreibst du mit `-X PUT` auf dieselbe `values`-URL plus `?valueInputOption=RAW`. So wird Text unverändert gespeichert und nie als Formel ausgewertet.
+
+Chat-Berechtigungen listen Spaces auf, lesen Nachrichten und senden Nachrichten im Namen der Person; zum Senden braucht das Google-Cloud-Projekt des OAuth-Clients eine konfigurierte Chat-App. Die neuesten Nachrichten eines Space listest du zum Beispiel so:
+
+```sh
+weldall request --connection my-google \
+  'https://chat.googleapis.com/v1/spaces/<space-id>/messages?pageSize=20&orderBy=createTime%20DESC'
+```
+
+Außerdem gibt es Google-Ads-Zugriff. Google kennt dafür nur die Berechtigung `adwords`, die auch Änderungen erlaubt; eine Verbindung, die nur Berichte braucht, kann also trotzdem Kampagnen ändern. Im Google-Cloud-Projekt des OAuth-Clients muss die Google Ads API aktiv sein und eine Zugriffsstufe über Test haben; die beantragst du auf der Übersichtsseite der API in der Cloud Console. Einen Developer Token verlangt Google nicht mehr. Gib `login-customer-id` mit, wenn du das Konto über ein Verwaltungskonto erreichst. Eine GAQL-Suche zum Beispiel:
+
+```sh
+weldall request --connection my-google -X POST \
+  -H 'login-customer-id: <manager-customer-id>' \
+  --json '{"query":"SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS"}' \
+  https://googleads.googleapis.com/v26/customers/<customer-id>/googleAds:search
+```
+
 Mit `weldall connections disconnect my-google` entfernst du sie wieder. Weldall versucht, den Zugriff bei Google zu widerrufen, und löscht die gespeicherte Verbindung. Lässt sich der Widerruf nicht bestätigen, bittet dich die CLI, ihn in deinen Google-Kontoeinstellungen abzuschließen.
 
 ## Atlassian Cloud einrichten

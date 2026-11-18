@@ -1,5 +1,11 @@
 # @weldall/sdk
 
+## 0.13.0
+
+### Minor Changes
+
+- 2955f1d: Export the client policy document schemas (`clientPolicySchema`, `defaultClientPolicySchema`), their types and `CLIENT_POLICY_APPROVAL_MODES`, so servers and clients validate a policy against the same definition.
+
 ## 0.12.2
 
 ### Patch Changes

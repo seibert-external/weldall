@@ -1,5 +1,17 @@
 # @weldall/goose
 
+## 0.4.6
+
+### Patch Changes
+
+- ad95cb1: Queue CLI calls beyond the four that run at once instead of failing them with `busy`; up to sixteen calls wait, and the wait counts toward the call's timeout.
+
+## 0.4.5
+
+### Patch Changes
+
+- d9ca3e5: Advertise `requiredScopes` as conditionally required for managed-connection sends, including read-only POST query transports, and return a specific error when it is missing.
+
 ## 0.4.4
 
 ### Patch Changes

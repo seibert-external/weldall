@@ -72,33 +72,38 @@ export async function login(
       });
     }
 
-    const code = await callbackCode;
-    const result = await tokenRequest(
-      config,
-      new URLSearchParams({
-        grant_type: "authorization_code",
-        client_id: WELDALL_CLIENT_ID,
-        code,
-        redirect_uri: callback.redirectUri,
-        code_verifier: pkce.verifier,
-      }),
-      key,
-    );
-    const validated = await validateLoginResponse(config, result, key, nonce);
-    await keychain.set(
-      config.issuer,
-      {
-        ...key,
-        refreshToken: validated.refreshToken,
-        accessSession: {
-          accessToken: validated.accessToken,
-          subject: validated.subject,
-          expiresAt: validated.expiresAt as number,
+    try {
+      const code = await callbackCode;
+      const result = await tokenRequest(
+        config,
+        new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: WELDALL_CLIENT_ID,
+          code,
+          redirect_uri: callback.redirectUri,
+          code_verifier: pkce.verifier,
+        }),
+        key,
+      );
+      const validated = await validateLoginResponse(config, result, key, nonce);
+      await keychain.set(
+        config.issuer,
+        {
+          ...key,
+          refreshToken: validated.refreshToken,
+          accessSession: {
+            accessToken: validated.accessToken,
+            subject: validated.subject,
+            expiresAt: validated.expiresAt as number,
+          },
         },
-      },
-      "replace",
-    );
-    return validated.subject;
+        "replace",
+      );
+      return validated.subject;
+    } finally {
+      // Keeps answering a repeated browser callback until here; ends the listener so the CLI can exit.
+      callback.close();
+    }
   });
 }
 

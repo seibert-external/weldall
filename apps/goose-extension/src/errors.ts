@@ -16,6 +16,8 @@ export const messages = {
   cancelled: "The operation was cancelled. The outcome may be unknown; do not repeat a write.",
   connection_unavailable:
     "The selected connection is not available and ready. Refresh connections and ask which account to use if needed.",
+  required_scopes_missing:
+    "Managed connection requests require requiredScopes. Copy the exact provider permissions documented by the loaded skill and try once more.",
   permission_missing:
     "The selected connection does not grant every provider permission required for this operation. Do not attempt the request; explain the missing access and offer to reconnect.",
   mcp_unavailable:

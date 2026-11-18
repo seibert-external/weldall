@@ -32,6 +32,33 @@ weldall request --connection my-google -X POST \
   https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries
 ```
 
+It also offers Drive read-only access, which lists and reads files, and Sheets and Docs permissions, which read and edit spreadsheets and documents. Full Drive access is not offered. For example, read a range from an existing spreadsheet, then read an existing document:
+
+```sh
+weldall request --connection my-google \
+  'https://sheets.googleapis.com/v4/spreadsheets/<spreadsheet-id>/values/Sheet1!A1:D20'
+weldall request --connection my-google \
+  https://docs.googleapis.com/v1/documents/<document-id>
+```
+
+Approve the matching permission during setup. URL-encode sheet names with spaces or special characters. Write cells with `-X PUT` on the same `values` URL plus `?valueInputOption=RAW`, so text is stored as entered and never evaluated as a formula.
+
+Chat permissions list spaces, read messages and send messages as the person; sending needs a Chat app configured in the Google Cloud project that owns the OAuth client. For example, list the latest messages in a space:
+
+```sh
+weldall request --connection my-google \
+  'https://chat.googleapis.com/v1/spaces/<space-id>/messages?pageSize=20&orderBy=createTime%20DESC'
+```
+
+It also offers Google Ads access. Google has only one Ads permission, `adwords`, which also allows changes, so a connection that needs only reports can still change campaigns. The Google Cloud project that owns the OAuth client needs the Google Ads API enabled and an access level above Test, which you apply for on the API's overview page in the Cloud Console. Google no longer requires a developer token. Pass `login-customer-id` when you reach the account through a manager account. For example, run a GAQL search:
+
+```sh
+weldall request --connection my-google -X POST \
+  -H 'login-customer-id: <manager-customer-id>' \
+  --json '{"query":"SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS"}' \
+  https://googleads.googleapis.com/v26/customers/<customer-id>/googleAds:search
+```
+
 To remove it, run `weldall connections disconnect my-google`. Weldall attempts to revoke access at Google and removes the stored connection. If revocation cannot be confirmed, the CLI asks you to finish in your Google account settings.
 
 ## Set up Atlassian Cloud

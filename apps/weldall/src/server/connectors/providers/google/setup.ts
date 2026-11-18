@@ -83,6 +83,57 @@ export const scopeCatalog: ScopeDescriptor[] = [
     group: "BigQuery",
     required: false,
   },
+  {
+    id: `${google}drive.readonly`,
+    label: "View your Drive files",
+    description:
+      "List, read and download all files in your Drive, including files shared with you.",
+    group: "Drive",
+    required: false,
+  },
+  {
+    id: `${google}spreadsheets`,
+    label: "Read and edit spreadsheets",
+    description: "Read, create and change all Google Sheets spreadsheets you can access.",
+    group: "Sheets",
+    required: false,
+  },
+  {
+    id: `${google}documents`,
+    label: "Read and edit documents",
+    description: "Read, create and change all Google Docs documents you can access.",
+    group: "Docs",
+    required: false,
+  },
+  {
+    id: `${google}chat.spaces.readonly`,
+    label: "View your Chat spaces",
+    description: "List and view the Google Chat spaces and conversations you are in.",
+    group: "Chat",
+    required: false,
+  },
+  {
+    id: `${google}chat.messages.readonly`,
+    label: "Read your Chat messages",
+    description: "Read messages and reactions in all Google Chat spaces you are in.",
+    group: "Chat",
+    required: false,
+  },
+  {
+    id: `${google}chat.messages.create`,
+    label: "Send Chat messages",
+    description: "Send Google Chat messages as you in spaces you are in.",
+    group: "Chat",
+    required: false,
+  },
+  {
+    id: `${google}adwords`,
+    label: "Manage your Google Ads accounts",
+    description:
+      "View and change all Google Ads accounts you can access. Google offers no read-only Ads permission.",
+    group: "Google Ads",
+    required: false,
+  },
 ];
 export const requiredScopes = scopeCatalog.filter((s) => s.required).map((s) => s.id);
 /** Canonicalizes scope sets without aliases or inferred permissions. */

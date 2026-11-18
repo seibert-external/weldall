@@ -1,5 +1,31 @@
 # @weldall/weldall
 
+## 0.9.0
+
+### Minor Changes
+
+- 2955f1d: Group assignments and the CLI settings can now carry a client policy. A policy sets the approval mode, extensions, shell access and allowed models, and a group policy can add instructions. Set it with IaC under `groupAssignments.<name>.policy` and `cli.policy`. The new `GET /api/me/policy` endpoint returns the caller's merged policy, and `GET /api/me/cli` appends the caller's group instructions to the organization appendix.
+
+### Patch Changes
+
+- 5a7f46c: Forward `X-Atlassian-Token` on Atlassian connections, so Jira attachment uploads no longer fail with "XSRF check failed".
+- Updated dependencies [2955f1d]
+  - @weldall/sdk@0.13.0
+
+## 0.8.0
+
+### Minor Changes
+
+- 293e3a5: Offer the Google Ads permission (`adwords`) on Google connectors and allow the Google Ads API origin, so a connection can query Google Ads accounts. Google has no read-only Ads permission. Accept the scope in connector IaC configuration and the manifest JSON schema.
+- 87f06cb: Offer Google Chat permissions on Google connectors to list spaces (`chat.spaces.readonly`), read messages (`chat.messages.readonly`) and send messages (`chat.messages.create`), and allow the Chat API origin. Editing or deleting messages and managing spaces or members stay unavailable. Accept the scopes in connector IaC configuration and the manifest JSON schema.
+- e3234c0: Offer Google Drive read-only (`drive.readonly`), Google Sheets (`spreadsheets`) and Google Docs (`documents`) permissions on Google connectors, and allow the Sheets and Docs API origins, so a connection can list and read Drive files and read and edit spreadsheets and documents. Full Drive access stays unavailable. Accept the scopes in connector IaC configuration and the manifest JSON schema.
+
+## 0.7.4
+
+### Patch Changes
+
+- 1024e7e: Navigate only once after Approve or Deny on the CLI consent page, so browsers no longer cancel and resend the login callback.
+
 ## 0.7.3
 
 ### Patch Changes

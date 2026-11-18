@@ -13,4 +13,5 @@ export * from "./machine.js";
 export { createWeldallMcpClient, WeldallMcpError } from "./mcp/client.js";
 export * from "./resource-registry.js";
 export * from "./skills.js";
+export * from "./client-policy.js";
 export * from "./core.js";

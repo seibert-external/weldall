@@ -76,7 +76,9 @@ export async function runTestRuntimeHook(
       const { nativeCredentialStore } = await import("./storage/keychain.js");
       const service = `dev.seibert.weldall-cli.smoke.${keyringId}`;
       const account = `account-${keyringId}`;
-      const secret = randomBytes(32).toString("base64url");
+      // Longer than 1280 characters, the most a UTF-16 value fits in Windows Credential Manager.
+      const secretOf = () => randomBytes(1500).toString("base64url");
+      const secret = secretOf();
       let primaryError: unknown;
       let cleanupError: unknown;
       try {
@@ -85,7 +87,7 @@ export async function runTestRuntimeHook(
           throw new Error("Secure credential round trip differed");
         // Exercise refresh-style updates in the compiled binary, not just fresh inserts.
         for (let update = 0; update < 2; update++) {
-          const rotated = randomBytes(32).toString("base64url");
+          const rotated = secretOf();
           await nativeCredentialStore.set(service, account, rotated);
           if ((await nativeCredentialStore.get(service, account)) !== rotated)
             throw new Error("Secure credential update differed");

@@ -83,7 +83,7 @@ describe("browser opener", () => {
     }
   });
 
-  it("closes the accepted loopback connection after returning the authorization result", async () => {
+  it("closes the accepted connection and answers a repeated callback until login closes", async () => {
     const callback = await loopback("expected-state", config.issuer, 5_000);
     const callbackUrl = new URL(callback.redirectUri);
     callbackUrl.searchParams.set("state", "expected-state");
@@ -102,6 +102,14 @@ describe("browser opener", () => {
 
       expect(connection).toBe("close");
       await expect(callback.code).resolves.toBe("authorization-code");
+      // A second navigation to the same callback still gets the answer until login closes.
+      const repeated = await fetch(callbackUrl, { redirect: "manual" });
+      expect(repeated.status).toBe(303);
+      expect(repeated.headers.get("location")).toBe(new URL("/login/complete", config.issuer).href);
+      const otherCode = new URL(callbackUrl);
+      otherCode.searchParams.set("code", "other-code");
+      expect((await fetch(otherCode)).status).toBe(400);
+      callback.close();
       await expect(fetch(callback.redirectUri)).rejects.toThrow();
     } finally {
       callback.close();
@@ -151,6 +159,32 @@ describe("browser opener", () => {
       }
     },
   );
+
+  it("answers a browser that navigates to the callback twice and closes after login", async () => {
+    vi.spyOn(oauthSession, "tokenRequest").mockResolvedValue({});
+    vi.spyOn(oauthSession, "validateLoginResponse").mockResolvedValue({
+      refreshToken: "synthetic-refresh",
+      accessToken: "synthetic-access",
+      subject: "user",
+      expiresAt: 2_000,
+    });
+    vi.spyOn(keychain, "set").mockResolvedValue();
+    let callback!: URL;
+    const statuses: number[] = [];
+    const opener = async (url: string) => {
+      const authorize = new URL(url);
+      callback = new URL(authorize.searchParams.get("redirect_uri")!);
+      callback.searchParams.set("state", authorize.searchParams.get("state")!);
+      callback.searchParams.set("iss", config.issuer);
+      callback.searchParams.set("code", "authorization-code");
+      for (let i = 0; i < 2; i++)
+        statuses.push((await fetch(callback, { redirect: "manual" })).status);
+    };
+
+    await expect(login(config, opener, async (operation) => operation())).resolves.toBe("user");
+    expect(statuses).toEqual([303, 303]);
+    await expect(fetch(callback)).rejects.toThrow();
+  });
 
   it("handles an early loopback rejection while a failing browser opener is still pending", async () => {
     const opener = vi.fn(async (url: string) => {
