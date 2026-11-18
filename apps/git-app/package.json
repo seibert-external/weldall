@@ -1,0 +1,28 @@
+{
+  "name": "@weldall/git-app",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@weldall/sdk": "workspace:*",
+    "hono": "^4.13.5",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@weldall/tsconfig": "workspace:*",
+    "tsx": "^4.23.12",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
