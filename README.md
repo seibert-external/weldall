@@ -21,7 +21,11 @@
   <a href="https://www.rfc-editor.org/rfc/rfc8252.html"><img alt="RFC 8252" src="https://img.shields.io/badge/RFC-8252%20Native%20Apps-2563eb" /></a>
   <a href="https://docs.weldall.ai"><img alt="Docs" src="https://img.shields.io/badge/docs-docs.weldall.ai-6366f1" /></a>
   <a href="https://seibert.link/weldalldiscord"><img alt="Join our Discord" src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white" /></a>
-  <a href="https://seibert.link/weldallvideo"><img alt="Watch the video" src="https://img.shields.io/badge/video-YouTube-FF0000?logo=youtube&logoColor=white" /></a>
+</p>
+
+<p align="center">
+  Want help installing Weldall CLI? We set it up on your servers for free.
+  <a href="https://seibert.link/freeweldallsetuphelp">How the free setup help works (video, 1:20)</a>
 </p>
 
 ---
