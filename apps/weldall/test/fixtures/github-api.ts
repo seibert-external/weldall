@@ -31,6 +31,24 @@ export interface GitHubScenario {
 
 type Call = { method: string; path: string; headers: Headers; body: any };
 
+/** Organisation permissions, as `PERMISSION_LABELS` in `github-app/checks.ts` classifies them. */
+const organizationPermissions = new Set(["members", "repository_creation"]);
+
+/**
+ * What GitHub confirms for a token request with `permissions`: a token without any repository
+ * permission carries neither `metadata` nor `repositories`, even when it was restricted to
+ * repositories (measured 18.11.2026).
+ */
+function grantedScope(permissions: Record<string, string>, repositories: string[] | undefined) {
+  const names = Object.keys(permissions);
+  if (names.length && names.every((name) => organizationPermissions.has(name)))
+    return { permissions };
+  return {
+    permissions: { metadata: "read", ...permissions },
+    ...(repositories ? { repositories: repositories.map((name) => ({ name })) } : {}),
+  };
+}
+
 export function mockGitHub(scenario: GitHubScenario = {}) {
   const calls: Call[] = [];
   let polls = 0;
@@ -96,9 +114,8 @@ export function mockGitHub(scenario: GitHubScenario = {}) {
           {
             token: `ghs_test_${issued}`,
             expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-            permissions: { metadata: "read", ...body.permissions },
             repository_selection: "selected",
-            ...(name ? { repositories: [{ name }] } : {}),
+            ...grantedScope(body.permissions, name ? [name] : undefined),
           },
           { status: 201 },
         );
@@ -248,8 +265,7 @@ export function mockGitHubPullRequests(scenario: PullRequestScenario = {}) {
           {
             token: `ghs_pr_${issued}`,
             expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-            permissions: { metadata: "read", ...body.permissions },
-            repositories: body.repositories.map((name: string) => ({ name })),
+            ...grantedScope(body.permissions, body.repositories),
           },
           { status: 201 },
         );
@@ -409,9 +425,8 @@ export function mockGitHubChecks(scenario: ChecksScenario = {}) {
           {
             token: `ghs_check_${issued}`,
             expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-            permissions: { metadata: "read", ...body.permissions },
             repository_selection: "selected",
-            ...(repositories ? { repositories: repositories.map((name) => ({ name })) } : {}),
+            ...grantedScope(body.permissions ?? {}, repositories ?? undefined),
           },
           { status: 201 },
         );

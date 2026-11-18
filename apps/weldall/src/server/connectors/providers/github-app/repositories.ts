@@ -34,8 +34,12 @@ export const GITHUB_REPOSITORY_PERMISSIONS = {
   createRepository: REPOSITORY_CREATION_PERMISSIONS,
   /** Default branch (`contents: read`) and the rules that apply to it (`metadata: read`). */
   inspectRepository: { contents: "read", metadata: "read" },
-  /** `GET /orgs/{org}/teams/{team}/repos/{owner}/{repo}` needs the organisation permission. */
-  checkReviewerTeam: { members: "read" },
+  /**
+   * `GET /orgs/{org}/teams/{team}/repos/{owner}/{repo}` needs the organisation permission.
+   * `metadata` makes GitHub confirm the repository restriction: for a token without any
+   * repository permission it omits `repositories` (measured 18.11.2026).
+   */
+  checkReviewerTeam: { members: "read", metadata: "read" },
 } as const satisfies Record<string, GitHubPermissions>;
 
 /** GitHub answers `generate` before the content exists (about 3 s in the spike). */

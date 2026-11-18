@@ -424,7 +424,9 @@ export function createGitHubChecks({
     const team = config.reviewerTeam;
     let token: string;
     try {
-      token = await organizationToken(operationPermissions.checkReviewerTeam, signal);
+      // Only `members`: on a token without a repository restriction, `metadata` would reach
+      // every repository of the installation.
+      token = await organizationToken({ members: "read" }, signal);
     } catch (error) {
       if (error instanceof ConnectorError && error.code === "token_refused")
         return unverifiable(

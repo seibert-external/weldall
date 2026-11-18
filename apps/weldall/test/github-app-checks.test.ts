@@ -115,6 +115,24 @@ describe("GitHub App connect checklist", () => {
     expect(JSON.stringify(checks)).not.toMatch(/ghs_check_|BEGIN|eyJ/);
   });
 
+  it("checks the reviewer team's access with an App that has Members", async () => {
+    // GitHub omits `repositories` for a token with only organisation permissions; the team
+    // check must still get a token Weldall accepts, not "Needs a working App credential".
+    const { byId, github } = await check({}, { repository: existing });
+    expect(byId["app-authentication"]!.state).toBe("pass");
+    expect(byId["reviewer-team-access"]).toMatchObject({
+      state: "pass",
+      reason: expect.stringContaining("acme-apps/app-expenses"),
+    });
+    expect(github.tokenRequests()).toContainEqual({
+      repositories: ["app-expenses"],
+      permissions: { members: "read", metadata: "read" },
+    });
+    expect(byId["permissions.reviewer-team"]!.reason).toBe(
+      "Granted: Organization permissions > Members: Read-only, Repository permissions > Metadata: Read-only.",
+    );
+  });
+
   it("checks rule and team access on an existing repository", async () => {
     const passing = await check({}, { repository: existing });
     expect(passing.byId["reviewer-team-access"]).toMatchObject({

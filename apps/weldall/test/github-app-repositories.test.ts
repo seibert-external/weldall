@@ -90,8 +90,22 @@ describe("creating a repository from a template", () => {
     expect(GITHUB_OPERATION_PERMISSIONS).toMatchObject({
       createRepository: { repository_creation: "write", contents: "read" },
       inspectRepository: { contents: "read", metadata: "read" },
-      checkReviewerTeam: { members: "read" },
+      checkReviewerTeam: { members: "read", metadata: "read" },
     });
+  });
+
+  it("checks the reviewer team with a token GitHub confirms as restricted to the repository", async () => {
+    // GitHub omits `repositories` for a token with only organisation permissions, which
+    // Weldall rejects as broader than requested; `metadata` makes GitHub confirm it.
+    const { calls, tokenRequests } = mockGitHub({ pendingPolls: 0 });
+    await expect(host().createRepository(request, signal())).resolves.toMatchObject({
+      warnings: [],
+    });
+    expect(tokenRequests()).toContainEqual({
+      repositories: ["app-expenses"],
+      permissions: { members: "read", metadata: "read" },
+    });
+    expect(calls.some(({ path }) => path.startsWith("/orgs/acme-apps/teams/"))).toBe(true);
   });
 
   it("creates a private repository, waits for the branch and checks the prerequisites", async () => {
