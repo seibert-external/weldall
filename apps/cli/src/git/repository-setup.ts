@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { CliError } from "../errors.js";
 import { GIT_ACCESS_ENV, isGitProxyPath, type GitAccess } from "./credential-helper.js";
+import { GIT_HARDENING_OPTIONS } from "./hardening.js";
 
 const run = promisify(execFile);
 
@@ -110,7 +111,9 @@ export async function configureGitProxyRepository({
   if (!REMOTE_NAME.test(remoteName)) throw new CliError(`Invalid git remote name: ${remoteName}`);
   const config = async (args: string[], { missingOk = false } = {}) => {
     try {
-      await run(git, ["-C", directory, "config", "--local", ...args], { env: environment });
+      await run(git, [...GIT_HARDENING_OPTIONS, "-C", directory, "config", "--local", ...args], {
+        env: environment,
+      });
     } catch (error) {
       // `git config --unset-all` exits 5 when the key does not exist.
       if (missingOk && (error as { code?: unknown }).code === 5) return;

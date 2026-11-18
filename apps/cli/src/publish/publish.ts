@@ -1,8 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { access, realpath, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { isIssuerHost } from "../git/credential-helper.js";
-import { configureGitProxyRepository, parseGitProxyRemote } from "../git/repository-setup.js";
+import {
+  configureGitProxyRepository,
+  gitProxySettings,
+  parseGitProxyRemote,
+} from "../git/repository-setup.js";
 import {
   allowedChoices,
   hasConflictMarkers,
@@ -27,11 +31,14 @@ import {
   MINIMUM_GIT_VERSION,
   parseGitVersion,
 } from "./git.js";
+import { defaultPrivateGitRoot, PrivateGitDirectory } from "./private-git.js";
+import { assertSafeRepository } from "./repository-safety.js";
 import {
   acquirePublishLock,
   clearPendingConflict,
   CONFIG,
   readPendingConflict,
+  readState,
   REFS,
   writePendingConflict,
 } from "./state.js";
@@ -54,6 +61,8 @@ export interface PublishOptions {
   environment?: NodeJS.ProcessEnv;
   /** Name of a new publish branch; must start with `weldall/publish-`. */
   branchName?: () => string;
+  /** Parent of the CLI's private git directories (default `~/.weldall/git`); tests move it. */
+  privateGitRoot?: string;
 }
 
 export type PublishOutcome = "published" | "nothing_to_publish" | "synced" | "conflict" | "refused";
@@ -99,9 +108,12 @@ const changeName = { A: "added", M: "modified", T: "modified", D: "deleted" } as
 const readable = (text: string) =>
   text.replaceAll(LOCAL_SIDE_REF, "the local folder").replaceAll(REPO_SIDE_REF, "the repository");
 
-/** Opens the app folder's repository after checking git and that the folder is its top level. */
+/**
+ * Opens the app folder's repository after checking git, that the folder is its top level, and
+ * that its own git settings cannot make git start a program (`assertSafeRepository`).
+ */
 export async function openRepository(
-  options: Pick<PublishOptions, "directory" | "git" | "environment">,
+  options: Pick<PublishOptions, "directory" | "git" | "environment" | "privateGitRoot">,
 ) {
   // Checked first: git started in a missing folder fails like a missing git.
   const folder = await stat(options.directory).catch(() => null);
@@ -133,6 +145,20 @@ export async function openRepository(
       "not_top_level",
       `${options.directory} is inside the git repository ${topLevel}. Publish the app from its top folder.`,
     );
+  // Before any command that reads the working tree or writes a ref (so far only `rev-parse`).
+  const entries = await assertSafeRepository(git);
+  const gitPath = async (path: string) =>
+    resolve(options.directory, await git.text(["rev-parse", "--git-path", path]));
+  git.usePrivateDirectory(
+    new PrivateGitDirectory({
+      root: options.privateGitRoot ?? defaultPrivateGitRoot(),
+      workTree: options.directory,
+      objects: await gitPath("objects"),
+      index: await gitPath("index"),
+      exclude: await gitPath("info/exclude"),
+      entries,
+    }),
+  );
   return new Folder(git, await git.text(["rev-parse", "--absolute-git-dir"]));
 }
 
@@ -150,11 +176,15 @@ export async function openRepository(
  */
 export async function publishApp(options: PublishOptions): Promise<PublishResult> {
   const folder = await openRepository(options);
-  const release = await acquirePublishLock(folder);
   try {
-    return await new PublishRun(folder, options).run();
+    const release = await acquirePublishLock(folder);
+    try {
+      return await new PublishRun(folder, options).run();
+    } finally {
+      await release();
+    }
   } finally {
-    await release();
+    await folder.repository.disposePrivateDirectory();
   }
 }
 
@@ -213,7 +243,7 @@ class PublishRun {
     if (resumed) return this.result("conflict", appRef, { conflict: resumed });
 
     // Where the repository's state comes from, and where a publish goes.
-    let prBranch = await git.config(CONFIG.prBranch);
+    let prBranch = await readState(git, CONFIG.prBranch);
     const status = await options.api.readStatus(app.id, prBranch ?? undefined);
     let needsPullRequest = false;
     if (prBranch) {
@@ -230,7 +260,7 @@ class PublishRun {
         await git.setConfig(CONFIG.prNumber, String(pull.number));
         await git.setConfig(CONFIG.prUrl, pull.webUrl);
       } else {
-        await this.leavePullRequest(prBranch, pull);
+        await this.leavePullRequest(app.remoteUrl, prBranch, pull);
         prBranch = null;
       }
     }
@@ -345,6 +375,7 @@ class PublishRun {
       }
       await this.transfer(
         "push",
+        app.remoteUrl,
         [
           "push",
           "--porcelain",
@@ -497,7 +528,7 @@ class PublishRun {
         "template_missing",
         "The folder has no commit. Its first commit must be the template state.",
       );
-    const recorded = await git.config(CONFIG.templateCommit);
+    const recorded = await readState(git, CONFIG.templateCommit);
     const name = await git.config(CONFIG.template);
     const missing = [
       ...(recorded ? [] : [`${CONFIG.templateCommit} (the commit that holds the template state)`]),
@@ -564,10 +595,10 @@ class PublishRun {
 
   private async resolveApp(template: { name: string; commit: string }) {
     const { git, options } = this;
-    const id = await git.config(CONFIG.appId);
+    const id = await readState(git, CONFIG.appId);
     if (id) {
       const remoteUrl = await git.config(CONFIG.remoteUrl);
-      const defaultBranch = await git.config(CONFIG.defaultBranch);
+      const defaultBranch = await readState(git, CONFIG.defaultBranch);
       if (!remoteUrl || !defaultBranch)
         throw new PublishError(
           "state_incomplete",
@@ -648,6 +679,7 @@ class PublishRun {
 
   /** The current pull request was merged or closed: decide the base for the next one. */
   private async leavePullRequest(
+    remoteUrl: string,
     branch: string,
     pull: NonNullable<AppStatus["pullRequest"]>,
   ): Promise<void> {
@@ -658,7 +690,7 @@ class PublishRun {
       // The race: a push may land after the merge. Only a base inside the merged head is safe.
       if (!(await git.resolve(pull.headCommit))) {
         try {
-          await this.fetch((await git.config(CONFIG.remoteUrl))!, branch, REFS.prHead);
+          await this.fetch(remoteUrl, branch, REFS.prHead);
         } catch (error) {
           if (!(error instanceof PublishError && error.code === "branch_missing")) throw error;
         }
@@ -840,24 +872,52 @@ class PublishRun {
     return refused;
   }
 
-  private fetch(remoteUrl: string, branch: string, ref: string) {
-    return this.transfer("fetch", [
+  /**
+   * Fetches into the private git directory, then sets `ref` in the folder. The private directory
+   * has no refs of the folder, so the states the folder already has are named as negotiation
+   * tips; otherwise every fetch would download the whole history.
+   */
+  private async fetch(remoteUrl: string, branch: string, ref: string) {
+    const { git } = this;
+    const tips = new Set<string>();
+    for (const known of [REFS.base, REFS.theirs, REFS.prBase, "HEAD"]) {
+      const commit = await git.resolve(known);
+      if (commit) tips.add(commit);
+    }
+    await this.transfer("fetch", remoteUrl, [
       "fetch",
       "--no-tags",
       "--no-write-fetch-head",
       "--no-recurse-submodules",
+      "--no-auto-maintenance",
+      ...[...tips].map((tip) => `--negotiation-tip=${tip}`),
       remoteUrl,
       `+refs/heads/${branch}:${ref}`,
     ]);
+    const fetched = await git.text(["rev-parse", "--verify", `${ref}^{commit}`], {
+      isolated: true,
+    });
+    await git.updateRef(ref, fetched);
   }
 
+  /**
+   * Fetch and push run in the private git directory with the proxy settings on the command
+   * line: the folder's config, which an agent may change meanwhile, cannot add a credential
+   * helper, a URL rewrite or a remote setting.
+   */
   private async transfer(
     operation: "fetch" | "push",
+    remoteUrl: string,
     args: string[],
     access: "read" | "write" = "read",
   ) {
     try {
-      await this.git.run(args, { network: true, access });
+      await this.git.run(args, {
+        network: true,
+        access,
+        isolated: true,
+        config: gitProxySettings(remoteUrl),
+      });
     } catch (error) {
       if (error instanceof GitCommandError) throw describeTransferFailure(operation, error);
       throw error;

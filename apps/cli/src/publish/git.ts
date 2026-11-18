@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import { GIT_HARDENING_ENVIRONMENT, GIT_HARDENING_OPTIONS } from "../git/hardening.js";
 import { gitProxyEnvironment } from "../git/repository-setup.js";
 import type { GitAccess } from "../git/credential-helper.js";
 import { PublishError } from "./errors.js";
+import type { PrivateGitDirectory } from "./private-git.js";
 
 /**
  * Oldest git the publish step accepts. The recipe needs `git merge-tree --write-tree` with `-z`
@@ -42,6 +44,13 @@ export interface GitRunOptions {
   network?: boolean;
   /** Extra variables, e.g. a temporary index or a commit identity. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Runs against the private git directory (see `PrivateGitDirectory`): required for every
+   * command that reads or writes the working tree, merges, fetches or pushes.
+   */
+  isolated?: boolean;
+  /** `-c key=value` settings for this command, after the hardening options. */
+  config?: ReadonlyArray<readonly [string, string]>;
 }
 
 /** Hides the Weldall git credential should git ever echo one (it does not by design). */
@@ -51,9 +60,17 @@ export const redactGitText = (text: string) =>
 /**
  * Runs git in one repository, one command at a time: the credential helper shares the CLI's
  * session lock, so parallel git processes could block each other. Every call is non-interactive
- * (`gitProxyEnvironment`) and in the C locale, so messages can be recognised.
+ * (`gitProxyEnvironment`), in the C locale, so messages can be recognised, and starts with
+ * `GIT_HARDENING_OPTIONS`, so the folder's hooks and fsmonitor never run. Commands that the
+ * folder's config could make start a program run `isolated`. The others (rev-parse, config,
+ * var, commit-tree with `--no-gpg-sign`, update-ref, ls-tree, diff-tree without content,
+ * cat-file without filters) run no filter, driver or signer; a missing object can still make
+ * them start a lazy fetch from a promisor remote in that config, which the hardening options
+ * limit to HTTPS without hooks, credential helpers or an alternates refs command.
  */
 export class GitRepository {
+  private privateDirectory: PrivateGitDirectory | null = null;
+
   constructor(
     readonly git: string,
     readonly directory: string,
@@ -69,14 +86,36 @@ export class GitRepository {
 
   private env(access: GitAccess, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     const base = this.cleanEnvironment();
-    return { ...gitProxyEnvironment({ access, base }), LC_ALL: "C", LANGUAGE: "C", ...extra };
+    return {
+      ...gitProxyEnvironment({ access, base }),
+      ...GIT_HARDENING_ENVIRONMENT,
+      LC_ALL: "C",
+      LANGUAGE: "C",
+      ...extra,
+    };
+  }
+
+  /** Set once the folder's config passed `assertSafeRepository`. */
+  usePrivateDirectory(directory: PrivateGitDirectory) {
+    this.privateDirectory = directory;
+  }
+
+  async disposePrivateDirectory(): Promise<void> {
+    await this.privateDirectory?.dispose();
   }
 
   async run(args: string[], options: GitRunOptions = {}): Promise<GitOutput> {
+    let isolation: NodeJS.ProcessEnv = {};
+    if (options.isolated) {
+      if (!this.privateDirectory)
+        throw new Error("git: an isolated command needs the private git directory");
+      isolation = await this.privateDirectory.environment();
+    }
+    const config = (options.config ?? []).flatMap(([key, value]) => ["-c", `${key}=${value}`]);
     const result = await new Promise<GitOutput>((resolve, reject) => {
-      const child = spawn(this.git, args, {
+      const child = spawn(this.git, [...GIT_HARDENING_OPTIONS, ...config, ...args], {
         cwd: this.directory,
-        env: this.env(options.access ?? "read", options.env),
+        env: this.env(options.access ?? "read", { ...isolation, ...options.env }),
         stdio: ["pipe", "pipe", "pipe"],
         timeout: options.network ? NETWORK_TIMEOUT_MS : LOCAL_TIMEOUT_MS,
       });
@@ -153,19 +192,20 @@ export class GitRepository {
     await this.run(["config", "--local", "--unset-all", key], { allow: [5] });
   }
 
-  async updateRef(ref: string, value: string, expected?: string): Promise<void> {
-    await this.run([
-      "update-ref",
-      "-m",
-      "weldall publish",
-      ref,
-      value,
-      ...(expected ? [expected] : []),
-    ]);
+  async updateRef(
+    ref: string,
+    value: string,
+    expected?: string,
+    options: Pick<GitRunOptions, "isolated"> = {},
+  ): Promise<void> {
+    await this.run(
+      ["update-ref", "-m", "weldall publish", ref, value, ...(expected ? [expected] : [])],
+      options,
+    );
   }
 
-  async deleteRef(ref: string): Promise<void> {
-    await this.run(["update-ref", "-d", ref], { allow: [1] });
+  async deleteRef(ref: string, options: Pick<GitRunOptions, "isolated"> = {}): Promise<void> {
+    await this.run(["update-ref", "-d", ref], { ...options, allow: [1] });
   }
 }
 

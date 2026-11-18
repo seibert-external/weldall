@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Folder } from "./folder.js";
 import { PublishError } from "./errors.js";
+import type { GitRepository } from "./git.js";
 
 /**
  * Where publish keeps its state: everything lives in the folder's own repository, so it moves
@@ -35,6 +36,38 @@ export const CONFIG = {
   prNumber: "weldall.prNumber",
   prUrl: "weldall.prUrl",
 } as const;
+
+/**
+ * A branch name as git and the hosts take it, never read as an option or a refspec: starts with
+ * a letter or digit (no `-`, no `+`), and none of `:`, `*`, `?`, `[`, `\`, `^`, `~`, `{`,
+ * spaces or control characters, nor the sequences git refuses (`..`, `//`, `/.`, `.lock`).
+ */
+export const isBranchName = (value: string) =>
+  /^[A-Za-z0-9][A-Za-z0-9._/+@#,=_-]{0,199}$/.test(value) &&
+  !/\.\.|\/\/|\/\.|\.lock(\/|$)|[./]$/.test(value);
+
+/**
+ * The recorded values that become git arguments or API paths. The folder's config is writable
+ * by anything working in the folder, so they are checked on every read.
+ */
+const STATE_VALUES: Partial<Record<string, (value: string) => boolean>> = {
+  [CONFIG.templateCommit]: (value) => /^[0-9a-f]{4,64}$/i.test(value),
+  [CONFIG.appId]: (value) => /^[A-Za-z0-9_-]{1,64}$/.test(value),
+  [CONFIG.defaultBranch]: isBranchName,
+  [CONFIG.prBranch]: (value) => value.startsWith("weldall/publish-") && isBranchName(value),
+};
+
+/** Reads a `weldall.*` value of the folder's config; refuses one Weldall would never write. */
+export async function readState(git: GitRepository, key: string): Promise<string | null> {
+  const value = await git.config(key);
+  const valid = STATE_VALUES[key];
+  if (value === null || !valid || valid(value)) return value;
+  throw new PublishError(
+    "state_invalid",
+    `The folder's git config holds a value for ${key} that Weldall never writes, so Weldall stops before using it. Nothing was published and nothing in the folder changed. If you did not change it yourself, something working in this folder (for example an AI agent) did.`,
+    { hint: `Restore ${key} from a backup of the folder, or ask for help.` },
+  );
+}
 
 export const REFS = {
   base: "refs/weldall/base",

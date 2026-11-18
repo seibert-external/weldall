@@ -55,7 +55,10 @@ export class Folder {
     return this.localIdentity;
   }
 
-  /** Runs `work` with a private, temporary index. */
+  /**
+   * Runs `work` with a private, temporary index. Every command inside runs `isolated`: they
+   * read the working tree or name objects only by hash.
+   */
   private async withIndex<T>(work: (env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
     await mkdir(this.stateDirectory, { recursive: true });
     const index = join(this.stateDirectory, `index-${randomBytes(6).toString("hex")}`);
@@ -73,10 +76,11 @@ export class Folder {
    */
   async snapshotTree(): Promise<string> {
     await this.assertUntrackedSize();
+    const head = await this.repository.text(["rev-parse", "--verify", "HEAD^{commit}"]);
     return this.withIndex(async (env) => {
-      await this.repository.run(["read-tree", "HEAD"], { env });
+      await this.repository.run(["read-tree", head], { env, isolated: true });
       try {
-        await this.repository.run(["add", "-A", "--", "."], { env });
+        await this.repository.run(["add", "-A", "--", "."], { env, isolated: true });
       } catch (error) {
         const nested =
           error instanceof GitCommandError
@@ -88,7 +92,7 @@ export class Folder {
           `${nested} is a folder with its own git repository (a nested .git folder). Its files cannot be published that way. Delete ${nested}.git, or add the folder to .gitignore, then try again.`,
         );
       }
-      return this.repository.text(["write-tree"], { env });
+      return this.repository.text(["write-tree"], { env, isolated: true });
     });
   }
 
@@ -116,10 +120,10 @@ export class Folder {
   async replacePaths(tree: string, source: string, paths: readonly string[]): Promise<string> {
     if (!paths.length) return tree;
     return this.withIndex(async (env) => {
-      await this.repository.run(["read-tree", tree], { env });
+      await this.repository.run(["read-tree", tree], { env, isolated: true });
       await this.repository.run(
         ["--literal-pathspecs", "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ...paths],
-        { env },
+        { env, isolated: true },
       );
       const entries = await this.repository.run([
         "--literal-pathspecs",
@@ -134,9 +138,10 @@ export class Folder {
       if (entries.stdout.length)
         await this.repository.run(["update-index", "-z", "--index-info"], {
           env,
+          isolated: true,
           input: entries.stdout,
         });
-      return this.repository.text(["write-tree"], { env });
+      return this.repository.text(["write-tree"], { env, isolated: true });
     });
   }
 
@@ -147,19 +152,21 @@ export class Folder {
   ): Promise<string> {
     if (!changes.length) return tree;
     return this.withIndex(async (env) => {
-      await this.repository.run(["read-tree", tree], { env });
+      await this.repository.run(["read-tree", tree], { env, isolated: true });
       for (const { path, from } of changes) {
         const entry = await this.entry(from, path);
         if (entry)
           await this.repository.run(
             ["update-index", "--add", "--cacheinfo", `${entry.mode},${entry.object},${path}`],
-            {
-              env,
-            },
+            { env, isolated: true },
           );
-        else await this.repository.run(["update-index", "--force-remove", "--", path], { env });
+        else
+          await this.repository.run(["update-index", "--force-remove", "--", path], {
+            env,
+            isolated: true,
+          });
       }
-      return this.repository.text(["write-tree"], { env });
+      return this.repository.text(["write-tree"], { env, isolated: true });
     });
   }
 
@@ -232,7 +239,9 @@ export class Folder {
    * or `.venv`) into the repository; one publish cannot send it anyway.
    */
   private async assertUntrackedSize() {
-    const listed = await this.repository.run(["ls-files", "-z", "--others", "--exclude-standard"]);
+    const listed = await this.repository.run(["ls-files", "-z", "--others", "--exclude-standard"], {
+      isolated: true,
+    });
     const files: Array<{ path: string; size: number }> = [];
     let total = 0;
     for (const path of listed.stdout.toString("utf8").split("\0")) {
@@ -279,7 +288,8 @@ export class Folder {
   /**
    * Three-way merge by content of `base`, `local` and `repo` trees, as proven in the spike with
    * Git 2.39: three throwaway commits that share the base as their only parent, then
-   * `merge-tree --write-tree`. Touches neither the index nor the working tree.
+   * `merge-tree --write-tree`. Touches neither the index nor the working tree. Isolated, with
+   * the side refs in the private directory: `.gitattributes` can name merge drivers.
    */
   async merge({
     base,
@@ -293,12 +303,13 @@ export class Folder {
     const baseCommit = await this.commitTree(base, [], "base");
     const localCommit = await this.commitTree(local, [baseCommit], "local");
     const repoCommit = await this.commitTree(repo, [baseCommit], "repo");
-    await this.repository.updateRef(LOCAL_SIDE_REF, localCommit);
-    await this.repository.updateRef(REPO_SIDE_REF, repoCommit);
+    const isolated = { isolated: true };
+    await this.repository.updateRef(LOCAL_SIDE_REF, localCommit, undefined, isolated);
+    await this.repository.updateRef(REPO_SIDE_REF, repoCommit, undefined, isolated);
     try {
       const result = await this.repository.run(
         ["merge-tree", "--write-tree", "-z", "--messages", LOCAL_SIDE_REF, REPO_SIDE_REF],
-        { allow: [1] },
+        { allow: [1], isolated: true },
       );
       try {
         return parseMergeTree(result.stdout.toString("utf8"), result.code === 0);
@@ -309,8 +320,8 @@ export class Folder {
         );
       }
     } finally {
-      await this.repository.deleteRef(LOCAL_SIDE_REF);
-      await this.repository.deleteRef(REPO_SIDE_REF);
+      await this.repository.deleteRef(LOCAL_SIDE_REF, isolated);
+      await this.repository.deleteRef(REPO_SIDE_REF, isolated);
     }
   }
 
@@ -326,8 +337,9 @@ export class Folder {
       commit = await this.commitTree(tree, [head], message);
       await this.repository.updateRef("HEAD", commit, head);
     }
-    await this.repository.run(["read-tree", commit]);
-    await this.repository.run(["update-index", "-q", "--refresh"], { allow: [1] });
+    await this.repository.run(["read-tree", commit], { isolated: true });
+    // A refresh compares file contents, which runs clean filters.
+    await this.repository.run(["update-index", "-q", "--refresh"], { allow: [1], isolated: true });
     return { commit, tree };
   }
 
@@ -360,6 +372,7 @@ export class Folder {
     const next = await this.commitTree(target, [saved.commit], message);
     const update = await this.repository.run(["read-tree", "-m", "-u", saved.commit, next], {
       allow: [128],
+      isolated: true,
     });
     if (update.code !== 0)
       return {
@@ -380,13 +393,14 @@ export class Folder {
   async writeMergeResult(saved: string, tree: string): Promise<void> {
     const update = await this.repository.run(["read-tree", "-m", "-u", saved, tree], {
       allow: [128],
+      isolated: true,
     });
     if (update.code !== 0)
       throw new PublishError(
         "folder_changed",
         `The folder changed while publishing, so the conflict markers were not written: ${update.stderr.trim().split("\n")[0] ?? ""}. Run publish again.`,
       );
-    await this.repository.run(["read-tree", saved]);
-    await this.repository.run(["update-index", "-q", "--refresh"], { allow: [1] });
+    await this.repository.run(["read-tree", saved], { isolated: true });
+    await this.repository.run(["update-index", "-q", "--refresh"], { allow: [1], isolated: true });
   }
 }

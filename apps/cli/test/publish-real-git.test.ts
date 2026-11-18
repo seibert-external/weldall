@@ -66,6 +66,7 @@ describe.skipIf(reason !== null)(
         api: fake.api,
         git: GIT,
         environment: fake.publishEnvironment(),
+        privateGitRoot: join(fake.root, "private-git"),
         app: { name: options.app?.name ?? "unused", purpose: "Tests publishing" },
         ...options,
       });

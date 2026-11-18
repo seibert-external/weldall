@@ -1,6 +1,6 @@
 import { PublishError } from "./errors.js";
 import { openRepository, type PublishOptions } from "./publish.js";
-import { CONFIG } from "./state.js";
+import { CONFIG, readState } from "./state.js";
 import type { AppEntry, AppList, PublishApi } from "./weldall-api.js";
 
 /**
@@ -34,7 +34,7 @@ export async function confirmMyApp(options: ConfirmOptions): Promise<AppConfirmR
   let appId = options.appId;
   if (appId === undefined) {
     const { repository } = await openRepository(options);
-    appId = (await repository.config(CONFIG.appId)) ?? undefined;
+    appId = (await readState(repository, CONFIG.appId)) ?? undefined;
     if (!appId)
       throw new PublishError(
         "not_published",

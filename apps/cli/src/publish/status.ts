@@ -1,6 +1,6 @@
 import { PublishError } from "./errors.js";
 import { openRepository, type PublishOptions } from "./publish.js";
-import { CONFIG } from "./state.js";
+import { CONFIG, readState } from "./state.js";
 import type { AppStatus, PublishApi } from "./weldall-api.js";
 
 export interface AppStatusOptions extends Pick<
@@ -33,14 +33,14 @@ export async function readAppStatus(options: AppStatusOptions): Promise<AppStatu
   let branch: string | undefined;
   if (appId === undefined) {
     const { repository } = await openRepository(options);
-    appId = (await repository.config(CONFIG.appId)) ?? undefined;
+    appId = (await readState(repository, CONFIG.appId)) ?? undefined;
     if (!appId)
       throw new PublishError(
         "not_published",
         `${options.directory} has not been published yet, so it has no app status.`,
         { hint: "Publish it first with `weldall app publish`." },
       );
-    branch = (await repository.config(CONFIG.prBranch)) ?? undefined;
+    branch = (await readState(repository, CONFIG.prBranch)) ?? undefined;
   }
   const status = await options.api.readStatus(appId, branch);
   return {
