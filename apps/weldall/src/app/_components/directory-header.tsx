@@ -20,7 +20,6 @@ export function DirectoryHeader({
             height={245}
           />
         ) : (
-          // Same mark as the admin sidebar when no custom branding logo is configured.
           <img src="/assets/images/weldall.png" alt="Weldall" width={144} height={40} />
         )}
       </a>

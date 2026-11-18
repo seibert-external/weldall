@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type SVGProps } from "react";
 
-// Split so the terminal can dim the install preamble; copying joins both parts.
 const promptParts = (origin: string, slug: string, title: string) => ({
   setup: `Check if Weldall is installed. Otherwise, read ${origin}/install.md to install the Weldall CLI. Then`,
   task: `run \`weldall skills show ${slug}\` and follow the returned instructions to help me with: ${title}.`,
@@ -34,15 +33,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-// The origin is only known in the browser; the server renders without it and
-// React swaps in the real value right after hydration.
 const subscribeToOrigin = () => () => undefined;
 const getOrigin = () => window.location.origin;
 const getServerOrigin = () => "";
 
 type CopyState = "idle" | "copied" | "failed";
 
-/** Copies the skill prompt and reports the result for a few seconds. */
 function useCopySkillPrompt(slug: string, title: string) {
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const resetTimer = useRef<number | undefined>(undefined);
@@ -65,7 +61,6 @@ const copyLabels: Record<CopyState, string> = {
   failed: "Copy failed",
 };
 
-/** Primary "Copy Prompt" button; its label briefly confirms the copy. */
 export function CopySkillPromptButton({ slug, title }: { slug: string; title: string }) {
   const { copyState, copyPrompt } = useCopySkillPrompt(slug, title);
 
@@ -94,7 +89,6 @@ export function CopySkillPromptButton({ slug, title }: { slug: string; title: st
   );
 }
 
-/** Always-visible prompt in a terminal-style box with its own copy icon. */
 export function SkillPromptTerminal({ slug, title }: { slug: string; title: string }) {
   const { copyState, copyPrompt } = useCopySkillPrompt(slug, title);
   const origin = useSyncExternalStore(subscribeToOrigin, getOrigin, getServerOrigin);
