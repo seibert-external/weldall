@@ -192,6 +192,7 @@ model DownstreamResource {
   discoveredCatalog     DiscoveredSkillCatalog?
   allowedForMachines    MachineAllowedResource[]
   iacBinding            IacObjectBinding?
+  apps                  App[]
 
   @@index([name])
   @@index([updatedAt])
@@ -548,38 +549,48 @@ model ConnectionAuthorization {
 /// Host-side names are stored in the spelling the host returns; registry lookups match them
 /// exactly, the git proxy case-insensitively (`git-proxy/resolve.ts`).
 model App {
-  id              String    @id @default(cuid())
-  name            String
-  purpose         String
-  ownerId         String
-  connectorId     String
+  id               String              @id @default(cuid())
+  name             String
+  purpose          String
+  ownerId          String
+  /// The Git host the repository lives on: exactly one of `connectorId` (Git host connector inside
+  /// Weldall) and `resourceId` (a separate Git app registered as a resource) is set; the database
+  /// enforces this with a check constraint.
+  connectorId      String?
+  resourceId       String?
   /// Host-side owner of the repository (organisation or user), e.g. the GitHub organisation.
-  repositoryOwner String
-  repositoryName  String
+  repositoryOwner  String
+  repositoryName   String
   /// Stable host-side repository id that survives renames, when the host has one.
-  repositoryId    String?
+  repositoryId     String?
+  /// Browser link of the repository as reported by a Git app (resource apps only; connector apps
+  /// derive it from the connector configuration).
+  repositoryWebUrl String?
   /// Branch the git proxy never accepts pushes to; changes reach it only through reviewed pull requests.
-  defaultBranch   String
+  defaultBranch    String
   /// Template the app started from, as named in the connector configuration; null for registered repos.
-  template        String?
-  templateCommit  String?
-  previewUrl      String?
-  liveUrl         String?
+  template         String?
+  templateCommit   String?
+  previewUrl       String?
+  liveUrl          String?
   /// Date by which the owner must re-confirm the app; set by the code that creates the entry and
   /// moved only by the owner's confirmation, never by a publish. Past it the app is flagged, not stopped.
-  expiresAt       DateTime
+  expiresAt        DateTime
   /// When the owner last confirmed that the app is still needed; null until the first confirmation.
-  confirmedAt     DateTime?
+  confirmedAt      DateTime?
   /// Weldall user id of whoever last confirmed; kept as a plain id like `createdBy` elsewhere.
-  confirmedBy     String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  owner           User      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  connector       Connector @relation(fields: [connectorId], references: [id], onDelete: Restrict)
-  gitCredentials  GitCredential[]
+  confirmedBy      String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  owner            User                @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  connector        Connector?          @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  resource         DownstreamResource? @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  gitCredentials   GitCredential[]
 
   @@unique([connectorId, repositoryOwner, repositoryName])
   @@unique([connectorId, repositoryId])
+  @@unique([resourceId, repositoryOwner, repositoryName])
+  @@unique([resourceId, repositoryId])
   @@index([ownerId, createdAt])
   @@index([expiresAt, id])
   @@index([createdAt, id])
@@ -672,24 +683,24 @@ model LoginInstallation {
 }
 
 model LoginProvider {
-  id                      String   @id
+  id                      String            @id
   name                    String
   buttonLabel             String
   buttonColor             String
-  sortOrder               Int      @default(0)
+  sortOrder               Int               @default(0)
   issuer                  String
   discoveryUrl            String?
   clientId                String
   encryptedClientSecret   String?
   tokenEndpointAuthMethod String
   scopes                  String[]
-  allowedEmailDomains     String[] @default([])
-  enabled                 Boolean  @default(false)
-  version                 Int      @default(1)
+  allowedEmailDomains     String[]          @default([])
+  enabled                 Boolean           @default(false)
+  version                 Int               @default(1)
   validatedAt             DateTime?
   iacBinding              IacObjectBinding?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
   createdBy               String
   updatedBy               String
 

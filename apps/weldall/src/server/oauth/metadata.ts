@@ -1,4 +1,5 @@
 import {
+  APP_HOST_SCOPE_KEY,
   APP_REGISTRY_READ_SCOPE_KEY,
   IAC_SCOPE_KEY,
   SUBJECT_SCOPES_CHECK_SCOPE_KEY,
@@ -34,6 +35,7 @@ export function extendOAuthMetadata(
       IAC_SCOPE_KEY,
       SUBJECT_SCOPES_CHECK_SCOPE_KEY,
       APP_REGISTRY_READ_SCOPE_KEY,
+      APP_HOST_SCOPE_KEY,
     ]),
     weldall_subject_scope_check: {
       endpoint: `${WELDALL_ISSUER}/api/authorization/v1/check-scopes`,
@@ -42,6 +44,10 @@ export function extendOAuthMetadata(
     weldall_app_registry: {
       endpoint: `${WELDALL_ISSUER}/api/app-registry/v1/apps`,
       scope: APP_REGISTRY_READ_SCOPE_KEY,
+    },
+    weldall_app_host: {
+      endpoint: `${WELDALL_ISSUER}/api/app-host/v1`,
+      scope: APP_HOST_SCOPE_KEY,
     },
     weldall_iac: {
       endpoint: `${WELDALL_ISSUER}/api/iac/v1`,

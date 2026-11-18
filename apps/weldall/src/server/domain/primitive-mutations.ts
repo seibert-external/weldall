@@ -389,6 +389,12 @@ export async function mutateResource(
         "CONFLICT",
         `Resource ${current.key} is selected by machine ${access.client.clientId}. Remove it from machine access first.`,
       );
+    // Registered apps keep their repository reference; the registry has no removal path yet.
+    if (await tx.app.count({ where: { resourceId: current.id } }))
+      throw new PrimitiveMutationError(
+        "CONFLICT",
+        `Apps in the app registry still use resource ${current.key}.`,
+      );
     await assertNoNativeMcpDependents(tx, current.key);
     const deleted = await tx.downstreamResource.deleteMany({
       where: { id: current.id, version: input.expectedVersion },

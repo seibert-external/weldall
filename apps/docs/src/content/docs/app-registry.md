@@ -125,6 +125,7 @@ The answer lists the apps in the order they were created, oldest first, so new a
       "owner": { "id": "u_8f2c", "email": "jane.adams@example.com" },
       "repository": {
         "connector": "github-apps",
+        "resource": null,
         "owner": "acme-apps",
         "name": "app-expense-tracker",
         "webUrl": "https://github.com/acme-apps/app-expense-tracker"
@@ -143,6 +144,8 @@ The answer lists the apps in the order they were created, oldest first, so new a
   "expiringSoonDays": 14
 }
 ```
+
+`repository.connector` names the Git host connector the repository lives on. An app published through a separate Git app that is registered as a resource has `connector: null` and the resource's key in `repository.resource`; exactly one of the two is set.
 
 The owner is given as Weldall user id and email address, not by name. The email address lets IT reach the person and find them in its directory, and the id stays the same when the address changes. The directory already has the name, so the API leaves it out.
 

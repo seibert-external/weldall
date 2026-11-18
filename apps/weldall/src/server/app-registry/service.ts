@@ -13,11 +13,35 @@ export interface AppRepository {
   name: string;
 }
 
+/** The repository an app lives in, identified behind a Git app registered as a resource. */
+export interface ResourceAppRepository {
+  resourceId: string;
+  owner: string;
+  name: string;
+}
+
+/** A registry entry whose repository lives on a Git host connector inside Weldall. */
+export type ConnectorApp = App & { connectorId: string; resourceId: null };
+
+/**
+ * Narrows an entry to the in-server Git host path. The git proxy, git credentials, pull requests
+ * and status only serve these; an app of a Git app (resource) is served by that Git app.
+ */
+export function isConnectorApp<T extends Pick<App, "connectorId">>(
+  app: T,
+): app is T & { connectorId: string } {
+  return app.connectorId !== null;
+}
+
 export interface NewApp {
   name: string;
   purpose: string;
   ownerId: string;
-  repository: AppRepository & { id?: string | null };
+  repository: (AppRepository | ResourceAppRepository) & {
+    id?: string | null;
+    /** Browser link reported by a Git app; ignored for connector apps. */
+    webUrl?: string | null;
+  };
   /** Branch the git proxy refuses pushes to. */
   defaultBranch: string;
   /** `commit` stays null until creation finished; see {@link isAppRepositoryReady}. */
@@ -31,12 +55,19 @@ export interface NewApp {
  * registration rolls back with it; a second entry for the same repository fails on the unique key.
  */
 export function createApp(input: NewApp, client: Client = db): Promise<App> {
+  const host =
+    "connectorId" in input.repository
+      ? { connectorId: input.repository.connectorId, repositoryWebUrl: null }
+      : {
+          resourceId: input.repository.resourceId,
+          repositoryWebUrl: input.repository.webUrl ?? null,
+        };
   return client.app.create({
     data: {
       name: input.name,
       purpose: input.purpose,
       ownerId: input.ownerId,
-      connectorId: input.repository.connectorId,
+      ...host,
       repositoryOwner: input.repository.owner,
       repositoryName: input.repository.name,
       repositoryId: input.repository.id ?? null,

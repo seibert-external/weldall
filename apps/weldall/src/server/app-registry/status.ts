@@ -151,7 +151,10 @@ export async function readAppStatus({
     ...(preview && preview !== app.previewUrl ? { previewUrl: preview } : {}),
     ...(live && live !== app.liveUrl ? { liveUrl: live } : {}),
   };
-  if (Object.keys(changed).length) app = { ...app, ...(await updateAppLinks(app.id, changed)) };
+  if (Object.keys(changed).length) {
+    const { previewUrl, liveUrl } = await updateAppLinks(app.id, changed);
+    app = { ...app, previewUrl, liveUrl };
+  }
   return {
     app: { id: app.id, name: app.name },
     pullRequest: status.pullRequest ? presentPullRequest(status.pullRequest, warnings) : null,

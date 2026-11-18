@@ -58,7 +58,10 @@ export const gitCommitId = z.preprocess(
 const count = z.number().int().nonnegative();
 const reason = gitText(GIT_AUDIT_LIMITS.reason);
 
-/** Which repository on which Git host connector, and its app registry entry. */
+/**
+ * Which repository on which Git host connector, and its app registry entry. Entries reported by a
+ * Git app carry `resourceId` instead of `connectorId` (see {@link gitMetadataSchemas}).
+ */
 const resolvedTarget = {
   connectorId: id,
   appId: id,
@@ -176,24 +179,44 @@ const hostChecked = z
   })
   .strict();
 
+/**
+ * The same entry for a repository behind a Git app registered as a resource, which reports it
+ * through `/api/app-host/v1/audit-events`: `resourceId` (always known, the reporting machine
+ * client is allowed for it) replaces `connectorId`.
+ */
+function orResource<Shape extends z.ZodRawShape & { connectorId: z.ZodType }>(
+  schema: z.ZodObject<Shape>,
+) {
+  return z.union([
+    schema,
+    schema
+      .omit({ connectorId: true } as { connectorId: true } & Record<
+        Exclude<"connectorId", keyof Shape>,
+        never
+      >)
+      .extend({ resourceId: id })
+      .strict(),
+  ]);
+}
+
 export const gitMetadataSchemas = {
-  "git_repository.created": repositoryCreated,
-  "git_repository.denied": repositoryRejected,
-  "git_repository.failed": repositoryRejected,
-  "git_push.forwarded": pushForwarded,
-  "git_push.completed": pushCompleted,
-  "git_push.denied": pushRejected,
-  "git_push.failed": pushRejected,
-  "git_fetch.completed": fetchCompleted,
-  "git_fetch.denied": fetchRejected,
-  "git_fetch.failed": fetchRejected,
-  "git_pull_request.opened": pullRequestOpened,
-  "git_pull_request.denied": pullRequestRejected,
-  "git_pull_request.failed": pullRequestRejected,
-  "git_credential.issued": credentialIssued,
-  "git_credential.denied": credentialRejected,
-  "git_credential.failed": credentialRejected,
-  "git_host.checked": hostChecked,
+  "git_repository.created": orResource(repositoryCreated),
+  "git_repository.denied": orResource(repositoryRejected),
+  "git_repository.failed": orResource(repositoryRejected),
+  "git_push.forwarded": orResource(pushForwarded),
+  "git_push.completed": orResource(pushCompleted),
+  "git_push.denied": orResource(pushRejected),
+  "git_push.failed": orResource(pushRejected),
+  "git_fetch.completed": orResource(fetchCompleted),
+  "git_fetch.denied": orResource(fetchRejected),
+  "git_fetch.failed": orResource(fetchRejected),
+  "git_pull_request.opened": orResource(pullRequestOpened),
+  "git_pull_request.denied": orResource(pullRequestRejected),
+  "git_pull_request.failed": orResource(pullRequestRejected),
+  "git_credential.issued": orResource(credentialIssued),
+  "git_credential.denied": orResource(credentialRejected),
+  "git_credential.failed": orResource(credentialRejected),
+  "git_host.checked": orResource(hostChecked),
 } as const;
 
 export type GitAuditEventType = keyof typeof gitMetadataSchemas;

@@ -422,11 +422,19 @@ export interface AuditWriter {
   write(event: AuditEventInput, transaction?: Prisma.TransactionClient): Promise<void>;
 }
 
+/**
+ * The metadata exactly as {@link prismaAuditWriter} stores it: credentials redacted, then
+ * validated and bounded by the event type's schema. Throws when it does not fit the schema.
+ */
+export function normalizeAuditMetadata(eventType: AuditEventType, metadata: unknown): unknown {
+  // Credentials never belong in audit metadata, whatever a caller passes in free text.
+  return metadataSchemas[eventType].parse(redactCredentialsDeep(metadata));
+}
+
 export const prismaAuditWriter: AuditWriter = {
   async write(input, transaction) {
     const event = auditInputSchema.parse(input);
-    // Credentials never belong in audit metadata, whatever a caller passes in free text.
-    const metadata = metadataSchemas[event.eventType].parse(redactCredentialsDeep(event.metadata));
+    const metadata = normalizeAuditMetadata(event.eventType, event.metadata);
     const client = transaction ?? db;
     await client.auditEvent.create({
       data: {

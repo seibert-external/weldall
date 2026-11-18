@@ -1,4 +1,5 @@
-import { db, type App } from "@weldall/db";
+import { db } from "@weldall/db";
+import { isConnectorApp, type ConnectorApp } from "../app-registry/service";
 import { connectorScopeInclude } from "../connectors/access";
 import type { GitRepositoryPath } from "./paths";
 
@@ -6,7 +7,7 @@ const loadConnector = (key: string) =>
   db.connector.findUnique({ where: { key }, include: connectorScopeInclude });
 
 export interface ResolvedGitApp {
-  app: App;
+  app: ConnectorApp;
   connector: NonNullable<Awaited<ReturnType<typeof loadConnector>>>;
 }
 
@@ -28,5 +29,6 @@ export async function resolveGitApp(path: GitRepositoryPath): Promise<ResolvedGi
       AND lower("repositoryName") = lower(${path.name})
     LIMIT 2`;
   const apps = ids.length === 1 ? await db.app.findMany({ where: { id: ids[0]!.id } }) : [];
-  return apps.length === 1 ? { app: apps[0]!, connector } : null;
+  const app = apps.length === 1 ? apps[0]! : null;
+  return app && isConnectorApp(app) ? { app: app as ConnectorApp, connector } : null;
 }

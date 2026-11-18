@@ -15,3 +15,4 @@ export * from "./resource-registry.js";
 export * from "./skills.js";
 export * from "./client-policy.js";
 export * from "./core.js";
+export * from "./app-host.js";

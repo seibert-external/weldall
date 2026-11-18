@@ -7,7 +7,12 @@ const appIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
 
 const loadApp = (id: string) =>
   db.app.findUnique({ where: { id }, include: { connector: { include: connectorScopeInclude } } });
-export type OwnApp = NonNullable<Awaited<ReturnType<typeof loadApp>>>;
+type LoadedApp = NonNullable<Awaited<ReturnType<typeof loadApp>>>;
+/** One of the caller's apps on a Git host connector inside Weldall. */
+export type OwnApp = LoadedApp & {
+  connectorId: string;
+  connector: NonNullable<LoadedApp["connector"]>;
+};
 
 /**
  * Resolves one of the caller's apps for a pull request or status call. An unknown id and another
@@ -31,6 +36,12 @@ export async function resolveOwnApp({
   const app = appIdPattern.test(appId) ? await loadApp(appId) : null;
   if (!app || app.ownerId !== actor.id)
     throw new ConnectorError("not_found", "No app of yours has this id.", 404);
+  if (!isConnectorOwnApp(app))
+    throw new ConnectorError(
+      "managed_by_git_app",
+      "This app's repository is managed by a Git app, not by a Git host connector in Weldall. Use that Git app for pull requests and status.",
+      409,
+    );
   assertConnectorAccess({ connector: app.connector, actor });
   if (!app.connector.enabled)
     throw new ConnectorError("disabled", "The Git host connector is disabled.", 409);
@@ -41,4 +52,8 @@ export async function resolveOwnApp({
       409,
     );
   return app;
+}
+
+function isConnectorOwnApp(app: LoadedApp): app is OwnApp {
+  return app.connectorId !== null && app.connector !== null;
 }

@@ -88,7 +88,8 @@ const appEntry = z.object({
   name: z.string(),
   purpose: z.string(),
   repository: z.object({
-    connector: z.string(),
+    /** Null for an app whose repository is kept by a Git app registered as a resource. */
+    connector: z.string().nullable(),
     owner: z.string(),
     name: z.string(),
     webUrl: z.string().nullable(),

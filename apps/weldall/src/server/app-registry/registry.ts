@@ -21,8 +21,13 @@ export interface AppRegistryEntry {
   name: string;
   purpose: string;
   repository: {
-    /** Key of the Git host connector the repository lives on. */
-    connector: string;
+    /**
+     * Key of the Git host connector the repository lives on; null when it lives behind a Git app
+     * registered as a resource (see `resource`). Exactly one of the two is set.
+     */
+    connector: string | null;
+    /** Key of the resource (Git app) the repository lives behind; null for a connector app. */
+    resource: string | null;
     owner: string;
     name: string;
     /** Browser link to the repository on the Git host; null when the host is not known. */
@@ -44,21 +49,30 @@ export const APP_REGISTRY_POLICY = {
 } as const;
 
 const connectorSelect = { select: { key: true, providerType: true, providerConfig: true } };
+/** Loads what {@link presentApp} needs to show the repository's host, for either kind of app. */
+export const appHostInclude = {
+  connector: connectorSelect,
+  resource: { select: { key: true } },
+} as const;
 type RegistryRow = App & {
-  connector: { key: string; providerType: string; providerConfig: Prisma.JsonValue };
+  connector: { key: string; providerType: string; providerConfig: Prisma.JsonValue } | null;
+  resource: { key: string } | null;
 };
 
 /**
- * Browser link of a repository, from the connector's configuration only (no host call). Null for
- * an unknown provider type or an invalid stored configuration, never another provider's link.
+ * Browser link of a repository. For a connector app it comes from the connector's configuration
+ * only (no host call): null for an unknown provider type or an invalid stored configuration,
+ * never another provider's link. For a resource app it is the https link the Git app reported.
  */
 function repositoryWebUrl(row: RegistryRow): string | null {
-  const provider = connectorProviders.find(({ type }) => type === row.connector.providerType);
+  if (!row.connector) return safeHttpsUrl(row.repositoryWebUrl);
+  const connector = row.connector;
+  const provider = connectorProviders.find(({ type }) => type === connector.providerType);
   if (!provider?.gitHost) return null;
   try {
     return safeHttpsUrl(
       provider.gitHost.repositoryWebUrl({
-        config: row.connector.providerConfig,
+        config: connector.providerConfig,
         repository: { owner: row.repositoryOwner, name: row.repositoryName },
       }),
     );
@@ -73,7 +87,8 @@ export function presentApp(row: RegistryRow, now: Date): AppRegistryEntry {
     name: row.name,
     purpose: row.purpose,
     repository: {
-      connector: row.connector.key,
+      connector: row.connector?.key ?? null,
+      resource: row.resource?.key ?? null,
       owner: row.repositoryOwner,
       name: row.repositoryName,
       webUrl: repositoryWebUrl(row),
@@ -93,7 +108,7 @@ export async function listOwnApps(actor: ConnectorActor) {
   const now = new Date();
   const rows = await db.app.findMany({
     where: { ownerId: actor.id },
-    include: { connector: connectorSelect },
+    include: appHostInclude,
     orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
   });
   return { apps: rows.map((row) => presentApp(row, now)), ...APP_REGISTRY_POLICY };
@@ -135,13 +150,14 @@ export async function confirmApp({
             confirmedAt: now,
             confirmedBy: actor.id,
           },
-          include: { connector: connectorSelect },
+          include: appHostInclude,
         });
         await writeConfirmationAudit(actor, tx, {
           outcome: "success",
           metadata: {
             appId: app.id,
             connectorId: app.connectorId,
+            resourceId: app.resourceId,
             repositoryOwner: app.repositoryOwner,
             repositoryName: app.repositoryName,
             previousExpiresAt: app.expiresAt.toISOString(),
@@ -224,10 +240,7 @@ export async function listAppsForAdmin(input: {
   const [rows, total] = await Promise.all([
     db.app.findMany({
       where,
-      include: {
-        connector: connectorSelect,
-        owner: { select: { id: true, name: true, email: true } },
-      },
+      include: { ...appHostInclude, owner: { select: { id: true, name: true, email: true } } },
       orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
@@ -309,7 +322,7 @@ export async function listAppsForMachine(input: {
           : {},
       ],
     },
-    include: { connector: connectorSelect, owner: { select: { id: true, email: true } } },
+    include: { ...appHostInclude, owner: { select: { id: true, email: true } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: input.limit + 1,
   });

@@ -4,10 +4,12 @@ CREATE TABLE "App" (
     "name" TEXT NOT NULL,
     "purpose" TEXT NOT NULL,
     "ownerId" TEXT NOT NULL,
-    "connectorId" TEXT NOT NULL,
+    "connectorId" TEXT,
+    "resourceId" TEXT,
     "repositoryOwner" TEXT NOT NULL,
     "repositoryName" TEXT NOT NULL,
     "repositoryId" TEXT,
+    "repositoryWebUrl" TEXT,
     "defaultBranch" TEXT NOT NULL,
     "template" TEXT,
     "templateCommit" TEXT,
@@ -19,7 +21,9 @@ CREATE TABLE "App" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "App_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "App_pkey" PRIMARY KEY ("id"),
+    -- The repository lives either on a Git host connector or behind a Git app registered as a resource.
+    CONSTRAINT "App_host_reference" CHECK (("connectorId" IS NULL) <> ("resourceId" IS NULL))
 );
 
 -- CreateIndex
@@ -37,9 +41,18 @@ CREATE UNIQUE INDEX "App_connectorId_repositoryOwner_repositoryName_key" ON "App
 -- CreateIndex
 CREATE UNIQUE INDEX "App_connectorId_repositoryId_key" ON "App"("connectorId", "repositoryId");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "App_resourceId_repositoryOwner_repositoryName_key" ON "App"("resourceId", "repositoryOwner", "repositoryName");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "App_resourceId_repositoryId_key" ON "App"("resourceId", "repositoryId");
+
 -- AddForeignKey
 ALTER TABLE "App" ADD CONSTRAINT "App_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "App" ADD CONSTRAINT "App_connectorId_fkey" FOREIGN KEY ("connectorId") REFERENCES "Connector"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "App" ADD CONSTRAINT "App_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "DownstreamResource"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

@@ -269,6 +269,7 @@ describe.skipIf(!approvedTarget)(
         purpose: "active <script>alert(1)</script>",
         repository: {
           connector: `${prefix}-github`,
+          resource: null,
           owner: "acme-apps",
           name: "app-active",
           webUrl: "https://github.com/acme-apps/app-active",
@@ -309,6 +310,7 @@ describe.skipIf(!approvedTarget)(
         metadata: {
           appId: ids.expired,
           connectorId,
+          resourceId: null,
           repositoryOwner: "acme-apps",
           repositoryName: "app-expired",
           expiresAt: stored.expiresAt.toISOString(),
@@ -427,6 +429,7 @@ describe.skipIf(!approvedTarget)(
         owner: { id: bob.id, email: bob.email },
         repository: {
           connector: `${prefix}-github`,
+          resource: null,
           owner: "acme-apps",
           name: "app-bobs",
           webUrl: "https://github.com/acme-apps/app-bobs",

@@ -1,4 +1,4 @@
-import { db, Prisma, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
+import { db, LOGIN_SCOPE_KEY, Prisma, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { z } from "zod";
 import { cacheProviderAvatar } from "../avatars";
@@ -211,6 +211,21 @@ export class SubjectScopeCheckError extends Error {
   }
 }
 
+/**
+ * Scopes a machine may check for a person: those supported by one of its enabled allowed
+ * resources, plus the login permission `weldall:login` as soon as it has one. A service that keeps
+ * its own long-lived credentials (a Git app's git credentials, for example) must stop serving a
+ * person who lost the login permission, even when the resource does not list `weldall:login`.
+ */
+function subjectCheckQueryableScopes(
+  allowedResources: readonly { resource: { scopes: readonly { scope: { key: string } }[] } }[],
+): Set<string> {
+  return new Set([
+    ...allowedResources.flatMap(({ resource }) => resource.scopes.map(({ scope }) => scope.key)),
+    ...(allowedResources.length ? [LOGIN_SCOPE_KEY] : []),
+  ]);
+}
+
 export async function checkSubjectScopesForMachine(input: {
   clientId: string;
   keyId: string;
@@ -237,11 +252,7 @@ export async function checkSubjectScopesForMachine(input: {
       },
     },
   });
-  const queryableScopes = new Set(
-    machine?.allowedResources.flatMap(({ resource }) =>
-      resource.scopes.map(({ scope }) => scope.key),
-    ) ?? [],
-  );
+  const queryableScopes = subjectCheckQueryableScopes(machine?.allowedResources ?? []);
   if (
     !machine?.enabled ||
     machine.deactivatedAt ||
@@ -309,11 +320,7 @@ export async function checkSubjectScopesForMachine(input: {
         },
       }),
     ]);
-    const stillQueryable = new Set(
-      authorizedMachine?.allowedResources.flatMap(({ resource }) =>
-        resource.scopes.map(({ scope }) => scope.key),
-      ) ?? [],
-    );
+    const stillQueryable = subjectCheckQueryableScopes(authorizedMachine?.allowedResources ?? []);
     if (!authorizedMachine || requestedScopes.some((scope) => !stillQueryable.has(scope))) {
       throw new SubjectScopeCheckError("FORBIDDEN");
     }

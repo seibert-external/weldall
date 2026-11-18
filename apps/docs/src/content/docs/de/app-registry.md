@@ -125,6 +125,7 @@ Die Antwort listet die Apps in der Reihenfolge ihres Anlegens, die älteste zuer
       "owner": { "id": "u_8f2c", "email": "jane.adams@example.com" },
       "repository": {
         "connector": "github-apps",
+        "resource": null,
         "owner": "acme-apps",
         "name": "app-expense-tracker",
         "webUrl": "https://github.com/acme-apps/app-expense-tracker"
@@ -143,6 +144,8 @@ Die Antwort listet die Apps in der Reihenfolge ihres Anlegens, die älteste zuer
   "expiringSoonDays": 14
 }
 ```
+
+`repository.connector` nennt den Git-Host-Connector, in dem das Repository liegt. Bei einer App, die über eine eigene, als Ressource registrierte Git-App veröffentlicht wurde, ist `connector` `null` und `repository.resource` enthält den Schlüssel der Ressource. Genau eines der beiden Felder ist gesetzt.
 
 Den Besitzer gibt die API als Weldall-User-ID und E-Mail-Adresse an, nicht mit Namen. Über die E-Mail-Adresse erreicht die IT die Person und findet sie im eigenen Verzeichnis. Die ID bleibt gleich, wenn sich die Adresse ändert. Den Namen kennt das Verzeichnis schon, deshalb lässt die API ihn weg.
 

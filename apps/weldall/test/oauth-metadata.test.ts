@@ -23,6 +23,7 @@ describe("OAuth authorization-server machine metadata", () => {
         "weldall:iac",
         "weldall:subject-scopes-check",
         "weldall:app-registry-read",
+        "weldall:app-host",
       ],
       weldall_subject_scope_check: {
         endpoint: expect.stringMatching(/\/api\/authorization\/v1\/check-scopes$/),
@@ -31,6 +32,10 @@ describe("OAuth authorization-server machine metadata", () => {
       weldall_app_registry: {
         endpoint: expect.stringMatching(/\/api\/app-registry\/v1\/apps$/),
         scope: "weldall:app-registry-read",
+      },
+      weldall_app_host: {
+        endpoint: expect.stringMatching(/\/api\/app-host\/v1$/),
+        scope: "weldall:app-host",
       },
       weldall_iac: {
         endpoint: expect.stringMatching(/\/api\/iac\/v1$/),
