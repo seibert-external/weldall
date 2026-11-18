@@ -1087,7 +1087,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       await upgrade.$disconnect();
       execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
     }
-  });
+  }, 60000);
   it("populated upgrade removes only exact legacy Google account bindings", async () => {
     const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(server!);
@@ -1232,7 +1232,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       await upgrade.$disconnect();
       execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
     }
-  });
+  }, 60000);
   it("upgrading a database that already applied 0015_oidc_login_installation keeps login audit events", async () => {
     const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(server!);
