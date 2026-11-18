@@ -191,6 +191,22 @@ const cliSettingsMetadata = z
       .strict(),
   })
   .strict();
+// Digests and field names only: the policy content, including internal instructions, stays in
+// the IaC repository.
+const clientPolicyMetadata = z
+  .object({
+    target: z.enum(["group", "default"]),
+    providerId: z.string().min(1).max(191).optional(),
+    providerKey: z.string().min(1).max(120).optional(),
+    groupId: z.string().min(1).max(191).optional(),
+    beforeSha256: digest.nullable(),
+    afterSha256: digest.nullable(),
+    changedFields: z.array(
+      z.enum(["approvalMode", "extensions", "shell", "models", "instructions"]),
+    ),
+    source: mutationSource,
+  })
+  .strict();
 const skillVisibility = z.enum(["DEFAULT", "HIDDEN_IF_UNALLOWED"]);
 const skillMeta = z
   .object({
@@ -334,6 +350,7 @@ const metadataSchemas = {
   "resource_scopes.replaced": resourceScopesMetadata,
   "resource_scopes.deleted": resourceScopesMetadata,
   "cli_settings.updated": cliSettingsMetadata,
+  "client_policy.updated": clientPolicyMetadata,
   "skill.created": skillCreatedMetadata,
   "skill.updated": skillUpdatedMetadata,
   "skill.deleted": skillDeletedMetadata,
