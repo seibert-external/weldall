@@ -1142,6 +1142,14 @@
     line-height: 1.25;
   }
 
+  /* Resource chips stand apart from tags in amber, the resource color used before the refresh. */
+  .skill-card-tags span.skill-card-resource-tag,
+  .skill-noise-surface[data-tone="resource"] {
+    background: light-dark(#fbefd9, #e0b878);
+    color: light-dark(#8c5f1e, #3d2a0d);
+    font-weight: var(--font-weight-semibold);
+  }
+
   /* List view: the card markup laid out as compact rows for quick scanning. */
   .skill-directory-list[data-view="list"] {
     grid-template-columns: 1fr;
