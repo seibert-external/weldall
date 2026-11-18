@@ -353,7 +353,7 @@ describe("session-local MCP activation", () => {
       await client.close();
       await server.close();
     });
-    expect((await client.listTools()).tools).toHaveLength(8);
+    expect((await client.listTools()).tools).toHaveLength(10);
     const loaded = await client.callTool({
       name: "read_skill_document",
       arguments: { slug: "review" },
@@ -361,7 +361,7 @@ describe("session-local MCP activation", () => {
     expect(loaded.isError).not.toBe(true);
     expect(toolsChanged).toHaveBeenCalledOnce();
     expect(resourcesChanged).toHaveBeenCalledOnce();
-    expect((await client.listTools()).tools).toHaveLength(9);
+    expect((await client.listTools()).tools).toHaveLength(11);
     const resources = await client.listResources();
     expect(resources.resources).toHaveLength(1);
     expect(

@@ -10,6 +10,7 @@ import {
 } from "../src/publish/git.js";
 import { publishApp, publishTrailer } from "../src/publish/publish.js";
 import { readAppStatus } from "../src/publish/status.js";
+import { confirmMyApp, listMyApps } from "../src/publish/registry.js";
 import { parseDecisions, publishJson } from "../src/publish/report.js";
 import { PublishError } from "../src/publish/errors.js";
 import { createPublishApi } from "../src/publish/weldall-api.js";
@@ -328,5 +329,93 @@ describe("publish interface", () => {
       message: expect.stringContaining("continues where it stopped"),
     });
     expect(timeouts[0]).toBeGreaterThan(30_000);
+  });
+});
+
+describe("app registry", () => {
+  const entry = {
+    id: "app1",
+    name: "expenses",
+    purpose: "Track team expenses",
+    repository: {
+      connector: "github",
+      owner: "acme",
+      name: "app-expenses",
+      webUrl: "https://github.example/acme/app-expenses",
+    },
+    template: "react",
+    links: { preview: null, live: "https://expenses.example.com/" },
+    createdAt: "2026-11-01T10:00:00.000Z",
+    confirmedAt: null,
+    expiresAt: "2027-01-30T10:00:00.000Z",
+    state: "active",
+  };
+
+  it("lists the person's apps and confirms one by id", async () => {
+    const requests: Array<{ method: string; path: string; body?: unknown }> = [];
+    const answers = [
+      { status: 200, body: { apps: [entry], reverificationDays: 90, expiringSoonDays: 14 } },
+      { status: 200, body: { app: { ...entry, confirmedAt: "2026-11-18T09:00:00.000Z" } } },
+    ];
+    const api = createPublishApi("https://weldall.example.com", async (request) => {
+      requests.push(request);
+      return answers.shift()!;
+    });
+    expect(await listMyApps(api)).toEqual({
+      outcome: "apps",
+      apps: [entry],
+      reverificationDays: 90,
+      expiringSoonDays: 14,
+    });
+    expect(
+      await confirmMyApp({ directory: "/nonexistent/weldall-app", appId: "app 1", api }),
+    ).toEqual({
+      outcome: "confirmed",
+      app: { ...entry, confirmedAt: "2026-11-18T09:00:00.000Z" },
+    });
+    expect(requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: "GET", path: "apps", body: undefined },
+      { method: "POST", path: "apps/app%201/confirm", body: undefined },
+    ]);
+  });
+
+  it("says when the server has no app registry and keeps Weldall's error codes", async () => {
+    const answers = [
+      { status: 404, body: "<html>Not Found</html>" },
+      { status: 405, body: "" },
+      {
+        status: 404,
+        body: { error: "not_found", error_description: "No app of yours has this id." },
+      },
+      {
+        status: 200,
+        body: {
+          apps: [{ ...entry, state: "paused" }],
+          reverificationDays: 90,
+          expiringSoonDays: 14,
+        },
+      },
+    ];
+    const api = createPublishApi("https://weldall.example.com", async () => answers.shift()!);
+    await expect(api.listApps()).rejects.toMatchObject({
+      code: "server_unsupported",
+      message: "Listing your apps: this Weldall server has no app registry.",
+      hint: expect.stringContaining("app registry"),
+    });
+    await expect(api.confirmApp("app1")).rejects.toMatchObject({ code: "server_unsupported" });
+    await expect(api.confirmApp("app1")).rejects.toMatchObject({
+      code: "not_found",
+      message: expect.stringContaining("No app of yours has this id."),
+    });
+    await expect(api.listApps()).rejects.toMatchObject({ code: "server_unsupported" });
+  });
+
+  it("confirms the folder's app only when the folder was published", async () => {
+    const api = createPublishApi("https://weldall.example.com", async () => {
+      throw new Error("not called");
+    });
+    await expect(
+      confirmMyApp({ directory: "/nonexistent/weldall-app", api }),
+    ).rejects.toMatchObject({ code: "folder_missing" });
   });
 });

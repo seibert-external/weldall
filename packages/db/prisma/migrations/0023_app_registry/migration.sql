@@ -14,6 +14,8 @@ CREATE TABLE "App" (
     "previewUrl" TEXT,
     "liveUrl" TEXT,
     "expiresAt" TIMESTAMP(3) NOT NULL,
+    "confirmedAt" TIMESTAMP(3),
+    "confirmedBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -22,6 +24,12 @@ CREATE TABLE "App" (
 
 -- CreateIndex
 CREATE INDEX "App_ownerId_createdAt_idx" ON "App"("ownerId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "App_expiresAt_id_idx" ON "App"("expiresAt", "id");
+
+-- CreateIndex
+CREATE INDEX "App_createdAt_id_idx" ON "App"("createdAt", "id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "App_connectorId_repositoryOwner_repositoryName_key" ON "App"("connectorId", "repositoryOwner", "repositoryName");

@@ -9,6 +9,12 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { REQUEST_TIMEOUT, type CliRunner } from "./cli.js";
 import { ExtensionError, safeError } from "./errors.js";
 import {
+  confirmApp,
+  confirmAppDescription,
+  confirmAppSchema,
+  listApps,
+  listAppsDescription,
+  listAppsSchema,
   publishApp,
   publishDescription,
   publishSchema,
@@ -241,9 +247,21 @@ const definitions = [
     description: statusDescription,
     schema: statusSchema,
   },
+  {
+    name: "list_apps",
+    title: "List my apps",
+    description: listAppsDescription,
+    schema: listAppsSchema,
+  },
+  {
+    name: "confirm_app",
+    title: "Confirm an app is still needed",
+    description: confirmAppDescription,
+    schema: confirmAppSchema,
+  },
 ] as const;
 
-const WRITE_TOOLS = new Set<string>(["send", "publish_app"]);
+const WRITE_TOOLS = new Set<string>(["send", "publish_app", "confirm_app"]);
 
 export const tools: Tool[] = definitions.map(({ name, title, description, schema }) => ({
   name,
@@ -393,6 +411,8 @@ export async function callTool(
     }
     if (name === "publish_app") return await publishApp(cli, publishSchema.parse(input), signal);
     if (name === "app_status") return await readAppStatus(cli, statusSchema.parse(input), signal);
+    if (name === "list_apps") return await listApps(cli, listAppsSchema.parse(input), signal);
+    if (name === "confirm_app") return await confirmApp(cli, confirmAppSchema.parse(input), signal);
     if (name === "read_skill_document") {
       const args = z.object({ slug }).parse(input);
       const skill = parsed(detail, await cli.run(["skills", "show", args.slug, "--json"], signal));

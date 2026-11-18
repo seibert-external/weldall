@@ -82,6 +82,33 @@ const openedPullRequest = z.object({
 });
 export type OpenedPullRequest = z.output<typeof openedPullRequest>;
 
+export const APP_STATES = ["active", "expiring_soon", "expired"] as const;
+const appEntry = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string(),
+  purpose: z.string(),
+  repository: z.object({
+    connector: z.string(),
+    owner: z.string(),
+    name: z.string(),
+    webUrl: z.string().nullable(),
+  }),
+  template: z.string().nullable(),
+  links: z.object({ preview: z.string().nullable(), live: z.string().nullable() }),
+  createdAt: z.string(),
+  confirmedAt: z.string().nullable(),
+  expiresAt: z.string(),
+  state: z.enum(APP_STATES),
+});
+export type AppEntry = z.output<typeof appEntry>;
+const appList = z.object({
+  apps: z.array(appEntry),
+  reverificationDays: z.number().int().positive(),
+  expiringSoonDays: z.number().int().nonnegative(),
+});
+export type AppList = z.output<typeof appList>;
+const confirmedApp = z.object({ app: appEntry });
+
 /** The server calls a publish needs; tests provide one without DPoP. */
 export interface PublishApi {
   /** Origin of the Weldall server the CLI talks to (and the git credential helper answers for). */
@@ -97,6 +124,10 @@ export interface PublishApi {
     appId: string,
     input: { head: string; title: string; body: string },
   ): Promise<OpenedPullRequest>;
+  /** The caller's apps from the app registry with their re-verification state. */
+  listApps(): Promise<AppList>;
+  /** Confirms that one of the caller's apps is still needed; the server moves its expiry. */
+  confirmApp(appId: string): Promise<AppEntry>;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -104,8 +135,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const UPDATE_HINT =
   "Ask your Weldall administrator to update the server; this CLI needs a Weldall server that supports publishing apps.";
+const REGISTRY_UPDATE_HINT =
+  "Ask your Weldall administrator to update the server; this CLI needs a Weldall server with the app registry.";
 
-function failure(label: string, answer: WeldallAnswer): PublishError {
+function failure(
+  label: string,
+  answer: WeldallAnswer,
+  unsupported = { message: "this Weldall server cannot publish apps.", hint: UPDATE_HINT },
+): PublishError {
   const body = isRecord(answer.body) ? answer.body : {};
   const code = typeof body.error === "string" ? body.error : null;
   const description =
@@ -114,13 +151,9 @@ function failure(label: string, answer: WeldallAnswer): PublishError {
       : null;
   // An older server answers unknown routes without a Weldall error body.
   if ((answer.status === 404 || answer.status === 405) && code === null)
-    return new PublishError(
-      "server_unsupported",
-      `${label}: this Weldall server cannot publish apps.`,
-      {
-        hint: UPDATE_HINT,
-      },
-    );
+    return new PublishError("server_unsupported", `${label}: ${unsupported.message}`, {
+      hint: unsupported.hint,
+    });
   if (answer.status === 401)
     return new PublishError("login", `${label}: your Weldall login has expired.`, {
       hint: "Run `weldall login`, then publish again.",
@@ -131,19 +164,29 @@ function failure(label: string, answer: WeldallAnswer): PublishError {
   );
 }
 
-function parse<T>(schema: z.ZodType<T>, label: string, answer: WeldallAnswer): T {
-  if (answer.status < 200 || answer.status > 299) throw failure(label, answer);
+function parse<T>(
+  schema: z.ZodType<T>,
+  label: string,
+  answer: WeldallAnswer,
+  unsupported?: Parameters<typeof failure>[2],
+): T {
+  if (answer.status < 200 || answer.status > 299) throw failure(label, answer, unsupported);
   const parsed = schema.safeParse(answer.body);
   if (!parsed.success)
     throw new PublishError(
       "server_unsupported",
       `${label}: Weldall returned an unexpected answer.`,
       {
-        hint: UPDATE_HINT,
+        hint: unsupported?.hint ?? UPDATE_HINT,
       },
     );
   return parsed.data;
 }
+/** A server without `GET /api/me/apps` or the confirm route predates the app registry. */
+const withoutRegistry = {
+  message: "this Weldall server has no app registry.",
+  hint: REGISTRY_UPDATE_HINT,
+};
 
 /** The publish calls over any transport; the direct one below signs with the CLI login. */
 export function createPublishApi(issuer: string, send: WeldallSend): PublishApi {
@@ -203,6 +246,28 @@ export function createPublishApi(issuer: string, send: WeldallSend): PublishApi 
           timeoutMs: REQUEST_TIMEOUT_MS,
         }),
       );
+    },
+    async listApps() {
+      const label = "Listing your apps";
+      return parse(
+        appList,
+        label,
+        await ask(label, { method: "GET", path: "apps", timeoutMs: REQUEST_TIMEOUT_MS }),
+        withoutRegistry,
+      );
+    },
+    async confirmApp(appId) {
+      const label = "Confirming the app";
+      return parse(
+        confirmedApp,
+        label,
+        await ask(label, {
+          method: "POST",
+          path: `${app(appId)}/confirm`,
+          timeoutMs: REQUEST_TIMEOUT_MS,
+        }),
+        withoutRegistry,
+      ).app;
     },
   };
 }

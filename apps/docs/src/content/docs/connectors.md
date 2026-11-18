@@ -107,6 +107,8 @@ weldall app status --json
 
 Each publish fetches the repository's current state, merges it with the folder, and sends the result as one commit to a branch named `weldall/publish-*`. While the previous pull request is open, publish updates it; after it is merged or closed, the next publish opens a new one. When the folder and the repository changed the same lines, publish stops and sends nothing. Publish also refuses files that look like secrets or data, such as `.env` files, private keys and database dumps. `weldall app sync` only brings the repository's state into the folder. `weldall app status` shows the pull request, its reviews and checks, and the preview and live links the app's CI reports. In a desktop client with the Weldall extension, the agent uses the `publish_app` and `app_status` tools, which run the same commands.
 
+Every published app is in the [app registry](../app-registry/), where administrators see all apps and owners confirm every 90 days that their apps are still needed (`weldall app list`, `weldall app confirm`).
+
 The commits are authored by the App's bot account and carry a `Weldall-App:` trailer. The pull request names only the Weldall user ID of the person who published. Their name stays in Weldall's audit log.
 
 ### The git proxy

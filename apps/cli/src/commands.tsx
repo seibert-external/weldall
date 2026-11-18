@@ -78,8 +78,12 @@ import { runGitCredentialHelper } from "./git/credential-helper.js";
 import { directWeldallAccess } from "./git/weldall-access.js";
 import { publishApp, type PublishOptions } from "./publish/publish.js";
 import { readAppStatus } from "./publish/status.js";
+import { confirmMyApp, listMyApps, type AppListReport } from "./publish/registry.js";
 import {
+  APP_STATE_LABELS,
+  isoDay,
   parseDecisions,
+  printAppConfirmed,
   printAppStatus,
   printPublishResult,
   PUBLISH_EXIT_CODES,
@@ -1561,13 +1565,118 @@ const appStatusCommand = define({
   },
 });
 
+/** Prints a command's JSON on stdout; with --json also its CLI errors become JSON. */
+async function runAppJsonCommand<T>(
+  json: boolean | undefined,
+  operation: () => Promise<T>,
+  print: (value: T) => void,
+) {
+  try {
+    const value = await operation();
+    if (json) console.log(publishJson(value as Parameters<typeof publishJson>[0]));
+    else print(value);
+  } catch (error) {
+    if (!json || !(error instanceof CliError)) throw error;
+    console.log(publishJson(error));
+    process.exitCode = error.exitCode;
+  }
+}
+
+const appListColumns = [
+  { header: "App" },
+  { header: "State" },
+  { header: "Expires" },
+  { header: "Repository" },
+  { header: "ID" },
+] satisfies readonly TableColumn[];
+
+function printAppList(report: AppListReport) {
+  if (report.apps.length === 0) {
+    info("You have no apps in Weldall's app registry yet. `weldall app publish` adds one.");
+    return;
+  }
+  printWideUi(
+    <TableCard
+      title="Your apps"
+      columns={appListColumns}
+      rows={report.apps.map((app) => [
+        app.name,
+        APP_STATE_LABELS[app.state],
+        isoDay(app.expiresAt),
+        `${app.repository.owner}/${app.repository.name}`,
+        app.id,
+      ])}
+      cellColor={(_rowIndex, columnIndex, value) =>
+        columnIndex !== 1
+          ? undefined
+          : value === APP_STATE_LABELS.expired
+            ? palette.danger
+            : value === APP_STATE_LABELS.expiring_soon
+              ? palette.warning
+              : undefined
+      }
+    />,
+  );
+  if (report.apps.some((app) => app.state !== "active"))
+    info(
+      `Apps must be confirmed as still needed every ${report.reverificationDays} days. Run \`weldall app confirm <id>\` for each app that is still in use; IT sees expired apps flagged.`,
+    );
+}
+
+const appListCommand = define({
+  name: "list",
+  description:
+    "List your apps in Weldall's app registry with their expiry and whether they need confirming",
+  args: { json: jsonArgument },
+  examples: "weldall app list\nweldall app list --json",
+  run: ({ values }) =>
+    runAppJsonCommand(
+      values.json,
+      async () => listMyApps(directPublishApi(await resolveWeldallConfig())),
+      printAppList,
+    ),
+});
+
+const appConfirmCommand = define({
+  name: "confirm",
+  description:
+    "Confirm that one of your apps is still needed; its expiry moves to 90 days from now. Publishing does not do this",
+  args: {
+    app: {
+      type: "positional",
+      required: false,
+      description: "App id from `weldall app list`; defaults to the app of --dir",
+    },
+    dir: publishFolderArguments.dir,
+    json: jsonArgument,
+  },
+  examples: "weldall app confirm cm123\nweldall app confirm --json",
+  run: ({ values }) =>
+    runAppJsonCommand(
+      values.json,
+      async () =>
+        confirmMyApp({
+          directory: values.dir ?? process.cwd(),
+          ...(values.app === undefined ? {} : { appId: values.app }),
+          api: directPublishApi(await resolveWeldallConfig()),
+        }),
+      printAppConfirmed,
+    ),
+});
+
 export const appCommand = define({
   name: "app",
   description: "Publish a locally built app through Weldall, without a Git account",
-  subCommands: { publish: appPublishCommand, sync: appSyncCommand, status: appStatusCommand },
+  subCommands: {
+    publish: appPublishCommand,
+    sync: appSyncCommand,
+    status: appStatusCommand,
+    list: appListCommand,
+    confirm: appConfirmCommand,
+  },
   run: () =>
     info(
-      "Run `weldall app publish --help`, `weldall app sync --help` or `weldall app status --help`.",
+      "Run `weldall app publish --help`, `weldall app sync --help`, `weldall app status --help`, `weldall app list --help` or `weldall app confirm --help`.",
     ),
 });
 

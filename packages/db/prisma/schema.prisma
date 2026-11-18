@@ -565,8 +565,13 @@ model App {
   templateCommit  String?
   previewUrl      String?
   liveUrl         String?
-  /// Date by which the owner must re-confirm the app; set by the code that creates the entry.
+  /// Date by which the owner must re-confirm the app; set by the code that creates the entry and
+  /// moved only by the owner's confirmation, never by a publish. Past it the app is flagged, not stopped.
   expiresAt       DateTime
+  /// When the owner last confirmed that the app is still needed; null until the first confirmation.
+  confirmedAt     DateTime?
+  /// Weldall user id of whoever last confirmed; kept as a plain id like `createdBy` elsewhere.
+  confirmedBy     String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   owner           User      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
@@ -576,6 +581,8 @@ model App {
   @@unique([connectorId, repositoryOwner, repositoryName])
   @@unique([connectorId, repositoryId])
   @@index([ownerId, createdAt])
+  @@index([expiresAt, id])
+  @@index([createdAt, id])
 }
 
 enum GitCredentialAccess {

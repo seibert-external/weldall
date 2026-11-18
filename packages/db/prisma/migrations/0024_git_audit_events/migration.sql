@@ -20,6 +20,6 @@ ALTER TABLE "AuditEvent" ADD CONSTRAINT "AuditEvent_event_type" CHECK (
     'git_fetch.completed', 'git_fetch.denied', 'git_fetch.failed',
     'git_pull_request.opened', 'git_pull_request.denied', 'git_pull_request.failed',
     'git_credential.issued', 'git_credential.denied', 'git_credential.failed',
-    'git_host.checked'
+    'git_host.checked', 'app_confirmation.succeeded', 'app_confirmation.denied'
   )
 );

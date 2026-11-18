@@ -94,6 +94,7 @@ export default defineConfig({
               translations: { de: "How to: GitHub anbinden" },
               link: "/github-app/",
             },
+            { slug: "app-registry" },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {

@@ -113,6 +113,25 @@ describe("this CLI against a server without Git hosts", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("app list and app confirm say that the server has no app registry", async () => {
+    for (const argv of [
+      ["app", "list", "--json"],
+      ["app", "confirm", "app1", "--json"],
+    ]) {
+      process.exitCode = undefined;
+      expect(await run(argv)).toEqual({
+        outcome: "error",
+        error: expect.objectContaining({
+          code: "server_unsupported",
+          message: expect.stringContaining("this Weldall server has no app registry"),
+          hint: expect.stringContaining("update the server"),
+        }),
+      });
+      expect(process.exitCode).toBe(1);
+    }
+    expect(mocks.paths).toEqual(["apps", "apps/app1/confirm"]);
+  });
+
   it("connectors check explains that the server cannot check connectors", async () => {
     const result = await run(["connectors", "check", "github", "--json"]);
     expect(result).toEqual({

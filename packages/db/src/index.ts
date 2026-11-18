@@ -1,6 +1,7 @@
 export { db } from "./client.js";
 export {
   ADMIN_SCOPE_KEY,
+  APP_REGISTRY_READ_SCOPE_KEY,
   IAC_SCOPE_KEY,
   LOGIN_SCOPE_KEY,
   MACHINE_ONLY_SYSTEM_SCOPE_KEYS,

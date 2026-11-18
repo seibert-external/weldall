@@ -377,8 +377,8 @@ async function seedDevelopmentResourceSkill(
 }
 
 /**
- * A disabled GitHub App connector without a private key and one registered demo app, so the app
- * registry has a row to show. Nothing here reaches GitHub.
+ * A disabled GitHub App connector without a private key and three registered demo apps (active,
+ * expiring soon, expired), so the app registry has rows to show. Nothing here reaches GitHub.
  */
 async function seedDevelopmentGitHostApp() {
   const providerConfig = {
@@ -406,24 +406,56 @@ async function seedDevelopmentGitHostApp() {
     },
     update: { providerType: "github-app", providerConfig, updatedBy: actor },
   });
-  const app = {
-    name: "expense-tracker",
-    purpose: "Tracks team expenses until the finance tool supports receipts.",
-    ownerId: "dev-user-jane-adams",
-    connectorId: connector.id,
-    repositoryOwner: "acme-apps",
-    repositoryName: "app-expense-tracker",
-    repositoryId: "900000001",
-    defaultBranch: "main",
-    template: "react",
-    templateCommit: "0123456789abcdef0123456789abcdef01234567",
-    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-  };
-  await db.app.upsert({
-    where: { id: "dev-app-expense-tracker" },
-    create: { id: "dev-app-expense-tracker", ...app },
-    update: app,
-  });
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  // One app in each re-verification state, so the admin list shows the flags.
+  const apps = [
+    {
+      id: "dev-app-expense-tracker",
+      name: "expense-tracker",
+      purpose: "Tracks team expenses until the finance tool supports receipts.",
+      ownerId: "dev-user-jane-adams",
+      repositoryName: "app-expense-tracker",
+      repositoryId: "900000001",
+      liveUrl: "https://expense-tracker.example.com",
+      confirmedAt: new Date(now - 10 * day),
+      expiresAt: new Date(now + 80 * day),
+    },
+    {
+      id: "dev-app-room-booking",
+      name: "room-booking",
+      purpose: "Books the small meeting rooms on the second floor.",
+      ownerId: "dev-user-omar-haddad",
+      repositoryName: "app-room-booking",
+      repositoryId: "900000002",
+      liveUrl: null,
+      confirmedAt: null,
+      expiresAt: new Date(now + 6 * day),
+    },
+    {
+      id: "dev-app-visitor-log",
+      name: "visitor-log",
+      purpose: "Records visitors at the front desk.",
+      ownerId: "dev-user-sofia-marchetti",
+      repositoryName: "app-visitor-log",
+      repositoryId: "900000003",
+      liveUrl: null,
+      confirmedAt: null,
+      expiresAt: new Date(now - 3 * day),
+    },
+  ];
+  for (const { id, ...app } of apps) {
+    const data = {
+      ...app,
+      connectorId: connector.id,
+      repositoryOwner: "acme-apps",
+      defaultBranch: "main",
+      template: "react",
+      templateCommit: "0123456789abcdef0123456789abcdef01234567",
+      confirmedBy: app.confirmedAt ? app.ownerId : null,
+    };
+    await db.app.upsert({ where: { id }, create: { id, ...data }, update: data });
+  }
 }
 
 async function seedDevelopmentManagedConnectors() {

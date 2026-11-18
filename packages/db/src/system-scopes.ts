@@ -6,11 +6,14 @@ export const MCP_SCOPE_KEY = "weldall:mcp";
 export const IAC_SCOPE_KEY = "weldall:iac";
 export const SUBJECT_SCOPES_CHECK_SCOPE_KEY = "weldall:subject-scopes-check";
 export const STATISTICS_SCOPE_KEY = "weldall:statistics";
+/** Lets a machine client read the app registry through `/api/app-registry/v1/apps`. */
+export const APP_REGISTRY_READ_SCOPE_KEY = "weldall:app-registry-read";
 
 export const MACHINE_ONLY_SYSTEM_SCOPE_KEYS = [
   IAC_SCOPE_KEY,
   MCP_SCOPE_KEY,
   SUBJECT_SCOPES_CHECK_SCOPE_KEY,
+  APP_REGISTRY_READ_SCOPE_KEY,
 ] as const;
 
 export function isMachineOnlySystemScope(key: string): boolean {
@@ -47,6 +50,11 @@ export const SYSTEM_SCOPE_DEFINITIONS = [
     id: "scope-weldall-statistics",
     key: STATISTICS_SCOPE_KEY,
     description: "View org-wide Weldall usage statistics.",
+  },
+  {
+    id: "scope-weldall-app-registry-read",
+    key: APP_REGISTRY_READ_SCOPE_KEY,
+    description: "Read the registry of apps published through Weldall.",
   },
 ] as const;
 

@@ -3,6 +3,7 @@ import { info, printFields, success, terminalText, warning } from "../output.js"
 import type { ConflictChoice } from "./conflicts.js";
 import { PublishError } from "./errors.js";
 import type { PublishResult } from "./publish.js";
+import type { AppConfirmReport, AppListReport } from "./registry.js";
 import type { AppStatusReport } from "./status.js";
 
 /** Exit codes an agent can branch on; the JSON output carries the details. */
@@ -37,7 +38,8 @@ const list = (paths: readonly string[], limit = 20) =>
 
 /** The result as JSON on stdout; an error as `{ outcome: "error", error }`. */
 export function publishJson(
-  value: PublishResult | AppStatusReport | PublishError | CliError,
+  value:
+    PublishResult | AppStatusReport | AppListReport | AppConfirmReport | PublishError | CliError,
 ): string {
   if (value instanceof CliError)
     return JSON.stringify(
@@ -132,4 +134,20 @@ export function printAppStatus(status: AppStatusReport) {
       }`,
     );
   for (const item of status.warnings) warning({ message: `Weldall: ${item.message}` });
+}
+
+/** Readable labels of the app registry's states. */
+export const APP_STATE_LABELS = {
+  active: "active",
+  expiring_soon: "expiring soon",
+  expired: "expired",
+} as const;
+
+/** The day of an ISO timestamp, e.g. `2027-02-16`; the JSON output keeps the full timestamp. */
+export const isoDay = (value: string) => value.slice(0, 10);
+
+export function printAppConfirmed({ app }: AppConfirmReport) {
+  success(
+    `Confirmed ${terminalText(app.name)} (${app.id}) as still needed until ${isoDay(app.expiresAt)}.`,
+  );
 }
