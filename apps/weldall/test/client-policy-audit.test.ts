@@ -115,6 +115,12 @@ const group = (target: ReturnType<typeof workspace>, groupId: string, extra: obj
   ...extra,
 });
 const sha256Pattern = /^[a-f0-9]{64}$/;
+const assignmentId = async (groupId: string) =>
+  (
+    await db.groupScopeAssignment.findFirstOrThrow({
+      where: { provider: { key: providerKey }, groupId },
+    })
+  ).id;
 
 describe("client_policy.updated audit event", () => {
   it("records a policy-only group change without a scope event", async () => {
@@ -129,6 +135,7 @@ describe("client_policy.updated audit event", () => {
     expect(rest).toEqual([]);
     expect(event).toMatchObject({
       subjectType: "group_scope_assignment",
+      subjectId: await assignmentId("policy-only"),
       metadata: {
         target: "group",
         providerKey,
@@ -154,16 +161,43 @@ describe("client_policy.updated audit event", () => {
     await expect(events(requestId, "client_policy.updated")).resolves.toEqual([]);
   });
 
+  it("records the policy of a newly created assignment", async () => {
+    const target = workspace("created");
+    const requestId = await apply(target, {
+      groupAssignments: {
+        dev: group(target, "created", {
+          policy: { version: 1, shell: true, approvalMode: "auto" },
+        }),
+      },
+    });
+    const [event, ...rest] = await events(requestId, "client_policy.updated");
+    expect(rest).toEqual([]);
+    expect(event).toMatchObject({
+      subjectType: "group_scope_assignment",
+      subjectId: await assignmentId("created"),
+      metadata: {
+        target: "group",
+        groupId: "created",
+        changedFields: ["approvalMode", "shell"],
+        beforeSha256: null,
+        afterSha256: expect.stringMatching(sha256Pattern),
+      },
+    });
+    await expect(events(requestId, "group_scopes.created")).resolves.toHaveLength(1);
+  });
+
   it("records the policy removal when the assignment is deleted", async () => {
     const target = workspace("deleted");
     await apply(target, {
       groupAssignments: { dev: group(target, "deleted", { policy: { version: 1, shell: true } }) },
     });
+    const deletedId = await assignmentId("deleted");
     const requestId = await apply(target, {});
     const [event, ...rest] = await events(requestId, "client_policy.updated");
     expect(rest).toEqual([]);
     expect(event).toMatchObject({
       subjectType: "group_scope_assignment",
+      subjectId: deletedId,
       metadata: {
         target: "group",
         groupId: "deleted",
