@@ -174,5 +174,5 @@ The CLI sends a token or a git credential only to the origin Weldall lists for t
 The Git app's other keys (its signing key, its machine key and the git credential key) are rotated as its [README](https://github.com/seibert-external/weldall-git-app#readme) describes. A git credential is valid for five minutes and cannot be revoked on its own. That is why the Git app asks Weldall again on every git request whether the person may still publish: removing `git-app:publish` stops the next request.
 
 :::caution[Status]
-The Git app is tested against simulated GitHub and Forgejo APIs and a simulated Weldall, its git proxy against a real git server and its registry against a real PostgreSQL. On 19 November 2026 it ran against github.com with a test GitHub App, the real CLI and a local Weldall development server, then still with the registry in Weldall. What is not verified yet is listed in the Git app's [README](https://github.com/seibert-external/weldall-git-app#not-built-yet).
+The Git app is tested against simulated GitHub and Forgejo APIs and a simulated Weldall, its git proxy against a real git server and its registry against a real PostgreSQL. What is not verified yet is listed in the Git app's [README](https://github.com/seibert-external/weldall-git-app#not-built-yet).
 :::
