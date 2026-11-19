@@ -2,7 +2,6 @@ export { db } from "./client.js";
 export {
   ADMIN_SCOPE_KEY,
   APP_HOST_SCOPE_KEY,
-  APP_REGISTRY_READ_SCOPE_KEY,
   IAC_SCOPE_KEY,
   LOGIN_SCOPE_KEY,
   MACHINE_ONLY_SYSTEM_SCOPE_KEYS,
@@ -20,7 +19,6 @@ export {
   SkillVisibility,
 } from "@prisma/client";
 export type {
-  App,
   OAuthDeviceRefreshBinding,
   Connector,
   ConnectorRegistration,

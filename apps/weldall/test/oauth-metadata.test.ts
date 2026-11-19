@@ -19,19 +19,10 @@ describe("OAuth authorization-server machine metadata", () => {
       token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
       token_endpoint_auth_signing_alg_values_supported: ["ES256"],
       dpop_signing_alg_values_supported: ["EdDSA", "ES256"],
-      scopes_supported: [
-        "weldall:iac",
-        "weldall:subject-scopes-check",
-        "weldall:app-registry-read",
-        "weldall:app-host",
-      ],
+      scopes_supported: ["weldall:iac", "weldall:subject-scopes-check", "weldall:app-host"],
       weldall_subject_scope_check: {
         endpoint: expect.stringMatching(/\/api\/authorization\/v1\/check-scopes$/),
         scope: "weldall:subject-scopes-check",
-      },
-      weldall_app_registry: {
-        endpoint: expect.stringMatching(/\/api\/app-registry\/v1\/apps$/),
-        scope: "weldall:app-registry-read",
       },
       weldall_app_host: {
         endpoint: expect.stringMatching(/\/api\/app-host\/v1$/),

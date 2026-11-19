@@ -1,0 +1,22 @@
+{
+  "resource": "https://git-app.example.com/api",
+  "eventId": "0f3c4f0e-6a1b-4c1e-9d55-6b2f3c0d9a10",
+  "eventType": "git_push.forwarded",
+  "subject": "user-1",
+  "appId": "app_0123456789abcdef0123",
+  "repository": {
+    "owner": "acme-apps",
+    "name": "app-expenses"
+  },
+  "details": {
+    "refUpdates": [
+      {
+        "ref": "refs/heads/weldall/publish-1",
+        "oldCommit": "0000000000000000000000000000000000000000",
+        "newCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "refUpdateCount": 1,
+    "credentialId": "c2f6b1d0-3e4a-4b7c-9f21-8d5e6a7b9c01"
+  }
+}

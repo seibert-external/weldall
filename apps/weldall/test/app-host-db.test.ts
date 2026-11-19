@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -8,21 +9,15 @@ import {
 } from "@weldall/db";
 import {
   createDpopProof,
-  createWeldallAppHostClient,
   generateEs256KeyPair,
   requestMachineToken,
-  WeldallAuthError,
   type DpopKeyPair,
-  type WeldallAppHostClient,
 } from "@weldall/sdk";
 
 vi.mock("../src/server/auth/auth.js", () => ({
   auth: { handler: vi.fn(async () => new Response(null, { status: 500 })) },
 }));
-import { appHostCreateApp, appHostLookupApp, appHostUpdateApp } from "../src/server/app-host/apps";
 import { appHostReportAuditEvent } from "../src/server/app-host/audit";
-import { listAppsForMachine, listOwnApps } from "../src/server/app-registry/registry";
-import { createApp } from "../src/server/app-registry/service";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "../src/server/oauth/constants";
 import { subjectScopesCheck } from "../src/server/oauth/subject-scopes-api";
 
@@ -52,51 +47,49 @@ const outsiderClientId = `${prefix}-outsider`;
 let gitAppKey: DpopKeyPair;
 let outsiderKey: DpopKeyPair;
 let gitResourceId: string;
-let otherResourceId: string;
-let client: WeldallAppHostClient;
-let outsider: WeldallAppHostClient;
 const commit = (digit: string) => digit.repeat(40);
+/** The example request the Git app's client is tested to send (an identical copy lives there). */
+const fixture = JSON.parse(
+  readFileSync(new URL("./fixtures/app-host/audit-event-request.json", import.meta.url), "utf8"),
+) as Record<string, unknown>;
 
-/** Routes the SDK client's requests to the route handlers, as Next.js would. */
+/** Routes the token request to the route handler, as Next.js would. */
 async function weldallFetch(input: string | URL | Request, init?: RequestInit) {
   const request = input instanceof Request ? input : new Request(input, init);
-  const path = new URL(request.url).pathname;
-  if (path === "/api/auth/oauth2/token") {
+  if (new URL(request.url).pathname === "/api/auth/oauth2/token") {
     const { tokenFacade } = await import("../src/server/oauth/facade.js");
     return tokenFacade(request);
   }
-  if (path === "/api/app-host/v1/apps") return appHostCreateApp(request);
-  if (path === "/api/app-host/v1/apps/lookup") return appHostLookupApp(request);
-  if (path === "/api/app-host/v1/audit-events") return appHostReportAuditEvent(request);
-  if (path === "/api/authorization/v1/check-scopes") return subjectScopesCheck(request);
-  const update = /^\/api\/app-host\/v1\/apps\/([^/]+)$/.exec(path);
-  if (update) return appHostUpdateApp(request, decodeURIComponent(update[1]!));
   return new Response(null, { status: 404 });
 }
 
-/** A raw request, for bodies the SDK's types would not allow. */
-async function raw(
+/** A request of a machine client, signed as the Git app's client signs it. */
+async function call(
   handler: (request: Request) => Promise<Response>,
   path: string,
   body: unknown,
-  method = "POST",
+  {
+    clientId = gitAppClientId,
+    key = gitAppKey,
+    scope = APP_HOST_SCOPE_KEY,
+  }: { clientId?: string; key?: DpopKeyPair; scope?: string } = {},
 ) {
   const token = (
     await requestMachineToken({
       issuer: WELDALL_ISSUER,
-      clientId: gitAppClientId,
+      clientId,
       resource: WELDALL_RESOURCE,
-      scopes: [APP_HOST_SCOPE_KEY],
+      scopes: [scope],
       kid: "current",
-      key: gitAppKey,
+      key,
       fetch: weldallFetch,
     })
   ).accessToken;
   const url = `${WELDALL_ISSUER}${path}`;
-  const proof = await createDpopProof({ ...gitAppKey, method, url, accessToken: token });
+  const proof = await createDpopProof({ ...key, method: "POST", url, accessToken: token });
   const response = await handler(
     new Request(url, {
-      method,
+      method: "POST",
       headers: { authorization: `DPoP ${token}`, dpop: proof, "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
@@ -104,30 +97,33 @@ async function raw(
   return { status: response.status, json: (await response.json()) as any };
 }
 
-const rejected = (promise: Promise<unknown>) =>
-  promise.then(
-    () => {
-      throw new Error("expected a rejection");
-    },
-    (error: unknown) => {
-      if (!(error instanceof WeldallAuthError)) throw error;
-      return { code: error.code, status: error.status };
-    },
+const report = (body: Record<string, unknown>, as?: Parameters<typeof call>[3]) =>
+  call(
+    appHostReportAuditEvent,
+    "/api/app-host/v1/audit-events",
+    { resource: gitResource, eventId: randomUUID(), ...body },
+    as,
   );
+const stored = (auditEventId: string) =>
+  db.auditEvent.findUniqueOrThrow({ where: { id: auditEventId } });
 
-const newApp = (name: string, owner = alice.id) => ({
-  owner,
-  name,
-  purpose: `${name} purpose`,
-  repository: {
-    owner: "acme-apps",
-    name: `${prefix}-${name}`,
-    id: null,
-    webUrl: `https://git.example.com/acme-apps/${prefix}-${name}`,
-  },
-  defaultBranch: "main",
-  template: { name: "react", commit: null },
-});
+const repository = { owner: "acme-apps", name: `${prefix}-tracker` };
+const fetchDetails = {
+  credentialId: null,
+  requestBytes: 1,
+  responseBytes: 2,
+  durationMs: 3,
+  upstreamStatus: 200,
+};
+const rejectedPushDetails = {
+  refUpdates: [],
+  refUpdateCount: 0,
+  credentialId: null,
+  requestBytes: null,
+  responseBytes: null,
+  durationMs: null,
+  upstreamStatus: null,
+};
 
 describe.skipIf(!approvedTarget)(
   "app host API for a Git app on explicitly selected disposable PostgreSQL",
@@ -182,7 +178,7 @@ describe.skipIf(!approvedTarget)(
           },
         });
       gitResourceId = (await resource(`${prefix}-git`, gitResource)).id;
-      otherResourceId = (await resource(`${prefix}-other`, otherResource)).id;
+      const otherResourceId = (await resource(`${prefix}-other`, otherResource)).id;
       const { createMachineClient } = await import("../src/server/machines/service.js");
       for (const [clientId, key, resourceIds] of [
         [gitAppClientId, gitAppKey, [gitResourceId]],
@@ -197,25 +193,10 @@ describe.skipIf(!approvedTarget)(
           },
           { id: prefix, requestId: `${prefix}-machine` },
         );
-      const options = { issuer: WELDALL_ISSUER, kid: "current", fetch: weldallFetch };
-      client = createWeldallAppHostClient({
-        ...options,
-        clientId: gitAppClientId,
-        key: gitAppKey,
-        resource: gitResource,
-      });
-      // Allowed for another resource only, but naming the Git app's resource.
-      outsider = createWeldallAppHostClient({
-        ...options,
-        clientId: outsiderClientId,
-        key: outsiderKey,
-        resource: gitResource,
-      });
     });
 
     afterAll(async () => {
       if (!approvedTarget) return;
-      await db.app.deleteMany({ where: { ownerId: { startsWith: prefix } } });
       await db.machineClient.deleteMany({ where: { clientId: { startsWith: prefix } } });
       await db.downstreamResource.deleteMany({ where: { key: { startsWith: prefix } } });
       await db.emailScopeAssignment.deleteMany({
@@ -233,172 +214,36 @@ describe.skipIf(!approvedTarget)(
       });
     });
 
-    it("registers an app for a person, idempotently per owner and repository", async () => {
-      const first = await client.createApp(newApp("tracker"));
-      expect(first.created).toBe(true);
-      expect(first.app).toMatchObject({
-        name: "tracker",
-        owner: { id: alice.id },
-        resource: `${prefix}-git`,
-        repository: { owner: "acme-apps", name: `${prefix}-tracker`, id: null },
-        template: { name: "react", commit: null },
-        ready: false,
-        links: { preview: null, live: null },
-        confirmedAt: null,
-        state: "active",
+    it("accepts the example request the Git app's client sends", async () => {
+      // Only the resource and the person must exist here; everything else is the fixture as is.
+      const accepted = await report({ ...fixture, resource: gitResource, subject: alice.id });
+      expect(accepted).toMatchObject({
+        status: 201,
+        json: { accepted: true, eventId: fixture.eventId, duplicate: false },
       });
-      const again = await client.createApp(newApp("tracker"));
-      expect(again).toEqual({ ...first, created: false });
-      expect(await rejected(client.createApp(newApp("tracker", bob.id)))).toEqual({
-        code: "app_exists",
-        status: 409,
+      expect(await stored(accepted.json.auditEventId)).toMatchObject({
+        eventType: "git_push.forwarded",
+        actorType: "user",
+        actorId: alice.id,
+        subjectType: "resource",
+        subjectId: gitResourceId,
+        metadata: {
+          resourceId: gitResourceId,
+          appId: fixture.appId,
+          repositoryOwner: "acme-apps",
+          repositoryName: "app-expenses",
+          ...(fixture.details as object),
+        },
       });
-      // A case variant of a registered repository is the same repository on the host.
-      const variant = newApp("tracker");
-      variant.repository.name = variant.repository.name.toUpperCase();
-      expect(await rejected(client.createApp(variant))).toEqual({
-        code: "app_exists",
-        status: 409,
-      });
-    });
-
-    it("registers only for people who exist and may use Weldall", async () => {
-      expect(await rejected(client.createApp(newApp("ghost", `${prefix}-nobody`)))).toEqual({
-        code: "unknown_subject",
-        status: 404,
-      });
-      expect(await rejected(client.createApp(newApp("carols", carol.id)))).toEqual({
-        code: "access_denied",
-        status: 403,
-      });
-      expect(await db.app.count({ where: { name: { in: ["ghost", "carols"] } } })).toBe(0);
-    });
-
-    it("refuses a machine client that is not allowed for the named resource", async () => {
-      expect(await rejected(outsider.createApp(newApp("intruder")))).toEqual({
-        code: "invalid_target",
-        status: 403,
-      });
-      const { app } = await client.lookupApp({
-        app: { repositoryOwner: "acme-apps", repositoryName: `${prefix}-tracker` },
-      });
-      expect(await rejected(outsider.lookupApp({ app: { id: app.id } }))).toEqual({
-        code: "invalid_target",
-        status: 403,
-      });
-      expect(
-        await rejected(outsider.updateApp(app.id, { links: { live: "https://x.example.com/" } })),
-      ).toEqual({ code: "invalid_target", status: 403 });
-    });
-
-    it("updates links, repository and template commit; set-once fields stay set", async () => {
-      const { app } = await client.createApp(newApp("linked"));
-      const updated = await client.updateApp(app.id, {
-        links: { preview: "https://preview.example.com/1", live: "https://live.example.com/" },
-        repository: { id: "R_1", name: `${prefix}-linked-renamed` },
-        templateCommit: commit("b"),
-      });
-      expect(updated).toMatchObject({
-        repository: { owner: "acme-apps", name: `${prefix}-linked-renamed`, id: "R_1" },
-        template: { name: "react", commit: commit("b") },
-        ready: true,
-        links: { preview: "https://preview.example.com/1", live: "https://live.example.com/" },
-        expiresAt: app.expiresAt,
-      });
-      expect(await rejected(client.updateApp(app.id, { repository: { id: "R_2" } }))).toEqual({
-        code: "repository_id_mismatch",
-        status: 409,
-      });
-      expect(await rejected(client.updateApp(app.id, { templateCommit: commit("c") }))).toEqual({
-        code: "template_commit_mismatch",
-        status: 409,
-      });
-      // Renaming onto another registered repository is refused.
-      expect(
-        await rejected(client.updateApp(app.id, { repository: { name: `${prefix}-tracker` } })),
-      ).toEqual({ code: "app_exists", status: 409 });
-      const cleared = await client.updateApp(app.id, { links: { preview: null } });
-      expect(cleared.links).toEqual({ preview: null, live: "https://live.example.com/" });
-
-      for (const body of [
-        { resource: gitResource },
-        { resource: gitResource, links: { live: "http://insecure.example.com/" } },
-        { resource: gitResource, links: { live: "https://user:secret@example.com/" } },
-        { resource: gitResource, expiresAt: "2099-01-01T00:00:00.000Z" },
-      ])
-        expect(
-          await raw(
-            (request) => appHostUpdateApp(request, app.id),
-            `/api/app-host/v1/apps/${app.id}`,
-            body,
-            "PATCH",
-          ),
-        ).toMatchObject({ status: 400, json: { error: "invalid_request" } });
-    });
-
-    it("resolves an app by id or repository and answers whom it belongs to", async () => {
-      const byRepository = await client.lookupApp({
-        app: { repositoryOwner: "ACME-APPS", repositoryName: `${prefix}-TRACKER` },
-        subject: alice.id,
-      });
-      expect(byRepository).toMatchObject({
-        app: { name: "tracker", owner: { id: alice.id } },
-        ownedBySubject: true,
-      });
-      const byId = await client.lookupApp({
-        app: { id: byRepository.app.id },
-        subject: bob.id,
-      });
-      expect(byId.ownedBySubject).toBe(false);
-      expect((await client.lookupApp({ app: { id: byRepository.app.id } })).ownedBySubject).toBe(
-        null,
-      );
-      expect(
-        await rejected(client.lookupApp({ app: { id: byRepository.app.id }, subject: "nobody" })),
-      ).toEqual({ code: "unknown_subject", status: 404 });
-      expect(
-        await rejected(client.lookupApp({ app: { id: "c0000000000000000000000000" } })),
-      ).toEqual({ code: "not_found", status: 404 });
-      // An app of another resource does not exist for this Git app.
-      const foreign = await createApp({
-        name: "foreign",
-        purpose: "foreign",
-        ownerId: alice.id,
-        repository: { resourceId: otherResourceId, owner: "acme-apps", name: `${prefix}-foreign` },
-        defaultBranch: "main",
-      });
-      expect(await rejected(client.lookupApp({ app: { id: foreign.id } }))).toEqual({
-        code: "not_found",
-        status: 404,
-      });
-      expect(
-        await rejected(client.updateApp(foreign.id, { links: { live: "https://x.example.com/" } })),
-      ).toEqual({ code: "not_found", status: 404 });
-    });
-
-    it("shows resource apps in the registry views", async () => {
-      const own = await listOwnApps({ id: alice.id, requestId: prefix } as never);
-      const tracker = own.apps.find(({ name }) => name === "tracker")!;
-      expect(tracker.repository).toEqual({
-        resource: `${prefix}-git`,
-        owner: "acme-apps",
-        name: `${prefix}-tracker`,
-        webUrl: `https://git.example.com/acme-apps/${prefix}-tracker`,
-      });
-      const machine = await listAppsForMachine({ limit: 200 });
-      expect(machine.apps.map(({ id }) => id)).toContain(tracker.id);
     });
 
     it("records a reported push as the person's, once, and confirms acceptance", async () => {
-      const { app } = await client.lookupApp({
-        app: { repositoryOwner: "acme-apps", repositoryName: `${prefix}-tracker` },
-      });
-      const eventId = randomUUID();
-      const report = {
-        eventId,
-        eventType: "git_push.forwarded" as const,
+      const body = {
+        eventId: randomUUID(),
+        eventType: "git_push.forwarded",
         subject: alice.id,
-        appId: app.id,
+        appId: "app_tracker",
+        repository,
         details: {
           refUpdates: [
             { ref: "refs/heads/weldall/publish-1", oldCommit: commit("0"), newCommit: commit("a") },
@@ -407,69 +252,95 @@ describe.skipIf(!approvedTarget)(
           credentialId: "cred-1",
         },
       };
-      const accepted = await client.reportAuditEvent(report);
-      expect(accepted).toMatchObject({ accepted: true, eventId, duplicate: false });
-      const stored = await db.auditEvent.findUniqueOrThrow({
-        where: { id: accepted.auditEventId },
+      const accepted = await report(body);
+      expect(accepted).toMatchObject({
+        status: 201,
+        json: { accepted: true, eventId: body.eventId, duplicate: false },
       });
-      expect(stored).toMatchObject({
+      const entry = await stored(accepted.json.auditEventId);
+      expect(entry).toMatchObject({
         eventType: "git_push.forwarded",
         actorType: "user",
         actorId: alice.id,
         actorEmail: alice.email,
         clientId: gitAppClientId,
         outcome: "success",
-        subjectType: "app",
-        subjectId: app.id,
-        deduplicationKey: `app-host:${gitResourceId}:${eventId}`,
+        subjectType: "resource",
+        subjectId: gitResourceId,
+        deduplicationKey: `app-host:${gitResourceId}:${body.eventId}`,
         metadata: {
           resourceId: gitResourceId,
-          appId: app.id,
+          appId: "app_tracker",
           repositoryOwner: "acme-apps",
           repositoryName: `${prefix}-tracker`,
-          refUpdates: report.details.refUpdates,
+          refUpdates: body.details.refUpdates,
           refUpdateCount: 1,
           credentialId: "cred-1",
         },
       });
 
-      const retried = await client.reportAuditEvent(report);
-      expect(retried).toEqual({ ...accepted, duplicate: true });
+      const retried = await report(body);
+      expect(retried).toEqual({ status: 200, json: { ...accepted.json, duplicate: true } });
       expect(
-        await db.auditEvent.count({ where: { deduplicationKey: stored.deduplicationKey } }),
+        await db.auditEvent.count({ where: { deduplicationKey: entry.deduplicationKey } }),
       ).toBe(1);
       expect(
-        await rejected(
-          client.reportAuditEvent({
-            ...report,
-            details: { ...report.details, credentialId: "cred-2" },
-          }),
-        ),
-      ).toEqual({ code: "event_id_conflict", status: 409 });
+        await report({ ...body, details: { ...body.details, credentialId: "cred-2" } }),
+      ).toMatchObject({ status: 409, json: { error: "event_id_conflict" } });
+    });
+
+    it("takes the app id as the Git app's and trusts it to decide who acts on an app", async () => {
+      // Weldall keeps no app records: an id it has never seen and a person other than the one
+      // who published before are both recorded as reported.
+      for (const subject of [alice.id, bob.id]) {
+        const accepted = await report({
+          eventType: "git_fetch.completed",
+          subject,
+          appId: "app_never_seen_by_weldall",
+          repository,
+          details: fetchDetails,
+        });
+        expect(accepted.status).toBe(201);
+        expect(await stored(accepted.json.auditEventId)).toMatchObject({
+          actorId: subject,
+          outcome: "success",
+          metadata: { appId: "app_never_seen_by_weldall", repositoryName: `${prefix}-tracker` },
+        });
+      }
+      // A rejection may name both the app and the repository it concerned.
+      const denied = await report({
+        eventType: "git_push.denied",
+        subject: bob.id,
+        appId: "app_tracker",
+        repository,
+        reason: "Only the owner may push.",
+        details: rejectedPushDetails,
+      });
+      expect(await stored(denied.json.auditEventId)).toMatchObject({
+        actorId: bob.id,
+        outcome: "denied",
+        reasonCode: "invalid_request",
+        subjectId: gitResourceId,
+        metadata: {
+          appId: "app_tracker",
+          repositoryOwner: "acme-apps",
+          repositoryName: `${prefix}-tracker`,
+          reason: "Only the owner may push.",
+        },
+      });
     });
 
     it("redacts credentials in reported text and records the machine when no person is known", async () => {
-      const accepted = await client.reportAuditEvent({
-        eventId: randomUUID(),
+      const accepted = await report({
         eventType: "git_push.denied",
         subject: null,
         appId: null,
         repository: { owner: "acme-apps", name: "unknown-repo" },
         reason: `Rejected credential ghp_${"a".repeat(36)} for Authorization: Basic dXNlcjpzZWNyZXQ=`,
-        details: {
-          refUpdates: [],
-          refUpdateCount: 0,
-          credentialId: null,
-          requestBytes: null,
-          responseBytes: null,
-          durationMs: null,
-          upstreamStatus: null,
-        },
+        details: rejectedPushDetails,
       });
-      const stored = await db.auditEvent.findUniqueOrThrow({
-        where: { id: accepted.auditEventId },
-      });
-      expect(stored).toMatchObject({
+      const entry = await stored(accepted.json.auditEventId);
+      expect(entry).toMatchObject({
         eventType: "git_push.denied",
         actorType: "machine",
         actorId: gitAppClientId,
@@ -485,123 +356,154 @@ describe.skipIf(!approvedTarget)(
           repositoryName: "unknown-repo",
         },
       });
-      const reason = (stored.metadata as { reason: string }).reason;
+      const reason = (entry.metadata as { reason: string }).reason;
       expect(reason).not.toContain("ghp_");
       expect(reason).not.toContain("dXNlcjpzZWNyZXQ=");
       expect(reason).toContain("[***]");
     });
 
-    it("accepts success events only from the app's owner, rejections from anyone", async () => {
-      const { app } = await client.lookupApp({
-        app: { repositoryOwner: "acme-apps", repositoryName: `${prefix}-tracker` },
-      });
-      const fetched = (subject: string) => ({
-        eventId: randomUUID(),
-        eventType: "git_fetch.completed" as const,
-        subject,
-        appId: app.id,
-        details: {
-          credentialId: null,
-          requestBytes: 1,
-          responseBytes: 2,
-          durationMs: 3,
-          upstreamStatus: 200,
-        },
-      });
-      const refused = fetched(bob.id);
-      expect(await rejected(client.reportAuditEvent(refused))).toEqual({
-        code: "subject_not_owner",
-        status: 403,
-      });
-      expect(
-        await db.auditEvent.count({
-          where: { deduplicationKey: `app-host:${gitResourceId}:${refused.eventId}` },
-        }),
-      ).toBe(0);
-      expect(await client.reportAuditEvent(fetched(alice.id))).toMatchObject({
-        accepted: true,
-        duplicate: false,
-      });
-      const denied = await client.reportAuditEvent({
-        eventId: randomUUID(),
-        eventType: "git_push.denied",
+    it("records registrations and re-verification from the Git app's registry", async () => {
+      const registered = await report({
+        eventType: "git_repository.registered",
         subject: bob.id,
-        appId: app.id,
-        repository: null,
-        reason: "Only the owner may push.",
-        details: {
-          refUpdates: [],
-          refUpdateCount: 0,
-          credentialId: null,
-          requestBytes: null,
-          responseBytes: null,
-          durationMs: null,
-          upstreamStatus: null,
+        appId: "app_registered",
+        repository: { owner: "acme-apps", name: `${prefix}-existing` },
+        details: { owner: alice.id, repositoryId: "R_1", defaultBranch: "main", warnings: [] },
+      });
+      expect(registered.status).toBe(201);
+      expect(await stored(registered.json.auditEventId)).toMatchObject({
+        eventType: "git_repository.registered",
+        actorId: bob.id,
+        outcome: "success",
+        metadata: {
+          resourceId: gitResourceId,
+          appId: "app_registered",
+          repositoryOwner: "acme-apps",
+          repositoryName: `${prefix}-existing`,
+          owner: alice.id,
+          repositoryId: "R_1",
+          defaultBranch: "main",
+          warnings: [],
         },
       });
-      expect(
-        await db.auditEvent.findUniqueOrThrow({ where: { id: denied.auditEventId } }),
-      ).toMatchObject({ actorId: bob.id, outcome: "denied", subjectId: app.id });
+
+      const details = {
+        previousExpiresAt: "2026-12-01T00:00:00.000Z",
+        expiresAt: "2027-03-01T00:00:00.000Z",
+        previousState: "expiring_soon",
+      };
+      const confirmed = await report({
+        eventType: "app_confirmation.succeeded",
+        subject: alice.id,
+        appId: "app_registered",
+        repository: { owner: "acme-apps", name: `${prefix}-existing` },
+        details,
+      });
+      expect(await stored(confirmed.json.auditEventId)).toMatchObject({
+        eventType: "app_confirmation.succeeded",
+        actorId: alice.id,
+        outcome: "success",
+        subjectType: "resource",
+        subjectId: gitResourceId,
+        metadata: {
+          resourceId: gitResourceId,
+          appId: "app_registered",
+          repositoryName: `${prefix}-existing`,
+          ...details,
+        },
+      });
+
+      const refused = await report({
+        eventType: "app_confirmation.denied",
+        subject: bob.id,
+        appId: null,
+        repository: null,
+        reason: "No app app_registered of this person.",
+        details: {},
+      });
+      expect(await stored(refused.json.auditEventId)).toMatchObject({
+        eventType: "app_confirmation.denied",
+        actorId: bob.id,
+        outcome: "denied",
+        metadata: {
+          resourceId: gitResourceId,
+          appId: null,
+          repositoryOwner: null,
+          repositoryName: null,
+          reason: "No app app_registered of this person.",
+        },
+      });
     });
 
-    it("refuses reports that do not fit the contract or name another resource's app", async () => {
-      const foreign = await db.app.findFirstOrThrow({ where: { resourceId: otherResourceId } });
+    it("refuses reports that do not fit the contract or name a resource the client may not use", async () => {
       expect(
-        await rejected(
-          client.reportAuditEvent({
-            eventId: randomUUID(),
-            eventType: "git_fetch.completed",
-            subject: alice.id,
-            appId: foreign.id,
-            details: {
-              credentialId: null,
-              requestBytes: 1,
-              responseBytes: 2,
-              durationMs: 3,
-              upstreamStatus: 200,
-            },
-          }),
-        ),
-      ).toEqual({ code: "not_found", status: 404 });
-      expect(
-        await rejected(
-          outsider.reportAuditEvent({
-            eventId: randomUUID(),
+        await report(
+          {
             eventType: "git_host.checked",
             subject: null,
             repository: null,
             details: { passed: 1, failed: 0, unverifiable: 0, failedChecks: [], durationMs: 5 },
-          }),
+          },
+          { clientId: outsiderClientId, key: outsiderKey },
         ),
-      ).toEqual({ code: "invalid_target", status: 403 });
+      ).toMatchObject({ status: 403, json: { error: "invalid_target" } });
+      expect(
+        await report({
+          eventType: "git_host.checked",
+          subject: null,
+          repository: null,
+          details: { passed: 1, failed: 0, unverifiable: 0, failedChecks: [], durationMs: 5 },
+        }),
+      ).toMatchObject({ status: 201 });
+      expect(
+        await report({
+          eventType: "git_fetch.completed",
+          subject: `${prefix}-nobody`,
+          appId: "app_tracker",
+          repository,
+          details: fetchDetails,
+        }),
+      ).toMatchObject({ status: 404, json: { error: "unknown_subject" } });
       const valid = {
-        resource: gitResource,
-        eventId: randomUUID(),
         eventType: "git_credential.issued",
         subject: alice.id,
-        appId: foreign.id,
+        appId: "app_tracker",
+        repository,
         details: { credentialId: "c1", access: "write", expiresAt: new Date().toISOString() },
       };
+      expect(await report(valid)).toMatchObject({ status: 201 });
       for (const body of [
         { ...valid, extra: true },
         { ...valid, details: { ...valid.details, token: "x" } },
         { ...valid, eventType: "skill.created" },
         { ...valid, subject: null },
         { ...valid, eventId: "short" },
+        // A success event always names the app and its repository.
+        { ...valid, repository: null },
+        { ...valid, appId: null },
+        { ...valid, repository: undefined },
       ])
-        expect(
-          await raw(appHostReportAuditEvent, "/api/app-host/v1/audit-events", body),
-        ).toMatchObject({ status: 400, json: { error: "invalid_request" } });
+        expect(await report(body)).toMatchObject({
+          status: 400,
+          json: { error: "invalid_request" },
+        });
     });
 
     it("lets the Git app check a person's login permission with check-scopes", async () => {
-      expect(await client.checkSubjectScopes(alice.id, ["weldall:login"])).toMatchObject({
-        granted: ["weldall:login"],
-        missing: [],
+      const check = (subject: string) =>
+        call(
+          subjectScopesCheck,
+          "/api/authorization/v1/check-scopes",
+          { subject, scopes: ["weldall:login"] },
+          { scope: SUBJECT_SCOPES_CHECK_SCOPE_KEY },
+        );
+      expect(await check(alice.id)).toMatchObject({
+        status: 200,
+        json: { granted: ["weldall:login"], missing: [] },
       });
-      expect(await client.checkSubjectScopes(carol.id, ["weldall:login"])).toMatchObject({
-        granted: [],
-        missing: ["weldall:login"],
+      expect(await check(carol.id)).toMatchObject({
+        status: 200,
+        json: { granted: [], missing: ["weldall:login"] },
       });
     });
   },

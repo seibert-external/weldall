@@ -49,8 +49,6 @@ import {
   MAX_SKILL_RETRIEVAL_WINDOW_DAYS,
   getVisibleSkillRetrievalSummary,
 } from "../skills/retrieval-metrics";
-import { listAppsForAdmin } from "../app-registry/registry";
-import { APP_STATES } from "../app-registry/state";
 import { canViewStatistics } from "../statistics/access";
 import { STATISTICS_INTERVALS } from "../statistics/interval";
 import { getUsageStatistics } from "../statistics/service";
@@ -330,11 +328,6 @@ export const appRouter = trpc.router({
       get: adminProcedure
         .input(z.object({ id: z.string().min(1).max(191) }).strict())
         .query(({ input }) => mapDomainErrors(() => getUser(input.id))),
-    }),
-    apps: trpc.router({
-      list: adminProcedure
-        .input(z.object({ ...pageInput, state: z.enum(APP_STATES).optional() }).strict())
-        .query(({ input }) => listAppsForAdmin(input)),
     }),
     auditEvents: trpc.router({
       list: adminProcedure

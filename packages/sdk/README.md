@@ -446,45 +446,6 @@ Use a stable shared connection key and discovered tool names/arguments. Also ava
 
 All methods accept `signal`, use fresh DPoP proofs and validate bounded contracts: discovery 20 seconds, operations 30 seconds, requests/definitions 1 MiB, results 10 MiB. No automatic retries, including timeouts/401s: writes may already have executed. `WeldallMcpError` exposes sanitized code/status, not upstream bodies. Tokens/keys stay in memory; authorization is checked live. Machines cannot start OAuth or provision secrets.
 
-## App hosts (Git apps)
-
-A service that keeps apps' repositories on a Git host for Weldall (a "Git app") is registered as a resource and talks back to Weldall through the app host API. Its machine client needs the machine-only system scopes `weldall:app-host` and `weldall:subject-scopes-check` and must be allowed for the Git app's own resource; every request names that resource, and Weldall answers only for its apps.
-
-```ts
-import { createWeldallAppHostClient } from "@weldall/sdk";
-
-const weldall = createWeldallAppHostClient({
-  issuer: "https://weldall.example.com",
-  clientId: "git-app",
-  kid: process.env.MACHINE_SIGNING_KID!,
-  key,
-  resource: "https://git.example.com/api",
-});
-
-// On every git request: the person may still use Weldall and owns the app.
-const { missing } = await weldall.checkSubjectScopes(subject, ["weldall:login", "git:publish"]);
-const { app, ownedBySubject } = await weldall.lookupApp({ app: { id: appId }, subject });
-
-// Before forwarding a push: forward only if this resolves.
-await weldall.reportAuditEvent({
-  eventId: crypto.randomUUID(), // reuse the same id when retrying
-  eventType: "git_push.forwarded",
-  subject,
-  appId: app.id,
-  details: { refUpdates, refUpdateCount: refUpdates.length, credentialId },
-});
-```
-
-| Method and path                           | Body schema                      | Answer                                                                   |
-| ----------------------------------------- | -------------------------------- | ------------------------------------------------------------------------ |
-| `POST /api/app-host/v1/apps`              | `appHostCreateAppRequestSchema`  | `201`/`200` `{ created, app }`                                           |
-| `PATCH /api/app-host/v1/apps/{id}`        | `appHostUpdateAppRequestSchema`  | `200 { app }`                                                            |
-| `POST /api/app-host/v1/apps/lookup`       | `appHostLookupRequestSchema`     | `200 { app, ownedBySubject }`                                            |
-| `POST /api/app-host/v1/audit-events`      | `appHostAuditEventRequestSchema` | `201`/`200` `{ accepted, eventId, auditEventId, duplicate, recordedAt }` |
-| `POST /api/authorization/v1/check-scopes` | `{ subject, scopes }`            | `200 { granted, missing, evaluatedAt }`                                  |
-
-The person is always the Weldall user id (`sub`) from a verified Weldall token. Creating an app requires that the person exists and holds `weldall:login`. Audit events are Weldall's Git audit events (`git_repository.*`, `git_push.*`, `git_fetch.*`, `git_pull_request.*`, `git_credential.*`, `git_host.checked`); the person is recorded as the actor and the reporting machine client as the client. A success event that names an app must name the app's owner (`403 subject_not_owner`); rejections may name another person or none, and free text is redacted for credentials. A report is stored once per `eventId`; only a 2xx answer means it is stored. Errors use the OAuth error body; `invalid_target` (`403`) means the machine client is not allowed for the named resource.
-
 ## Publishing skills
 
 Skills can live next to the API they describe. Configure a static catalog or load one from a local source:

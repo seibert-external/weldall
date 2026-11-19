@@ -4,7 +4,8 @@ import { redactCredentials } from "../observability/redaction";
 /**
  * Bounds for Git audit metadata. Free text is redacted and cut with {@link TRUNCATION_MARKER}
  * instead of rejected, so an unusual branch name or a long reason never fails a git operation.
- * Lists are capped by the reporting Git app (`apps/git-app/src/audit.ts`); the matching `…Count`
+ * Lists are capped by the reporting Git app (`src/audit.ts` in seibert-external/weldall-git-app,
+ * the contract is `../app-host/contract.ts`); the matching `…Count`
  * field keeps the full number, so `count > list.length` shows that the list was cut.
  */
 export const GIT_AUDIT_LIMITS = {
@@ -60,7 +61,8 @@ const reason = gitText(GIT_AUDIT_LIMITS.reason);
 
 /**
  * Which repository behind which Git app (the resource it is registered as, always known: the
- * reporting machine client is allowed for it), and its app registry entry.
+ * reporting machine client is allowed for it), and the app's id in that Git app's own registry.
+ * The id is the Git app's: Weldall keeps no app records and never resolves it.
  */
 const resolvedTarget = {
   resourceId: id,
@@ -86,6 +88,16 @@ const repositoryCreated = z
     defaultBranch: gitText(GIT_AUDIT_LIMITS.ref),
     /** The call resumed with a repository that an earlier attempt of the same owner created. */
     existingRepository: z.boolean(),
+    warnings: z.array(z.string().regex(/^[a-z0-9_]{1,64}$/)).max(GIT_AUDIT_LIMITS.warnings),
+  })
+  .strict();
+/** An administrator registered an existing repository as an app of `owner` (a Weldall user id). */
+const repositoryRegistered = z
+  .object({
+    ...resolvedTarget,
+    owner: id,
+    repositoryId: z.string().min(1).max(64).nullable(),
+    defaultBranch: gitText(GIT_AUDIT_LIMITS.ref),
     warnings: z.array(z.string().regex(/^[a-z0-9_]{1,64}$/)).max(GIT_AUDIT_LIMITS.warnings),
   })
   .strict();
@@ -179,8 +191,28 @@ const hostChecked = z
   })
   .strict();
 
+const appState = z.enum(["active", "expiring_soon", "expired"]);
+/**
+ * The owner confirmed in the Git app's registry that an app is still needed (INV-183): the expiry
+ * moved from `previousExpiresAt` to `expiresAt`. `previousState` shows whether it was flagged.
+ */
+const confirmationSucceeded = z
+  .object({
+    ...resolvedTarget,
+    previousExpiresAt: z.string().datetime(),
+    expiresAt: z.string().datetime(),
+    previousState: appState,
+  })
+  .strict();
+/**
+ * A confirmation was refused. An unknown id and another person's app are refused alike, so the
+ * Git app names neither app nor repository; the requested id is in the reason.
+ */
+const confirmationDenied = z.object(rejectedTarget).strict();
+
 export const gitMetadataSchemas = {
   "git_repository.created": repositoryCreated,
+  "git_repository.registered": repositoryRegistered,
   "git_repository.denied": repositoryRejected,
   "git_repository.failed": repositoryRejected,
   "git_push.forwarded": pushForwarded,
@@ -197,6 +229,8 @@ export const gitMetadataSchemas = {
   "git_credential.denied": credentialRejected,
   "git_credential.failed": credentialRejected,
   "git_host.checked": hostChecked,
+  "app_confirmation.succeeded": confirmationSucceeded,
+  "app_confirmation.denied": confirmationDenied,
 } as const;
 
 export type GitAuditEventType = keyof typeof gitMetadataSchemas;

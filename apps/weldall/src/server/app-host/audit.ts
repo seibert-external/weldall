@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { db } from "@weldall/db";
-import { appHostAuditEventRequestSchema, WeldallAuthError } from "@weldall/sdk";
+import { WeldallAuthError } from "@weldall/sdk";
 import type { z } from "zod";
 import {
   auditRequestIdentifiers,
@@ -19,16 +19,20 @@ import {
   type AppHostCaller,
   type AppHostResource,
 } from "./caller";
+import { appHostAuditEventRequestSchema } from "./contract";
 
 /**
- * `POST /api/app-host/v1/audit-events`: a Git app reports the Git audit events of its apps
- * (repository creation, pushes, fetches, pull requests, git credentials, set-up checks) into
- * Weldall's audit log, with the metadata schemas of `audit/git-metadata.ts`.
+ * `POST /api/app-host/v1/audit-events`: a Git app reports the audit events of its apps
+ * (repository creation and registration, pushes, fetches, pull requests, git credentials, set-up
+ * checks, re-verification) into Weldall's audit log, with the metadata schemas of
+ * `audit/git-metadata.ts`. The contract is `./contract.ts`.
  *
  * - The person (`subject`, a Weldall user id) is the entry's actor; without one (only possible for
  *   rejections and checks) the machine client is. The reporting machine client is always recorded
  *   as the entry's `clientId`.
- * - Only apps of the resource the machine client is allowed for can be named.
+ * - The entry's subject is the Git app's resource the machine client is allowed for. The app id
+ *   and repository are taken from the report as they are: the app registry is the Git app's, and
+ *   the Git app decides who may act on an app. Weldall keeps no app records to check them against.
  * - Free text is redacted for credentials and bounded by the metadata schemas.
  * - `eventId` makes the report idempotent: it becomes the entry's deduplication key (per
  *   resource). A repeated identical report answers `200` with `duplicate: true`; a different
@@ -38,28 +42,6 @@ import {
  */
 
 type Report = z.output<typeof appHostAuditEventRequestSchema>;
-
-/**
- * Who may be recorded as having done something to an app. A person publishes only to apps they
- * own, so a success event that names an app must name its owner; rejections may name anyone (or
- * nobody), since they record what was refused. The one place to widen this (e.g. collaborators).
- */
-export function assertMayReport({
-  outcome,
-  person,
-  app,
-}: {
-  outcome: "success" | "denied" | "failed";
-  person: { id: string } | null;
-  app: { ownerId: string } | null;
-}): void {
-  if (outcome === "success" && app && person?.id !== app.ownerId)
-    throw new WeldallAuthError(
-      "subject_not_owner",
-      "a successful event on an app must name the app's owner as subject",
-      403,
-    );
-}
 
 export async function appHostReportAuditEvent(request: Request): Promise<Response> {
   const identifiers = auditRequestIdentifiers(request);
@@ -112,20 +94,7 @@ async function auditEntry(
   identifiers: ReturnType<typeof auditRequestIdentifiers>,
 ): Promise<AuditEventInput & { deduplicationKey: string }> {
   const person = report.subject === null ? null : await appHostSubject(report.subject);
-  const app =
-    "appId" in report && report.appId !== null
-      ? await db.app.findFirst({
-          where: { id: report.appId, resourceId: resource.id },
-          select: { id: true, ownerId: true, repositoryOwner: true, repositoryName: true },
-        })
-      : null;
-  if ("appId" in report && report.appId !== null && !app)
-    throw new WeldallAuthError("not_found", "no app of this resource has this id", 404);
-  const repository = app
-    ? { owner: app.repositoryOwner, name: app.repositoryName }
-    : "repository" in report
-      ? report.repository
-      : null;
+  const repository = report.repository;
   const target = {
     resourceId: resource.id,
     repositoryOwner: repository?.owner ?? null,
@@ -137,7 +106,7 @@ async function auditEntry(
       ? { ...target, ...report.details }
       : {
           ...target,
-          appId: app?.id ?? null,
+          appId: report.appId,
           ...(rejected ? { reason: report.reason } : {}),
           ...report.details,
         };
@@ -146,7 +115,6 @@ async function auditEntry(
     : report.eventType.endsWith(".failed")
       ? "failed"
       : "success";
-  assertMayReport({ outcome, person, app });
   return {
     eventType: report.eventType,
     ...(person
@@ -163,9 +131,8 @@ async function auditEntry(
             ("reasonCode" in report ? report.reasonCode : undefined) ??
             (outcome === "denied" ? "invalid_request" : "internal_error"),
         }),
-    ...(app
-      ? { subjectType: "app", subjectId: app.id }
-      : { subjectType: "resource", subjectId: resource.id }),
+    subjectType: "resource",
+    subjectId: resource.id,
     metadata,
   };
 }

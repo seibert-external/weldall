@@ -1,7 +1,13 @@
+// MIRROR: the rule list (`credentialRules`) must stay identical to the Git app's `src/redaction.ts`
+// (https://github.com/seibert-external/weldall-git-app), which carries the same note pointing here.
+// Both services redact the text the Git app reports to Weldall's audit log; a rule added on one
+// side only leaks on the other. No test can compare the two files across repositories: change both
+// in the same piece of work and compare by hand.
+
 /**
- * Prefix of the short-lived git credential a Git app issues (`apps/git-app`, where the same
- * constant lives in `src/hosts/git-host.ts`). Weldall never issues one, but a Git app may report
- * text that contains one, so redaction must recognise it.
+ * Prefix of the short-lived git credential a Git app issues (the same constant lives in the Git
+ * app's `src/hosts/git-host.ts`). Weldall never issues one, but a Git app may report text that
+ * contains one, so redaction must recognise it.
  */
 export const WELDALL_GIT_CREDENTIAL_PREFIX = "wgc_";
 

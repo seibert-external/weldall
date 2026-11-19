@@ -12,7 +12,7 @@ import {
  * with the machine-only system scope `weldall:app-host` and names its resource identifier in
  * every request. The machine client must be allowed for that resource (`MachineAllowedResource`,
  * the same selection that lets it request tokens for the resource) and the resource must be
- * enabled. Everything the API reads or writes is limited to that resource's apps.
+ * enabled. Every entry the API writes is recorded against that resource.
  */
 
 export interface AppHostResource {

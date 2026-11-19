@@ -141,13 +141,6 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 isSelected={selected("/admin/skills")}
               />
               <SectionNavItem
-                route="apps"
-                label="App registry"
-                href="/admin/apps"
-                icon={AppIcon}
-                isSelected={selected("/admin/apps")}
-              />
-              <SectionNavItem
                 route="audit"
                 label="Audit logs"
                 href="/admin/audit"
@@ -365,17 +358,6 @@ function SkillIcon(props: IconProps) {
     <IconBase {...props}>
       <path d="M5 3h11a3 3 0 0 1 3 3v15H8a3 3 0 0 1-3-3z" />
       <path d="M8 7h8M8 11h8M8 15h5" />
-    </IconBase>
-  );
-}
-
-function AppIcon(props: IconProps) {
-  return (
-    <IconBase {...props}>
-      <rect x="4" y="4" width="7" height="7" rx="1.5" />
-      <rect x="13" y="4" width="7" height="7" rx="1.5" />
-      <rect x="4" y="13" width="7" height="7" rx="1.5" />
-      <path d="M16.5 13v7M13 16.5h7" />
     </IconBase>
   );
 }

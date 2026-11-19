@@ -53,6 +53,13 @@ const metadata: Record<GitAuditEventType, Record<string, unknown>> = {
     existingRepository: false,
     warnings: [],
   },
+  "git_repository.registered": {
+    ...reported,
+    owner: `${prefix}-owner`,
+    repositoryId: null,
+    defaultBranch: "main",
+    warnings: [],
+  },
   "git_repository.denied": { ...rejected, template: "starter" },
   "git_repository.failed": { ...rejected, template: "starter" },
   "git_push.forwarded": { ...reported, ...refUpdates, credentialId: transfer.credentialId },
@@ -94,6 +101,18 @@ const metadata: Record<GitAuditEventType, Record<string, unknown>> = {
     failedChecks: ["host.reviewer-team"],
     durationMs: 40,
   },
+  "app_confirmation.succeeded": {
+    ...reported,
+    previousExpiresAt: "2026-12-01T00:00:00.000Z",
+    expiresAt: "2027-03-01T00:00:00.000Z",
+    previousState: "expired",
+  },
+  "app_confirmation.denied": {
+    ...rejected,
+    appId: null,
+    repositoryOwner: null,
+    repositoryName: null,
+  },
 };
 
 describe.skipIf(!approvedTarget)("git audit events on disposable PostgreSQL", () => {
@@ -118,8 +137,8 @@ describe.skipIf(!approvedTarget)("git audit events on disposable PostgreSQL", ()
         outcome,
         ...(outcome === "denied" ? { reasonCode: "invalid_request" as const } : {}),
         ...(outcome === "failed" ? { reasonCode: "internal_error" as const } : {}),
-        subjectType: "app",
-        subjectId: appId,
+        subjectType: "resource",
+        subjectId: reported.resourceId,
         metadata: metadata[eventType],
       });
     }

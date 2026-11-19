@@ -474,33 +474,6 @@ describe("native YAML IaC contracts", () => {
     expect(output).not.toContain(publicJwk.y);
   });
 
-  it("lets a machine be granted the app registry read scope, as the docs show", async () => {
-    const { publicJwk } = await generateEs256KeyPair();
-    const desired = parseDesiredState({
-      ...manifest(),
-      machines: {
-        "registry-export": {
-          clientId: "registry-export",
-          name: "App registry export",
-          enabled: true,
-          publicKeys: { current: publicJwk },
-          resources: [],
-          scopes: ["weldall:app-registry-read"],
-        },
-      },
-    });
-    expect(desired.machines["registry-export"]!.scopes).toEqual(["weldall:app-registry-read"]);
-    expect(createPlan(desired, { revision: 0, objects: [] }).actions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          address: "machine.registry-export",
-          kind: "machine",
-          action: "create",
-        }),
-      ]),
-    );
-  });
-
   it("rejects unknown and unbounded apply request fields", () => {
     expect(() => applyRequestSchema.parse({ extra: true })).toThrow();
     expect(() =>

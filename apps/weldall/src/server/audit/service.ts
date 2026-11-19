@@ -11,7 +11,6 @@ import {
 } from "../../lib/audit";
 import { requestIdentifiers } from "../observability/http";
 import { redactCredentialsDeep } from "../observability/redaction";
-import { appMetadataSchemas } from "./app-metadata";
 import { gitMetadataSchemas } from "./git-metadata";
 
 export { AUDIT_EVENT_TYPES } from "../../lib/audit";
@@ -355,7 +354,6 @@ const metadataSchemas = {
   "iac.object.unmanaged": iacMetadata,
   "iac.state.moved": iacMetadata,
   ...gitMetadataSchemas,
-  ...appMetadataSchemas,
 } satisfies Record<AuditEventType, z.ZodType>;
 
 const auditInputSchema = z

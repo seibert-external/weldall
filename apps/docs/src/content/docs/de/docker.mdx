@@ -1,19 +1,18 @@
 ---
 title: Docker-Images
-description: Weldall, den Discovery-Proxy und die Git-App aus den veröffentlichten Docker-Hub-Images betreiben und sicher aktualisieren.
+description: Weldall und den Discovery-Proxy aus den veröffentlichten Docker-Hub-Images betreiben und sicher aktualisieren.
 sidebar:
   label: Docker-Images
 ---
 
-Weldall erscheint als drei unabhängige Docker-Images. Die meisten Installationen betreiben nur das Weldall-Image neben einer PostgreSQL-Datenbank. Der Discovery-Proxy ist ein optionaler Container für Resource-Server, die Weldall nicht direkt erreichen. Die Git-App ist ein optionaler Container für Organisationen, deren Mitarbeitende [Apps veröffentlichen](../publish-apps/), auf GitHub oder Forgejo.
+Weldall erscheint als zwei unabhängige Docker-Images. Die meisten Installationen betreiben nur das Weldall-Image neben einer PostgreSQL-Datenbank. Der Discovery-Proxy ist ein optionaler zweiter Container für Resource-Server, die Weldall nicht direkt erreichen.
 
-| Image                                            | Enthält                                                                          | Gebraucht von                                                                                                 |
-| ------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `docker.io/seibertgroup/weldall`                 | Den Weldall-Server: Authorization Server, Administrationsoberfläche, Installer.  | Jeder Installation.                                                                                           |
-| `docker.io/seibertgroup/weldall-discovery-proxy` | Ein Nginx ohne Root-Rechte, der nur Weldall-Metadaten und JWKS weiterreicht.     | Nur Resource-Servern, die Weldall nicht direkt erreichen, siehe [Discovery-Proxy](../discovery-proxy/).       |
-| `docker.io/seibertgroup/weldall-git-app`         | Die Git-App: verwaltet die Repositorys veröffentlichter Apps auf einem Git-Host. | Nur dem Veröffentlichen von Apps, ein Container pro Git-Host, siehe [How to: Git-App betreiben](../git-app/). |
+| Image                                            | Enthält                                                                         | Gebraucht von                                                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `docker.io/seibertgroup/weldall`                 | Den Weldall-Server: Authorization Server, Administrationsoberfläche, Installer. | Jeder Installation.                                                                                     |
+| `docker.io/seibertgroup/weldall-discovery-proxy` | Ein Nginx ohne Root-Rechte, der nur Weldall-Metadaten und JWKS weiterreicht.    | Nur Resource-Servern, die Weldall nicht direkt erreichen, siehe [Discovery-Proxy](../discovery-proxy/). |
 
-Alle Images sind für `linux/amd64` gebaut, laufen ohne Root-Rechte und haben eigene Versionsnummern. Das Release eines Images verändert die anderen nicht.
+Beide Images sind für `linux/amd64` gebaut, laufen ohne Root-Rechte und haben eigene Versionsnummern. Ein Proxy-Release verändert das Weldall-Image nicht und umgekehrt.
 
 ## Tags und Versionen
 
@@ -29,9 +28,9 @@ Jedes Release veröffentlicht diese Tags:
 
 Pinne in Produktion ein vollständiges `X.Y.Z`-Tag. `X.Y`, `X` und `latest` wandern mit jedem Release, ein einfacher Container-Neustart kann also eine neuere Version starten und deren Datenbankmigrationen ausführen. Vor Version 1.0 ist `0` nicht sicherer als `latest`: Auch ein Minor-Release kann Breaking Changes enthalten.
 
-Die veröffentlichten Tags stehen auf Docker Hub: [`seibertgroup/weldall`](https://hub.docker.com/r/seibertgroup/weldall/tags), [`seibertgroup/weldall-discovery-proxy`](https://hub.docker.com/r/seibertgroup/weldall-discovery-proxy/tags) und [`seibertgroup/weldall-git-app`](https://hub.docker.com/r/seibertgroup/weldall-git-app/tags).
+Die veröffentlichten Tags stehen auf Docker Hub: [`seibertgroup/weldall`](https://hub.docker.com/r/seibertgroup/weldall/tags) und [`seibertgroup/weldall-discovery-proxy`](https://hub.docker.com/r/seibertgroup/weldall-discovery-proxy/tags).
 
-Die Release-Notes stehen auf der [GitHub-Release-Seite](https://github.com/seibert-external/weldall/releases) unter den Tags `@weldall/weldall@X.Y.Z`, `@weldall/discovery-proxy@X.Y.Z` und `@weldall/git-app@X.Y.Z`. Nicht zu jedem dort gelisteten Release gibt es ein Image; betreiben lassen sich nur die Tags auf Docker Hub.
+Die Release-Notes stehen auf der [GitHub-Release-Seite](https://github.com/seibert-external/weldall/releases) unter den Tags `@weldall/weldall@X.Y.Z` und `@weldall/discovery-proxy@X.Y.Z`. Nicht zu jedem dort gelisteten Release gibt es ein Image; betreiben lassen sich nur die Tags auf Docker Hub.
 
 ## Weldall-Container
 
@@ -146,15 +145,6 @@ docker run -d --name weldall-discovery-proxy \
 - Er prüft das TLS-Zertifikat von `WELDALL_UPSTREAM` gegen das öffentliche CA-Bundle des Images.
 - Nur `GET /.well-known/oauth-authorization-server` und `GET /api/oauth/jwks` werden weitergereicht, unverändert. Jeder andere Pfad antwortet mit `404`, andere Methoden mit `405`.
 - Er hat keinen eigenen Health-Endpunkt. Verwende einen TCP-Check auf Port 8080; ein HTTP-Check auf einen weitergereichten Pfad schlüge auch immer dann fehl, wenn Weldall nicht erreichbar ist.
-
-## Git-App-Container
-
-[How to: Git-App betreiben](../git-app/) beschreibt ihre Konfiguration, ein vollständiges `docker run`-Beispiel und ihre Registrierung in Weldall. Kurz:
-
-- Ein Container pro Git-Host und genau ein Container pro Git-App: Sie hält Replay-Schutz und Limits im Speicher.
-- Sie lauscht mit einfachem HTTP auf Port 3002 und beantwortet `GET /health`. Terminiere TLS davor, unter dem Origin aus `GIT_APP_PUBLIC_ORIGIN`.
-- Secrets liest sie aus Dateien, die `<NAME>_FILE` nennt; die Dateien müssen für UID 1000 lesbar sein.
-- Gib ihr eine Stop-Wartezeit von 10 Sekunden oder mehr. Aktualisiere sie, während niemand veröffentlicht, denn ein Neustart bricht laufende Pushes und Fetches ab. Sie speichert selbst nichts, deshalb kannst du ihre Version beliebig wechseln.
 
 ## Nächste Schritte
 

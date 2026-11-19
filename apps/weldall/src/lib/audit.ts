@@ -42,6 +42,7 @@ export const AUDIT_EVENT_TYPES = [
   "iac.object.unmanaged",
   "iac.state.moved",
   "git_repository.created",
+  "git_repository.registered",
   "git_repository.denied",
   "git_repository.failed",
   "git_push.forwarded",

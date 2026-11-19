@@ -20,7 +20,6 @@ model User {
   completedLoginInstallations LoginInstallation[]
   connections                 Connection[]
   connectionAttempts          ConnectionAuthorization[]
-  apps                        App[]
 }
 
 model Scope {
@@ -191,7 +190,6 @@ model DownstreamResource {
   discoveredCatalog     DiscoveredSkillCatalog?
   allowedForMachines    MachineAllowedResource[]
   iacBinding            IacObjectBinding?
-  apps                  App[]
 
   @@index([name])
   @@index([updatedAt])
@@ -541,49 +539,6 @@ model ConnectionAuthorization {
   payload           EncryptedValue? @relation(fields: [payloadId], references: [id], onDelete: Restrict)
 
   @@index([expiresAt])
-}
-
-/// App registry entry: one published app and the repository it lives in, behind a Git app
-/// registered as a resource. Host-side names are stored in the spelling the host returns; the app
-/// host API matches them case-insensitively, as Git hosts compare names (`app-host/apps.ts`).
-model App {
-  id               String             @id @default(cuid())
-  name             String
-  purpose          String
-  ownerId          String
-  /// The Git app (a registered resource) that keeps the repository and reports on it.
-  resourceId       String
-  /// Host-side owner of the repository (organisation or user), e.g. the GitHub organisation.
-  repositoryOwner  String
-  repositoryName   String
-  /// Stable host-side repository id that survives renames, when the host has one.
-  repositoryId     String?
-  /// Browser link of the repository as reported by the Git app.
-  repositoryWebUrl String?
-  /// Branch the Git app never accepts pushes to; changes reach it only through reviewed pull requests.
-  defaultBranch    String
-  /// Template the app started from, as named by the Git app; null for registered repos.
-  template         String?
-  templateCommit   String?
-  previewUrl       String?
-  liveUrl          String?
-  /// Date by which the owner must re-confirm the app; set by the code that creates the entry and
-  /// moved only by the owner's confirmation, never by a publish. Past it the app is flagged, not stopped.
-  expiresAt        DateTime
-  /// When the owner last confirmed that the app is still needed; null until the first confirmation.
-  confirmedAt      DateTime?
-  /// Weldall user id of whoever last confirmed; kept as a plain id like `createdBy` elsewhere.
-  confirmedBy      String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  owner            User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  resource         DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
-
-  @@unique([resourceId, repositoryOwner, repositoryName])
-  @@unique([resourceId, repositoryId])
-  @@index([ownerId, createdAt])
-  @@index([expiresAt, id])
-  @@index([createdAt, id])
 }
 
 model ReplayMarker {

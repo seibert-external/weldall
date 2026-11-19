@@ -14,7 +14,7 @@ import {
 import { WELDALL_GIT_CREDENTIAL_PREFIX } from "../src/server/observability/redaction";
 
 /**
- * The metadata schemas of the Git audit events a Git app reports through the app host API
+ * The metadata schemas of the audit events a Git app reports through the app host API
  * (`app-host/audit.ts`); the reporting path itself is covered in `app-host-db.test.ts`.
  */
 const sha = (digit: string) => digit.repeat(40);
@@ -57,8 +57,10 @@ const stored = (index = 0) =>
 beforeEach(() => mocks.create.mockClear());
 
 describe("git audit metadata", () => {
-  it("registers every git event type with a metadata schema", () => {
-    const gitTypes = AUDIT_EVENT_TYPES.filter((type) => type.startsWith("git_"));
+  it("registers every event type a Git app reports with a metadata schema", () => {
+    const gitTypes = AUDIT_EVENT_TYPES.filter(
+      (type) => type.startsWith("git_") || type.startsWith("app_confirmation."),
+    );
     expect(gitTypes.sort()).toEqual(Object.keys(gitMetadataSchemas).sort());
   });
 
