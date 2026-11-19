@@ -20,27 +20,13 @@ export const groupProviderConfigSchema = z.strictObject({
   }, "Use a canonical HTTPS origin"),
   enabled: z.boolean(),
 });
-export const atlassianSharedSelectionSchema = z.strictObject({
+export const sharedSelectionSchema = z.strictObject({
   kind: z.literal("service-account-api-key"),
   cloudIds: z
     .array(z.uuid())
     .max(100)
     .transform((ids) => [...new Set(ids)].sort()),
 });
-/** The App's identity comes from the connector configuration; the key is the only credential. */
-export const githubAppSharedSelectionSchema = z.strictObject({
-  kind: z.literal("github-app-private-key"),
-});
-/** The instance and bot user come from the connector configuration; the token is the only credential. */
-export const forgejoSharedSelectionSchema = z.strictObject({
-  kind: z.literal("forgejo-bot-token"),
-});
-/** `kind` must match the connector provider's shared credential kind. */
-export const sharedSelectionSchema = z.discriminatedUnion("kind", [
-  atlassianSharedSelectionSchema,
-  githubAppSharedSelectionSchema,
-  forgejoSharedSelectionSchema,
-]);
 export const sharedConnectionConfigSchema = z.strictObject({
   key: mcpConnectorKeySchema,
   connectorKey: mcpConnectorKeySchema,

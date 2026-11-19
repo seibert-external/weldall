@@ -16,9 +16,8 @@ const appState = z.enum(["active", "expiring_soon", "expired"]);
 const confirmationSucceeded = z
   .object({
     appId: id,
-    /** Exactly one of the two is set: the app's Git host connector or its Git app's resource. */
-    connectorId: id.nullable(),
-    resourceId: id.nullable(),
+    /** The resource of the Git app that keeps the app's repository. */
+    resourceId: id,
     repositoryOwner: repositoryPart,
     repositoryName: repositoryPart,
     previousExpiresAt: z.string().datetime(),

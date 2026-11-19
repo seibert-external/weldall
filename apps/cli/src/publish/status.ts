@@ -1,5 +1,4 @@
 import { GIT_APP_SCOPES, selectGitApp } from "../git/git-apps.js";
-import type { OpenGitApp } from "../git/git-apps.js";
 import { PublishError } from "./errors.js";
 import { openGitAppApi, type AppStatus } from "./git-app-api.js";
 import { assertSettingsScopedTo, recordedGitApp } from "./git-app-choice.js";
@@ -72,11 +71,6 @@ export async function readAppStatus(options: AppStatusOptions): Promise<AppStatu
           {
             hint: "`weldall app list` shows your apps and their ids.",
           },
-        );
-      if (!app.repository.resource)
-        throw new PublishError(
-          "git_app_unknown",
-          `App ${appId} is not kept by a Git app, so this CLI cannot read its status.`,
         );
       key = app.repository.resource;
     }

@@ -262,8 +262,7 @@ const appEntry = z.object({
   name: cliText,
   purpose: cliText,
   repository: z.object({
-    connector: cliText.nullable(),
-    resource: cliText.nullable().optional(),
+    resource: cliText,
     owner: cliText,
     name: cliText,
     webUrl: cliText.nullable(),

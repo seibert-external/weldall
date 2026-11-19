@@ -105,15 +105,14 @@ export function ManagedConfiguration() {
       },
       {
         id: "capabilities",
-        accessorFn: (row) => row.capabilities.join(", ") || "server only",
+        accessorFn: (row) => row.capabilities.join(", "),
         header: "Capabilities",
         size: 140,
         cell: ({ getValue }) => <Badge label={getValue<string>()} variant="neutral" />,
       },
       {
         id: "permissions",
-        accessorFn: (row) =>
-          "allowedScopes" in row.config.provider ? row.config.provider.allowedScopes.length : 0,
+        accessorFn: (row) => row.config.provider.allowedScopes.length,
         header: "Permissions",
         size: 150,
         minSize: 120,
@@ -152,13 +151,17 @@ export function ManagedConfiguration() {
         cell: ({ row, getValue }) => (
           <Badge
             label={
-              !row.original.secretRequired
+              row.original.config.type === "atlassian-mcp"
                 ? "Not required"
                 : getValue<boolean>()
                   ? "Configured"
                   : "Missing"
             }
-            variant={!row.original.secretRequired || getValue<boolean>() ? "neutral" : "warning"}
+            variant={
+              row.original.config.type === "atlassian-mcp" || getValue<boolean>()
+                ? "neutral"
+                : "warning"
+            }
           />
         ),
       },

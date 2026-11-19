@@ -481,7 +481,6 @@ export async function startFakeWeldall() {
           name: app.name,
           purpose: "Tests",
           repository: {
-            connector: null,
             resource: registeredKey,
             owner: "acme",
             name: `app-${app.name}`,

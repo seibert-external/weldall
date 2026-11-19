@@ -46,7 +46,6 @@ export async function authorizeConnectionUse<T>(input: {
   const authorize = (row: Row, allowRefreshing = false) => {
     assertConnectorAccess({ connector: row.connector, actor });
     if (
-      provider.serverOnly ||
       !row.enabled ||
       !row.credentialId ||
       !row.connector.enabled ||

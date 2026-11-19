@@ -32,11 +32,7 @@ vi.mock("../src/server/auth/auth.js", () => ({
 import { GET as listMine } from "../src/app/api/me/apps/route";
 import { POST as confirm } from "../src/app/api/me/apps/[id]/confirm/route";
 import { appRegistryApi } from "../src/server/app-registry/machine-api";
-import {
-  APP_REVERIFICATION_DAYS,
-  createApp,
-  updateAppLinks,
-} from "../src/server/app-registry/service";
+import { APP_REVERIFICATION_DAYS, createApp } from "../src/server/app-registry/service";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "../src/server/oauth/constants";
 import type { TrpcContext } from "../src/server/trpc/context";
 import { appRouter } from "../src/server/trpc/router";
@@ -63,7 +59,7 @@ const admin = person("admin");
 const readerClientId = `${prefix}-reader`;
 const otherClientId = `${prefix}-other`;
 const registryUrl = `${WELDALL_ISSUER}/api/app-registry/v1/apps`;
-let connectorId: string;
+let resourceId: string;
 let readerKey: DpopKeyPair;
 let otherKey: DpopKeyPair;
 /** Alice's apps: active, expiring soon, expired; bob's: one active. */
@@ -156,24 +152,15 @@ describe.skipIf(!approvedTarget)(
           },
         });
       }
-      connectorId = (
-        await db.connector.create({
+      resourceId = (
+        await db.downstreamResource.create({
           data: {
             key: `${prefix}-github`,
             name: "GitHub",
-            providerType: "github-app",
+            resourceIdentifier: `https://${prefix}-git.example.com/api`,
+            authorizationServer: `https://${prefix}-git.example.com`,
+            downstreamClientId: `${prefix}-git`,
             enabled: false,
-            envelopeProvider: "LOCAL_ENV",
-            providerConfig: {
-              appId: "123456",
-              organization: "acme-apps",
-              installationId: "987654",
-              apiBaseUrl: "https://api.github.com",
-              templates: [{ name: "react", repository: "acme-apps/react-starter" }],
-              repositoryNamePrefix: "app-",
-              reviewerTeam: "app-reviewers",
-              setupMode: "customer-managed",
-            },
             createdBy: prefix,
             updatedBy: prefix,
           },
@@ -190,7 +177,12 @@ describe.skipIf(!approvedTarget)(
           name,
           purpose: `${name} <script>alert(1)</script>`,
           ownerId,
-          repository: { connectorId, owner: "acme-apps", name: `app-${name}` },
+          repository: {
+            resourceId,
+            owner: "acme-apps",
+            name: `app-${name}`,
+            webUrl: `https://github.com/acme-apps/app-${name}`,
+          },
           defaultBranch: "main",
           template: { name: "react", commit: "a".repeat(40) },
         });
@@ -211,6 +203,11 @@ describe.skipIf(!approvedTarget)(
       ids.soon = await register("soon", alice.id, 5, new Date(base + 1_000));
       ids.expired = await register("expired", alice.id, -2, new Date(base + 2_000));
       ids.bobs = await register("bobs", bob.id, 61, new Date(base + 2_000));
+      // A preview link as the Git app reports it from the app's CI.
+      await db.app.update({
+        where: { id: ids.soon },
+        data: { previewUrl: "https://preview.example.com/1" },
+      });
 
       const { createMachineClient } = await import("../src/server/machines/service.js");
       for (const [clientId, key, scopeIds] of [
@@ -235,7 +232,7 @@ describe.skipIf(!approvedTarget)(
     afterAll(async () => {
       if (!approvedTarget) return;
       await db.app.deleteMany({ where: { ownerId: { startsWith: prefix } } });
-      await db.connector.deleteMany({ where: { key: { startsWith: prefix } } });
+      await db.downstreamResource.deleteMany({ where: { key: { startsWith: prefix } } });
       await db.machineClient.deleteMany({ where: { clientId: { startsWith: prefix } } });
       await db.emailScopeAssignment.deleteMany({
         where: { normalizedEmail: { startsWith: prefix } },
@@ -268,8 +265,7 @@ describe.skipIf(!approvedTarget)(
         name: "active",
         purpose: "active <script>alert(1)</script>",
         repository: {
-          connector: `${prefix}-github`,
-          resource: null,
+          resource: `${prefix}-github`,
           owner: "acme-apps",
           name: "app-active",
           webUrl: "https://github.com/acme-apps/app-active",
@@ -309,22 +305,13 @@ describe.skipIf(!approvedTarget)(
         subjectId: ids.expired,
         metadata: {
           appId: ids.expired,
-          connectorId,
-          resourceId: null,
+          resourceId,
           repositoryOwner: "acme-apps",
           repositoryName: "app-expired",
           expiresAt: stored.expiresAt.toISOString(),
           previousState: "expired",
         },
       });
-    });
-
-    it("never moves the expiry when the CI reports links (publishing confirms nothing)", async () => {
-      const before = await db.app.findUniqueOrThrow({ where: { id: ids.soon } });
-      await updateAppLinks(ids.soon, { previewUrl: "https://preview.example.com/1" });
-      const after = await db.app.findUniqueOrThrow({ where: { id: ids.soon } });
-      expect(after.expiresAt).toEqual(before.expiresAt);
-      expect(after.confirmedAt).toBeNull();
     });
 
     it("answers an unknown and another person's app identically and audits both refusals", async () => {
@@ -428,8 +415,7 @@ describe.skipIf(!approvedTarget)(
         purpose: "bobs <script>alert(1)</script>",
         owner: { id: bob.id, email: bob.email },
         repository: {
-          connector: `${prefix}-github`,
-          resource: null,
+          resource: `${prefix}-github`,
           owner: "acme-apps",
           name: "app-bobs",
           webUrl: "https://github.com/acme-apps/app-bobs",

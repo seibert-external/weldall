@@ -5,18 +5,18 @@ sidebar:
   label: App-Registry
 ---
 
-Jede App, die eine Mitarbeiterin [über Weldall veröffentlicht](../connectors/#apps-auf-github-veröffentlichen), steht ab der ersten Veröffentlichung in der App-Registry. Die IT sieht, was es gibt, wem es gehört, wofür es da ist und welche Apps länger niemand bestätigt hat.
+Jede App, die eine Mitarbeiterin über eine Git-App von Weldall veröffentlicht, steht ab der ersten Veröffentlichung in der App-Registry. Die IT sieht, was es gibt, wem es gehört, wofür es da ist und welche Apps länger niemand bestätigt hat.
 
 ## Was festgehalten wird
 
-Weldall legt den Eintrag an, wenn es das Repository der App anlegt. Niemand muss eine App von Hand eintragen.
+Die Git-App legt den Eintrag an, wenn sie das Repository der App anlegt. Niemand muss eine App von Hand eintragen.
 
 | Feld              | Bedeutung                                                                          |
 | ----------------- | ---------------------------------------------------------------------------------- |
 | Name              | Der Name aus der ersten Veröffentlichung                                           |
 | Besitzer          | Die Weldall-Person, die die App zuerst veröffentlicht hat                          |
 | Zweck             | Wofür die App da ist, in den Worten des Besitzers                                  |
-| Repository        | Git-Host-Connector, Organisation und Repository, mit Link zum Host                 |
+| Repository        | Git-App, Organisation und Repository, mit Link zum Host                            |
 | Template          | Das Template, mit dem die App begonnen hat                                         |
 | Vorschau, Live    | Die Links, die die CI der App meldet; Weldall zeigt nur `https`-Links              |
 | Angelegt          | Wann der Eintrag entstand                                                          |
@@ -49,7 +49,7 @@ Der Zustand folgt aus dem Ablauf:
 
 ### Was „abgelaufen“ bedeutet
 
-Eine abgelaufene App wird **nur markiert**. Weldall stoppt, löscht und sperrt sie nicht: Ihr Besitzer kann weiter veröffentlichen, der Git-Proxy nimmt weiter Pushes an, und die App läuft weiter, wo immer sie läuft. Die IT sieht die Markierung in der Admin-Liste und in der API und entscheidet, was zu tun ist. Weldall verschickt keine Benachrichtigung. Der Besitzer sieht den Zustand mit `weldall app list`.
+Eine abgelaufene App wird **nur markiert**. Weldall stoppt, löscht und sperrt sie nicht: Ihr Besitzer kann weiter veröffentlichen, die Git-App nimmt weiter Pushes an, und die App läuft weiter, wo immer sie läuft. Die IT sieht die Markierung in der Admin-Liste und in der API und entscheidet, was zu tun ist. Weldall verschickt keine Benachrichtigung. Der Besitzer sieht den Zustand mit `weldall app list`.
 
 ## Wer was sieht
 
@@ -124,8 +124,7 @@ Die Antwort listet die Apps in der Reihenfolge ihres Anlegens, die älteste zuer
       "purpose": "Tracks team expenses until the finance tool supports receipts.",
       "owner": { "id": "u_8f2c", "email": "jane.adams@example.com" },
       "repository": {
-        "connector": "github-apps",
-        "resource": null,
+        "resource": "git-apps",
         "owner": "acme-apps",
         "name": "app-expense-tracker",
         "webUrl": "https://github.com/acme-apps/app-expense-tracker"
@@ -145,7 +144,7 @@ Die Antwort listet die Apps in der Reihenfolge ihres Anlegens, die älteste zuer
 }
 ```
 
-`repository.connector` nennt den Git-Host-Connector, in dem das Repository liegt. Bei einer App, die über eine eigene, als Ressource registrierte Git-App veröffentlicht wurde, ist `connector` `null` und `repository.resource` enthält den Schlüssel der Ressource. Genau eines der beiden Felder ist gesetzt.
+`repository.resource` ist der Schlüssel der Ressource, als die die Git-App registriert ist, die das Repository verwaltet.
 
 Den Besitzer gibt die API als Weldall-User-ID und E-Mail-Adresse an, nicht mit Namen. Über die E-Mail-Adresse erreicht die IT die Person und findet sie im eigenen Verzeichnis. Die ID bleibt gleich, wenn sich die Adresse ändert. Den Namen kennt das Verzeichnis schon, deshalb lässt die API ihn weg.
 

@@ -6,9 +6,6 @@ import { CliError } from "../errors.js";
 import type { Lockfile, Manifest } from "./manifest.js";
 import { SECRET_PRIMITIVES_FEATURE, secretSections } from "./secret-primitives.js";
 
-/** Advertised by servers that accept `github-app` and `forgejo` connectors and their shared connections. */
-export const GIT_HOSTS_FEATURE = "git-hosts-v1";
-
 interface Discovery {
   issuer: string;
   token_endpoint: string;
@@ -117,20 +114,6 @@ export class IacClient {
     )
       throw new CliError(
         "This server does not support UI-provisioned IaC primitives. Upgrade the server before using these sections.",
-      );
-    if (
-      (Object.values(manifest.connectors ?? {}).some((connector) =>
-        ["github-app", "forgejo"].includes(String((connector as { type?: string }).type)),
-      ) ||
-        Object.values(manifest.sharedConnections ?? {}).some((connection) =>
-          ["github-app-private-key", "forgejo-bot-token"].includes(
-            String((connection as { provider?: { kind?: string } }).provider?.kind),
-          ),
-        )) &&
-      !discovery.weldall_iac.features?.includes(GIT_HOSTS_FEATURE)
-    )
-      throw new CliError(
-        "This Weldall server does not support Git host connectors. Upgrade the server before applying GitHub App or Forgejo configuration.",
       );
     return new IacClient(discovery, credentials(), discovery.weldall_iac.installationId);
   }

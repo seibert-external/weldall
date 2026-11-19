@@ -259,7 +259,6 @@ export async function listAccessibleConnections(
   return rows
     .filter(
       (row) =>
-        !getConnectorProvider(row.connector.providerType).serverOnly &&
         canUseConnection(row, live) &&
         canAccessConnector({ connector: row.connector, actor: live }),
     )
@@ -299,11 +298,7 @@ export async function listConnectors(actor: AuthorizedConnectorActor) {
       orderBy: { key: "asc" },
     })
   )
-    .filter(
-      (connector) =>
-        !getConnectorProvider(connector.providerType).serverOnly &&
-        canAccessConnector({ connector, actor }),
-    )
+    .filter((connector) => canAccessConnector({ connector, actor }))
     .map((connector) => ({
       key: connector.key,
       name: connector.name,
@@ -365,8 +360,7 @@ export async function startConnection({
       where: { key: input.connector },
       include: connectorScopeInclude,
     });
-    if (!connector || getConnectorProvider(connector.providerType).serverOnly)
-      throw new ConnectorError("not_found", "Connector not found.", 404);
+    if (!connector) throw new ConnectorError("not_found", "Connector not found.", 404);
     assertConnectorEnabled(connector);
     assertConnectorAccess({ connector, actor });
     const prior = input.reconnect

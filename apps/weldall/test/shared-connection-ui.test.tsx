@@ -5,7 +5,7 @@ import { ConnectionsTable } from "../src/app/admin/connections/connections-table
 import { SharedConnectionForm } from "../src/app/admin/connections/shared-connection-form";
 import type { ConnectionRow } from "../src/app/admin/connections/connection-view";
 
-const mocks = vi.hoisted(() => ({ connections: [] as unknown[], connectors: [] as unknown[] }));
+const mocks = vi.hoisted(() => ({ connections: [] as unknown[] }));
 
 vi.mock("react", async (importOriginal) => {
   const react = await importOriginal<typeof React>();
@@ -20,7 +20,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => ({
     data:
       queryKey[0] === "configuration"
-        ? { connectors: mocks.connectors }
+        ? { connectors: [] }
         : queryKey[0] === "connections"
           ? mocks.connections
           : [],
@@ -51,7 +51,6 @@ vi.mock("../src/app/_components/herocrumbs", () => ({
 afterEach(() => {
   vi.clearAllMocks();
   mocks.connections = [];
-  mocks.connectors = [];
 });
 
 describe("shared connection form", () => {
@@ -66,37 +65,6 @@ describe("shared connection form", () => {
     expect(html).toContain("Weldall use scopes control who can use this connection");
     expect(html).not.toContain("Configured Atlassian permissions");
     expect(html).not.toContain("API-token authentication is enabled in my Atlassian organization");
-  });
-
-  it("asks for a Forgejo bot user's access token as a secret for a Forgejo connector", () => {
-    mocks.connectors = [
-      {
-        id: "forgejo-connector",
-        staticProvisioning: true,
-        config: { type: "forgejo", name: "Forgejo" },
-      },
-    ];
-    const html = renderToStaticMarkup(
-      <SharedConnectionForm
-        connection={
-          {
-            id: "shared",
-            connectorId: "forgejo-connector",
-            useScopes: ["apps:publish"],
-            hasCredential: false,
-            enabled: false,
-            version: 1,
-          } as ConnectionRow
-        }
-      />,
-    );
-    expect(html).toContain("Forgejo bot user access token");
-    expect(html).toContain("New Forgejo bot user access token (secret)");
-    expect(html).toContain('type="password"');
-    expect(html).toContain("does not expire");
-    expect(html).toContain("Provision access token");
-    expect(html).not.toContain("Atlassian");
-    expect(html).not.toContain("cloud IDs");
   });
 
   it.each(["READY", "DISABLED", "RECONNECT_REQUIRED"] as const)(

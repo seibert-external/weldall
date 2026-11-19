@@ -388,7 +388,6 @@ describe("app registry", () => {
     name: "expenses",
     purpose: "Track team expenses",
     repository: {
-      connector: null,
       resource: "git-app",
       owner: "acme",
       name: "app-expenses",

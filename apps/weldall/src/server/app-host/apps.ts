@@ -8,7 +8,7 @@ import {
 } from "@weldall/sdk";
 import { createApp, isAppRepositoryReady } from "../app-registry/service";
 import { appState } from "../app-registry/state";
-import { safeHttpsUrl } from "../connectors/git-text";
+import { safeHttpsUrl } from "../app-registry/links";
 import { loggedOauthErrorResponse } from "../oauth/error-response";
 import { hasEffectiveSystemScopeFor } from "../policy/resources";
 import {

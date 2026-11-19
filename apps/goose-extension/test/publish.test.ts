@@ -664,7 +664,6 @@ const registryEntry = (id: string, state: string, name = "expenses") => ({
   name,
   purpose: `${INJECTION}\u001b[31m`,
   repository: {
-    connector: null,
     resource: "git-app",
     owner: "acme",
     name: `app-${name}`,

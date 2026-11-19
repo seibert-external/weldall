@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { WELDALL_GIT_CREDENTIAL_PREFIX } from "../src/server/connectors/git-host";
 import { createAppLogger, errorForLog } from "../src/server/observability/logger";
 import {
   REDACTION_PLACEHOLDER as R,
   redactCredentials,
   redactCredentialsDeep,
+  WELDALL_GIT_CREDENTIAL_PREFIX,
 } from "../src/server/observability/redaction";
 
 // Fake credentials are assembled at run time so no file holds a string that looks like a real one.

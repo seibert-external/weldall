@@ -4,8 +4,8 @@ import { redactCredentials } from "../observability/redaction";
 /**
  * Bounds for Git audit metadata. Free text is redacted and cut with {@link TRUNCATION_MARKER}
  * instead of rejected, so an unusual branch name or a long reason never fails a git operation.
- * Lists are capped by the writers in `connectors/git-audit.ts`; the matching `…Count` field keeps
- * the full number, so `count > list.length` shows that the list was cut.
+ * Lists are capped by the reporting Git app (`apps/git-app/src/audit.ts`); the matching `…Count`
+ * field keeps the full number, so `count > list.length` shows that the list was cut.
  */
 export const GIT_AUDIT_LIMITS = {
   /** GitHub allows 100 characters for repository and organisation names. */
@@ -51,7 +51,7 @@ const gitText = (maximum: number) =>
   );
 const id = z.string().regex(/^[A-Za-z0-9._:-]{1,191}$/);
 /** SHA-1 or SHA-256 object id; the all-zero id marks a created or deleted ref. */
-export const gitCommitId = z.preprocess(
+const gitCommitId = z.preprocess(
   (value) => (typeof value === "string" ? value.toLowerCase() : value),
   z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
 );
@@ -59,18 +59,18 @@ const count = z.number().int().nonnegative();
 const reason = gitText(GIT_AUDIT_LIMITS.reason);
 
 /**
- * Which repository on which Git host connector, and its app registry entry. Entries reported by a
- * Git app carry `resourceId` instead of `connectorId` (see {@link gitMetadataSchemas}).
+ * Which repository behind which Git app (the resource it is registered as, always known: the
+ * reporting machine client is allowed for it), and its app registry entry.
  */
 const resolvedTarget = {
-  connectorId: id,
+  resourceId: id,
   appId: id,
   repositoryOwner: gitText(GIT_AUDIT_LIMITS.repositoryPart),
   repositoryName: gitText(GIT_AUDIT_LIMITS.repositoryPart),
 };
-/** A rejection can happen before the connector, repository or app is known. */
+/** A rejection can happen before the repository or app is known. */
 const rejectedTarget = {
-  connectorId: id.nullable(),
+  resourceId: id,
   appId: id.nullable(),
   repositoryOwner: gitText(GIT_AUDIT_LIMITS.repositoryPart).nullable(),
   repositoryName: gitText(GIT_AUDIT_LIMITS.repositoryPart).nullable(),
@@ -162,12 +162,12 @@ const credentialIssued = z
 const credentialRejected = z.object({ ...rejectedTarget, access: access.nullable() }).strict();
 
 /**
- * An administrator ran the connect checklist of a Git host connector (read-only on the host, but
- * it uses the stored credential). Records the counts and the ids of failed checks, not the texts.
+ * An administrator ran the set-up checklist of a Git app (read-only on the host, but it uses the
+ * Git app's host credential). Records the counts and the ids of failed checks, not the texts.
  */
 const hostChecked = z
   .object({
-    connectorId: id,
+    resourceId: id,
     /** The existing app repository that checks needing one used; null when none exists yet. */
     repositoryOwner: gitText(GIT_AUDIT_LIMITS.repositoryPart).nullable(),
     repositoryName: gitText(GIT_AUDIT_LIMITS.repositoryPart).nullable(),
@@ -179,47 +179,24 @@ const hostChecked = z
   })
   .strict();
 
-/**
- * The same entry for a repository behind a Git app registered as a resource, which reports it
- * through `/api/app-host/v1/audit-events`: `resourceId` (always known, the reporting machine
- * client is allowed for it) replaces `connectorId`.
- */
-function orResource<Shape extends z.ZodRawShape & { connectorId: z.ZodType }>(
-  schema: z.ZodObject<Shape>,
-) {
-  return z.union([
-    schema,
-    schema
-      .omit({ connectorId: true } as { connectorId: true } & Record<
-        Exclude<"connectorId", keyof Shape>,
-        never
-      >)
-      .extend({ resourceId: id })
-      .strict(),
-  ]);
-}
-
 export const gitMetadataSchemas = {
-  "git_repository.created": orResource(repositoryCreated),
-  "git_repository.denied": orResource(repositoryRejected),
-  "git_repository.failed": orResource(repositoryRejected),
-  "git_push.forwarded": orResource(pushForwarded),
-  "git_push.completed": orResource(pushCompleted),
-  "git_push.denied": orResource(pushRejected),
-  "git_push.failed": orResource(pushRejected),
-  "git_fetch.completed": orResource(fetchCompleted),
-  "git_fetch.denied": orResource(fetchRejected),
-  "git_fetch.failed": orResource(fetchRejected),
-  "git_pull_request.opened": orResource(pullRequestOpened),
-  "git_pull_request.denied": orResource(pullRequestRejected),
-  "git_pull_request.failed": orResource(pullRequestRejected),
-  "git_credential.issued": orResource(credentialIssued),
-  "git_credential.denied": orResource(credentialRejected),
-  "git_credential.failed": orResource(credentialRejected),
-  "git_host.checked": orResource(hostChecked),
+  "git_repository.created": repositoryCreated,
+  "git_repository.denied": repositoryRejected,
+  "git_repository.failed": repositoryRejected,
+  "git_push.forwarded": pushForwarded,
+  "git_push.completed": pushCompleted,
+  "git_push.denied": pushRejected,
+  "git_push.failed": pushRejected,
+  "git_fetch.completed": fetchCompleted,
+  "git_fetch.denied": fetchRejected,
+  "git_fetch.failed": fetchRejected,
+  "git_pull_request.opened": pullRequestOpened,
+  "git_pull_request.denied": pullRequestRejected,
+  "git_pull_request.failed": pullRequestRejected,
+  "git_credential.issued": credentialIssued,
+  "git_credential.denied": credentialRejected,
+  "git_credential.failed": credentialRejected,
+  "git_host.checked": hostChecked,
 } as const;
 
 export type GitAuditEventType = keyof typeof gitMetadataSchemas;
-export type GitAuditMetadata<T extends GitAuditEventType> = z.output<
-  (typeof gitMetadataSchemas)[T]
->;

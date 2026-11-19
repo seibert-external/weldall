@@ -1,4 +1,9 @@
-import { WELDALL_GIT_CREDENTIAL_PREFIX } from "../connectors/git-host";
+/**
+ * Prefix of the short-lived git credential a Git app issues (`apps/git-app`, where the same
+ * constant lives in `src/hosts/git-host.ts`). Weldall never issues one, but a Git app may report
+ * text that contains one, so redaction must recognise it.
+ */
+export const WELDALL_GIT_CREDENTIAL_PREFIX = "wgc_";
 
 /** Replacement for a redacted credential; the same placeholder the logger uses for masked keys. */
 export const REDACTION_PLACEHOLDER = "[***]";

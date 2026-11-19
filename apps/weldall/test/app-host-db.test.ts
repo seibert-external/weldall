@@ -21,7 +21,6 @@ vi.mock("../src/server/auth/auth.js", () => ({
 }));
 import { appHostCreateApp, appHostLookupApp, appHostUpdateApp } from "../src/server/app-host/apps";
 import { appHostReportAuditEvent } from "../src/server/app-host/audit";
-import { resolveOwnApp } from "../src/server/app-registry/own-app";
 import { listAppsForMachine, listOwnApps } from "../src/server/app-registry/registry";
 import { createApp } from "../src/server/app-registry/service";
 import { WELDALL_ISSUER, WELDALL_RESOURCE } from "../src/server/oauth/constants";
@@ -234,39 +233,6 @@ describe.skipIf(!approvedTarget)(
       });
     });
 
-    it("keeps exactly one host reference per app", async () => {
-      const base = {
-        name: "x",
-        purpose: "x",
-        ownerId: alice.id,
-        repositoryOwner: "acme-apps",
-        repositoryName: `${prefix}-constraint`,
-        defaultBranch: "main",
-        expiresAt: new Date(),
-      };
-      await expect(db.app.create({ data: base })).rejects.toThrow(/App_host_reference/);
-      const connector = await db.connector.create({
-        data: {
-          key: `${prefix}-connector`,
-          name: "Git host",
-          providerType: "google",
-          providerConfig: {},
-          envelopeProvider: "LOCAL_ENV",
-          createdBy: prefix,
-          updatedBy: prefix,
-        },
-      });
-      try {
-        await expect(
-          db.app.create({
-            data: { ...base, connectorId: connector.id, resourceId: gitResourceId },
-          }),
-        ).rejects.toThrow(/App_host_reference/);
-      } finally {
-        await db.connector.delete({ where: { id: connector.id } });
-      }
-    });
-
     it("registers an app for a person, idempotently per owner and repository", async () => {
       const first = await client.createApp(newApp("tracker"));
       expect(first.created).toBe(true);
@@ -410,11 +376,10 @@ describe.skipIf(!approvedTarget)(
       ).toEqual({ code: "not_found", status: 404 });
     });
 
-    it("shows resource apps in the registry views and keeps them off the connector path", async () => {
+    it("shows resource apps in the registry views", async () => {
       const own = await listOwnApps({ id: alice.id, requestId: prefix } as never);
       const tracker = own.apps.find(({ name }) => name === "tracker")!;
       expect(tracker.repository).toEqual({
-        connector: null,
         resource: `${prefix}-git`,
         owner: "acme-apps",
         name: `${prefix}-tracker`,
@@ -422,9 +387,6 @@ describe.skipIf(!approvedTarget)(
       });
       const machine = await listAppsForMachine({ limit: 200 });
       expect(machine.apps.map(({ id }) => id)).toContain(tracker.id);
-      await expect(
-        resolveOwnApp({ actor: { id: alice.id, requestId: prefix } as never, appId: tracker.id }),
-      ).rejects.toMatchObject({ code: "managed_by_git_app", status: 409 });
     });
 
     it("records a reported push as the person's, once, and confirms acceptance", async () => {
@@ -470,7 +432,6 @@ describe.skipIf(!approvedTarget)(
           credentialId: "cred-1",
         },
       });
-      expect(stored.metadata).not.toHaveProperty("connectorId");
 
       const retried = await client.reportAuditEvent(report);
       expect(retried).toEqual({ ...accepted, duplicate: true });

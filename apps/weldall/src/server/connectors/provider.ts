@@ -1,10 +1,8 @@
 import type { ConnectionDisplay, ConnectorSetupDisplay } from "./display";
-import type { GitHostFactory } from "./git-host";
 import type { ConnectorCapability } from "@weldall/sdk";
 
 /** Derived from implemented transport support, never persisted or administrator-configurable. */
 export function connectorCapabilities(provider: ConnectorProvider): ConnectorCapability[] {
-  if (provider.serverOnly) return [];
   return provider.mcp ? ["mcp"] : ["http"];
 }
 
@@ -22,31 +20,12 @@ export type ConnectorProxyRequest = {
   body?: Uint8Array;
 };
 
-/** OAuth client secrets are needed unless the provider registers public clients or never runs OAuth. */
-export function requiresClientSecret(provider: ConnectorProvider): boolean {
-  return !provider.registration && !provider.serverOnly;
-}
-
 /** Provider-owned values remain opaque to lifecycle and transport code. Each adapter parses boundary input. */
 export interface ConnectorProvider {
   readonly type: string;
-  /**
-   * Only Weldall's own server operations use this provider's credential: it has no OAuth client,
-   * offers no personal connections and cannot be used through the connection proxy or MCP.
-   */
-  readonly serverOnly?: true;
-  /** Administrator-provisioned credential on a shared connection. */
   readonly staticConnection?: {
-    /** Discriminator of the shared selection (`provider.kind` in UI and IaC input). */
-    readonly kind: string;
-    /** Splits UI create input into public selection and optional write-only credentials. */
-    parseCreateInput(value: unknown): { selection: object; credentials: object | null };
     parseRotateInput(value: unknown): object;
-    /** Derives the stored grant from public configuration and selection; no remote I/O. */
-    buildGrant(input: { config: unknown; selection: unknown }): ProviderGrant;
   };
-  /** Git host operations, for connectors that publish apps into repositories. */
-  readonly gitHost?: GitHostFactory;
   /** Public-client registration. Client IDs are public; unused secrets are never retained. */
   readonly registration?: {
     binding(input: { callbackUrl: string; config: unknown }): string;

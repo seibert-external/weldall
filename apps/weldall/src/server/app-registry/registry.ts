@@ -1,8 +1,7 @@
 import { db, type App, type Prisma } from "@weldall/db";
 import { prismaAuditWriter } from "../audit/service";
 import { ConnectorError, type ConnectorActor } from "../connectors/contracts";
-import { safeHttpsUrl } from "../connectors/git-text";
-import { connectorProviders } from "../connectors/registry";
+import { safeHttpsUrl } from "./links";
 import { APP_REVERIFICATION_DAYS } from "./service";
 import { APP_EXPIRING_SOON_DAYS, appState, appStateWhere, type AppState } from "./state";
 
@@ -21,16 +20,11 @@ export interface AppRegistryEntry {
   name: string;
   purpose: string;
   repository: {
-    /**
-     * Key of the Git host connector the repository lives on; null when it lives behind a Git app
-     * registered as a resource (see `resource`). Exactly one of the two is set.
-     */
-    connector: string | null;
-    /** Key of the resource (Git app) the repository lives behind; null for a connector app. */
-    resource: string | null;
+    /** Key of the resource (Git app) that keeps the repository. */
+    resource: string;
     owner: string;
     name: string;
-    /** Browser link to the repository on the Git host; null when the host is not known. */
+    /** Browser link to the repository on the Git host, as the Git app reported it; else null. */
     webUrl: string | null;
   };
   /** Template the app started from; null for a registered existing repository. */
@@ -48,38 +42,9 @@ export const APP_REGISTRY_POLICY = {
   expiringSoonDays: APP_EXPIRING_SOON_DAYS,
 } as const;
 
-const connectorSelect = { select: { key: true, providerType: true, providerConfig: true } };
-/** Loads what {@link presentApp} needs to show the repository's host, for either kind of app. */
-export const appHostInclude = {
-  connector: connectorSelect,
-  resource: { select: { key: true } },
-} as const;
-type RegistryRow = App & {
-  connector: { key: string; providerType: string; providerConfig: Prisma.JsonValue } | null;
-  resource: { key: string } | null;
-};
-
-/**
- * Browser link of a repository. For a connector app it comes from the connector's configuration
- * only (no host call): null for an unknown provider type or an invalid stored configuration,
- * never another provider's link. For a resource app it is the https link the Git app reported.
- */
-function repositoryWebUrl(row: RegistryRow): string | null {
-  if (!row.connector) return safeHttpsUrl(row.repositoryWebUrl);
-  const connector = row.connector;
-  const provider = connectorProviders.find(({ type }) => type === connector.providerType);
-  if (!provider?.gitHost) return null;
-  try {
-    return safeHttpsUrl(
-      provider.gitHost.repositoryWebUrl({
-        config: connector.providerConfig,
-        repository: { owner: row.repositoryOwner, name: row.repositoryName },
-      }),
-    );
-  } catch {
-    return null;
-  }
-}
+/** Loads what {@link presentApp} needs to name the Git app that keeps the repository. */
+export const appHostInclude = { resource: { select: { key: true } } } as const;
+type RegistryRow = App & { resource: { key: string } };
 
 export function presentApp(row: RegistryRow, now: Date): AppRegistryEntry {
   return {
@@ -87,11 +52,10 @@ export function presentApp(row: RegistryRow, now: Date): AppRegistryEntry {
     name: row.name,
     purpose: row.purpose,
     repository: {
-      connector: row.connector?.key ?? null,
-      resource: row.resource?.key ?? null,
+      resource: row.resource.key,
       owner: row.repositoryOwner,
       name: row.repositoryName,
-      webUrl: repositoryWebUrl(row),
+      webUrl: safeHttpsUrl(row.repositoryWebUrl),
     },
     template: row.template,
     links: { preview: safeHttpsUrl(row.previewUrl), live: safeHttpsUrl(row.liveUrl) },
@@ -156,7 +120,6 @@ export async function confirmApp({
           outcome: "success",
           metadata: {
             appId: app.id,
-            connectorId: app.connectorId,
             resourceId: app.resourceId,
             repositoryOwner: app.repositoryOwner,
             repositoryName: app.repositoryName,

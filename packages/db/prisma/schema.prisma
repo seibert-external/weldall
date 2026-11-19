@@ -21,7 +21,6 @@ model User {
   connections                 Connection[]
   connectionAttempts          ConnectionAuthorization[]
   apps                        App[]
-  gitCredentials              GitCredential[]
 }
 
 model Scope {
@@ -441,7 +440,6 @@ model Connector {
   requiredScopes           ConnectorRequiredScope[]
   iacBinding               IacObjectBinding?
   registration             ConnectorRegistration?
-  apps                     App[]
 }
 
 /// Public-client DCR state; contains no client secret or user token. A claimed registration is
@@ -545,30 +543,26 @@ model ConnectionAuthorization {
   @@index([expiresAt])
 }
 
-/// App registry entry: one published app and the repository it lives in on a Git host connector.
-/// Host-side names are stored in the spelling the host returns; registry lookups match them
-/// exactly, the git proxy case-insensitively (`git-proxy/resolve.ts`).
+/// App registry entry: one published app and the repository it lives in, behind a Git app
+/// registered as a resource. Host-side names are stored in the spelling the host returns; the app
+/// host API matches them case-insensitively, as Git hosts compare names (`app-host/apps.ts`).
 model App {
-  id               String              @id @default(cuid())
+  id               String             @id @default(cuid())
   name             String
   purpose          String
   ownerId          String
-  /// The Git host the repository lives on: exactly one of `connectorId` (Git host connector inside
-  /// Weldall) and `resourceId` (a separate Git app registered as a resource) is set; the database
-  /// enforces this with a check constraint.
-  connectorId      String?
-  resourceId       String?
+  /// The Git app (a registered resource) that keeps the repository and reports on it.
+  resourceId       String
   /// Host-side owner of the repository (organisation or user), e.g. the GitHub organisation.
   repositoryOwner  String
   repositoryName   String
   /// Stable host-side repository id that survives renames, when the host has one.
   repositoryId     String?
-  /// Browser link of the repository as reported by a Git app (resource apps only; connector apps
-  /// derive it from the connector configuration).
+  /// Browser link of the repository as reported by the Git app.
   repositoryWebUrl String?
-  /// Branch the git proxy never accepts pushes to; changes reach it only through reviewed pull requests.
+  /// Branch the Git app never accepts pushes to; changes reach it only through reviewed pull requests.
   defaultBranch    String
-  /// Template the app started from, as named in the connector configuration; null for registered repos.
+  /// Template the app started from, as named by the Git app; null for registered repos.
   template         String?
   templateCommit   String?
   previewUrl       String?
@@ -580,43 +574,16 @@ model App {
   confirmedAt      DateTime?
   /// Weldall user id of whoever last confirmed; kept as a plain id like `createdBy` elsewhere.
   confirmedBy      String?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  owner            User                @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  connector        Connector?          @relation(fields: [connectorId], references: [id], onDelete: Restrict)
-  resource         DownstreamResource? @relation(fields: [resourceId], references: [id], onDelete: Restrict)
-  gitCredentials   GitCredential[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  owner            User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  resource         DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
 
-  @@unique([connectorId, repositoryOwner, repositoryName])
-  @@unique([connectorId, repositoryId])
   @@unique([resourceId, repositoryOwner, repositoryName])
   @@unique([resourceId, repositoryId])
   @@index([ownerId, createdAt])
   @@index([expiresAt, id])
   @@index([createdAt, id])
-}
-
-enum GitCredentialAccess {
-  READ
-  WRITE
-}
-
-/// Short-lived Basic credential for the git proxy, bound to one person, one app and an access
-/// level. Only the SHA-256 of its secret is stored; expired rows are deleted lazily on issuance.
-model GitCredential {
-  id         String              @id @default(cuid())
-  secretHash Bytes
-  userId     String
-  appId      String
-  access     GitCredentialAccess
-  expiresAt  DateTime
-  createdAt  DateTime            @default(now())
-  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  app        App                 @relation(fields: [appId], references: [id], onDelete: Cascade)
-
-  @@index([userId, createdAt])
-  @@index([appId])
-  @@index([expiresAt])
 }
 
 model ReplayMarker {
@@ -683,24 +650,24 @@ model LoginInstallation {
 }
 
 model LoginProvider {
-  id                      String            @id
+  id                      String   @id
   name                    String
   buttonLabel             String
   buttonColor             String
-  sortOrder               Int               @default(0)
+  sortOrder               Int      @default(0)
   issuer                  String
   discoveryUrl            String?
   clientId                String
   encryptedClientSecret   String?
   tokenEndpointAuthMethod String
   scopes                  String[]
-  allowedEmailDomains     String[]          @default([])
-  enabled                 Boolean           @default(false)
-  version                 Int               @default(1)
+  allowedEmailDomains     String[] @default([])
+  enabled                 Boolean  @default(false)
+  version                 Int      @default(1)
   validatedAt             DateTime?
   iacBinding              IacObjectBinding?
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
   createdBy               String
   updatedBy               String
 

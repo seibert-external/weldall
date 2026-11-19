@@ -107,52 +107,24 @@
             "maxLength": 200
           },
           "provider": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "const": "service-account-api-key"
-                  },
-                  "cloudIds": {
-                    "maxItems": 100,
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    }
-                  }
-                },
-                "required": ["kind", "cloudIds"],
-                "additionalProperties": false
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "service-account-api-key"
               },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "const": "github-app-private-key",
-                    "description": "The private key of a GitHub App connector, uploaded in the admin UI."
-                  }
-                },
-                "required": ["kind"],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "const": "forgejo-bot-token",
-                    "description": "The access token of a Forgejo connector's bot user, pasted in the admin UI."
-                  }
-                },
-                "required": ["kind"],
-                "additionalProperties": false
+              "cloudIds": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
               }
-            ]
+            },
+            "required": ["kind", "cloudIds"],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -327,7 +299,7 @@
             "maxLength": 200
           },
           "type": {
-            "enum": ["google", "atlassian", "atlassian-mcp", "github-app", "forgejo"]
+            "enum": ["google", "atlassian", "atlassian-mcp"]
           },
           "enabled": {
             "type": "boolean"
@@ -1192,205 +1164,6 @@
                 },
                 "required": ["allowedScopes", "defaultScopes"],
                 "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "description": "GitHub App connector (`type: github-app`). Public policy only: the App's private key is uploaded on a shared connection in the admin UI.",
-                "required": [
-                  "appId",
-                  "organization",
-                  "templates",
-                  "repositoryNamePrefix",
-                  "reviewerTeam",
-                  "setupMode"
-                ],
-                "properties": {
-                  "appId": {
-                    "description": "Decimal ID; YAML numbers are accepted.",
-                    "oneOf": [
-                      {
-                        "type": "string",
-                        "pattern": "^[1-9][0-9]{0,15}$"
-                      },
-                      {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 9007199254740991
-                      }
-                    ]
-                  },
-                  "organization": {
-                    "type": "string",
-                    "maxLength": 39,
-                    "pattern": "^[A-Za-z0-9](?:-?[A-Za-z0-9])*$",
-                    "description": "Organisation that owns published repositories and has the App installed."
-                  },
-                  "installationId": {
-                    "description": "Looked up from the organisation when omitted.",
-                    "oneOf": [
-                      {
-                        "type": "string",
-                        "pattern": "^[1-9][0-9]{0,15}$"
-                      },
-                      {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 9007199254740991
-                      }
-                    ]
-                  },
-                  "apiBaseUrl": {
-                    "type": "string",
-                    "maxLength": 2000,
-                    "default": "https://api.github.com",
-                    "pattern": "^https://api(\\.[a-z0-9-]+\\.ghe\\.com|\\.github\\.com)$",
-                    "description": "https://api.github.com or https://api.<subdomain>.ghe.com (GitHub Enterprise Cloud with data residency)."
-                  },
-                  "templates": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 50,
-                    "description": "Template repositories in the organisation, each marked as a template and in the App's installation. Names must be unique.",
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["name", "repository"],
-                      "properties": {
-                        "name": {
-                          "type": "string",
-                          "maxLength": 100,
-                          "pattern": "^[a-z0-9][a-z0-9._-]*$"
-                        },
-                        "repository": {
-                          "type": "string",
-                          "maxLength": 140,
-                          "pattern": "^[A-Za-z0-9](?:-?[A-Za-z0-9])*/[A-Za-z0-9._-]+$",
-                          "description": "owner/name"
-                        }
-                      }
-                    }
-                  },
-                  "repositoryNamePrefix": {
-                    "type": "string",
-                    "maxLength": 40,
-                    "pattern": "^[A-Za-z0-9._-]*$",
-                    "description": "Prepended to every new repository name; may be empty."
-                  },
-                  "reviewerTeam": {
-                    "type": "string",
-                    "maxLength": 100,
-                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
-                    "description": "Slug of the team that reviews pull requests; it needs write access to new repositories."
-                  },
-                  "setupMode": {
-                    "enum": ["customer-managed", "weldall-managed"],
-                    "description": "Only customer-managed is available."
-                  },
-                  "liveEnvironments": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 5,
-                    "default": ["production"],
-                    "description": "Deployment environments whose link is the app's live link; other environments are previews.",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 255,
-                      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
-                    }
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "description": "Forgejo connector (`type: forgejo`). Public policy only: the bot user's access token is pasted on a shared connection in the admin UI.",
-                "required": [
-                  "baseUrl",
-                  "organization",
-                  "botUser",
-                  "templates",
-                  "repositoryNamePrefix",
-                  "reviewerTeam",
-                  "setupMode"
-                ],
-                "properties": {
-                  "baseUrl": {
-                    "type": "string",
-                    "maxLength": 2000,
-                    "pattern": "^https://[^/?#:@]+\\.[^/?#:@]+(/[^?#]*[^/?#])?$",
-                    "description": "https URL of the Forgejo instance without a trailing slash, e.g. https://forgejo.example.com (a sub-path is allowed). No IP address, port, credentials or local name."
-                  },
-                  "organization": {
-                    "type": "string",
-                    "maxLength": 40,
-                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|[-._](?=[A-Za-z0-9]))*$",
-                    "description": "Organisation that owns published repositories."
-                  },
-                  "botUser": {
-                    "type": "string",
-                    "maxLength": 40,
-                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|[-._](?=[A-Za-z0-9]))*$",
-                    "description": "Forgejo user whose access token the shared connection holds; a plain member of the organisation, never an owner or site administrator."
-                  },
-                  "templates": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 50,
-                    "description": "Template repositories, each marked as a template and readable for the bot user. Names must be unique.",
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["name", "repository"],
-                      "properties": {
-                        "name": {
-                          "type": "string",
-                          "maxLength": 100,
-                          "pattern": "^[a-z0-9][a-z0-9._-]*$"
-                        },
-                        "repository": {
-                          "type": "string",
-                          "maxLength": 141,
-                          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|[-._](?=[A-Za-z0-9]))*/[A-Za-z0-9._-]+$",
-                          "description": "owner/name"
-                        }
-                      }
-                    }
-                  },
-                  "repositoryNamePrefix": {
-                    "type": "string",
-                    "maxLength": 40,
-                    "pattern": "^[A-Za-z0-9._-]*$",
-                    "description": "Prepended to every new repository name; may be empty."
-                  },
-                  "reviewerTeam": {
-                    "type": "string",
-                    "maxLength": 255,
-                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
-                    "description": "Name of the organisation team that reviews pull requests; it needs write access to all repositories of the organisation."
-                  },
-                  "setupMode": {
-                    "enum": ["customer-managed", "weldall-managed"],
-                    "description": "Only customer-managed is available."
-                  },
-                  "previewStatusContext": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 255,
-                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
-                    "default": "weldall/preview",
-                    "description": "Commit status context whose target URL on the pull request's head commit is the preview link."
-                  },
-                  "liveStatusContext": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 255,
-                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
-                    "default": "weldall/live",
-                    "description": "Commit status context whose target URL on the default branch is the live link."
-                  }
-                }
               }
             ]
           }
@@ -1448,40 +1221,6 @@
                   "not": {
                     "required": ["clientId"]
                   }
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": ["type"],
-              "properties": {
-                "type": {
-                  "const": "github-app"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "provider": {
-                  "required": ["appId"]
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": ["type"],
-              "properties": {
-                "type": {
-                  "const": "forgejo"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "provider": {
-                  "required": ["botUser"]
                 }
               }
             }

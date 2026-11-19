@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ATLASSIAN_MCP, canonicalScopes } from "./config";
-import type { ConnectorProvider, ProviderGrant } from "../../provider";
+import type { ConnectorProvider } from "../../provider";
 
 export const apiKeySchema = z
   .string()
@@ -18,20 +18,7 @@ export const serviceSelectionSchema = z.strictObject({
 export const serviceGrantSchema = serviceSelectionSchema.extend({
   resource: z.literal(ATLASSIAN_MCP.resource),
 });
-const createInputSchema = serviceSelectionSchema.extend({ apiKey: apiKeySchema.optional() });
 export const staticConnection: NonNullable<ConnectorProvider["staticConnection"]> = {
-  kind: "service-account-api-key",
-  parseCreateInput(value) {
-    const { apiKey, ...selection } = createInputSchema.parse(value);
-    return { selection, credentials: apiKey ? { kind: selection.kind, apiKey } : null };
-  },
-  buildGrant({ selection }) {
-    const grant = serviceGrantSchema.parse({
-      ...serviceSelectionSchema.parse(selection),
-      resource: ATLASSIAN_MCP.resource,
-    });
-    return grant as ProviderGrant<typeof grant>;
-  },
   parseRotateInput(value) {
     const { apiKey } = z.strictObject({ apiKey: apiKeySchema }).parse(value);
     return { kind: "service-account-api-key", apiKey };

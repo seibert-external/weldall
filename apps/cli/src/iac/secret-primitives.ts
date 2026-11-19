@@ -29,14 +29,10 @@ export const secretPrimitiveSchemas = {
     useScopes: set(scope).refine((keys) => keys.length > 0),
     credentialManagerEmail: z.string().trim().toLowerCase().email().max(320),
     serviceAccountLabel: name,
-    provider: z.discriminatedUnion("kind", [
-      z.strictObject({
-        kind: z.literal("service-account-api-key"),
-        cloudIds: set(z.uuid()),
-      }),
-      z.strictObject({ kind: z.literal("github-app-private-key") }),
-      z.strictObject({ kind: z.literal("forgejo-bot-token") }),
-    ]),
+    provider: z.strictObject({
+      kind: z.literal("service-account-api-key"),
+      cloudIds: set(z.uuid()),
+    }),
   }),
   groupProviders: z.strictObject({
     key: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,119}$/),

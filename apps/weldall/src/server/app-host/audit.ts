@@ -23,14 +23,13 @@ import {
 /**
  * `POST /api/app-host/v1/audit-events`: a Git app reports the Git audit events of its apps
  * (repository creation, pushes, fetches, pull requests, git credentials, set-up checks) into
- * Weldall's audit log. The events and their metadata are the ones the in-server Git host path
- * writes, with `resourceId` in place of `connectorId`.
+ * Weldall's audit log, with the metadata schemas of `audit/git-metadata.ts`.
  *
  * - The person (`subject`, a Weldall user id) is the entry's actor; without one (only possible for
  *   rejections and checks) the machine client is. The reporting machine client is always recorded
  *   as the entry's `clientId`.
  * - Only apps of the resource the machine client is allowed for can be named.
- * - Free text is redacted for credentials and bounded exactly like the in-server entries.
+ * - Free text is redacted for credentials and bounded by the metadata schemas.
  * - `eventId` makes the report idempotent: it becomes the entry's deduplication key (per
  *   resource). A repeated identical report answers `200` with `duplicate: true`; a different
  *   report under a used `eventId` is `409 event_id_conflict`.

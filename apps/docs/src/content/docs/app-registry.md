@@ -5,18 +5,18 @@ sidebar:
   label: App registry
 ---
 
-Every app an employee [publishes through Weldall](../connectors/#publish-apps-to-github) is in the app registry from its first publish. IT sees what exists, who owns it, what it is for, and which apps nobody has confirmed for a while.
+Every app an employee publishes through a Weldall Git app is in the app registry from its first publish. IT sees what exists, who owns it, what it is for, and which apps nobody has confirmed for a while.
 
 ## What is recorded
 
-Weldall adds the entry when it creates the app's repository. Nobody has to register an app by hand.
+The Git app adds the entry when it creates the app's repository. Nobody has to register an app by hand.
 
 | Field          | Meaning                                                                       |
 | -------------- | ----------------------------------------------------------------------------- |
 | Name           | The name given at the first publish                                           |
 | Owner          | The Weldall user who published the app first                                  |
 | Purpose        | What the app is for, in the owner's words                                     |
-| Repository     | The Git host connector, organisation and repository, with a link to the host  |
+| Repository     | The Git app, organisation and repository, with a link to the host             |
 | Template       | The template the app started from                                             |
 | Preview, live  | The links the app's CI reports; Weldall shows only `https` links              |
 | Created        | When the entry was created                                                    |
@@ -49,7 +49,7 @@ The state follows from the expiry:
 
 ### What "expired" means
 
-An expired app is **only flagged**. Weldall does not stop, delete or block it: its owner can still publish, the git proxy still accepts pushes, and the app keeps running wherever it runs. IT sees the flag in the admin list and in the API and decides what to do. Weldall sends no notification; the owner sees the state with `weldall app list`.
+An expired app is **only flagged**. Weldall does not stop, delete or block it: its owner can still publish, the Git app still accepts pushes, and the app keeps running wherever it runs. IT sees the flag in the admin list and in the API and decides what to do. Weldall sends no notification; the owner sees the state with `weldall app list`.
 
 ## Who sees what
 
@@ -124,8 +124,7 @@ The answer lists the apps in the order they were created, oldest first, so new a
       "purpose": "Tracks team expenses until the finance tool supports receipts.",
       "owner": { "id": "u_8f2c", "email": "jane.adams@example.com" },
       "repository": {
-        "connector": "github-apps",
-        "resource": null,
+        "resource": "git-apps",
         "owner": "acme-apps",
         "name": "app-expense-tracker",
         "webUrl": "https://github.com/acme-apps/app-expense-tracker"
@@ -145,7 +144,7 @@ The answer lists the apps in the order they were created, oldest first, so new a
 }
 ```
 
-`repository.connector` names the Git host connector the repository lives on. An app published through a separate Git app that is registered as a resource has `connector: null` and the resource's key in `repository.resource`; exactly one of the two is set.
+`repository.resource` is the key of the resource the Git app that keeps the repository is registered as.
 
 The owner is given as Weldall user id and email address, not by name. The email address lets IT reach the person and find them in its directory, and the id stays the same when the address changes. The directory already has the name, so the API leaves it out.
 

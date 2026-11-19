@@ -15,6 +15,8 @@ import {
 
 const db = new PrismaClient();
 const actor = "development-seed";
+/** Key of the demo Git app resource; kept out of the cleanup of removed seed resources. */
+const DEVELOPMENT_GIT_APP_RESOURCE_KEY = "git-apps";
 
 try {
   const resourceDefinitions = [
@@ -103,7 +105,10 @@ try {
 
   const resourceKeys = resourceDefinitions.map(({ key }) => key);
   await db.downstreamResource.deleteMany({
-    where: { createdBy: actor, key: { notIn: resourceKeys } },
+    where: {
+      createdBy: actor,
+      key: { notIn: [...resourceKeys, DEVELOPMENT_GIT_APP_RESOURCE_KEY] },
+    },
   });
 
   const resources = new Map<string, { id: string; version: number }>();
@@ -199,7 +204,7 @@ try {
   });
   await seedDevelopmentUsers(db);
   await seedDevelopmentManagedConnectors();
-  await seedDevelopmentGitHostApp();
+  await seedDevelopmentGitApp();
   await seedDevelopmentSkillRetrievals(db);
   await seedDevelopmentUsageEvents(db);
 
@@ -377,34 +382,26 @@ async function seedDevelopmentResourceSkill(
 }
 
 /**
- * A disabled GitHub App connector without a private key and three registered demo apps (active,
- * expiring soon, expired), so the app registry has rows to show. Nothing here reaches GitHub.
+ * A disabled demo Git app registered as a resource and three registered demo apps (active,
+ * expiring soon, expired), so the app registry has rows to show. No Git app runs behind it.
  */
-async function seedDevelopmentGitHostApp() {
-  const providerConfig = {
-    appId: "1000001",
-    organization: "acme-apps",
-    installationId: "2000002",
-    apiBaseUrl: "https://api.github.com",
-    templates: [{ name: "react", repository: "acme-apps/react-starter" }],
-    repositoryNamePrefix: "app-",
-    reviewerTeam: "app-reviewers",
-    setupMode: "customer-managed",
-  };
-  const connector = await db.connector.upsert({
-    where: { key: "github-apps" },
+async function seedDevelopmentGitApp() {
+  const origin = "https://git-app.seibert.localdev";
+  const resourceIdentifier = `${origin}/api`;
+  const resource = await db.downstreamResource.upsert({
+    where: { key: DEVELOPMENT_GIT_APP_RESOURCE_KEY },
     create: {
-      id: "dev-connector-github",
-      key: "github-apps",
+      id: `downstream-resource-${DEVELOPMENT_GIT_APP_RESOURCE_KEY}`,
+      key: DEVELOPMENT_GIT_APP_RESOURCE_KEY,
       name: "Published apps on GitHub",
+      resourceIdentifier,
+      authorizationServer: origin,
+      downstreamClientId: `weldall-cli-at-${DEVELOPMENT_GIT_APP_RESOURCE_KEY}`,
       enabled: false,
-      providerType: "github-app",
-      providerConfig,
-      envelopeProvider: "LOCAL_ENV",
       createdBy: actor,
       updatedBy: actor,
     },
-    update: { providerType: "github-app", providerConfig, updatedBy: actor },
+    update: { name: "Published apps on GitHub", enabled: false, updatedBy: actor },
   });
   const day = 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -447,8 +444,9 @@ async function seedDevelopmentGitHostApp() {
   for (const { id, ...app } of apps) {
     const data = {
       ...app,
-      connectorId: connector.id,
+      resourceId: resource.id,
       repositoryOwner: "acme-apps",
+      repositoryWebUrl: `https://github.com/acme-apps/${app.repositoryName}`,
       defaultBranch: "main",
       template: "react",
       templateCommit: "0123456789abcdef0123456789abcdef01234567",

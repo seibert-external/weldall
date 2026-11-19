@@ -45,7 +45,7 @@ vi.mock("../src/services/session-manager.js", async (original) => ({
     }
   },
 }));
-import { appCommand, connectorsCommand, mainCommand } from "../src/commands.js";
+import { appCommand, mainCommand } from "../src/commands.js";
 
 const expenses: ResourceRegistryEntry = {
   key: "expenses",
@@ -66,7 +66,7 @@ async function run(argv: string[]) {
       version: "0.0.0",
       description: "test",
       strict: true,
-      subCommands: { app: appCommand, connectors: connectorsCommand },
+      subCommands: { app: appCommand },
       renderHeader: null,
       renderValidationErrors: null,
     });
@@ -220,10 +220,5 @@ describe("this CLI against an older server", () => {
       expect(process.exitCode).toBe(1);
     }
     expect(mocks.urls).toEqual([`${ISSUER}/api/me/apps`, `${ISSUER}/api/me/apps/app1/confirm`]);
-  });
-
-  it("has no connectors check any more; the checklist moved to the Git app", () => {
-    expect(connectorsCommand.subCommands).toBeUndefined();
-    expect(Object.keys(appCommand.subCommands ?? {})).toContain("checklist");
   });
 });

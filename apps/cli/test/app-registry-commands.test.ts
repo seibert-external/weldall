@@ -30,7 +30,6 @@ const entry = (id: string, name: string, state: string, expiresAt: string) => ({
   name,
   purpose: "Track team expenses",
   repository: {
-    connector: null,
     resource: "git-app",
     owner: "acme",
     name: `app-${name}`,
