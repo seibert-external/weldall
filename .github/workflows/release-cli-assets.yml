@@ -182,7 +182,8 @@ jobs:
     # dependency lifecycle scripts, and none of them may be able to mint an Azure signing token.
     # Apart from the signing action this job runs no repository or dependency code, not even
     # the executable it signs. The Azure federated credential trusts only the `release`
-    # environment, which MUST have required reviewers (see rehearse-macos-signing.yml).
+    # environment, which MUST have required reviewers (see rehearse-macos-signing.yml). Being a
+    # second job in that environment, it asks for a second approval once the builds finish.
     name: Sign release executable (windows-x64)
     needs: [prepare, build-native]
     runs-on: windows-latest
@@ -311,6 +312,12 @@ jobs:
         with:
           name: cli-executable-${{ matrix.target }}
           path: ${{ runner.temp }}/detached-weldall
+      - name: Require the Windows executable to still carry a valid signature
+        if: matrix.target == 'windows-x64'
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature -LiteralPath "$env:RUNNER_TEMP\detached-weldall\weldall.exe"
+          if ($sig.Status -ne 'Valid' -or $null -eq $sig.TimeStamperCertificate) { throw "Authenticode signature is $($sig.Status)" }
       - name: Start outside a checkout with Node and Bun absent from PATH
         run: |
           mkdir -p "$RUNNER_TEMP/empty-path" "$RUNNER_TEMP/unrelated-cwd"

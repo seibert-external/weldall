@@ -188,20 +188,38 @@ jobs:
           retention-days: 3
 
   smoke-windows:
-    name: Smoke signed (windows-x64)
+    name: Smoke and archive signed (windows-x64)
     needs: sign-windows
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
     steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build CLI workspace dependencies
+        run: pnpm --filter @weldall/sdk build
       - name: Download the signed executable
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rehearsal-windows-x64
           path: ${{ runner.temp }}/standalone
-      - name: Run the signed executable outside a checkout
+      - name: Smoke the signed executable with system-CA diagnostics
+        run: node apps/cli/scripts/smoke-standalone.mjs --target windows-x64 --executable "$RUNNER_TEMP/standalone/weldall.exe"
+      - name: Create and independently extract the archive
         run: |
-          "$RUNNER_TEMP/standalone/weldall.exe" --version
-          "$RUNNER_TEMP/standalone/weldall.exe" --help
+          mkdir -p "$RUNNER_TEMP/archive"
+          VERSION="$(node -p "require('./apps/cli/package.json').version")"
+          node apps/cli/scripts/create-standalone-archive.mjs --target windows-x64 --version "$VERSION" --executable "$RUNNER_TEMP/standalone/weldall.exe" --output-dir "$RUNNER_TEMP/archive"
