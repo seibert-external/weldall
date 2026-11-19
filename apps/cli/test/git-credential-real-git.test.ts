@@ -58,6 +58,8 @@ const readBody = async (req: IncomingMessage) => {
 
 describe.skipIf(reason !== null)(
   `git credential helper with real git${reason ? ` (skipped: ${reason})` : ""}`,
+  // Real git processes: a push and a fetch took 5 s on the macOS CI runner.
+  { timeout: 60_000 },
   () => {
     let root: string;
     let home: string;
