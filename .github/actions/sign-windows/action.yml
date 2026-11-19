@@ -1,37 +1,30 @@
 name: Sign a Windows executable
-description: >-
-  Logs in to Azure through GitHub OIDC, Authenticode-signs the executable with Azure Artifact
-  Signing (formerly Trusted Signing), verifies that the signature is valid and timestamped, and
-  logs out again. Used by the release workflow and by the manual rehearsal workflow so both run
-  the identical steps. Run it in a job that has `id-token: write` and executes no dependency
-  code: any step in that job could mint the same Azure token.
+description: Authenticode-signs an executable with Azure Artifact Signing via GitHub OIDC and verifies the signature.
 inputs:
   executable:
-    description: Absolute path to the compiled Windows executable
+    description: Absolute path to the Windows executable
     required: true
   azure-client-id:
-    description: Client ID of the app registration with a federated credential for this repository's release environment
+    description: Client ID of the Azure identity with the release federated credential
     required: true
   azure-tenant-id:
     description: Azure tenant ID
     required: true
   azure-subscription-id:
-    description: Subscription that holds the Artifact Signing account
+    description: Subscription that holds the signing account
     required: true
   endpoint:
-    description: Regional Artifact Signing endpoint, e.g. https://weu.codesigning.azure.net/
+    description: Regional Artifact Signing endpoint
     required: true
   signing-account:
     description: Artifact Signing account name
     required: true
   certificate-profile:
-    description: Certificate profile name in that account
+    description: Certificate profile name
     required: true
 runs:
   using: composite
   steps:
-    # OIDC instead of a client secret: no long-lived credential exists, and the federated
-    # credential's subject pins the token to this repository's `release` environment.
     - name: Log in to Azure with the workflow's OIDC token
       uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
       with:
@@ -45,11 +38,8 @@ runs:
         signing-account-name: ${{ inputs.signing-account }}
         certificate-profile-name: ${{ inputs.certificate-profile }}
         files: ${{ inputs.executable }}
-        # The signing tools run inside the Azure session; restoring them from the shared Actions
-        # cache would let any workflow that can write that cache key plant them.
+        # Signing tools restored from the shared Actions cache could be planted by any workflow.
         cache-dependencies: false
-    # Windows runners carry the Microsoft roots, so Valid means an intact digest and a chain to a
-    # trusted root. The timestamp keeps the signature valid after the short-lived certificate expires.
     - name: Verify the signature
       shell: pwsh
       env:
@@ -61,7 +51,3 @@ runs:
         Write-Output "Timestamp: $($sig.TimeStamperCertificate.Subject)"
         if ($sig.Status -ne 'Valid') { throw "Authenticode signature is $($sig.Status): $($sig.StatusMessage)" }
         if ($null -eq $sig.TimeStamperCertificate) { throw 'Authenticode signature has no timestamp' }
-    - name: Log out of Azure
-      if: always()
-      shell: pwsh
-      run: az logout; exit 0

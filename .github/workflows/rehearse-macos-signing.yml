@@ -1,22 +1,19 @@
-name: Rehearse signing
+name: Rehearse macOS signing
 
-# Manual dry run of the signed parts of the release pipeline on any branch: build the macOS and
-# Windows standalone executables, sign them (and notarize the macOS ones) with the same composite
-# actions the release workflow uses, smoke-test the signed binaries, and keep them as short-lived
-# artifacts. Nothing is attached to a release. Use it to validate the `release` environment
-# secrets, the Azure federated credential, the runner images, and any change to the signing
-# steps before they meet a real release tag. The file keeps its macOS-only name so a branch can
-# dispatch it before its changes reach the default branch.
+# Manual dry run of the macOS and Windows parts of the release pipeline on any branch: build
+# the standalone executable, sign (macOS: and notarize) it with the same composite action the
+# release workflow uses, smoke-test the signed binary, build the archive, and keep both as
+# short-lived artifacts.
+# Nothing is attached to a release. Use it to validate the `release` environment secrets, the
+# runner image, and any change to the signing steps before they meet a real release tag.
 #
-# SECURITY PRECONDITION: this workflow produces Seibert-signed binaries of whatever branch it is
-# dispatched on, downloadable by anyone for three days (the repository is public). That is only
-# acceptable because the `release` environment MUST have required reviewers configured
-# (Settings → Environments → release → Required reviewers) BEFORE the Apple certificate, the
-# notary key and the Azure signing identity are added to it. With reviewers in place every
-# dispatch waits for an approval, and the approver must check the branch and commit, not only
-# the workflow name; without reviewers, anyone with write access could sign unreviewed code. Do
-# not add the secrets to an environment that has no reviewers, and do not widen the Azure
-# federated credential beyond the `release` environment subject.
+# SECURITY PRECONDITION: this workflow produces a Seibert-signed binary of whatever
+# branch it is dispatched on, downloadable by anyone with read access for three days. That is
+# only acceptable because the `release` environment MUST have required reviewers configured
+# (Settings → Environments → release → Required reviewers) BEFORE the Apple certificate,
+# notary key and Azure signing identity are added as environment secrets. With reviewers in
+# place every dispatch waits for an approval; without them, anyone with write access could sign
+# unreviewed code. Do not add the secrets to an environment that has no reviewers.
 on:
   workflow_dispatch:
 
@@ -24,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rehearse-signing-${{ github.ref }}
+  group: rehearse-macos-signing-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -106,12 +103,14 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Windows: build, sign and smoke in separate jobs, as in release-cli-assets.yml, so no job
-  # that runs dependency code can mint an Azure signing token.
-  build-windows:
-    name: Build (windows-x64)
+  rehearse-windows:
+    name: Rehearse (windows-x64)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
     env:
       WELDALL_RUNNER_LABEL: windows-latest
     defaults:
@@ -139,36 +138,9 @@ jobs:
         run: pnpm --filter @weldall/sdk build
       - name: Build native executable into runner.temp
         run: |
+          rm -rf "$RUNNER_TEMP/standalone"
           mkdir -p "$RUNNER_TEMP/standalone"
           bun apps/cli/scripts/build-standalone.mjs --target windows-x64 --output-dir "$RUNNER_TEMP/standalone"
-      - name: Upload the unsigned executable
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: rehearsal-unsigned-windows-x64
-          path: ${{ runner.temp }}/standalone/weldall.exe
-          if-no-files-found: error
-          retention-days: 1
-
-  sign-windows:
-    name: Rehearse (windows-x64)
-    needs: build-windows
-    runs-on: windows-latest
-    timeout-minutes: 15
-    environment: release
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Check out only the signing action
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          sparse-checkout: .github/actions/sign-windows
-      - name: Download the unsigned executable
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: rehearsal-unsigned-windows-x64
-          path: ${{ runner.temp }}/standalone
       - name: Sign with the release action
         uses: ./.github/actions/sign-windows
         with:
@@ -179,6 +151,8 @@ jobs:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           certificate-profile: ${{ vars.AZURE_SIGNING_PROFILE }}
+      - name: Smoke the signed executable with system-CA diagnostics
+        run: node apps/cli/scripts/smoke-standalone.mjs --target windows-x64 --executable "$RUNNER_TEMP/standalone/weldall.exe"
       - name: Upload the signed executable for inspection
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -186,40 +160,3 @@ jobs:
           path: ${{ runner.temp }}/standalone/weldall.exe
           if-no-files-found: error
           retention-days: 3
-
-  smoke-windows:
-    name: Smoke and archive signed (windows-x64)
-    needs: sign-windows
-    runs-on: windows-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Check out the selected branch
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 22.15.0
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build CLI workspace dependencies
-        run: pnpm --filter @weldall/sdk build
-      - name: Download the signed executable
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: rehearsal-windows-x64
-          path: ${{ runner.temp }}/standalone
-      - name: Smoke the signed executable with system-CA diagnostics
-        run: node apps/cli/scripts/smoke-standalone.mjs --target windows-x64 --executable "$RUNNER_TEMP/standalone/weldall.exe"
-      - name: Create and independently extract the archive
-        run: |
-          mkdir -p "$RUNNER_TEMP/archive"
-          VERSION="$(node -p "require('./apps/cli/package.json').version")"
-          node apps/cli/scripts/create-standalone-archive.mjs --target windows-x64 --version "$VERSION" --executable "$RUNNER_TEMP/standalone/weldall.exe" --output-dir "$RUNNER_TEMP/archive"
