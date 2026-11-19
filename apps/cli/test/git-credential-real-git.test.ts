@@ -247,6 +247,7 @@ describe.skipIf(reason !== null)(
                 : {}),
             },
           });
+          child.stdin.on("error", () => {});
           child.stdin.end(body);
           const output: Buffer[] = [];
           child.stdout.on("data", (chunk: Buffer) => output.push(chunk));

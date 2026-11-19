@@ -226,6 +226,7 @@ export async function startFakeWeldall() {
       child.stderr.on("data", (chunk) => (stderr += chunk));
       child.on("error", reject);
       child.on("close", (code) => resolve({ code, stdout, stderr }));
+      child.stdin.on("error", () => {});
       child.stdin.end(options.input ?? "");
     });
   const must = async (args: string[], cwd: string, options: Parameters<typeof git>[2] = {}) => {
@@ -524,6 +525,7 @@ export async function startFakeWeldall() {
             : {}),
         },
       });
+      child.stdin.on("error", () => {});
       child.stdin.end(body);
       const output: Buffer[] = [];
       child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
