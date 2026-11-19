@@ -116,6 +116,11 @@ export function createGitHubChecks({
         `Needs the App's installation on ${organization} (see “Installation”).`,
         "Fix “Installation” first.",
       ),
+      // GitHub issued a token for more than the one repository asked for; the token is discarded.
+      grant_mismatch: unverifiable(
+        "GitHub issued a broader token than requested, so the Git app did not use it.",
+        RETRY,
+      ),
     },
     isRateLimited: rateLimited,
   });

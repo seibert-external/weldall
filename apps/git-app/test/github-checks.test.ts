@@ -394,6 +394,16 @@ describe("GitHub App connect checklist", () => {
       const limited = await check({ team: { status: 429, body: {} } });
       expect(limited.byId["reviewer-team"]!.reason).toBe("GitHub is rate limiting the App.");
     });
+
+    it("names a broader token than requested instead of blaming the App credential", async () => {
+      const { byId } = await check({ broaderTokenFor: ["members"] });
+      expect(byId["reviewer-team"]).toMatchObject({
+        state: "unverifiable",
+        reason: "GitHub issued a broader token than requested, so the Git app did not use it.",
+        action: "Run the check again later.",
+      });
+      expect(byId["reviewer-team"]!.reason).not.toContain("credential");
+    });
   });
 
   describe("commit identity", () => {

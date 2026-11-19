@@ -17,12 +17,8 @@ export const unverifiable = (reason: string, action: string | null): Outcome => 
 
 export const RETRY = "Run the check again later.";
 
-const CREDENTIAL_CODES = [
-  "credential_unavailable",
-  "credential_ambiguous",
-  "grant_mismatch",
-  "credential_rejected",
-];
+/** Errors that mean the host secret itself does not work. */
+const CREDENTIAL_CODES = ["credential_unavailable", "credential_ambiguous", "credential_rejected"];
 
 /**
  * The "cannot verify" outcomes of one host's checklist. Texts are fixed: host response text is

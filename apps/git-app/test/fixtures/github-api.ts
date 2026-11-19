@@ -381,6 +381,8 @@ export interface ChecksScenario {
   refusePermissions?: string[];
   /** Repositories outside the installation's selection: restricted tokens for them get 422. */
   outsideInstallation?: string[];
+  /** Token requests asking for one of these permissions get a token for more repositories. */
+  broaderTokenFor?: string[];
   /** `GET /repos/acme-apps/<name>` per repository name. */
   repositories?: Record<string, Override>;
   /** `GET /orgs/acme-apps/teams/app-reviewers`. */
@@ -421,12 +423,17 @@ export function mockGitHubChecks(scenario: ChecksScenario = {}) {
         if (repositories?.some((name) => scenario.outsideInstallation?.includes(name)))
           return Response.json({ message: "not accessible" }, { status: 422 });
         issued += 1;
+        const broader =
+          repositories && requested.some((name) => scenario.broaderTokenFor?.includes(name));
         return Response.json(
           {
             token: `ghs_check_${issued}`,
             expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
             repository_selection: "selected",
-            ...grantedScope(body.permissions ?? {}, repositories ?? undefined),
+            ...grantedScope(
+              body.permissions ?? {},
+              broader ? [...repositories, "other-repository"] : (repositories ?? undefined),
+            ),
           },
           { status: 201 },
         );
