@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 /**
- * A fake `weldall` on PATH: records its arguments, prints FAKE_STDOUT/FAKE_STDERR and exits with
+ * A fake `weldall` on PATH: records its arguments, prints the stdout file and FAKE_STDERR and exits with
  * FAKE_EXIT, or waits with FAKE_WAIT.
  */
 async function fakeCli(response: {
@@ -40,24 +40,27 @@ fs.appendFileSync(process.env.FAKE_CALLS, JSON.stringify(process.argv.slice(2)) 
 if (process.env.FAKE_WAIT) setInterval(() => {}, 1000);
 else {
   if (process.env.FAKE_STDERR) process.stderr.write(process.env.FAKE_STDERR);
-  if (process.env.FAKE_STDOUT) process.stdout.write(process.env.FAKE_STDOUT);
+  if (process.env.FAKE_STDOUT_FILE) process.stdout.write(fs.readFileSync(process.env.FAKE_STDOUT_FILE));
   process.exitCode = Number(process.env.FAKE_EXIT ?? 0);
 }
 `,
     { mode: 0o755 },
   );
   await writeFile(path.join(root, "package.json"), '{"type":"module"}');
+  // A file, not a variable: Linux limits one environment string to 128 KiB, and some tests
+  // send far larger output.
+  const stdoutFile = path.join(root, "stdout");
+  if (response.stdout !== undefined)
+    await writeFile(
+      stdoutFile,
+      typeof response.stdout === "string" ? response.stdout : JSON.stringify(response.stdout),
+    );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
     FAKE_CALLS: calls,
     FAKE_EXIT: String(response.exit ?? 0),
-    ...(response.stdout === undefined
-      ? {}
-      : {
-          FAKE_STDOUT:
-            typeof response.stdout === "string" ? response.stdout : JSON.stringify(response.stdout),
-        }),
+    ...(response.stdout === undefined ? {} : { FAKE_STDOUT_FILE: stdoutFile }),
     ...(response.stderr === undefined ? {} : { FAKE_STDERR: response.stderr }),
     ...(response.wait ? { FAKE_WAIT: "1" } : {}),
   };
