@@ -7,7 +7,7 @@ sidebar:
 
 Eine Mitarbeitende baut mit einem Agenten auf ihrem Rechner eine kleine App und bittet ihn, sie zu veröffentlichen. Ein GitHub- oder Forgejo-Konto hat sie nicht. Weldall legt für die App ein privates Repository in deiner Organisation an, überträgt die Änderungen und öffnet einen Pull Request. Ein Reviewer in deiner Organisation gibt ihn auf dem Git-Host frei und mergt ihn. Ohne diesen Pull Request gelangt nichts in den Default-Branch. Jede weitere Veröffentlichung schickt die nächste Änderung in dasselbe Repository, wieder als Pull Request.
 
-Die Arbeit auf dem Git-Host erledigt die **Git-App**, ein eigener Dienst, den deine Organisation neben Weldall betreibt, einer pro Git-Host. Die Einrichtung beschreibt [How to: Git-App betreiben](../git-app/).
+Die Arbeit auf dem Git-Host erledigt die **Git-App**, ein eigener Dienst, den deine Organisation neben Weldall betreibt, einer pro Git-Host. Die Einrichtung beschreibt [How to: Git-App betreiben](../git-app/); ihr Code liegt in [seibert-external/weldall-git-app](https://github.com/seibert-external/weldall-git-app).
 
 ## Was die Mitarbeitende tut
 
@@ -50,7 +50,7 @@ weldall app publish --decide src/total.ts=folder --decide logo.png=repo --json
 
 Die Git-App fordert bei jedem Pull Request ein Review vom Reviewer-Team der Organisation an. Ein Reviewer gibt ihn auf GitHub oder Forgejo frei und mergt ihn. Weder die Mitarbeitende noch der Agent kann über Weldall freigeben oder mergen. Bittet der Reviewer um Änderungen, nimmt die Mitarbeitende sie vor und veröffentlicht erneut; der offene Pull Request wird aktualisiert.
 
-Jede veröffentlichte App steht in der [App-Registry](../app-registry/). Dort sehen Administratoren alle Apps, und Besitzer bestätigen alle 90 Tage, dass sie ihre Apps noch brauchen (`weldall app list`, `weldall app confirm`).
+Jede veröffentlichte App steht in der [App-Registry](../app-registry/) ihrer Git-App. Dort sehen Administratoren alle Apps, und Besitzer bestätigen alle 90 Tage, dass sie ihre Apps noch brauchen (`weldall app list`, `weldall app confirm`).
 
 ## Was in das Git deiner Organisation gelangt
 
@@ -59,14 +59,14 @@ Nur ein Verweis auf die Person, nie ihr Name oder ihre E-Mail-Adresse:
 - Jeder Commit trägt einen Trailer `Weldall-App: <app id>`. Autor der Commits ist die Identität, mit der die Git-App beim Git-Host auftritt: das Bot-Konto der GitHub App oder der Forgejo-Bot-Benutzer.
 - Der Text des Pull Requests beginnt mit `Published with Weldall (Weldall user <id>).`, mit der opaken Weldall-Nutzer-ID.
 
-Wer diese Person ist, bleibt in Weldall: in der App-Registry und im Audit-Log.
+Wer diese Person ist, bleibt außerhalb des Git-Hosts: Die App-Registry der Git-App hält die Weldall-Benutzer-ID fest, das Audit-Log von Weldall die Person.
 
 ## Wie Git das Repository erreicht
 
 Git auf dem Rechner der Mitarbeitenden spricht nie mit dem Git-Host. Es pusht zur Git-App und holt von dort, unter `https://git-app.example.com/git/<owner>/<repository>.git`. Die Git-App prüft jede Anfrage, bevor sie etwas weiterleitet:
 
 - Die Git-Anmeldung ist gültig, nennt dieses Repository und gewährt bei einem Push Schreibrecht.
-- Weldall bestätigt ohne Zwischenspeichern, dass die Person Weldall noch nutzen darf, `git-app:publish` hat und die App besitzt, die für dieses Repository registriert ist. Ohne Antwort von Weldall wird nichts weitergeleitet.
+- Weldall bestätigt ohne Zwischenspeichern, dass die Person Weldall noch nutzen darf und `git-app:publish` hat, und die Registry der Git-App, dass sie die App besitzt, die für dieses Repository registriert ist. Ohne beide Antworten wird nichts weitergeleitet.
 - Ein Push ändert nur Branches namens `weldall/publish-*`. Die Git-App lehnt Pushes auf den Default-Branch ab, ebenso Tags, das Löschen von Branches, mehr als fünf Branches auf einmal, Push-Optionen, signierte Pushes und Pushes auf den Branch eines geschlossenen oder gemergten Pull Requests. Git zeigt den Grund als `! [remote rejected] … (weldall: …)`.
 - Ein Push wird erst weitergeleitet, wenn Weldall seinen Audit-Eintrag gespeichert hat. Sonst zeigt Git `the audit log is unavailable, nothing was pushed`.
 
@@ -88,7 +88,7 @@ Die CLI gibt eine Git-Anmeldung nur an den Origin, den Weldall für die Git-App 
 
 ## Was Weldall protokolliert
 
-Das Audit-Log enthält das Anlegen von Repositorys (`git_repository.*`), jeden Push vor dem Weiterleiten und sein Ergebnis (`git_push.*`, mit Person, Repository, Branch, altem und neuem Commit, Größe und Ergebnis), jeden Abruf (`git_fetch.*`), Pull Requests mit ihren Commits (`git_pull_request.*`), jede ausgegebene oder verweigerte Git-Anmeldung (`git_credential.*`) und jeden Lauf der Checkliste (`git_host.checked`). Eine Git-Anmeldung gibt die Git-App erst heraus, wenn Weldall ihren Audit-Eintrag gespeichert hat. Auch Ablehnungen stehen im Audit-Log. Ausgenommen ist die erste Anfrage jedes Git-Befehls, denn Git schickt sie immer ohne Anmeldung. Weldall entfernt Zugangsdaten aus den Metadaten jedes Audit-Ereignisses, bevor es sie speichert.
+Das Audit-Log enthält das Anlegen von Repositorys und das Registrieren bestehender (`git_repository.*`), jeden Push vor dem Weiterleiten und sein Ergebnis (`git_push.*`, mit Person, Repository, Branch, altem und neuem Commit, Größe und Ergebnis), jeden Abruf (`git_fetch.*`), Pull Requests mit ihren Commits (`git_pull_request.*`), jede ausgegebene oder verweigerte Git-Anmeldung (`git_credential.*`) jeden Lauf der Checkliste (`git_host.checked`) und jede Bestätigung, dass eine App noch gebraucht wird (`app_confirmation.*`). Eine Git-Anmeldung gibt die Git-App erst heraus, wenn Weldall ihren Audit-Eintrag gespeichert hat. Auch Ablehnungen stehen im Audit-Log. Ausgenommen ist die erste Anfrage jedes Git-Befehls, denn Git schickt sie immer ohne Anmeldung. Weldall entfernt Zugangsdaten aus den Metadaten jedes Audit-Ereignisses, bevor es sie speichert.
 
 ## Grenzen
 

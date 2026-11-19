@@ -143,7 +143,7 @@ machines:
 
 Ins Manifest gehören nur öffentliche Machine-Schlüssel.
 
-Eine [Git-App](../git-app/#oder-per-iac-beschreiben) beschreibst du genauso: ihre Resource, ihre beiden Scopes und ihren Machine-Client mit den System-Scopes `weldall:app-host` und `weldall:subject-scopes-check`. Host-Konfiguration und Secrets der Git-App bleiben bei der Git-App; IaC hat dafür kein Objekt.
+Eine [Git-App](../git-app/#oder-per-iac-beschreiben) beschreibst du genauso: ihre Resource, ihre Scopes und ihren Machine-Client mit den System-Scopes `weldall:app-host` und `weldall:subject-scopes-check`. Host-Konfiguration und Secrets der Git-App bleiben bei der Git-App; IaC hat dafür kein Objekt.
 
 Managed Connectors können ebenfalls in YAML beschrieben werden. Das Manifest enthält nur öffentliche Policy; OAuth-Client-Secrets werden in der Admin-Oberfläche eingetragen und von der CLI nie akzeptiert. `envelopeProvider` ist nach der Erstellung unveränderlich. Google-Connectors listen exakte Google-OAuth-Scopes. Atlassian-Cloud-Connectors müssen ressourcenbezogene Grants, mindestens einen erlaubten Jira- oder Confluence-Product-Scope und mindestens eine erlaubte Site-`cloudId` verwenden.
 

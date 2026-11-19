@@ -7,7 +7,7 @@ sidebar:
 
 An employee builds a small app with an agent on their own machine and asks the agent to publish it. They have no GitHub or Forgejo account. Weldall creates a private repository for the app in your organisation, sends the changes, and opens a pull request. A reviewer in your organisation approves and merges it on the Git host; nothing reaches the default branch without that pull request. Each later publish sends the next change to the same repository, again as a pull request.
 
-The work on the Git host is done by the **Git app**, a separate service your organisation runs next to Weldall, one per Git host. [How to: Run the Git app](../git-app/) describes the setup.
+The work on the Git host is done by the **Git app**, a separate service your organisation runs next to Weldall, one per Git host. [How to: Run the Git app](../git-app/) describes the setup; its code lives in [seibert-external/weldall-git-app](https://github.com/seibert-external/weldall-git-app).
 
 ## What the employee does
 
@@ -50,7 +50,7 @@ weldall app publish --decide src/total.ts=folder --decide logo.png=repo --json
 
 The Git app requests a review from the organisation's reviewer team on every pull request. A reviewer approves and merges it on GitHub or Forgejo. Neither the employee nor the agent can approve or merge through Weldall. When the reviewer requests changes, the employee makes them and publishes again; the open pull request is updated.
 
-Every published app is in the [app registry](../app-registry/), where administrators see all apps and owners confirm every 90 days that their apps are still needed (`weldall app list`, `weldall app confirm`).
+Every published app is in the [app registry](../app-registry/) of its Git app, where administrators see all apps and owners confirm every 90 days that their apps are still needed (`weldall app list`, `weldall app confirm`).
 
 ## What goes into your organisation's Git
 
@@ -59,14 +59,14 @@ Only a reference to the person, never their name or email address:
 - Each commit carries a `Weldall-App: <app id>` trailer. The commits are authored by the Git host identity the Git app uses: the GitHub App's bot account or the Forgejo bot user.
 - The pull request text starts with `Published with Weldall (Weldall user <id>).`, with the opaque Weldall user ID.
 
-Who that person is stays in Weldall: in the app registry and in the audit log.
+Who that person is stays out of the Git host: the Git app's app registry records the Weldall user ID, and Weldall's audit log records the person.
 
 ## How git reaches the repository
 
 Git on the employee's machine never talks to the Git host. It pushes to and fetches from the Git app at `https://git-app.example.com/git/<owner>/<repository>.git`. The Git app checks every request before it forwards anything:
 
 - The git credential is valid, names this repository and, for a push, grants write access.
-- Weldall confirms, without caching, that the person may still use Weldall, holds `git-app:publish`, and owns the app registered for this repository. Without an answer from Weldall, nothing is forwarded.
+- Weldall confirms, without caching, that the person may still use Weldall and holds `git-app:publish`, and the Git app's registry that the person owns the app registered for this repository. Without both answers, nothing is forwarded.
 - A push updates only branches named `weldall/publish-*`. The Git app refuses pushes to the default branch, tags, branch deletion, more than five branches at once, push options, signed pushes, and pushes to the branch of a closed or merged pull request. Git shows the reason as `! [remote rejected] … (weldall: …)`.
 - A push is forwarded only after Weldall has stored its audit entry. Otherwise git shows `the audit log is unavailable, nothing was pushed`.
 
@@ -88,7 +88,7 @@ The CLI hands a git credential only to the origin Weldall lists for the Git app.
 
 ## What Weldall records
 
-The audit log records repository creation (`git_repository.*`), every push before it is forwarded and its result (`git_push.*`, with person, repository, branch, old and new commit, size and outcome), every fetch (`git_fetch.*`), pull requests with their commits (`git_pull_request.*`), every git credential issued or refused (`git_credential.*`), and every checklist run (`git_host.checked`). The Git app hands out a git credential only after Weldall stored its audit entry. Refusals are recorded too, except the first request of each git command, which git always sends without a credential. Weldall redacts credentials from the metadata of every audit event before storing it.
+The audit log records repository creation and the registration of existing repositories (`git_repository.*`), every push before it is forwarded and its result (`git_push.*`, with person, repository, branch, old and new commit, size and outcome), every fetch (`git_fetch.*`), pull requests with their commits (`git_pull_request.*`), every git credential issued or refused (`git_credential.*`), every checklist run (`git_host.checked`), and every confirmation of an app as still needed (`app_confirmation.*`). The Git app hands out a git credential only after Weldall stored its audit entry. Refusals are recorded too, except the first request of each git command, which git always sends without a credential. Weldall redacts credentials from the metadata of every audit event before storing it.
 
 ## Limits
 
