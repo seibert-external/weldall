@@ -1,5 +1,5 @@
 /**
- * Publish branches, carried over from the server's git proxy rules (`git-proxy/rules.ts`). The
+ * Publish branches. The
  * git proxy (`git/rules.ts`) accepts pushes only to these branches; pull requests and status reads
  * refer only to them.
  */

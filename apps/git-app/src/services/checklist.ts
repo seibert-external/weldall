@@ -18,9 +18,9 @@ export interface ChecklistReport {
 const checkId = /^[a-z0-9._-]{1,120}$/;
 
 /**
- * Runs the set-up checklist of this instance's Git host for an administrator (was
- * `weldall connectors check`, now `weldall app checklist`; carried over from the server's `core/git-host-checks.ts`). The
- * connector and shared-credential checks are gone: the host secret is validated at start. Checks
+ * Runs the set-up checklist of this instance's Git host for an administrator
+ * (`weldall app checklist`). The host secret's format is validated at start; whether the host
+ * accepts it is one of the checks. Checks
  * that need an existing repository use the app named by `appId` (any ready app of this resource),
  * otherwise they report that they cannot be verified yet. Read-only on the host. Every run is
  * audited (`git_host.checked`), because it uses the host secret; when Weldall does not store the

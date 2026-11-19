@@ -1,18 +1,19 @@
 ---
 title: Docker images
-description: Run Weldall and the discovery proxy from the published Docker Hub images, and upgrade them safely.
+description: Run Weldall, the discovery proxy and the Git app from the published Docker Hub images, and upgrade them safely.
 sidebar:
   label: Docker images
 ---
 
-Weldall is published as two independent Docker images. Most installations run only the Weldall image next to a PostgreSQL database. The discovery proxy is an optional second container for resource servers that cannot reach Weldall directly.
+Weldall is published as three independent Docker images. Most installations run only the Weldall image next to a PostgreSQL database. The discovery proxy is an optional container for resource servers that cannot reach Weldall directly. The Git app is an optional container for organisations whose employees [publish apps](../publish-apps/) to GitHub or Forgejo.
 
 | Image                                            | Contains                                                                       | Needed by                                                                                             |
 | ------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
 | `docker.io/seibertgroup/weldall`                 | The Weldall server: authorization server, administration interface, installer. | Every installation.                                                                                   |
 | `docker.io/seibertgroup/weldall-discovery-proxy` | An unprivileged Nginx that forwards only the Weldall metadata and JWKS.        | Only resource servers that cannot reach Weldall directly, see [Discovery proxy](../discovery-proxy/). |
+| `docker.io/seibertgroup/weldall-git-app`         | The Git app: keeps the repositories of published apps on one Git host.         | Only publishing apps, one container per Git host, see [How to: Run the Git app](../git-app/).         |
 
-Both images are built for `linux/amd64`, run as non-root users, and have their own version numbers. A proxy release never changes the Weldall image, and vice versa.
+All images are built for `linux/amd64`, run as non-root users, and have their own version numbers. A release of one image never changes the others.
 
 ## Tags and versions
 
@@ -28,9 +29,9 @@ Each release publishes these tags:
 
 Pin a full `X.Y.Z` tag in production. `X.Y`, `X` and `latest` move with every release, so a plain container restart can start a newer version and run its database migrations. Before version 1.0, `0` is no safer than `latest`: a minor release may contain breaking changes.
 
-The published tags are listed on Docker Hub: [`seibertgroup/weldall`](https://hub.docker.com/r/seibertgroup/weldall/tags) and [`seibertgroup/weldall-discovery-proxy`](https://hub.docker.com/r/seibertgroup/weldall-discovery-proxy/tags).
+The published tags are listed on Docker Hub: [`seibertgroup/weldall`](https://hub.docker.com/r/seibertgroup/weldall/tags), [`seibertgroup/weldall-discovery-proxy`](https://hub.docker.com/r/seibertgroup/weldall-discovery-proxy/tags) and [`seibertgroup/weldall-git-app`](https://hub.docker.com/r/seibertgroup/weldall-git-app/tags).
 
-Release notes are on the [GitHub releases page](https://github.com/seibert-external/weldall/releases) under the tags `@weldall/weldall@X.Y.Z` and `@weldall/discovery-proxy@X.Y.Z`. Not every release listed there has an image; only the tags on Docker Hub can be run.
+Release notes are on the [GitHub releases page](https://github.com/seibert-external/weldall/releases) under the tags `@weldall/weldall@X.Y.Z`, `@weldall/discovery-proxy@X.Y.Z` and `@weldall/git-app@X.Y.Z`. Not every release listed there has an image; only the tags on Docker Hub can be run.
 
 ## Weldall container
 
@@ -145,6 +146,15 @@ docker run -d --name weldall-discovery-proxy \
 - It verifies the TLS certificate of `WELDALL_UPSTREAM` against the public CA bundle of the image.
 - Only `GET /.well-known/oauth-authorization-server` and `GET /api/oauth/jwks` are forwarded, unchanged. Every other path answers `404`, other methods `405`.
 - It has no health endpoint of its own. Use a TCP check on port 8080; an HTTP check on a forwarded path would also fail whenever Weldall is down.
+
+## Git app container
+
+[How to: Run the Git app](../git-app/) describes its configuration, a complete `docker run` example and its registration in Weldall. In short:
+
+- One container per Git host, and exactly one container per Git app: it keeps replay protection and limits in memory.
+- It listens on plain HTTP on port 3002 and answers `GET /health`. Terminate TLS in front of it at the origin in `GIT_APP_PUBLIC_ORIGIN`.
+- It reads secrets from files named by `<NAME>_FILE`; the files must be readable by uid 1000.
+- Give it a stop timeout of 10 seconds or more. Upgrade it while nobody is publishing, because a restart cuts off running pushes and fetches. It stores nothing itself, so you can switch its version back and forth.
 
 ## Next steps
 

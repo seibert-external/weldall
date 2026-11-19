@@ -1,6 +1,5 @@
 /**
- * Operating limits of the git proxy (carried over unchanged from the server's
- * `git-proxy/limits.ts`). Git traffic is streamed; nothing here buffers a pack.
+ * Operating limits of the git proxy. Git traffic is streamed; nothing here buffers a pack.
  */
 export const GIT_PROXY_LIMITS = {
   /** Request body of one push. A realistic publish is below 1 MiB; the whole template ~400 KiB. */

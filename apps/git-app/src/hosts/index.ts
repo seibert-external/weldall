@@ -20,12 +20,12 @@ import { parseForgejoToken } from "./forgejo/token.js";
 export const HOST_KINDS = ["github", "forgejo"] as const;
 export type HostKind = (typeof HOST_KINDS)[number];
 
-/** The validated host configuration (the former connector `providerConfig`). */
+/** The validated host configuration (`GIT_APP_HOST_CONFIG`). */
 export type HostConfiguration =
   { kind: "github"; config: GitHubAppConfig } | { kind: "forgejo"; config: ForgejoConfig };
 
 /**
- * Parses the host configuration with the same schema the connector used. Throws a `ZodError` or
+ * Parses the host configuration with the host's schema. Throws a `ZodError` or
  * a {@link GitAppError} that names the problem; neither contains a secret, because the host
  * configuration holds none.
  */

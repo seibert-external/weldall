@@ -11,7 +11,7 @@ const token = z
   .regex(/^[A-Za-z0-9._~+/=-]+$/);
 
 /**
- * Validates the bot user's access token (carried over from the server's Forgejo provider). The
+ * Validates the bot user's access token (the Git app's host secret on Forgejo). The
  * message is fixed: the input is never echoed.
  */
 export function parseForgejoToken(value: unknown): string {

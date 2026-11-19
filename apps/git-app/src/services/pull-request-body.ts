@@ -2,8 +2,7 @@ import { GitAppError } from "../errors.js";
 import { withoutHiddenCharacters } from "../git-text.js";
 
 /**
- * Pull request title and body, carried over unchanged from the server's
- * `app-registry/pull-requests.ts`. Into the customer's Git goes only a reference to the person:
+ * Pull request title and body. Into the customer's Git goes only a reference to the person:
  * the opaque Weldall user id, never a name or an email address.
  */
 

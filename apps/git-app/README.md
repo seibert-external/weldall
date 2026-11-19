@@ -6,6 +6,8 @@ Each running instance serves exactly one Git host. Run two instances (two resour
 
 Status: third part. Repository creation, pull requests, status, links, the set-up checklist, the git credential and the git proxy work against the fake host and fake Weldall in the tests; the git proxy is also tested with the real `git` client against `git http-backend`. The instance publishes [skills](#skills), and the [Docker image](#docker-image) is built, tested and released like the discovery proxy's. Nothing here has run against a real GitHub, Forgejo or Weldall yet. See [Not built yet](#not-built-yet).
 
+The public documentation for operators and employees is in `apps/docs/src/content/docs/`: `git-app.md` (running and registering), `github-app.md` and `forgejo.md` (the hosts), and `publish-apps.md` (publishing).
+
 ## Layout
 
 | Path                                                | What                                                                                                                                                                  |
@@ -46,7 +48,7 @@ Everything comes from the environment. Secrets come only from the environment or
 | `WELDALL_MACHINE_PRIVATE_JWK` or `..._FILE`                                      | yes      | Secret: the machine client's private JWK.                                                                                        |
 | `PORT`                                                                           | no       | Default `3002`.                                                                                                                  |
 
-The host configuration has the same schema as the former connector's `providerConfig` (`src/hosts/github/config.ts`, `src/hosts/forgejo/config.ts`). GitHub:
+The host configuration is validated by `src/hosts/github/config.ts` and `src/hosts/forgejo/config.ts`. GitHub:
 
 ```json
 {
@@ -82,7 +84,7 @@ Only `customer-managed` is built: the organisation provides the default-branch r
 
 ## Set-up in Weldall
 
-1. Create the scopes `git-app:publish` (create apps, open pull requests, read status) and `git-app:admin` (run the set-up checklist), or the names configured above. Two instances may share them or use their own.
+1. Create the scopes `git-app:publish` (create apps, open pull requests, read status) and `git-app:admin` (run the set-up checklist), or the names configured above. Several instances share them: the CLI finds a Git app only by these names (see [How the CLI finds and trusts this instance](#how-the-cli-finds-and-trusts-this-instance)).
 2. Register the resource: resource identifier `https://git-app.example.com/api`, authorization server `https://git-app.example.com`, downstream client ID as configured, request prefix `https://git-app.example.com/api`, scopes `git-app:publish` and `git-app:admin`.
 3. Register a machine client with the instance's machine public key. Allow it the Git app's own resource, and the system scopes `weldall:app-host` and `weldall:subject-scopes-check`.
 4. Assign `weldall:login` and `git-app:publish` to the people who publish apps, and `git-app:admin` to the administrators who run the checklist.
@@ -152,7 +154,7 @@ All routes need a DPoP-bound user access token from the instance's own token end
 | `POST /api/apps/{id}/pull-requests` | `publish` | `{ head, title, body }`: opens the pull request from a `weldall/publish-*` branch into the default branch. The body starts with a hidden marker and `Published with Weldall (Weldall user <id>).`, never a name. Requests the reviewer team. Audited with the pull request's commits.                                                                                                                                                                       |
 | `GET /api/apps/{id}/status`         | `publish` | Pull request state, reviews (sanitised text), checks, preview and live links, protected paths and the commit identity. `?branch=weldall/publish-…` picks a branch. New links are written back to Weldall (`updateApp`). Not audited (the contract has no event for reads).                                                                                                                                                                                  |
 | `POST /api/git-credentials`         | `publish` | `{ path: "git/<owner>/<repository>.git", access?: "read" \| "write" }` (read unless write is asked for) returns `{ username, password, expiresAt }` for git's Basic auth, valid 5 minutes and only at this instance's `/git/` route. Only for the person's own ready app; 20 per person and minute per instance. Handed out only after Weldall stored `git_credential.issued` (`503 audit_unavailable` otherwise); refusals audited as `.denied`/`.failed`. |
-| `GET /api/admin/checklist`          | `admin`   | The host's set-up checklist (`weldall app checklist`; was `weldall connectors check`). `?app=<id>` names a ready app whose repository the rule and team checks use. Read-only on the host; audited as `git_host.checked`.                                                                                                                                                                                                                                   |
+| `GET /api/admin/checklist`          | `admin`   | The host's set-up checklist (`weldall app checklist`). `?app=<id>` names a ready app whose repository the rule and team checks use. Read-only on the host; audited as `git_host.checked`.                                                                                                                                                                                                                                                                   |
 
 ### Git credentials
 
@@ -198,7 +200,6 @@ The tests use no network: the GitHub and Forgejo APIs are fixtures that replace 
 ## Not built yet
 
 - **CLI**: switched to this instance (`weldall app publish|sync|status|checklist`, `weldall git-credential`); tested against fakes only. The sandbox door for the credential helper (INV-133) does not exist yet.
-- **Public documentation**: a page for running and registering the Git app, and the image in the Docker documentation (`apps/docs/src/content/docs/docker.mdx` lists two images).
 - **Docker Hub**: the repository `seibertgroup/weldall-git-app` must exist and be public before the first release (the floating-tag plan reads its public tag list), and the release token must be allowed to push to it.
 - **Shared state**: DPoP proofs are replay-checked in memory, and the transfer and credential limits are per process, so run one replica per instance until a shared store is configured.
-- **Live verification** against GitHub, Forgejo and Weldall (including skill discovery and the image), and removal of the in-server Git host code.
+- **Live verification** against GitHub, Forgejo and Weldall (including skill discovery and the image).

@@ -56,8 +56,7 @@ export function createIssueLimiter(limit = GIT_CREDENTIAL_ISSUE_LIMIT_PER_MINUTE
 export type IssueLimiter = ReturnType<typeof createIssueLimiter>;
 
 /**
- * Issues a short-lived git credential for one of the person's apps (carried over from the server's
- * `git-proxy/credentials.ts`). Order: Weldall confirms the login permission and the publish scope,
+ * Issues a short-lived git credential for one of the person's apps. Order: Weldall confirms the login permission and the publish scope,
  * then the app registry confirms that the repository belongs to a ready app of the person, and
  * `git_credential.issued` must be stored in Weldall before the credential is returned, so no
  * credential exists without its audit entry. Read access unless write is asked for explicitly.

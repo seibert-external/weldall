@@ -102,8 +102,7 @@ function presentPullRequest(
 
 /**
  * Reads the status of one of the person's apps: its current pull request with reviews and
- * checks, and the preview and live links the CI reported (carried over from the server's
- * `app-registry/status.ts`). Without `branch`, the current pull request is the most recent open
+ * checks, and the preview and live links the CI reported. Without `branch`, the current pull request is the most recent open
  * one from a publish branch, else the most recently created one. A link the host reports is
  * written back to Weldall's registry (`updateApp`) when it differs from the stored one; when
  * Weldall does not take it, the call fails closed with 503.

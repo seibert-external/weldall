@@ -1,7 +1,6 @@
 /**
  * Paths of the git proxy: `/git/<owner>/<repository>.git` followed by one of the smart-HTTP
- * endpoints. Adapted from the server's `git-proxy/paths.ts` without the connector segment: one
- * Git app instance serves one Git host, so the instance itself is what the connector key named.
+ * endpoints. There is no segment for the Git host: one Git app instance serves exactly one.
  * Segments are matched on the raw, still encoded path, so encoded slashes, dots or other escapes
  * never reach the registry lookup; owner and repository are matched case-insensitively there
  * because hosts treat them that way.

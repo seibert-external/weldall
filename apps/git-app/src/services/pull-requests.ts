@@ -44,8 +44,7 @@ const deniedCodes = new Set([
 /**
  * Opens the pull request for one of the person's apps from a publish branch into the app's
  * default branch (never a caller-chosen base), with the trigger line carrying the Weldall user id
- * at the top of the body, and requests the configured reviewers (carried over from the server's
- * `app-registry/pull-requests.ts`). Idempotent per head branch: an open pull request of the
+ * at the top of the body, and requests the configured reviewers. Idempotent per head branch: an open pull request of the
  * branch is returned instead of a second one. The audit records the person and the commits the
  * pull request contains. If Weldall does not store the audit entry, the person gets 503 although
  * the pull request is open; a repeat returns it and reports it again (`existingPullRequest`).

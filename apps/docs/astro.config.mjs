@@ -90,16 +90,16 @@ export default defineConfig({
             },
             { slug: "connectors" },
             {
-              label: "How to: Connect GitHub",
-              translations: { de: "How to: GitHub anbinden" },
-              link: "/github-app/",
+              label: "Publish apps",
+              translations: { de: "Apps veröffentlichen" },
+              items: [
+                { slug: "publish-apps" },
+                { slug: "git-app" },
+                { slug: "github-app" },
+                { slug: "forgejo" },
+                { slug: "app-registry" },
+              ],
             },
-            {
-              label: "How to: Connect Forgejo",
-              translations: { de: "How to: Forgejo anbinden" },
-              link: "/forgejo/",
-            },
-            { slug: "app-registry" },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {

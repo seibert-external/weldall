@@ -34,7 +34,7 @@ import {
 } from "./rules.js";
 
 /**
- * The Git app's git proxy (carried over from the server's `git-proxy/handler.ts`): serves git's
+ * The Git app's git proxy: serves git's
  * smart HTTP protocol at `/git/<owner>/<repository>.git` and forwards it to the Git host, so the
  * host's token never leaves the Git app. Per request it
  *

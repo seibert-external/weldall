@@ -8,7 +8,7 @@ import {
 } from "./pkt-line.js";
 
 /**
- * Push rules of the git proxy, carried over from the server's `git-proxy/rules.ts`. A push may
+ * Push rules of the git proxy. A push may
  * update only publish branches (`refs/heads/weldall/publish-<name>`, see `publish-branches.ts`);
  * every other ref is refused.
  */

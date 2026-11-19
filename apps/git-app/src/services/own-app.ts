@@ -4,8 +4,7 @@ import { lookupApp } from "../weldall.js";
 import type { GitAppServices, Person } from "./context.js";
 
 /**
- * Resolves one of the person's apps from Weldall's registry (carried over from the server's
- * `app-registry/own-app.ts`). An unknown id and another person's app get the same 404, so the
+ * Resolves one of the person's apps from Weldall's registry. An unknown id and another person's app get the same 404, so the
  * answer reveals nothing about other people's apps. The repository must have finished creation
  * and belong to this instance's organisation.
  */

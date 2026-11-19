@@ -47,8 +47,7 @@ const deniedCodes = new Set([
 
 /**
  * Creates the repository for a new app from a configured template and registers the app in
- * Weldall for the person (carried over from the server's `app-registry/repositories.ts`, with
- * Weldall's app host API in place of the database).
+ * Weldall for the person through Weldall's app host API.
  *
  * Order of side effects, so that every repository that becomes usable has an audit entry:
  *

@@ -1,6 +1,6 @@
 /**
- * Host-neutral seam for Git hosts (GitHub and Forgejo), carried over from the Weldall server
- * (`connectors/git-host.ts`). Registry, permission checks, audit and publish stay
+ * Host-neutral seam for Git hosts (GitHub and Forgejo). Registry, permission checks, audit and
+ * publish stay
  * host-independent; everything that depends on the host lives behind this interface. A Git app
  * instance opens exactly one host at start (`hosts/index.ts`); callers authorize the person
  * (scopes and app ownership in Weldall) before using it.
