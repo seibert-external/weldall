@@ -1,4 +1,4 @@
-import { APP_HOST_SCOPE_KEY, db, Prisma } from "@weldall/db";
+import { APP_HOST_SCOPE_KEY, db } from "@weldall/db";
 import { WeldallAuthError } from "@weldall/sdk";
 import type { z } from "zod";
 import {
@@ -21,14 +21,11 @@ export interface AppHostResource {
   resourceIdentifier: string;
 }
 
-export interface AppHostCaller {
-  machine: WeldallMachineActor;
-}
-
 const MAX_BODY_BYTES = 64_000;
 
-export async function authenticateAppHost(request: Request): Promise<AppHostCaller> {
-  return { machine: await authenticateWeldallMachineApiRequest(request, APP_HOST_SCOPE_KEY) };
+/** The calling machine client, authenticated with `weldall:app-host`. */
+export async function authenticateAppHost(request: Request): Promise<WeldallMachineActor> {
+  return authenticateWeldallMachineApiRequest(request, APP_HOST_SCOPE_KEY);
 }
 
 /**
@@ -36,11 +33,11 @@ export async function authenticateAppHost(request: Request): Promise<AppHostCall
  * for and a disabled one are refused alike, so the answer reveals nothing about other resources.
  */
 export async function appHostResource(
-  caller: AppHostCaller,
+  machine: WeldallMachineActor,
   resourceIdentifier: string,
 ): Promise<AppHostResource> {
   const allowed = await db.machineAllowedResource.findFirst({
-    where: { machineClientId: caller.machine.id, resource: { resourceIdentifier } },
+    where: { machineClientId: machine.id, resource: { resourceIdentifier } },
     select: {
       resource: { select: { id: true, key: true, resourceIdentifier: true, enabled: true } },
     },
@@ -94,9 +91,3 @@ export async function appHostSubject(subject: string) {
     throw new WeldallAuthError("unknown_subject", "subject is not a Weldall user", 404);
   return { id: user.id, email: user.email };
 }
-
-export function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
-}
-
-export const noStore = { "cache-control": "no-store", pragma: "no-cache" } as const;

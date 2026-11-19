@@ -1,22 +1,20 @@
 import { isDeepStrictEqual } from "node:util";
-import { db } from "@weldall/db";
+import { db, Prisma } from "@weldall/db";
 import { WeldallAuthError } from "@weldall/sdk";
 import type { z } from "zod";
 import {
   auditRequestIdentifiers,
   normalizeAuditMetadata,
-  prismaAuditWriter,
+  writeNormalizedAuditEvent,
   type AuditEventInput,
 } from "../audit/service";
 import { loggedOauthErrorResponse } from "../oauth/error-response";
+import type { WeldallMachineActor } from "../oauth/machine-api";
 import {
   appHostRequestBody,
   appHostResource,
   appHostSubject,
   authenticateAppHost,
-  isUniqueViolation,
-  noStore,
-  type AppHostCaller,
   type AppHostResource,
 } from "./caller";
 import { appHostAuditEventRequestSchema } from "./contract";
@@ -43,21 +41,28 @@ import { appHostAuditEventRequestSchema } from "./contract";
 
 type Report = z.output<typeof appHostAuditEventRequestSchema>;
 
+const noStore = { "cache-control": "no-store", pragma: "no-cache" } as const;
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
 export async function appHostReportAuditEvent(request: Request): Promise<Response> {
   const identifiers = auditRequestIdentifiers(request);
   try {
-    const caller = await authenticateAppHost(request);
+    const machine = await authenticateAppHost(request);
     const report = await appHostRequestBody(request, appHostAuditEventRequestSchema);
-    const resource = await appHostResource(caller, report.resource);
-    const event = await auditEntry(caller, resource, report, identifiers);
+    const resource = await appHostResource(machine, report.resource);
+    const event = await auditEntry(machine, resource, report, identifiers);
+    let metadata: unknown;
     try {
-      normalizeAuditMetadata(event.eventType, event.metadata);
+      metadata = normalizeAuditMetadata(event.eventType, event.metadata);
     } catch {
       throw new WeldallAuthError("invalid_request", "the event does not fit its audit schema");
     }
     let duplicate = false;
     try {
-      await prismaAuditWriter.write(event);
+      await writeNormalizedAuditEvent(event, metadata);
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
       duplicate = true;
@@ -66,7 +71,7 @@ export async function appHostReportAuditEvent(request: Request): Promise<Respons
       where: { deduplicationKey: event.deduplicationKey! },
     });
     if (!stored) throw new Error("Reported audit event was not stored.");
-    if (duplicate && !sameEntry(stored, event))
+    if (duplicate && !sameEntry(stored, event, metadata))
       throw new WeldallAuthError(
         "event_id_conflict",
         "a different event was already reported under this eventId",
@@ -88,7 +93,7 @@ export async function appHostReportAuditEvent(request: Request): Promise<Respons
 }
 
 async function auditEntry(
-  caller: AppHostCaller,
+  machine: WeldallMachineActor,
   resource: AppHostResource,
   report: Report,
   identifiers: ReturnType<typeof auditRequestIdentifiers>,
@@ -119,8 +124,8 @@ async function auditEntry(
     eventType: report.eventType,
     ...(person
       ? { actorType: "user" as const, actorId: person.id, actorEmail: person.email }
-      : { actorType: "machine" as const, actorId: caller.machine.clientId }),
-    clientId: caller.machine.clientId,
+      : { actorType: "machine" as const, actorId: machine.clientId }),
+    clientId: machine.clientId,
     ...identifiers,
     deduplicationKey: `app-host:${resource.id}:${report.eventId}`,
     outcome,
@@ -137,7 +142,10 @@ async function auditEntry(
   };
 }
 
-/** Whether a stored entry records the same event as a repeated report (request ids aside). */
+/**
+ * Whether a stored entry records the same event as a repeated report (request ids aside);
+ * `metadata` is the report's metadata as normalised for storage.
+ */
 function sameEntry(
   stored: {
     eventType: string;
@@ -150,6 +158,7 @@ function sameEntry(
     metadata: unknown;
   },
   event: AuditEventInput,
+  metadata: unknown,
 ): boolean {
   return (
     stored.eventType === event.eventType &&
@@ -159,6 +168,6 @@ function sameEntry(
     stored.reasonCode === (event.reasonCode ?? null) &&
     stored.subjectType === (event.subjectType ?? null) &&
     stored.subjectId === (event.subjectId ?? null) &&
-    isDeepStrictEqual(stored.metadata, normalizeAuditMetadata(event.eventType, event.metadata))
+    isDeepStrictEqual(stored.metadata, metadata)
   );
 }

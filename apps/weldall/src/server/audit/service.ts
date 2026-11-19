@@ -432,28 +432,51 @@ export function normalizeAuditMetadata(eventType: AuditEventType, metadata: unkn
 export const prismaAuditWriter: AuditWriter = {
   async write(input, transaction) {
     const event = auditInputSchema.parse(input);
-    const metadata = normalizeAuditMetadata(event.eventType, event.metadata);
-    const client = transaction ?? db;
-    await client.auditEvent.create({
-      data: {
-        schemaVersion: AUDIT_SCHEMA_VERSION,
-        eventType: event.eventType,
-        actorType: event.actorType,
-        actorId: event.actorId,
-        ...(event.actorEmail ? { actorEmail: event.actorEmail.trim().toLowerCase() } : {}),
-        ...(event.clientId ? { clientId: event.clientId } : {}),
-        requestId: event.requestId,
-        ...(event.correlationId ? { correlationId: event.correlationId } : {}),
-        ...(event.deduplicationKey ? { deduplicationKey: event.deduplicationKey } : {}),
-        outcome: event.outcome,
-        ...(event.reasonCode ? { reasonCode: event.reasonCode } : {}),
-        ...(event.subjectType ? { subjectType: event.subjectType } : {}),
-        ...(event.subjectId ? { subjectId: event.subjectId } : {}),
-        metadata: metadata as Prisma.InputJsonObject,
-      },
-    });
+    await createAuditEvent(
+      event,
+      normalizeAuditMetadata(event.eventType, event.metadata),
+      transaction,
+    );
   },
 };
+
+/**
+ * Stores `input` like {@link prismaAuditWriter}, for a caller that has already normalised its
+ * metadata with {@link normalizeAuditMetadata}: `metadata` is stored as given.
+ */
+export async function writeNormalizedAuditEvent(
+  input: AuditEventInput,
+  metadata: unknown,
+  transaction?: Prisma.TransactionClient,
+): Promise<void> {
+  await createAuditEvent(auditInputSchema.parse(input), metadata, transaction);
+}
+
+async function createAuditEvent(
+  event: z.output<typeof auditInputSchema>,
+  metadata: unknown,
+  transaction?: Prisma.TransactionClient,
+): Promise<void> {
+  const client = transaction ?? db;
+  await client.auditEvent.create({
+    data: {
+      schemaVersion: AUDIT_SCHEMA_VERSION,
+      eventType: event.eventType,
+      actorType: event.actorType,
+      actorId: event.actorId,
+      ...(event.actorEmail ? { actorEmail: event.actorEmail.trim().toLowerCase() } : {}),
+      ...(event.clientId ? { clientId: event.clientId } : {}),
+      requestId: event.requestId,
+      ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+      ...(event.deduplicationKey ? { deduplicationKey: event.deduplicationKey } : {}),
+      outcome: event.outcome,
+      ...(event.reasonCode ? { reasonCode: event.reasonCode } : {}),
+      ...(event.subjectType ? { subjectType: event.subjectType } : {}),
+      ...(event.subjectId ? { subjectId: event.subjectId } : {}),
+      metadata: metadata as Prisma.InputJsonObject,
+    },
+  });
+}
 
 export async function listAuditEvents(input: {
   page: number;
