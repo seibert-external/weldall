@@ -3,35 +3,60 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cli } from "gunshi";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { generateEs256KeyPair, type ResourceRegistryEntry } from "@weldall/sdk";
+import type { WeldallConfig } from "../src/config.js";
 
 /**
- * Cross-version: this CLI against a Weldall server released before Git hosts. Such a server has
- * no `/api/me/apps`, `/api/me/git-credentials` or connector check route and answers them with
- * Next's HTML 404 page. Each new command must say so clearly, with a stable code and exit code,
- * and change nothing locally.
+ * Cross-version: this CLI against a Weldall server released before Git apps (it has the resource
+ * registry, but no Git app is registered and there is no `/api/me/apps`, which it answers with
+ * Next's HTML 404 page), and against a current server where no Git app is registered. Each
+ * command must say so clearly, with a stable code and exit code, ask no token for anything, and
+ * change nothing locally. The real direct code runs; only the login and `fetch` are stand-ins.
  */
 const ISSUER = "https://weldall.example.com";
-const mocks = vi.hoisted(() => ({
-  paths: [] as string[],
-}));
-const olderServer = async ({ path }: { path: string }) => {
-  mocks.paths.push(path);
-  return { status: 404, body: "<!DOCTYPE html><title>404: This page could not be found.</title>" };
+const config: WeldallConfig = {
+  issuer: ISSUER,
+  resource: `${ISSUER}/api`,
+  authorize: `${ISSUER}/api/auth/oauth2/authorize`,
+  token: `${ISSUER}/api/auth/oauth2/token`,
+  revoke: `${ISSUER}/api/auth/oauth2/revoke`,
+  jwks: `${ISSUER}/api/oauth/jwks`,
+  cli: `${ISSUER}/api/me/cli`,
+  grants: `${ISSUER}/api/me/grants`,
+  scopes: `${ISSUER}/api/me/scopes`,
+  skills: `${ISSUER}/api/me/skills`,
+  userInfo: `${ISSUER}/api/auth/oauth2/userinfo`,
 };
+const mocks = vi.hoisted(() => ({
+  urls: [] as string[],
+  session: null as unknown,
+  registry: [] as unknown[],
+}));
 vi.mock("../src/config.js", async (original) => ({
   ...(await original<typeof import("../src/config.js")>()),
-  resolveWeldallConfig: vi.fn(async () => ({ issuer: ISSUER })),
+  resolveWeldallConfig: vi.fn(async () => config),
 }));
-vi.mock("../src/publish/weldall-api.js", async (original) => {
-  const actual = await original<typeof import("../src/publish/weldall-api.js")>();
-  return { ...actual, directPublishApi: () => actual.createPublishApi(ISSUER, olderServer) };
-});
-vi.mock("../src/connector-check.js", async (original) => ({
-  ...(await original<typeof import("../src/connector-check.js")>()),
-  directConnectorCheckSend: () => async (path: string) => olderServer({ path }),
+vi.mock("../src/services/session-manager.js", async (original) => ({
+  ...(await original<typeof import("../src/services/session-manager.js")>()),
+  SessionManager: class {
+    async getAccessSession() {
+      return mocks.session;
+    }
+  },
 }));
 import { appCommand, connectorsCommand, mainCommand } from "../src/commands.js";
+
+const expenses: ResourceRegistryEntry = {
+  key: "expenses",
+  name: "Expenses",
+  resourceIdentifier: "https://expenses.example.com/api",
+  authorizationServer: "https://expenses.example.com",
+  downstreamClientId: "weldall-cli-at-expenses",
+  requestPrefixes: ["https://expenses.example.com/api"],
+  supportedScopes: ["expenses:read"],
+  grantedScopes: ["expenses:read"],
+};
 
 async function run(argv: string[]) {
   const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -59,7 +84,32 @@ const git = (cwd: string, args: string[]) =>
   }).trim();
 
 let folder: string;
+beforeAll(async () => {
+  mocks.session = {
+    accessToken: "weldall-token",
+    subject: "user-1",
+    expiresAt: Math.floor(Date.now() / 1000) + 600,
+    credentials: {
+      version: 2,
+      issuer: ISSUER,
+      ...(await generateEs256KeyPair()),
+      refreshToken: "r",
+    },
+  };
+});
 beforeEach(async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      mocks.urls.push(url);
+      if (url === config.scopes) return Response.json(mocks.registry);
+      return new Response("<!DOCTYPE html><title>404: This page could not be found.</title>", {
+        status: 404,
+        headers: { "content-type": "text/html" },
+      });
+    }),
+  );
   folder = await mkdtemp(join(tmpdir(), "weldall-older-server-"));
   git(folder, ["init", "-q", "-b", "main"]);
   await writeFile(join(folder, "README.md"), "# Template\n");
@@ -70,13 +120,21 @@ beforeEach(async () => {
   await writeFile(join(folder, "app.ts"), "export const app = 1;\n");
 });
 afterEach(async () => {
-  mocks.paths.length = 0;
+  mocks.urls.length = 0;
   process.exitCode = undefined;
+  vi.unstubAllGlobals();
   await rm(folder, { recursive: true, force: true });
 });
 
-describe("this CLI against a server without Git hosts", () => {
-  it("app publish fails with server_unsupported and leaves the folder as it was", async () => {
+describe.each([
+  ["an older server (no Git app, no app registry)", []],
+  ["a current server without a registered Git app", [expenses]],
+])("this CLI against %s", (_case, registry) => {
+  beforeEach(() => {
+    mocks.registry = registry;
+  });
+
+  it("app publish fails with no_git_app, asks for no token and leaves the folder as it was", async () => {
     const head = git(folder, ["rev-parse", "HEAD"]);
     const before = git(folder, ["status", "--porcelain"]);
     const result = await run([
@@ -90,14 +148,14 @@ describe("this CLI against a server without Git hosts", () => {
     expect(result).toEqual({
       outcome: "error",
       error: expect.objectContaining({
-        code: "server_unsupported",
-        message: expect.stringContaining("this Weldall server cannot publish apps"),
-        hint: expect.stringContaining("update the server"),
+        code: "no_git_app",
+        message: expect.stringContaining("No Git app is registered in Weldall"),
+        hint: expect.stringContaining("Weldall administrator"),
       }),
     });
     expect(process.exitCode).toBe(1);
-    expect(mocks.paths).toEqual(["apps"]);
-    // Nothing was committed, recorded or configured: the folder can publish after an upgrade.
+    expect(mocks.urls).toEqual([config.scopes]);
+    // Nothing was committed, recorded or configured: the folder can publish once one exists.
     expect(git(folder, ["rev-parse", "HEAD"])).toBe(head);
     expect(git(folder, ["status", "--porcelain"])).toBe(before);
     expect(git(folder, ["for-each-ref", "refs/weldall"])).toBe("");
@@ -107,9 +165,41 @@ describe("this CLI against a server without Git hosts", () => {
     expect(git(folder, ["remote"])).toBe("");
   });
 
-  it("app status fails with server_unsupported", async () => {
+  it("app checklist fails with no_git_app", async () => {
+    const result = await run(["app", "checklist", "--json"]);
+    expect(result).toMatchObject({
+      outcome: "error",
+      error: { code: "no_git_app", message: expect.stringContaining("check a Git host") },
+    });
+    expect(process.exitCode).toBe(1);
+    expect(mocks.urls).toEqual([config.scopes]);
+  });
+
+  it("app publish with --git-app names what Weldall lists instead", async () => {
+    const result = await run([
+      "app",
+      "publish",
+      `--dir=${folder}`,
+      "--git-app=git-app",
+      "--name=expenses",
+      "--purpose=Track expenses",
+      "--json",
+    ]);
+    expect(result).toMatchObject({ outcome: "error", error: { code: "git_app_unknown" } });
+  });
+});
+
+describe("this CLI against an older server", () => {
+  beforeEach(() => {
+    mocks.registry = [];
+  });
+
+  it("app status of an app id says that the server has no app registry", async () => {
     const result = await run(["app", "status", "--app=app1", "--json"]);
-    expect(result).toMatchObject({ outcome: "error", error: { code: "server_unsupported" } });
+    expect(result).toMatchObject({
+      outcome: "error",
+      error: { code: "server_unsupported", message: expect.stringContaining("no app registry") },
+    });
     expect(process.exitCode).toBe(1);
   });
 
@@ -129,18 +219,11 @@ describe("this CLI against a server without Git hosts", () => {
       });
       expect(process.exitCode).toBe(1);
     }
-    expect(mocks.paths).toEqual(["apps", "apps/app1/confirm"]);
+    expect(mocks.urls).toEqual([`${ISSUER}/api/me/apps`, `${ISSUER}/api/me/apps/app1/confirm`]);
   });
 
-  it("connectors check explains that the server cannot check connectors", async () => {
-    const result = await run(["connectors", "check", "github", "--json"]);
-    expect(result).toEqual({
-      outcome: "error",
-      error: {
-        message: "This Weldall server cannot check connectors.",
-        hint: expect.stringContaining("update the server"),
-      },
-    });
-    expect(process.exitCode).toBe(1);
+  it("has no connectors check any more; the checklist moved to the Git app", () => {
+    expect(connectorsCommand.subCommands).toBeUndefined();
+    expect(Object.keys(appCommand.subCommands ?? {})).toContain("checklist");
   });
 });

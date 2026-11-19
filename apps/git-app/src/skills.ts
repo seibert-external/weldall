@@ -10,10 +10,15 @@ import { GITHUB_PROTECTED_PATHS } from "./hosts/github/host.js";
  * scopes in `requiredScopes`.
  *
  * The publish skill describes the CLI's `weldall app …` commands and the client tools of the same
- * workflow, never this instance's URLs: the CLI still reaches Weldall's in-server endpoints and is
- * switched to this instance in a later step. The checklist has no dedicated command, so its skill
- * uses `weldall request` against this instance's registered resource.
+ * workflow, never this instance's URLs: the CLI finds this instance in Weldall's resource registry
+ * by its scope `git-app:publish`. The checklist skill uses `weldall app checklist`, which finds the
+ * instance by `git-app:admin`; an instance configured with other scope names is not found by the
+ * CLI's app commands, so its checklist skill falls back to `weldall request` against this
+ * instance's registered resource.
  */
+
+/** The scope names the CLI's `weldall app` commands recognise a Git app by. */
+export const CLI_SCOPES = { publish: "git-app:publish", admin: "git-app:admin" } as const;
 export function gitAppSkills(
   config: Pick<GitAppConfig, "host" | "publicOrigin" | "scopes">,
 ): PublishedSkill[] {
@@ -74,6 +79,8 @@ weldall app status --json
 
 The first publish also needs ${code("--name")} and ${code("--purpose")}. Ask the user for both; do not invent them. ${code("--title")} and ${code("--body")} set the pull request's title and description.
 
+When the organisation runs several Git apps (for example one per Git host), the first publish stops with ${code("git_app_ambiguous")} and names them. Ask the user where the app belongs and publish again with ${code("--git-app <key>")} (the tool's ${code("gitApp")}); this Git app's key is the part of this skill's id before ${code(".publish-app")}. Later publishes keep the Git app the folder recorded.
+
 ${code("weldall app sync --json")} brings the repository's current state into the folder and publishes nothing, for example after the reviewer merged a change.
 
 Never push, pull or fetch the app's repository with plain git or another tool, never add a remote for it, and never run ${code("weldall git-credential")} yourself.
@@ -85,6 +92,8 @@ Never push, pull or fetch the app's repository with plain git or another tool, n
 - ${code("refused")}: nothing was published. Name the refused files and the reason. Remove a file or add it to ${code(".gitignore")} only when the user agrees.
 - ${code("pull_request_not_opened")}: the change was sent, but the reviewer cannot see it yet. Say so; publishing again opens the pull request without sending the change again.
 - Interrupted, timed out or ${code("publish_interrupted")}: do not publish again on your own. Read the status and tell the user what reached the pull request.
+- ${code("no_git_app")} or ${code("scope_missing")}: publishing is not set up for the user; they ask their Weldall administrator.
+- ${code("remote_untrusted")} or ${code("unsafe_git_config")}: the folder's git settings point somewhere Weldall does not list. Tell the user; never change the folder's git settings yourself.
 
 Never get around a refusal, a conflict or an error by other means.
 
@@ -114,6 +123,8 @@ function checklistContent(
 ): string {
   // The route is fixed under /api, whatever resource identifier the instance is registered with.
   const url = `${config.publicOrigin}/api/admin/checklist`;
+  const cliFindsInstance =
+    config.scopes.publish === CLI_SCOPES.publish && config.scopes.admin === CLI_SCOPES.admin;
   const forgejoCaveat =
     config.host.kind === "forgejo"
       ? `
@@ -122,15 +133,21 @@ function checklistContent(
 Unlike GitHub, Forgejo accepts a push that changes a workflow file, and Forgejo Actions runs the workflow definitions of the pushed branch before any review, with the Actions secrets the repository can reach. Publishing keeps ${host.protectedPaths.map(code).join(", ")} from the repository, but nothing stops someone who may publish from pushing a workflow of their own by hand. When the ${code("actions-workflows")} check does not pass, tell the administrator to switch Actions off for the app repositories or to keep deployment credentials out of the Actions secrets those repositories can reach.
 `
       : "";
-  return `# Check the ${host.name} set-up for publishing apps
+  const run = cliFindsInstance
+    ? `\`\`\`sh
+weldall app checklist --json
+\`\`\`
 
-Use this skill when an administrator asks whether publishing apps to the organisation's ${host.name} is set up correctly, or why publishing fails for everyone. It runs the set-up checklist of this Git app: whether its access to ${host.name} works, the organisation, the templates, the reviewer team and its write access, the default-branch rule and the commit identity.
+When Weldall lists several Git apps, the command stops with ${code("git_app_ambiguous")}: add ${code("--git-app <key>")} with this Git app's key, the part of this skill's id before ${code(".admin-checklist")}.
 
-The checklist is read-only on ${host.name}. Every run is recorded in Weldall's audit log, because it uses the Git app's access to ${host.name}. Run it only when the administrator asks for it.
-
-## Run the checklist
+Some checks, such as the reviewer team's write access and the default-branch rule, need an existing repository. To include them, add the id of a published app of this organisation, which the administrator finds in Weldall's app registry:
 
 \`\`\`sh
+weldall app checklist --app <app-id> --json
+\`\`\`
+
+Replace ${code("<app-id>")} with an id the administrator confirmed; never run the command with the placeholder. Without an app, those checks report ${code("unverifiable")}. The command exits with code 3 when a required check failed.`
+    : `\`\`\`sh
 weldall request --scope ${config.scopes.admin} ${url}
 \`\`\`
 
@@ -140,11 +157,20 @@ Some checks, such as the reviewer team's write access and the default-branch rul
 weldall request --scope ${config.scopes.admin} '${url}?app=<app-id>'
 \`\`\`
 
-Replace ${code("<app-id>")} with an id the administrator confirmed; never run the command with the placeholder. Without an app, those checks report ${code("unverifiable")}.
+Replace ${code("<app-id>")} with an id the administrator confirmed; never run the command with the placeholder. Without an app, those checks report ${code("unverifiable")}.`;
+  return `# Check the ${host.name} set-up for publishing apps
+
+Use this skill when an administrator asks whether publishing apps to the organisation's ${host.name} is set up correctly, or why publishing fails for everyone. It runs the set-up checklist of this Git app: whether its access to ${host.name} works, the organisation, the templates, the reviewer team and its write access, the default-branch rule and the commit identity.
+
+The checklist is read-only on ${host.name}. Every run is recorded in Weldall's audit log, because it uses the Git app's access to ${host.name}. Run it only when the administrator asks for it.
+
+## Run the checklist
+
+${run}
 
 ## Read the result
 
-The response is ${code("{ host, repository, checks, summary }")}. Each check is ${code("{ id, title, state, required, reason, action }")} with ${code("state")} ${code("pass")}, ${code("fail")} or ${code("unverifiable")}; ${code("required: false")} marks a recommendation whose failure does not stop publishing.
+The response is ${code(cliFindsInstance ? "{ gitApp, host, repository, checks, summary }" : "{ host, repository, checks, summary }")}. Each check is ${code("{ id, title, state, required, reason, action }")} with ${code("state")} ${code("pass")}, ${code("fail")} or ${code("unverifiable")}; ${code("required: false")} marks a recommendation whose failure does not stop publishing.
 
 Show the checks as a table, failed required checks first, with the ${code("reason")} and the ${code("action")} word for word. The actions are for the administrator or for the ${host.name} organisation's owner. Do not change ${host.name} settings, teams, rules or secrets yourself, and do not retry with another scope or URL when the request is refused.
 ${forgejoCaveat}`;

@@ -75,7 +75,7 @@ import { keychain } from "./storage/keychain.js";
 import { issuerPreferences } from "./storage/preferences.js";
 import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transfers.js";
 import { runGitCredentialHelper } from "./git/credential-helper.js";
-import { directWeldallAccess } from "./git/weldall-access.js";
+import { directOpenGitApp, directWeldallAccess } from "./git/weldall-access.js";
 import { publishApp, type PublishOptions } from "./publish/publish.js";
 import { readAppStatus } from "./publish/status.js";
 import { confirmMyApp, listMyApps, type AppListReport } from "./publish/registry.js";
@@ -89,14 +89,13 @@ import {
   PUBLISH_EXIT_CODES,
   publishJson,
 } from "./publish/report.js";
-import { directPublishApi } from "./publish/weldall-api.js";
+import { directRegistryApi } from "./publish/weldall-api.js";
 import {
-  CONNECTOR_CHECK_FAILED_EXIT_CODE,
-  directConnectorCheckSend,
-  formatConnectorCheck,
-  readConnectorCheck,
+  CHECKLIST_FAILED_EXIT_CODE,
+  formatChecklist,
+  readChecklist,
   requiredCheckFailed,
-} from "./connector-check.js";
+} from "./publish/checklist.js";
 
 const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
@@ -1066,47 +1065,6 @@ const connectionsListCommand = define({
     printConnections({ asJson: context.values.json, asAgentic: context.values.agentic }),
 });
 
-const connectorCheckCommand = define({
-  name: "check",
-  description:
-    "Administrators: check a Git host connector against the live host (App, installation, permissions, templates, reviewer team, branch rule); changes nothing",
-  args: {
-    connector: {
-      type: "positional",
-      required: true,
-      description: "Connector key, as in the IaC manifest",
-    },
-    json: jsonArgument,
-  },
-  examples:
-    "weldall connectors check github\nweldall connectors check github --json\n" +
-    `Exits with ${CONNECTOR_CHECK_FAILED_EXIT_CODE} when a required check failed.`,
-  run: async ({ values }) => {
-    try {
-      const report = await readConnectorCheck({
-        connector: values.connector,
-        send: directConnectorCheckSend(await resolveWeldallConfig()),
-      });
-      if (values.json) console.log(JSON.stringify(report, null, 2));
-      else console.log(formatConnectorCheck(report));
-      if (requiredCheckFailed(report)) process.exitCode = CONNECTOR_CHECK_FAILED_EXIT_CODE;
-    } catch (error) {
-      if (!values.json || !(error instanceof CliError)) throw error;
-      console.log(
-        JSON.stringify(
-          {
-            outcome: "error",
-            error: { message: error.message, ...(error.hint ? { hint: error.hint } : {}) },
-          },
-          null,
-          2,
-        ),
-      );
-      process.exitCode = error.exitCode;
-    }
-  },
-});
-
 export const connectorsCommand = define({
   name: "connectors",
   description: "Discover connectors, their permissions, and how to make provider requests",
@@ -1116,9 +1074,7 @@ export const connectorsCommand = define({
     "weldall connections connect <connector-key> --name <connection-name>\n" +
     "weldall request --connection <connection-name> <provider-https-url>\n" +
     "weldall connectors --json\n" +
-    "weldall connectors --agentic\n" +
-    "weldall connectors check <connector-key>",
-  subCommands: { check: connectorCheckCommand },
+    "weldall connectors --agentic",
   run: async (context) => {
     assertExclusiveOutputFlags({ json: context.values.json, agentic: context.values.agentic });
     const config = await resolveWeldallConfig();
@@ -1423,7 +1379,8 @@ export const configCommand = define({
 
 export const gitCredentialCommand = define({
   name: "git-credential",
-  description: "Git credential helper for Weldall's git proxy; git runs it, not people",
+  description:
+    "Git credential helper for the git route of a Git app registered in Weldall; git runs it, not people",
   args: {
     operation: {
       type: "positional",
@@ -1432,7 +1389,7 @@ export const gitCredentialCommand = define({
     },
   },
   examples:
-    "git config credential.https://weldall.example.com/git/.helper '!weldall git-credential'",
+    "git config credential.https://git-app.example.com/git/.helper '!weldall git-credential'",
   // stdout belongs to git's credential protocol: no Ink output, no colors, no notices.
   run: (context) =>
     runGitCredentialHelper({
@@ -1443,6 +1400,12 @@ export const gitCredentialCommand = define({
       environment: process.env,
       weldall: directWeldallAccess(),
     }),
+});
+
+const gitAppArgument = (description: string) => ({
+  type: "string" as const,
+  toKebab: true as const,
+  description,
 });
 
 const publishFolderArguments = {
@@ -1468,14 +1431,14 @@ const publishFolderArguments = {
 /** Runs publish or sync and prints the result; with --json also errors become JSON on stdout. */
 async function runPublishCommand(
   values: { dir?: string | undefined; json?: boolean | undefined; decide?: string[] | undefined },
-  options: Omit<PublishOptions, "directory" | "api" | "decisions">,
+  options: Omit<PublishOptions, "directory" | "gitApps" | "decisions">,
 ) {
   try {
     const result = await publishApp({
       ...options,
       directory: values.dir ?? process.cwd(),
       decisions: parseDecisions(values.decide),
-      api: directPublishApi(await resolveWeldallConfig()),
+      gitApps: directOpenGitApp(await resolveWeldallConfig()),
     });
     if (values.json) console.log(publishJson(result));
     else printPublishResult(result);
@@ -1500,10 +1463,9 @@ const appPublishCommand = define({
       type: "string",
       description: "Template name, when the folder does not record it in `weldall.template`",
     },
-    connector: {
-      type: "string",
-      description: "Git host connector key, when more than one is available (first publish only)",
-    },
+    gitApp: gitAppArgument(
+      "Resource key of the Git app to publish to, when Weldall lists more than one (first publish only)",
+    ),
     title: { type: "string", description: "Pull request title" },
     body: { type: "string", description: "Pull request description" },
   },
@@ -1511,7 +1473,8 @@ const appPublishCommand = define({
     'weldall app publish --name expenses --purpose "Track team expenses" --json\n' +
     "weldall app publish --title 'Add receipt upload' --json\n" +
     "weldall app publish --resolve --json\n" +
-    "weldall app publish --decide src/total.ts=folder --decide logo.png=repo --json",
+    "weldall app publish --decide src/total.ts=folder --decide logo.png=repo --json\n" +
+    'weldall app publish --git-app git-app-forgejo --name expenses --purpose "Track team expenses" --json',
   run: ({ values }) =>
     runPublishCommand(values, {
       resolve: values.resolve ?? false,
@@ -1519,7 +1482,7 @@ const appPublishCommand = define({
         ...(values.name === undefined ? {} : { name: values.name }),
         ...(values.purpose === undefined ? {} : { purpose: values.purpose }),
         ...(values.template === undefined ? {} : { template: values.template }),
-        ...(values.connector === undefined ? {} : { connector: values.connector }),
+        ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
       },
       pullRequest: {
         ...(values.title === undefined ? {} : { title: values.title }),
@@ -1545,15 +1508,21 @@ const appStatusCommand = define({
   args: {
     dir: publishFolderArguments.dir,
     app: { type: "string", description: "App id; reads that app instead of the folder's" },
+    gitApp: gitAppArgument(
+      "With --app: resource key of the Git app that keeps it; by default Weldall's app registry names it",
+    ),
     json: jsonArgument,
   },
   examples: "weldall app status --json\nweldall app status --app cm123 --json",
   run: async ({ values }) => {
     try {
+      const config = await resolveWeldallConfig();
       const status = await readAppStatus({
         directory: values.dir ?? process.cwd(),
         ...(values.app === undefined ? {} : { appId: values.app }),
-        api: directPublishApi(await resolveWeldallConfig()),
+        ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
+        gitApps: directOpenGitApp(config),
+        registry: directRegistryApi(config),
       });
       if (values.json) console.log(publishJson(status));
       else printAppStatus(status);
@@ -1570,11 +1539,13 @@ async function runAppJsonCommand<T>(
   json: boolean | undefined,
   operation: () => Promise<T>,
   print: (value: T) => void,
+  after?: (value: T) => void,
 ) {
   try {
     const value = await operation();
-    if (json) console.log(publishJson(value as Parameters<typeof publishJson>[0]));
+    if (json) console.log(JSON.stringify(value, null, 2));
     else print(value);
+    after?.(value);
   } catch (error) {
     if (!json || !(error instanceof CliError)) throw error;
     console.log(publishJson(error));
@@ -1632,7 +1603,7 @@ const appListCommand = define({
   run: ({ values }) =>
     runAppJsonCommand(
       values.json,
-      async () => listMyApps(directPublishApi(await resolveWeldallConfig())),
+      async () => listMyApps(directRegistryApi(await resolveWeldallConfig())),
       printAppList,
     ),
 });
@@ -1658,9 +1629,42 @@ const appConfirmCommand = define({
         confirmMyApp({
           directory: values.dir ?? process.cwd(),
           ...(values.app === undefined ? {} : { appId: values.app }),
-          api: directPublishApi(await resolveWeldallConfig()),
+          api: directRegistryApi(await resolveWeldallConfig()),
         }),
       printAppConfirmed,
+    ),
+});
+
+const appChecklistCommand = define({
+  name: "checklist",
+  description:
+    "Administrators: run a Git app's set-up checklist against its Git host (access, organisation, templates, reviewer team, branch rule, commit identity); changes nothing",
+  args: {
+    gitApp: gitAppArgument(
+      "Resource key of the Git app to check, when Weldall lists more than one for you",
+    ),
+    app: {
+      type: "string",
+      description: "Id of a published app of this Git app, for the checks that need a repository",
+    },
+    json: jsonArgument,
+  },
+  examples:
+    "weldall app checklist\nweldall app checklist --git-app git-app-github --app cm123 --json\n" +
+    `Exits with ${CHECKLIST_FAILED_EXIT_CODE} when a required check failed.`,
+  run: ({ values }) =>
+    runAppJsonCommand(
+      values.json,
+      async () =>
+        readChecklist({
+          gitApps: directOpenGitApp(await resolveWeldallConfig()),
+          gitApp: values.gitApp,
+          appId: values.app,
+        }),
+      (report) => console.log(formatChecklist(report)),
+      (report) => {
+        if (requiredCheckFailed(report)) process.exitCode = CHECKLIST_FAILED_EXIT_CODE;
+      },
     ),
 });
 
@@ -1673,10 +1677,11 @@ export const appCommand = define({
     status: appStatusCommand,
     list: appListCommand,
     confirm: appConfirmCommand,
+    checklist: appChecklistCommand,
   },
   run: () =>
     info(
-      "Run `weldall app publish --help`, `weldall app sync --help`, `weldall app status --help`, `weldall app list --help` or `weldall app confirm --help`.",
+      "Run `weldall app publish --help`, `weldall app sync --help`, `weldall app status --help`, `weldall app list --help`, `weldall app confirm --help` or `weldall app checklist --help`.",
     ),
 });
 

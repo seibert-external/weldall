@@ -13,7 +13,30 @@ import { readAppStatus } from "../src/publish/status.js";
 import { confirmMyApp, listMyApps } from "../src/publish/registry.js";
 import { parseDecisions, publishJson } from "../src/publish/report.js";
 import { PublishError } from "../src/publish/errors.js";
-import { createPublishApi } from "../src/publish/weldall-api.js";
+import { createRegistryApi } from "../src/publish/weldall-api.js";
+import { createGitAppApi } from "../src/publish/git-app-api.js";
+import type { GitAppAnswer, GitAppRequest, OpenGitApp } from "../src/git/git-apps.js";
+
+const gitApp = {
+  key: "git-app",
+  name: "Git app",
+  origin: "https://git-app.example.com",
+  resource: {
+    key: "git-app",
+    name: "Git app",
+    resourceIdentifier: "https://git-app.example.com/api",
+    authorizationServer: "https://git-app.example.com",
+    downstreamClientId: "weldall-cli-at-git-app",
+    requestPrefixes: ["https://git-app.example.com/api"],
+    supportedScopes: ["git-app:publish"],
+    grantedScopes: ["git-app:publish"],
+  },
+};
+const gitAppApi = (send: (request: GitAppRequest) => Promise<GitAppAnswer>) =>
+  createGitAppApi({ gitApp, send });
+const notOpened: OpenGitApp = async () => {
+  throw new Error("not called");
+};
 
 const tree = "a".repeat(40);
 const blob = (n: number) => String(n).repeat(40).slice(0, 40);
@@ -235,12 +258,14 @@ describe("publish interface", () => {
   });
 
   it("names a missing folder instead of reporting git as missing", async () => {
-    const api = createPublishApi("https://weldall.example.com", async () => {
+    const registry = createRegistryApi("https://weldall.example.com", async () => {
       throw new Error("not called");
     });
     const directory = "/nonexistent/weldall-app";
-    await expect(publishApp({ directory, api })).rejects.toMatchObject({ code: "folder_missing" });
-    await expect(readAppStatus({ directory, api })).rejects.toMatchObject({
+    await expect(publishApp({ directory, gitApps: notOpened })).rejects.toMatchObject({
+      code: "folder_missing",
+    });
+    await expect(readAppStatus({ directory, gitApps: notOpened, registry })).rejects.toMatchObject({
       code: "folder_missing",
     });
   });
@@ -265,22 +290,25 @@ describe("publish interface", () => {
     });
   });
 
-  it("fails clearly against an older server and keeps Weldall's error codes", async () => {
+  it("fails clearly against an older Git app and keeps the Git app's error codes", async () => {
     const answers = [
       { status: 404, body: "<html>Not Found</html>" },
       { status: 409, body: { error: "app_exists", error_description: "The app name is taken." } },
       { status: 401, body: { error: "invalid_token" } },
       { status: 200, body: { unexpected: true } },
     ];
-    const api = createPublishApi("https://weldall.example.com", async () => answers.shift()!);
+    const api = gitAppApi(async () => answers.shift()!);
     const input = { template: "react", name: "x", purpose: "y" };
-    await expect(api.createApp(input)).rejects.toMatchObject({ code: "server_unsupported" });
+    await expect(api.createApp(input)).rejects.toMatchObject({
+      code: "git_app_unsupported",
+      message: expect.stringContaining("https://git-app.example.com"),
+    });
     await expect(api.createApp(input)).rejects.toMatchObject({
       code: "app_exists",
       message: expect.stringContaining("The app name is taken."),
     });
     await expect(api.createApp(input)).rejects.toMatchObject({ code: "login" });
-    await expect(api.readStatus("app1")).rejects.toMatchObject({ code: "server_unsupported" });
+    await expect(api.readStatus("app1")).rejects.toMatchObject({ code: "git_app_unsupported" });
   });
 
   it("keeps reviews and checks of the status as data and refuses unknown states", async () => {
@@ -311,14 +339,14 @@ describe("publish interface", () => {
         },
       },
     ];
-    const api = createPublishApi("https://weldall.example.com", async () => answers.shift()!);
+    const api = gitAppApi(async () => answers.shift()!);
     expect((await api.readStatus("app1")).pullRequest).toEqual(pullRequest);
-    await expect(api.readStatus("app1")).rejects.toMatchObject({ code: "server_unsupported" });
+    await expect(api.readStatus("app1")).rejects.toMatchObject({ code: "git_app_unsupported" });
   });
 
   it("gives app creation more time than the usual request", async () => {
     const timeouts: number[] = [];
-    const api = createPublishApi("https://weldall.example.com", async ({ timeoutMs }) => {
+    const api = gitAppApi(async ({ timeoutMs }) => {
       timeouts.push(timeoutMs);
       throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
     });
@@ -330,6 +358,28 @@ describe("publish interface", () => {
     });
     expect(timeouts[0]).toBeGreaterThan(30_000);
   });
+
+  it("sends the Git app's paths below /api/, without a connector", async () => {
+    const requests: GitAppRequest[] = [];
+    const api = gitAppApi(async (request) => {
+      requests.push(request);
+      return { status: 404, body: { error: "not_found" } };
+    });
+    await api.createApp({ template: "react", name: "x", purpose: "y" }).catch(() => null);
+    await api.readStatus("app 1", "weldall/publish-1").catch(() => null);
+    await api.openPullRequest("app1", { head: "h", title: "t", body: "" }).catch(() => null);
+    await api.readChecklist("app1").catch(() => null);
+    expect(requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: "POST", path: "apps", body: { template: "react", name: "x", purpose: "y" } },
+      { method: "GET", path: "apps/app%201/status?branch=weldall%2Fpublish-1", body: undefined },
+      {
+        method: "POST",
+        path: "apps/app1/pull-requests",
+        body: { head: "h", title: "t", body: "" },
+      },
+      { method: "GET", path: "admin/checklist?app=app1", body: undefined },
+    ]);
+  });
 });
 
 describe("app registry", () => {
@@ -338,7 +388,8 @@ describe("app registry", () => {
     name: "expenses",
     purpose: "Track team expenses",
     repository: {
-      connector: "github",
+      connector: null,
+      resource: "git-app",
       owner: "acme",
       name: "app-expenses",
       webUrl: "https://github.example/acme/app-expenses",
@@ -357,7 +408,7 @@ describe("app registry", () => {
       { status: 200, body: { apps: [entry], reverificationDays: 90, expiringSoonDays: 14 } },
       { status: 200, body: { app: { ...entry, confirmedAt: "2026-11-18T09:00:00.000Z" } } },
     ];
-    const api = createPublishApi("https://weldall.example.com", async (request) => {
+    const api = createRegistryApi("https://weldall.example.com", async (request) => {
       requests.push(request);
       return answers.shift()!;
     });
@@ -396,7 +447,7 @@ describe("app registry", () => {
         },
       },
     ];
-    const api = createPublishApi("https://weldall.example.com", async () => answers.shift()!);
+    const api = createRegistryApi("https://weldall.example.com", async () => answers.shift()!);
     await expect(api.listApps()).rejects.toMatchObject({
       code: "server_unsupported",
       message: "Listing your apps: this Weldall server has no app registry.",
@@ -411,7 +462,7 @@ describe("app registry", () => {
   });
 
   it("confirms the folder's app only when the folder was published", async () => {
-    const api = createPublishApi("https://weldall.example.com", async () => {
+    const api = createRegistryApi("https://weldall.example.com", async () => {
       throw new Error("not called");
     });
     await expect(

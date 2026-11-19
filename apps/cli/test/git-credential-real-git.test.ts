@@ -13,14 +13,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { configureGitProxyRepository, gitProxyEnvironment } from "../src/git/repository-setup.js";
 
 /**
- * Real `/usr/bin/git` against an imitation of the git proxy: HTTPS on 127.0.0.1 that answers the
- * first request with a Basic challenge and accepts only credentials the fake Weldall credential
- * endpoint issued, in front of `git http-backend` on a temporary bare repository. Git reaches the
- * helper through the configuration `configureGitProxyRepository` writes.
+ * Real `/usr/bin/git` against an imitation of a Git app's git route: HTTPS on 127.0.0.1 that
+ * answers the first request with a Basic challenge and accepts only credentials the fake Git app's
+ * credential endpoint issued, in front of `git http-backend` on a temporary bare repository. The
+ * Git app is registered in a fake Weldall registry; git reaches the helper through the
+ * configuration `configureGitProxyRepository` writes.
  */
 
 const GIT = "/usr/bin/git";
-const CONNECTOR_PATH = "/git/github";
+const GIT_PATH = "/git";
 
 function unavailableReason(): string | null {
   if (!existsSync(GIT)) return `${GIT} not found`;
@@ -63,9 +64,10 @@ describe.skipIf(reason !== null)(
     let bare: string;
     let traceFile: string;
     let decoyMarker: string;
-    let issuer: string;
+    let origin: string;
     let remoteUrl: string;
-    let endpoint: string;
+    let base: string;
+    let registered = true;
     let pathEnvironment: string;
     const servers: Server[] = [];
     const issued = new Set<string>();
@@ -88,8 +90,9 @@ describe.skipIf(reason !== null)(
             GIT_AUTHOR_EMAIL: "test@example.com",
             GIT_COMMITTER_NAME: "Test",
             GIT_COMMITTER_EMAIL: "test@example.com",
-            WELDALL_TEST_ISSUER: issuer,
-            WELDALL_TEST_CREDENTIAL_ENDPOINT: endpoint,
+            WELDALL_TEST_ISSUER: "https://weldall.example.com",
+            WELDALL_TEST_REGISTRY: `${base}/api/me/scopes`,
+            WELDALL_TEST_GIT_APP_APIS: JSON.stringify({ [origin]: base }),
             ...env,
           },
         });
@@ -158,7 +161,30 @@ describe.skipIf(reason !== null)(
       );
       if (certificate.status !== 0) throw new Error(`openssl failed: ${certificate.stderr}`);
 
+      // Weldall's resource registry and the Git app's credential endpoint, as plain HTTP.
       const credentials = createHttpServer(async (req, res) => {
+        if (req.url === "/api/me/scopes") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify(
+              registered
+                ? [
+                    {
+                      key: "git-app",
+                      name: "Git app",
+                      resourceIdentifier: `${origin}/api`,
+                      authorizationServer: origin,
+                      downstreamClientId: "weldall-cli-at-git-app",
+                      requestPrefixes: [`${origin}/api`],
+                      supportedScopes: ["git-app:publish"],
+                      grantedScopes: ["git-app:publish"],
+                    },
+                  ]
+                : [],
+            ),
+          );
+          return;
+        }
         const body = JSON.parse((await readBody(req)).toString("utf8")) as unknown;
         credentialRequests.push(body);
         if (endpointMode === "expired-login") {
@@ -177,7 +203,7 @@ describe.skipIf(reason !== null)(
           }),
         );
       });
-      endpoint = `http://127.0.0.1:${await listen(credentials)}/api/me/git-credentials`;
+      base = `http://127.0.0.1:${await listen(credentials)}`;
       servers.push(credentials);
 
       const proxy = createHttpsServer(
@@ -194,7 +220,7 @@ describe.skipIf(reason !== null)(
             : [];
           const authorized = user === "weldall" && password !== undefined && issued.has(password);
           proxyRequests.push({ url: req.url!, authorized });
-          if (!authorized || !url.pathname.startsWith(`${CONNECTOR_PATH}/`)) {
+          if (!authorized || !url.pathname.startsWith(`${GIT_PATH}/`)) {
             res.writeHead(401, { "www-authenticate": 'Basic realm="Weldall git"' });
             res.end("Authentication required.");
             return;
@@ -206,7 +232,7 @@ describe.skipIf(reason !== null)(
               GIT_CONFIG_NOSYSTEM: "1",
               HOME: root,
               REMOTE_USER: "weldall",
-              PATH_INFO: url.pathname.slice(CONNECTOR_PATH.length),
+              PATH_INFO: url.pathname.slice(GIT_PATH.length),
               QUERY_STRING: url.search.slice(1),
               REQUEST_METHOD: req.method!,
               CONTENT_TYPE: req.headers["content-type"] ?? "",
@@ -239,9 +265,9 @@ describe.skipIf(reason !== null)(
           });
         },
       );
-      issuer = `https://127.0.0.1:${await listen(proxy)}`;
+      origin = `https://127.0.0.1:${await listen(proxy)}`;
       servers.push(proxy);
-      remoteUrl = `${issuer}/git/github/acme/shop.git`;
+      remoteUrl = `${origin}/git/acme/shop.git`;
 
       expect((await git(["init", "--bare", "-b", "main", bare], {}, root)).code).toBe(0);
       expect((await git(["init", "-b", "main"])).code).toBe(0);
@@ -267,7 +293,7 @@ describe.skipIf(reason !== null)(
       const second = await git(["config", "--local", "--list"]);
       expect(second.stdout).toBe(first.stdout);
       const lines = second.stdout.trim().split("\n");
-      const scope = `${issuer}/git/`;
+      const scope = `${origin}/git/`;
       expect(lines).toEqual(
         expect.arrayContaining([
           "remote.origin.url=https://example.invalid/other.git",
@@ -289,7 +315,7 @@ describe.skipIf(reason !== null)(
       const push = await gitViaProxy(["push", "weldall", "main"], "write");
       expect(push.code, push.stderr).toBe(0);
       expect(credentialRequests.at(-1)).toEqual({
-        path: "git/github/acme/shop.git",
+        path: "git/acme/shop.git",
         access: "write",
       });
       // Git asks without a credential first and gets the challenge.
@@ -302,7 +328,7 @@ describe.skipIf(reason !== null)(
       const fetch = await gitViaProxy(["fetch", "weldall"], "read");
       expect(fetch.code, fetch.stderr).toBe(0);
       expect(credentialRequests.at(-1)).toEqual({
-        path: "git/github/acme/shop.git",
+        path: "git/acme/shop.git",
         access: "read",
       });
       expect((await git(["rev-parse", "weldall/main"])).stdout).toBe(local.stdout);
@@ -322,13 +348,28 @@ describe.skipIf(reason !== null)(
       try {
         const result = await gitViaProxy(["fetch", "weldall"], "read");
         expect(result.code).not.toBe(0);
-        expect(result.stderr).toContain("weldall git-credential: Your Weldall login");
+        expect(result.stderr).toContain("did not accept your Weldall login");
         expect(result.stderr).toContain("Run `weldall login`");
         expect(result.stderr).toContain("told us to quit");
         expect(result.stderr).not.toMatch(/Username for|Password for/);
         expect(existsSync(decoyMarker)).toBe(false);
       } finally {
         endpointMode = "issue";
+      }
+    });
+
+    it("gives no credential once the Git app is no longer registered in Weldall", async () => {
+      registered = false;
+      const asked = credentialRequests.length;
+      try {
+        const result = await gitViaProxy(["fetch", "weldall"], "read");
+        expect(result.code).not.toBe(0);
+        expect(result.stderr).toContain("is not a Git app registered in Weldall");
+        expect(result.stderr).toContain("told us to quit");
+        expect(credentialRequests.length).toBe(asked);
+        expect(proxyRequests.at(-1)).toMatchObject({ authorized: false });
+      } finally {
+        registered = true;
       }
     });
   },

@@ -5,6 +5,7 @@ import { MAX_PUBLISH_BYTES, tooMuch } from "./file-safety.js";
 import { GitCommandError, type GitRepository } from "./git.js";
 import { PublishError } from "./errors.js";
 import { parseMergeTree, type MergeOutcome } from "./conflicts.js";
+import type { ConfigEntry } from "./repository-safety.js";
 
 /** Identity for the commits publish makes in the local folder only; they are never pushed. */
 const LOCAL_FALLBACK_IDENTITY = {
@@ -41,6 +42,8 @@ export class Folder {
   constructor(
     readonly repository: GitRepository,
     readonly gitDirectory: string,
+    /** The folder's own git settings as `assertSafeRepository` allowed them when it opened. */
+    readonly configEntries: readonly ConfigEntry[] = [],
   ) {}
 
   /** Directory for publish's own files inside `.git`. */

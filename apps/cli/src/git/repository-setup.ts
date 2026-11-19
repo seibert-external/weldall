@@ -22,19 +22,25 @@ export const GIT_POST_BUFFER_BYTES = 104_857_600;
 const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 export interface GitProxyRemote {
-  /** `https://<weldall>/git/<connector>/<owner>/<repository>.git` */
+  /** `https://<git app>/git/<owner>/<repository>.git` */
   url: string;
-  /** `https://<weldall>/git/`: every setting applies to this URL prefix only. */
+  /** `https://<git app>`: must be the origin of a Git app Weldall lists (see `git-apps.ts`). */
+  origin: string;
+  /** `https://<git app>/git/`: every setting applies to this URL prefix only. */
   scope: string;
 }
 
-/** Validates a git proxy remote URL as Weldall returns it (`git.remoteUrl` of an app). */
+/**
+ * Validates the shape of a Git app's git remote URL (`git.remoteUrl` of an app). Only the shape:
+ * whether its origin is a registered Git app is for the caller to check against Weldall's
+ * registry, because a stored URL comes from the folder.
+ */
 export function parseGitProxyRemote(remoteUrl: string): GitProxyRemote {
   let url: URL;
   try {
     url = new URL(remoteUrl);
   } catch (error) {
-    throw new CliError(`Invalid Weldall git URL: ${remoteUrl}`, { cause: error });
+    throw new CliError(`Invalid Git app git URL: ${printable(remoteUrl)}`, { cause: error });
   }
   if (
     url.protocol !== "https:" ||
@@ -45,11 +51,14 @@ export function parseGitProxyRemote(remoteUrl: string): GitProxyRemote {
     url.href !== remoteUrl ||
     !isGitProxyPath(url.pathname)
   )
-    throw new CliError(`Not a Weldall git URL: ${remoteUrl}`, {
-      hint: "Expected https://<weldall>/git/<connector>/<owner>/<repository>.git.",
+    throw new CliError(`Not a Git app git URL: ${printable(remoteUrl)}`, {
+      hint: "Expected https://<git app>/git/<owner>/<repository>.git.",
     });
-  return { url: url.href, scope: `${url.origin}/git/` };
+  return { url: url.href, origin: url.origin, scope: `${url.origin}/git/` };
 }
+
+/** Values from the folder, shown bounded and without control characters. */
+const printable = (text: string) => text.replace(/[^\x20-\x7e]/g, "?").slice(0, 300);
 
 /**
  * The settings for the proxy, in order, as `[key, value]` pairs: usable with `git config` and,
@@ -96,9 +105,9 @@ export interface ConfigureRepositoryOptions {
 }
 
 /**
- * Points a local repository at the git proxy, idempotently: the remote (`weldall` by default, so
+ * Points a local repository at a Git app's git route, idempotently: the remote (`weldall` by default, so
  * an existing `origin` stays), then the proxy settings in the repository's own config, all
- * scoped to `https://<weldall>/git/` so no other remote changes.
+ * scoped to `https://<git app>/git/` so no other remote changes.
  */
 export async function configureGitProxyRepository({
   directory,

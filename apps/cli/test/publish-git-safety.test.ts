@@ -28,7 +28,7 @@ import {
  * outside the agent's sandbox: nothing stored in the folder may make publish start a program.
  */
 
-const SCOPE = "https://weldall.example.com/git/";
+const SCOPE = "https://git-app.example.com/git/";
 const entry = (key: string, value: string | null = "x") =>
   parseConfigList(`local\0${value === null ? key : `${key}\n${value}`}\0`, ["local"])[0]!;
 
@@ -71,7 +71,9 @@ describe("repository config allow-list", () => {
     ["init.defaultbranch", "main"],
     ["branch.main.remote", "origin"],
     ["branch.main.vscode-merge-base", "origin/main"],
-    ["remote.weldall.url", `${SCOPE}github/acme/app.git`],
+    ["remote.weldall.url", `${SCOPE}acme/app.git`],
+    ["weldall.gitapp", "git-app"],
+    [`credential.https://127.0.0.1:8443/git/.helper`, ""],
     ["remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
     [`credential.${SCOPE}.helper`, ""],
     [`credential.${SCOPE}.helper`, GIT_CREDENTIAL_HELPER],
@@ -108,6 +110,13 @@ describe("repository config allow-list", () => {
     ["credential.helper", GIT_CREDENTIAL_HELPER],
     [`http.${SCOPE}.extraheader`, "Authorization: x"],
     ["http.postbuffer", "1"],
+    // Credential and http settings only for the shape of a Git app's git route.
+    ["credential.https://git-app.example.com/.helper", ""],
+    ["credential.https://git-app.example.com/git/acme/.usehttppath", "true"],
+    ["credential.http://git-app.example.com/git/.helper", GIT_CREDENTIAL_HELPER],
+    ["credential.https://user@git-app.example.com/git/.helper", ""],
+    ["credential.git-app.example.com.helper", ""],
+    ["http.https://git-app.example.com/.postbuffer", "1"],
     [`remote.${SCOPE}github/acme/app.git.pushurl`, "https://elsewhere.example/x.git"],
     ["remote.origin.uploadpack", "./run"],
     ["remote.origin.receivepack", "./run"],
@@ -206,7 +215,7 @@ describe.skipIf(reason !== null)(
     const publish = (directory: string, options: Partial<PublishOptions> = {}) =>
       publishApp({
         directory,
-        api: fake.api,
+        gitApps: fake.gitApps,
         git: GIT,
         environment: fake.publishEnvironment(),
         privateGitRoot,
@@ -256,7 +265,8 @@ describe.skipIf(reason !== null)(
       });
       await expect(
         readAppStatus({
-          api: fake.api,
+          gitApps: fake.gitApps,
+          registry: fake.registry,
           git: GIT,
           environment: fake.publishEnvironment(),
           directory,
@@ -355,6 +365,40 @@ describe.skipIf(reason !== null)(
         ].sort(),
       );
       expect(String((error as Error).message)).not.toContain(script);
+    });
+
+    it("refuses credential settings scoped to another address than the folder's Git app", async () => {
+      const directory = await folder();
+      await writeTree(directory, { "src/app.ts": "export const app = 2;\n" });
+      expect((await publish(directory)).outcome).toBe("published");
+      await fake.must(
+        [
+          "config",
+          "--add",
+          "credential.https://other.example.com/git/.helper",
+          GIT_CREDENTIAL_HELPER,
+        ],
+        directory,
+      );
+      // The shape is allowed, so the check before anything is asked passes ...
+      await expect(assertSafeRepository(repository(directory))).resolves.toBeDefined();
+      // ... and the Git app from Weldall's registry decides.
+      for (const run of [
+        () => publish(directory),
+        () => publish(directory, { syncOnly: true }),
+        () =>
+          readAppStatus({
+            gitApps: fake.gitApps,
+            registry: fake.registry,
+            git: GIT,
+            environment: fake.publishEnvironment(),
+            directory,
+          }),
+      ])
+        await expect(run()).rejects.toMatchObject({
+          code: "unsafe_git_config",
+          details: { keys: "credential.https://other.example.com/git/.helper" },
+        });
     });
 
     it("refuses core.worktree, which would publish another folder", async () => {
@@ -516,7 +560,7 @@ describe.skipIf(reason !== null)(
           "[extensions]",
           "\tpartialClone = evil",
           '[remote "evil"]',
-          `\turl = ${fake.issuer}/git/github/acme/app-safety${counter}.git`,
+          `\turl = ${fake.origin}/git/acme/app-safety${counter}.git`,
           "\tpromisor = true",
           "[credential]",
           `\thelper = !'${helper}'`,
@@ -590,7 +634,8 @@ describe.skipIf(reason !== null)(
       await fake.must(["config", "weldall.prBranch", "-x"], published);
       await expect(
         readAppStatus({
-          api: fake.api,
+          gitApps: fake.gitApps,
+          registry: fake.registry,
           git: GIT,
           environment: fake.publishEnvironment(),
           directory: published,
@@ -605,7 +650,7 @@ describe.skipIf(reason !== null)(
       const setUp = await folder();
       await configureGitProxyRepository({
         directory: setUp,
-        remoteUrl: `${fake.issuer}/git/github/acme/app-setup.git`,
+        remoteUrl: `${fake.origin}/git/acme/app-setup.git`,
         git: GIT,
         environment: fake.publishEnvironment(),
       });

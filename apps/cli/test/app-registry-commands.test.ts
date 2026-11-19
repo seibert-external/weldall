@@ -16,8 +16,8 @@ vi.mock("../src/publish/weldall-api.js", async (original) => {
   const actual = await original<typeof import("../src/publish/weldall-api.js")>();
   return {
     ...actual,
-    directPublishApi: () =>
-      actual.createPublishApi(ISSUER, async ({ method, path }) => {
+    directRegistryApi: () =>
+      actual.createRegistryApi(ISSUER, async ({ method, path }) => {
         mocks.requests.push({ method, path });
         return mocks.answers.shift()!;
       }),
@@ -29,7 +29,13 @@ const entry = (id: string, name: string, state: string, expiresAt: string) => ({
   id,
   name,
   purpose: "Track team expenses",
-  repository: { connector: "github", owner: "acme", name: `app-${name}`, webUrl: null },
+  repository: {
+    connector: null,
+    resource: "git-app",
+    owner: "acme",
+    name: `app-${name}`,
+    webUrl: null,
+  },
   template: "react",
   links: { preview: null, live: null },
   createdAt: "2026-08-01T10:00:00.000Z",

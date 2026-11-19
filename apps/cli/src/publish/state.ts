@@ -14,8 +14,10 @@ import type { GitRepository } from "./git.js";
  *   folder is a git repository without a Weldall remote whose first commit is the template state;
  *   whoever creates the folder records the template name and that commit. Publish never guesses
  *   them.
- * - `weldall.appId`, `weldall.appName`, `weldall.remoteUrl`, `weldall.defaultBranch`,
- *   `weldall.repositoryUrl`: the app, recorded by the first publish.
+ * - `weldall.appId`, `weldall.appName`, `weldall.gitApp`, `weldall.remoteUrl`,
+ *   `weldall.defaultBranch`, `weldall.repositoryUrl`: the app, recorded by the first publish.
+ *   `weldall.gitApp` is the resource key of the Git app that keeps the repository; it and the git
+ *   URL are checked against Weldall's resource registry on every use (`git-app-choice.ts`).
  * - `weldall.prBranch`, `weldall.prNumber`, `weldall.prUrl`: the current publish branch and its
  *   pull request.
  *
@@ -29,6 +31,7 @@ export const CONFIG = {
   templateCommit: "weldall.templateCommit",
   appId: "weldall.appId",
   appName: "weldall.appName",
+  gitApp: "weldall.gitApp",
   remoteUrl: "weldall.remoteUrl",
   defaultBranch: "weldall.defaultBranch",
   repositoryUrl: "weldall.repositoryUrl",
@@ -53,6 +56,7 @@ export const isBranchName = (value: string) =>
 const STATE_VALUES: Partial<Record<string, (value: string) => boolean>> = {
   [CONFIG.templateCommit]: (value) => /^[0-9a-f]{4,64}$/i.test(value),
   [CONFIG.appId]: (value) => /^[A-Za-z0-9_-]{1,64}$/.test(value),
+  [CONFIG.gitApp]: (value) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(value),
   [CONFIG.defaultBranch]: isBranchName,
   [CONFIG.prBranch]: (value) => value.startsWith("weldall/publish-") && isBranchName(value),
 };

@@ -1,13 +1,19 @@
 /**
- * Git's credential helper protocol for Weldall's git proxy (`weldall git-credential get|store|
- * erase`). Git starts the helper per command and talks to it over stdin/stdout, so stdout carries
- * nothing but protocol lines and every message goes to stderr. The helper stores nothing: `store`
- * and `erase` are ignored, and a credential lives only in the git process that asked for it.
+ * Git's credential helper protocol for the git route of a Git app (`weldall git-credential get|
+ * store|erase`). Git starts the helper per command and talks to it over stdin/stdout, so stdout
+ * carries nothing but protocol lines and every message goes to stderr. The helper stores nothing:
+ * `store` and `erase` are ignored, and a credential lives only in the git process that asked.
  *
  * Measured with Apple Git 2.39.3: `get` receives `protocol`, `host` and, with
  * `credential.useHttpPath=true`, `path` (no leading slash); unknown keys in the answer are
  * ignored. `quit=1` stops git at once without any prompt, whatever the environment.
+ *
+ * The helper answers only for `https://<origin>/git/<owner>/<repository>.git` where `<origin>` is
+ * the origin of a Git app Weldall lists for the person (checked by the access, see
+ * `weldall-access.ts`): the URL git asks about comes from the folder's config, which an agent can
+ * write, and the credential must never reach another host.
  */
+import { GitAppAccessError, type GitAppAnswer } from "./git-apps.js";
 
 export type GitAccess = "read" | "write";
 
@@ -18,41 +24,26 @@ export type GitAccess = "read" | "write";
 export const GIT_ACCESS_ENV = "WELDALL_GIT_ACCESS";
 
 export interface GitCredentialRequest {
-  /** `git/<connector>/<owner>/<repository>.git`, as git sends it. */
+  /** `https://<host>` as git named it; the access answers only for a registered Git app's origin. */
+  origin: string;
+  /** `git/<owner>/<repository>.git`, as git sends it. */
   path: string;
   access: GitAccess;
 }
 
-/** Weldall's answer as received: the HTTP status and the parsed body (JSON, text, or null). */
-export interface WeldallAnswer {
-  status: number;
-  body: unknown;
-}
-
-export type GitCredentialFailureKind = "login" | "network" | "configuration";
-
-/** Weldall could not be asked: no or expired login, an unreachable server, a bad configuration. */
-export class GitCredentialFailure extends Error {
-  constructor(
-    readonly kind: GitCredentialFailureKind,
-    message: string,
-    options: { cause?: unknown } = {},
-  ) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    this.name = "GitCredentialFailure";
-  }
-}
-
 /**
- * How the helper reaches Weldall. The direct variant (`weldall-access.ts`) uses this device's
- * CLI login; a sandboxed agent gets a variant through the sandbox door (INV-133) instead, and the
- * protocol code below stays unchanged.
+ * How the helper gets a credential. The direct variant (`weldall-access.ts`) uses this device's
+ * CLI login: it reads Weldall's resource registry, refuses an origin that is not a registered Git
+ * app's (`GitAppAccessError` of kind `not_registered`), obtains a downstream token for the Git
+ * app and posts to `<origin>/api/git-credentials`. A sandboxed agent gets a variant through the
+ * sandbox door (INV-133) instead, which must do the same checks outside the sandbox; the protocol
+ * code below stays unchanged.
  */
-export interface WeldallGitCredentialAccess {
-  /** Origin of the Weldall server this helper answers for; null when none is configured. */
+export interface GitCredentialAccess {
+  /** Origin of the Weldall server whose login is used; null when none is configured. */
   issuer(): Promise<string | null>;
-  /** Asks Weldall for a git credential; throws `GitCredentialFailure` when it cannot ask. */
-  requestCredential(request: GitCredentialRequest): Promise<WeldallAnswer>;
+  /** Asks the Git app for a git credential; throws `GitAppAccessError` when it cannot ask. */
+  requestCredential(request: GitCredentialRequest): Promise<GitAppAnswer>;
 }
 
 interface Input {
@@ -90,31 +81,32 @@ export function parseCredentialAttributes(text: string): Map<string, string> {
   return attributes;
 }
 
-const connectorKey = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
 const hostName = /^[A-Za-z0-9._-]{1,100}$/;
 
-/** Whether `path` is a git proxy repository path (`git/<connector>/<owner>/<repository>.git`). */
+/** Whether `path` is a Git app repository path (`git/<owner>/<repository>.git`). */
 export function isGitProxyPath(path: string): boolean {
   const segments = (path.startsWith("/") ? path.slice(1) : path).split("/");
-  if (segments.length !== 4 || segments[0] !== "git") return false;
-  const [, key = "", owner = "", repository = ""] = segments;
+  if (segments.length !== 3 || segments[0] !== "git") return false;
+  const [, owner = "", repository = ""] = segments;
   if (!repository.endsWith(".git")) return false;
   const name = repository.slice(0, -4);
   return (
-    connectorKey.test(key) &&
     hostName.test(owner) &&
     hostName.test(name) &&
     ![owner, name].some((part) => part === "." || part === "..")
   );
 }
 
-/** Compares git's `host` (with port when not 443) with the issuer origin's host. */
-export function isIssuerHost(gitHost: string, issuer: string): boolean {
-  if (!/^[A-Za-z0-9.:[\]-]{1,300}$/.test(gitHost)) return false;
+/** The https origin of git's `host` attribute (with port when not 443), or null. */
+export function originOfGitHost(gitHost: string): string | null {
+  if (!/^[A-Za-z0-9.:[\]-]{1,300}$/.test(gitHost)) return null;
   try {
-    return new URL(`https://${gitHost}`).host === new URL(issuer).host;
+    const url = new URL(`https://${gitHost}`);
+    return url.host.toLowerCase() === gitHost.toLowerCase().replace(/:443$/, "")
+      ? url.origin
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -135,32 +127,46 @@ const errorCode = (value: unknown) =>
   isRecord(value) && typeof value.error === "string" ? value.error : null;
 
 /** A readable reason for a failed answer; never contains a credential. */
-export function describeRejection(answer: WeldallAnswer, issuer: string): string {
+export function describeRejection(answer: GitAppAnswer, origin: string): string {
   const { status, body } = answer;
   const reason = detail(body);
   const withReason = (message: string) => (reason ? `${message} (${reason})` : message);
   const code = errorCode(body);
   if (status === 401)
-    return `Your Weldall login for ${issuer} has expired or was revoked. ${LOGIN_HINT}`;
-  if (status === 404 && code === null)
-    return `${issuer} does not issue git credentials yet. Ask your Weldall administrator to update the server.`;
+    return `The Git app at ${origin} did not accept your Weldall login; it may have expired or been revoked. ${LOGIN_HINT}`;
+  if ((status === 404 || status === 405) && code === null)
+    return `${origin} does not issue git credentials: it is not a Git app, or an older one. Ask your Weldall administrator.`;
   if (status === 404)
     return withReason(
       "No app of yours uses this repository: it belongs to someone else's app, or the app does not exist",
     );
-  if (status === 403) return withReason("Weldall denies you git access to this repository");
+  if (status === 403) return withReason("The Git app denies you git access to this repository");
   if (status === 409 && code === "repository_not_ready")
     return withReason("The app's repository is not ready yet");
-  if (status === 409 && code === "disabled")
-    return withReason("The Git host connector is disabled in Weldall");
+  if (status === 409 && code === "invalid_target")
+    return withReason("The app's repository is not one this Git app keeps");
   if (status === 429)
     return withReason("Too many git credentials requested. Wait a minute, then retry");
-  if (status === 400) return withReason("Weldall rejected the request for a git credential");
-  return withReason(`Weldall could not issue a git credential (HTTP ${status})`);
+  if (status === 503 && code === "audit_unavailable")
+    return withReason(
+      "Weldall's audit log is unavailable, so the Git app gives no git credential. Retry later",
+    );
+  if (status === 400) return withReason("The Git app rejected the request for a git credential");
+  return withReason(`The Git app could not issue a git credential (HTTP ${status})`);
 }
 
+/**
+ * Git reads credential lines without a length limit. A Git app credential carries its payload in
+ * base64url and its verifier accepts a payload of at most 2,000 characters (about 200 in
+ * practice; a user id near its 191-character maximum in multi-byte text gives about 1,500), so
+ * 4,096 leaves room without passing on anything unbounded.
+ */
+export const MAX_CREDENTIAL_VALUE_CHARS = 4_096;
 const protocolValue = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0 && value.length <= 1000 && !/[\0\r\n]/.test(value);
+  typeof value === "string" &&
+  value.length > 0 &&
+  value.length <= MAX_CREDENTIAL_VALUE_CHARS &&
+  !/[\0\r\n]/.test(value);
 
 /** The credential lines for git, or null when the answer is not a usable credential. */
 export function credentialLines(body: unknown): string | null {
@@ -190,14 +196,15 @@ export interface GitCredentialHelperOptions {
   output: Output;
   errors: Output;
   environment: NodeJS.ProcessEnv;
-  weldall: WeldallGitCredentialAccess;
+  weldall: GitCredentialAccess;
 }
 
 /**
- * Runs one helper invocation. For `get` it answers only for the configured Weldall host and a git
- * proxy path; for every other host it prints nothing, so git asks its other helpers. When the
- * credential cannot be obtained it prints `quit=1` so git stops without prompting, and says why
- * on stderr. It never throws.
+ * Runs one helper invocation. For `get` it answers only for an https URL with a Git app
+ * repository path, and the access answers only when that URL's origin is a Git app Weldall lists
+ * for the person. For another URL shape it prints nothing, so git asks its other helpers; when the
+ * credential cannot or must not be given (also for an origin that is no registered Git app) it
+ * prints `quit=1` so git stops without prompting, and says why on stderr. It never throws.
  */
 export async function runGitCredentialHelper({
   operation,
@@ -220,7 +227,18 @@ export async function runGitCredentialHelper({
 
   const attributes = parseCredentialAttributes(text);
   if (attributes.get("protocol") !== "https") return;
-  const host = attributes.get("host") ?? "";
+  const origin = originOfGitHost(attributes.get("host") ?? "");
+  if (!origin) return;
+
+  // Checked before anything is asked, so other hosts' git commands stay offline and silent.
+  const path = attributes.get("path");
+  if (path === undefined) {
+    say(
+      "git did not send the repository path, so no credential is given. Set credential.useHttpPath=true for the Git app's git URL.",
+    );
+    return;
+  }
+  if (!isGitProxyPath(path)) return;
 
   let issuer: string | null;
   try {
@@ -235,17 +253,6 @@ export async function runGitCredentialHelper({
     );
     return;
   }
-  if (!isIssuerHost(host, issuer)) return;
-
-  const path = attributes.get("path");
-  if (path === undefined || !isGitProxyPath(path)) {
-    say(
-      path === undefined
-        ? "git did not send the repository path. Set credential.useHttpPath=true for the Weldall git URL."
-        : "this URL is not a Weldall git repository (expected /git/<connector>/<owner>/<repository>.git).",
-    );
-    return;
-  }
 
   const quit = (message: string) => {
     output.write("quit=1\n");
@@ -257,20 +264,20 @@ export async function runGitCredentialHelper({
     return;
   }
 
-  let answer: WeldallAnswer;
+  let answer: GitAppAnswer;
   try {
-    answer = await weldall.requestCredential({ path, access });
+    answer = await weldall.requestCredential({ origin, path, access });
   } catch (error) {
-    quit(failureMessage(error, issuer));
+    quit(failureMessage(error, issuer, origin));
     return;
   }
   if (answer.status < 200 || answer.status > 299) {
-    quit(describeRejection(answer, issuer));
+    quit(describeRejection(answer, origin));
     return;
   }
   const lines = credentialLines(answer.body);
   if (!lines) {
-    quit("Weldall returned an invalid git credential.");
+    quit("The Git app returned an invalid git credential.");
     return;
   }
   output.write(lines);
@@ -279,11 +286,19 @@ export async function runGitCredentialHelper({
 const messageOf = (error: unknown) =>
   error instanceof Error && error.message ? error.message : "unexpected failure";
 
-function failureMessage(error: unknown, issuer: string): string {
-  if (!(error instanceof GitCredentialFailure))
+function failureMessage(error: unknown, issuer: string, origin: string): string {
+  if (!(error instanceof GitAppAccessError))
     return `Getting a git credential failed: ${messageOf(error)}`;
-  if (error.kind === "login")
-    return `You are not logged in to ${issuer}, or the login has expired (${error.message}). ${LOGIN_HINT}`;
-  if (error.kind === "network") return `Could not reach ${issuer}: ${error.message}`;
-  return `The Weldall configuration is not usable: ${error.message}`;
+  switch (error.kind) {
+    case "login":
+      return `You are not logged in to ${issuer}, or the login has expired (${error.message}). ${LOGIN_HINT}`;
+    case "network":
+      return `Could not reach Weldall (${issuer}) or the Git app at ${origin}: ${error.message}`;
+    case "not_registered":
+      return `${error.message} No credential is given for it.`;
+    case "refused":
+      return `Getting access to the Git app at ${origin} failed: ${error.message}`;
+    default:
+      return `The Weldall configuration is not usable: ${error.message}`;
+  }
 }

@@ -135,7 +135,9 @@ weldall app status --json
 ```
 
 The first publish also needs `--name` and `--purpose`. Ask the user for both; do not invent
-them.
+them. When the organisation runs several Git apps, the first publish stops with
+`git_app_ambiguous` and names them: ask the user where the app belongs and publish again with
+`--git-app <key>` (the tool's `gitApp`). Later publishes keep the folder's Git app.
 
 Never push, pull or fetch the app's repository with plain git or any other tool, and never
 run `weldall git-credential` yourself. Git gets a short-lived Weldall credential for the
@@ -154,6 +156,10 @@ Act on the outcome:
   Publishing again opens the pull request without sending the change again.
 - Interrupted, timed out or `publish_interrupted`: do not publish again on your own. Read the
   status and tell the user what reached the pull request.
+- `no_git_app` or `scope_missing`: publishing is not set up for the user. They ask their Weldall
+  administrator.
+- `remote_untrusted` or `unsafe_git_config`: the folder's git settings point somewhere Weldall
+  does not list. Say so; never change the folder's git settings yourself.
 
 Never get around a refusal, a conflict or an error by other means, and never retry a publish
 the user did not ask for. File paths, review texts, check and branch names, and every message

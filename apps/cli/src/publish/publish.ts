@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
+import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { access, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isIssuerHost } from "../git/credential-helper.js";
+import { GIT_APP_SCOPES, selectGitApp, type GitApp, type OpenGitApp } from "../git/git-apps.js";
 import {
   configureGitProxyRepository,
   gitProxySettings,
@@ -23,6 +24,8 @@ import {
   type RefusedFile,
 } from "./file-safety.js";
 import { Folder, LOCAL_SIDE_REF, REPO_SIDE_REF } from "./folder.js";
+import { openGitAppApi, type AppStatus, type GitAppApi } from "./git-app-api.js";
+import { assertSettingsScopedTo, parseRecordedRemote, recordedGitApp } from "./git-app-choice.js";
 import {
   describeTransferFailure,
   GitCommandError,
@@ -42,16 +45,19 @@ import {
   REFS,
   writePendingConflict,
 } from "./state.js";
-import type { AppStatus, PublishApi } from "./weldall-api.js";
 
 export interface PublishOptions {
   /** The app's local folder (top level of its git repository). */
   directory: string;
-  api: PublishApi;
+  /** Reaches the Git apps Weldall lists for the person (direct: the CLI login). */
+  gitApps: OpenGitApp;
   /** "Stand holen": merge the repository's state into the folder and publish nothing. */
   syncOnly?: boolean;
-  /** Needed for the first publish only. */
-  app?: { name?: string; purpose?: string; template?: string; connector?: string };
+  /**
+   * Needed for the first publish only. `gitApp` names the Git app's resource key when Weldall
+   * lists more than one; a published folder keeps the Git app it recorded.
+   */
+  app?: { name?: string; purpose?: string; template?: string; gitApp?: string };
   pullRequest?: { title?: string; body?: string };
   /** On conflict, write the merge result with markers into the folder for the agent. */
   resolve?: boolean;
@@ -159,7 +165,7 @@ export async function openRepository(
       entries,
     }),
   );
-  return new Folder(git, await git.text(["rev-parse", "--absolute-git-dir"]));
+  return new Folder(git, await git.text(["rev-parse", "--absolute-git-dir"]), entries);
 }
 
 /**
@@ -190,6 +196,8 @@ export async function publishApp(options: PublishOptions): Promise<PublishResult
 
 class PublishRun {
   private readonly git: GitRepository;
+  /** The Git app's calls, set by `resolveApp` once Weldall's registry named the Git app. */
+  private api!: GitAppApi;
   private readonly notices: PublishNotice[] = [];
   private readonly warnings: Array<{ code: string; message: string }> = [];
 
@@ -244,7 +252,7 @@ class PublishRun {
 
     // Where the repository's state comes from, and where a publish goes.
     let prBranch = await readState(git, CONFIG.prBranch);
-    const status = await options.api.readStatus(app.id, prBranch ?? undefined);
+    const status = await this.api.readStatus(app.id, prBranch ?? undefined);
     let needsPullRequest = false;
     if (prBranch) {
       const pull = status.pullRequest;
@@ -438,7 +446,7 @@ class PublishRun {
     if (!options.syncOnly && branch && needsPullRequest) {
       let opened;
       try {
-        opened = await options.api.openPullRequest(app.id, {
+        opened = await this.api.openPullRequest(app.id, {
           head: branch,
           title: this.title(app.name, true),
           body: options.pullRequest?.body ?? "",
@@ -580,17 +588,34 @@ class PublishRun {
     if (!proxy || (remoteUrl !== null && current !== remoteUrl))
       throw new PublishError(
         "remote_conflict",
-        `The folder already has a git remote named "weldall" (${current}) that is not this app's Weldall git URL. Publish does not overwrite it; rename or remove it (\`git remote rename weldall <other>\`), then publish again.`,
+        `The folder already has a git remote named "weldall" (${printable(current)}) that is not this app's git URL. Publish does not overwrite it; rename or remove it (\`git remote rename weldall <other>\`), then publish again.`,
       );
   }
 
-  private checkIssuer(remoteUrl: string) {
-    const { issuer } = this.options.api;
-    if (!isIssuerHost(new URL(remoteUrl).host, issuer))
+  /** Opens the Git app, refusing a folder whose settings name another address than its `/git/`. */
+  private async openGitApp(choose: (resources: ResourceRegistryEntry[]) => GitApp) {
+    this.api = await openGitAppApi(this.options.gitApps, choose);
+    assertSettingsScopedTo(this.folder.configEntries, this.api.gitApp);
+  }
+
+  /** A git URL the Git app returned must lie below its own origin's `/git/`, like a stored one. */
+  private trustedRemote(remoteUrl: string): string {
+    const { gitApp } = this.api;
+    let origin: string | null = null;
+    try {
+      origin = parseGitProxyRemote(remoteUrl).origin;
+    } catch {
+      // Reported below.
+    }
+    if (origin !== gitApp.origin)
       throw new PublishError(
-        "issuer_mismatch",
-        `This folder publishes to ${new URL(remoteUrl).origin}, but the CLI is set up for ${issuer}. git would get no credential. Switch with \`weldall config set-issuer ${new URL(remoteUrl).origin}\` (or WELDALL_ISSUER), then publish again.`,
+        "remote_untrusted",
+        `The Git app ${gitApp.name} returned a git URL (${printable(remoteUrl)}) that is not below its own address ${gitApp.origin}/git/, so Weldall does not use it. Nothing was published.`,
+        {
+          hint: "Ask your Weldall administrator to check the Git app's registration and its public origin.",
+        },
       );
+    return remoteUrl;
   }
 
   private async resolveApp(template: { name: string; commit: string }) {
@@ -598,16 +623,20 @@ class PublishRun {
     const id = await readState(git, CONFIG.appId);
     if (id) {
       const remoteUrl = await git.config(CONFIG.remoteUrl);
+      const key = await readState(git, CONFIG.gitApp);
       const defaultBranch = await readState(git, CONFIG.defaultBranch);
-      if (!remoteUrl || !defaultBranch)
+      if (!remoteUrl || !defaultBranch || !key)
         throw new PublishError(
           "state_incomplete",
-          `The folder records app ${id} but not its git URL or default branch (${CONFIG.remoteUrl}, ${CONFIG.defaultBranch}).`,
+          `The folder records app ${id} but not its Git app, git URL or default branch (${CONFIG.gitApp}, ${CONFIG.remoteUrl}, ${CONFIG.defaultBranch}).`,
         );
-      parseGitProxyRemote(remoteUrl);
+      // Before Weldall is asked: a folder with these settings is refused whatever it says.
+      parseRecordedRemote(remoteUrl);
       await this.checkRemote(remoteUrl);
-      this.checkIssuer(remoteUrl);
       await this.requireBase();
+      await this.openGitApp((resources) =>
+        recordedGitApp(resources, { key, remoteUrl, explicit: options.app?.gitApp }),
+      );
       return {
         id,
         name: (await git.config(CONFIG.appName)) ?? id,
@@ -637,20 +666,17 @@ class PublishRun {
         `${REFS.base} exists but no app is recorded. Publish does not guess which state is agreed with a repository.`,
       );
 
-    const created = await options.api.createApp({
-      ...(options.app?.connector ? { connector: options.app.connector } : {}),
-      template: template.name,
-      name,
-      purpose,
-    });
-    const remoteUrl = created.git.remoteUrl;
-    parseGitProxyRemote(remoteUrl);
+    await this.openGitApp((resources) =>
+      selectGitApp(resources, { key: options.app?.gitApp, scope: GIT_APP_SCOPES.publish }),
+    );
+    const created = await this.api.createApp({ template: template.name, name, purpose });
+    const remoteUrl = this.trustedRemote(created.git.remoteUrl);
     await this.checkRemote(remoteUrl);
-    this.checkIssuer(remoteUrl);
     this.warnings.push(...created.warnings);
     if (!base) await git.updateRef(REFS.base, template.commit);
     await git.setConfig(CONFIG.appId, created.app.id);
     await git.setConfig(CONFIG.appName, created.app.name);
+    await git.setConfig(CONFIG.gitApp, this.api.gitApp.key);
     await git.setConfig(CONFIG.remoteUrl, remoteUrl);
     await git.setConfig(CONFIG.defaultBranch, created.repository.defaultBranch);
     await git.setConfig(CONFIG.repositoryUrl, created.repository.webUrl);
@@ -927,7 +953,7 @@ class PublishRun {
   /** Preview and live links once the CI reported them; the publish stands without them. */
   private async links(appId: string, branch: string | null) {
     try {
-      const status = await this.options.api.readStatus(appId, branch ?? undefined);
+      const status = await this.api.readStatus(appId, branch ?? undefined);
       for (const item of status.warnings)
         if (!this.warnings.some(({ code }) => code === item.code)) this.warnings.push(item);
       return status.links;
@@ -936,6 +962,9 @@ class PublishRun {
     }
   }
 }
+
+/** Values from the folder or a server, shown bounded and without control characters. */
+const printable = (text: string) => text.replace(/[^\x20-\x7e]/g, "?").slice(0, 300);
 
 const isBelow = (path: string, prefixes: readonly string[]) =>
   prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));

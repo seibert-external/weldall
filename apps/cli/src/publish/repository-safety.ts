@@ -22,8 +22,10 @@ import { CONFIG } from "./state.js";
  * `logallrefupdates`, plus `ignorecase` and `precomposeunicode` on macOS and `symlinks` on
  * Windows (`--object-format=sha256` adds `extensions.objectformat`); `git clone` adds
  * `remote.<name>.*` and `branch.<name>.*`; `configureGitProxyRepository` writes
- * `remote.weldall.url`/`fetch` and the proxy-scoped `credential.<scope>.helper`/`useHttpPath`
- * and `http.<scope>.postBuffer`; publish writes the `weldall.*` keys of `CONFIG`. Also allowed:
+ * `remote.weldall.url`/`fetch` and, scoped to the Git app's `https://<git app>/git/`,
+ * `credential.<scope>.helper`/`useHttpPath` and `http.<scope>.postBuffer`; publish writes the
+ * `weldall.*` keys of `CONFIG`. Once publish knows the Git app, the scope must also be that Git
+ * app's (`assertSettingsScopedTo`). Also allowed:
  * `user.name`/`email`, `init.defaultBranch` and the line-ending settings `core.autocrlf`/`eol`,
  * which people set by hand and which start nothing.
  */
@@ -55,6 +57,8 @@ export const PRIVATE_CONFIG_KEYS = [
 const PLAIN_VALUE = /^[A-Za-z0-9_.-]{1,64}$/;
 /** Only used when fetching or pushing by remote name, which publish never does; no programs. */
 const REMOTE_KEYS = new Set(["url", "pushurl", "fetch", "tagopt", "prune"]);
+/** The scope of a Git app's git route, as `configureGitProxyRepository` writes it. */
+const GIT_APP_SCOPE = /^https:\/\/[a-z0-9.-]{1,253}(?::[0-9]{1,5})?\/git\/$/;
 const WELDALL_KEYS = new Set(
   Object.values(CONFIG).map((key) => key.slice("weldall.".length).toLowerCase()),
 );
@@ -115,12 +119,12 @@ export function isAllowedConfigEntry({ section, subsection, name, value }: Confi
       // `remote.<URL>.*` would apply to publish's fetch and push by URL.
       return !plain && !subsection.includes(":") && REMOTE_KEYS.has(name);
     case "credential":
-      if (plain) return false;
+      if (plain || !GIT_APP_SCOPE.test(subsection)) return false;
       if (name === "usehttppath") return true;
       // The empty value only clears the helpers before it; any other helper is a program.
       return name === "helper" && (value === "" || value === GIT_CREDENTIAL_HELPER);
     case "http":
-      return !plain && name === "postbuffer";
+      return !plain && GIT_APP_SCOPE.test(subsection) && name === "postbuffer";
     default:
       return false;
   }

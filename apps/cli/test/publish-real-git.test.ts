@@ -2,16 +2,16 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { publishApp, type PublishOptions } from "../src/publish/publish.js";
 import { readAppStatus } from "../src/publish/status.js";
 import type { PublishError } from "../src/publish/errors.js";
 import { publishJson } from "../src/publish/report.js";
-import { createPublishApi } from "../src/publish/weldall-api.js";
 import {
   BOT_IDENTITY,
   fakeWeldallUnavailable,
   GIT,
+  GIT_APP_KEY,
   startFakeWeldall,
   writeTree,
   type FakeWeldall,
@@ -63,7 +63,7 @@ describe.skipIf(reason !== null)(
     const publish = (directory: string, options: Partial<PublishOptions> = {}) =>
       publishApp({
         directory,
-        api: fake.api,
+        gitApps: fake.gitApps,
         git: GIT,
         environment: fake.publishEnvironment(),
         privateGitRoot: join(fake.root, "private-git"),
@@ -169,13 +169,18 @@ describe.skipIf(reason !== null)(
       );
       expect(await inFolder(folder, ["config", "weldall.prBranch"])).toBe(branch);
       expect(await inFolder(folder, ["config", "remote.weldall.url"])).toBe(
-        `${fake.issuer}/git/github/acme/app-${name}.git`,
+        `${fake.origin}/git/acme/app-${name}.git`,
       );
     });
 
     it("reads the status of the folder's pull request, or of an app id without a folder", async () => {
       const { folder, first } = await published();
-      const options = { api: fake.api, git: GIT, environment: fake.publishEnvironment() };
+      const options = {
+        gitApps: fake.gitApps,
+        registry: fake.registry,
+        git: GIT,
+        environment: fake.publishEnvironment(),
+      };
 
       const status = await readAppStatus({ ...options, directory: folder });
 
@@ -608,7 +613,7 @@ describe.skipIf(reason !== null)(
       ).toBeNull();
     });
 
-    it("refuses to start without the template agreement, next to a foreign remote, or for another issuer", async () => {
+    it("refuses to start without the template agreement or next to a foreign remote", async () => {
       counter += 1;
       const name = `app${counter}`;
       const folder = await fake.createFolder(name, "react", TEMPLATE);
@@ -638,26 +643,251 @@ describe.skipIf(reason !== null)(
       await expect(publish(folder, { syncOnly: true })).rejects.toMatchObject({
         code: "not_published",
       });
-      await expect(
-        publish(folder, {
-          app: { name, purpose: "Tests" },
-          api: createPublishApi("https://weldall.other.example", fake.send),
-        }),
-      ).rejects.toMatchObject({ code: "issuer_mismatch" });
     });
 
-    it("fails clearly against a Weldall server without the publish endpoints", async () => {
+    describe("the Git app comes from Weldall's registry, never from the folder", () => {
+      const otherOrigin = "https://127.0.0.1:1";
+      const statusOf = (directory: string) =>
+        readAppStatus({
+          gitApps: fake.gitApps,
+          registry: fake.registry,
+          git: GIT,
+          environment: fake.publishEnvironment(),
+          directory,
+        });
+      /** Points the folder's recorded git URL (and its remote) somewhere else, as an agent could. */
+      async function pointFolderAt(folder: string, remoteUrl: string) {
+        await inFolder(folder, ["config", "weldall.remoteUrl", remoteUrl]);
+        await inFolder(folder, ["config", "remote.weldall.url", remoteUrl]);
+      }
+      afterEach(() => {
+        fake.setResources([fake.gitAppResource()], GIT_APP_KEY);
+      });
+
+      it("first publish records the Git app chosen from the registry and its git URL", async () => {
+        const { folder, name } = await published();
+        expect(await inFolder(folder, ["config", "weldall.gitApp"])).toBe(GIT_APP_KEY);
+        expect(await inFolder(folder, ["config", "weldall.remoteUrl"])).toBe(
+          `${fake.origin}/git/acme/app-${name}.git`,
+        );
+        expect(fake.credentialRequests.at(-1)).toEqual({
+          path: `git/acme/app-${name}.git`,
+          access: "write",
+        });
+        expect(new Set(fake.apiRequests.map(({ origin }) => origin))).toEqual(
+          new Set([fake.origin]),
+        );
+      });
+
+      it("refuses a stored git URL on a host that is no registered resource, and sends it nothing", async () => {
+        const { folder, name } = await published();
+        await writeTree(folder, { "src/app.ts": "export const app = 'elsewhere';\n" });
+        const requests = fake.apiRequests.length;
+        const credentials = fake.credentialRequests.length;
+        await pointFolderAt(folder, `https://unregistered.example/git/acme/app-${name}.git`);
+
+        for (const run of [
+          () => publish(folder),
+          () => publish(folder, { syncOnly: true }),
+          () => statusOf(folder),
+        ])
+          await expect(run()).rejects.toMatchObject({
+            code: "remote_untrusted",
+            message: expect.stringContaining("unregistered.example"),
+          });
+        expect(fake.apiRequests.length).toBe(requests);
+        expect(fake.credentialRequests.length).toBe(credentials);
+        // The helper refuses it too, for git run by hand in the folder.
+        const fetched = await fake.git(["fetch", "weldall"], folder, {
+          env: {
+            ...fake.publishEnvironment(),
+            GIT_TERMINAL_PROMPT: "0",
+            GIT_ASKPASS: "",
+            [`GIT_CONFIG_COUNT`]: "3",
+            GIT_CONFIG_KEY_0: "credential.https://unregistered.example/git/.helper",
+            GIT_CONFIG_VALUE_0: "!weldall git-credential",
+            GIT_CONFIG_KEY_1: "credential.https://unregistered.example/git/.useHttpPath",
+            GIT_CONFIG_VALUE_1: "true",
+            GIT_CONFIG_KEY_2: "http.sslVerify",
+            GIT_CONFIG_VALUE_2: "false",
+          },
+        });
+        expect(fetched.code).not.toBe(0);
+        expect(fake.credentialRequests.length).toBe(credentials);
+      });
+
+      it("refuses a stored git URL of another registered Git app, and a recorded key of another one", async () => {
+        const { folder, name } = await published();
+        fake.setResources([
+          fake.gitAppResource(),
+          fake.gitAppResource("git-app-other", otherOrigin),
+        ]);
+        const requests = fake.apiRequests.length;
+        await pointFolderAt(folder, `${otherOrigin}/git/acme/app-${name}.git`);
+        await expect(publish(folder)).rejects.toMatchObject({
+          code: "remote_untrusted",
+          message: expect.stringContaining('another Git app ("git-app-other"'),
+        });
+        await pointFolderAt(folder, `${fake.origin}/git/acme/app-${name}.git`);
+        await inFolder(folder, ["config", "weldall.gitApp", "git-app-other"]);
+        await expect(publish(folder)).rejects.toMatchObject({ code: "remote_untrusted" });
+        await expect(statusOf(folder)).rejects.toMatchObject({ code: "remote_untrusted" });
+        await inFolder(folder, ["config", "weldall.gitApp", "not registered"]);
+        await expect(publish(folder)).rejects.toMatchObject({ code: "state_invalid" });
+        await inFolder(folder, ["config", "weldall.gitApp", "unknown-app"]);
+        await expect(publish(folder)).rejects.toMatchObject({ code: "git_app_unknown" });
+        await inFolder(folder, ["config", "weldall.gitApp", GIT_APP_KEY]);
+        await expect(publish(folder, { app: { gitApp: "git-app-other" } })).rejects.toMatchObject({
+          code: "git_app_mismatch",
+        });
+        expect(fake.apiRequests.length).toBe(requests);
+        expect((await publish(folder)).outcome).toBe("nothing_to_publish");
+      });
+
+      it("refuses a stored git URL outside the Git app's /git/ route", async () => {
+        const { folder, name } = await published();
+        for (const remoteUrl of [
+          `${fake.origin}/api/apps.git`,
+          `${fake.origin}/git/acme/app-${name}.git/../../api/x.git`,
+          `${fake.origin}/other/git/acme/app-${name}.git`,
+          `${fake.origin}/git/github/acme/app-${name}.git`,
+          `http://${new URL(fake.origin).host}/git/acme/app-${name}.git`,
+        ]) {
+          await pointFolderAt(folder, remoteUrl);
+          await expect(publish(folder), remoteUrl).rejects.toMatchObject({
+            code: "remote_untrusted",
+          });
+        }
+      });
+
+      it("refuses a folder whose Git app moved in the registry, and names the new address", async () => {
+        const { folder, name } = await published();
+        fake.setResources([fake.gitAppResource(GIT_APP_KEY, otherOrigin)]);
+        const error = await publish(folder).catch((caught: unknown) => caught);
+        expect(error).toMatchObject({
+          code: "remote_untrusted",
+          hint: expect.stringContaining(`${otherOrigin}/git/acme/app-${name}.git`),
+        });
+        // The helper no longer answers for the old address either.
+        const fetched = await fake.git(["fetch", "weldall"], folder, {
+          env: { ...fake.publishEnvironment(), GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
+        });
+        expect(fetched.code).not.toBe(0);
+        expect(fetched.stderr).toContain("is not a Git app registered in Weldall");
+      });
+
+      it("refuses a git URL the Git app returns outside its own origin", async () => {
+        counter += 1;
+        const name = `app${counter}`;
+        const folder = await fake.createFolder(name, "react", TEMPLATE);
+        fake.answerRemotesAt(otherOrigin);
+        try {
+          await expect(publish(folder, { app: { name, purpose: "Tests" } })).rejects.toMatchObject({
+            code: "remote_untrusted",
+          });
+        } finally {
+          fake.answerRemotesAt(null);
+        }
+        await expect(inFolder(folder, ["config", "weldall.appId"])).rejects.toThrow();
+      });
+
+      it("chooses the only Git app the person may publish to, and asks to name one of several", async () => {
+        counter += 1;
+        const name = `app${counter}`;
+        const folder = await fake.createFolder(name, "react", TEMPLATE);
+        await writeTree(folder, { "src/app.ts": "export const app = 2;\n" });
+        fake.setResources([
+          fake.gitAppResource(),
+          fake.gitAppResource("git-app-other", otherOrigin, []),
+        ]);
+        expect((await publish(folder, { app: { name, purpose: "Tests" } })).outcome).toBe(
+          "published",
+        );
+
+        fake.setResources([
+          fake.gitAppResource(),
+          fake.gitAppResource("git-app-other", otherOrigin),
+        ]);
+        const second = await fake.createFolder(`${name}b`, "react", TEMPLATE);
+        await writeTree(second, { "src/app.ts": "export const app = 2;\n" });
+        await expect(
+          publish(second, { app: { name: `${name}b`, purpose: "Tests" } }),
+        ).rejects.toMatchObject({
+          code: "git_app_ambiguous",
+          details: { gitApps: `${GIT_APP_KEY}, git-app-other` },
+        });
+        await expect(
+          publish(second, { app: { name: `${name}b`, purpose: "Tests", gitApp: "nope" } }),
+        ).rejects.toMatchObject({ code: "git_app_unknown" });
+        expect(
+          (
+            await publish(second, {
+              app: { name: `${name}b`, purpose: "Tests", gitApp: GIT_APP_KEY },
+            })
+          ).outcome,
+        ).toBe("published");
+
+        fake.setResources([fake.gitAppResource(GIT_APP_KEY, fake.origin, [])]);
+        const third = await fake.createFolder(`${name}c`, "react", TEMPLATE);
+        await expect(
+          publish(third, { app: { name: `${name}c`, purpose: "Tests" } }),
+        ).rejects.toMatchObject({
+          code: "scope_missing",
+          message: expect.stringContaining("git-app:publish"),
+        });
+      });
+
+      it("reads the status of an app id from the Git app the app registry names", async () => {
+        const { first } = await published();
+        fake.setResources([
+          fake.gitAppResource(),
+          fake.gitAppResource("git-app-other", otherOrigin),
+        ]);
+        const status = await readAppStatus({
+          gitApps: fake.gitApps,
+          registry: fake.registry,
+          directory: "/nonexistent",
+          appId: first.app!.id,
+        });
+        expect(status.app.id).toBe(first.app!.id);
+        expect(fake.apiRequests.at(-1)).toMatchObject({
+          origin: fake.origin,
+          path: `apps/${first.app!.id}/status`,
+        });
+      });
+    });
+
+    it("fails clearly against a Weldall server without a Git app, and against an older Git app", async () => {
       counter += 1;
       const name = `app${counter}`;
       const folder = await fake.createFolder(name, "react", TEMPLATE);
       fake.useOldServer(true);
       try {
         await expect(publish(folder, { app: { name, purpose: "Tests" } })).rejects.toMatchObject({
-          code: "server_unsupported",
+          code: "no_git_app",
         });
+        await expect(
+          readAppStatus({
+            gitApps: fake.gitApps,
+            registry: fake.registry,
+            directory: "/x",
+            appId: "app1",
+          }),
+        ).rejects.toMatchObject({ code: "server_unsupported" });
       } finally {
         fake.useOldServer(false);
       }
+      fake.useOldGitApp(true);
+      try {
+        await expect(publish(folder, { app: { name, purpose: "Tests" } })).rejects.toMatchObject({
+          code: "git_app_unsupported",
+        });
+      } finally {
+        fake.useOldGitApp(false);
+      }
+      expect(await inFolder(folder, ["config", "--get-regexp", "^weldall\\."])).not.toContain(
+        "appid",
+      );
     });
 
     // Regressions found by attacking the built command (review of step 3f).

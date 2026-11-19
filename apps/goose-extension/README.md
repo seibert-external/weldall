@@ -100,7 +100,7 @@ transport; actual iframe rendering in an installed Goose remains a separate acce
 
 ## Publishing apps (development branch)
 
-`publish_app({ folder, name?, purpose?, template?, connector?, title?, body?, resolve?, decisions? })`
+`publish_app({ folder, name?, purpose?, template?, gitApp?, title?, body?, resolve?, decisions? })`
 runs `weldall app publish --json` for an app folder (see "Publishing an app" in the CLI README) and
 `app_status({ folder } | { appId })` runs `weldall app status --json`. Both need a CLI built from
 this branch; an older CLI yields `cli_outdated`. Every value is passed as one `--option=value`
@@ -117,7 +117,9 @@ is not an error: `nextSteps` names the way forward (`resolve`, then one decision
 refused file or add it to `.gitignore`). `pull_request_not_opened` means the change was sent but its
 pull request is missing (`published: false`, `sent: true`); publishing again opens it without
 pushing again. A CLI error returns its validated `cliCode` with fixed `nextSteps` for known codes
-and its message and hint under `error.data`.
+and its message and hint under `error.data`. `gitApp` (passed as `--git-app`) names the Git app only after
+a `git_app_ambiguous` error and the person's choice; the Git app codes (`no_git_app`, `git_app_ambiguous`,
+`scope_missing`, `remote_untrusted`, …) get fixed next steps.
 
 A publish may take up to ten minutes (repository creation, then a push of up to about five
 minutes), so the Goose extension timeout must be longer: 660 seconds, as in Setup. A timeout,

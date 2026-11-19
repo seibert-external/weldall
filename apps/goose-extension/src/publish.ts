@@ -73,10 +73,10 @@ export const publishSchema = z.strictObject({
     .describe(
       "Template name. Only when an earlier result asked for it because the folder does not record it.",
     ),
-  connector: key(120)
+  gitApp: key(120)
     .optional()
     .describe(
-      "Git host connector key. Only when an earlier result asked for it because more than one is available (first publish only).",
+      "Resource key of the Git app to publish to. Only when an earlier result (cliCode git_app_ambiguous) named several and the person chose one (first publish only).",
     ),
   title: line(200)
     .optional()
@@ -237,7 +237,7 @@ export function publishArguments(args: z.infer<typeof publishSchema>): string[] 
     ["name", args.name],
     ["purpose", args.purpose],
     ["template", args.template],
-    ["connector", args.connector],
+    ["git-app", args.gitApp],
     ["title", args.title],
     ["body", args.body],
   ] as const;
@@ -262,7 +262,8 @@ const appEntry = z.object({
   name: cliText,
   purpose: cliText,
   repository: z.object({
-    connector: cliText,
+    connector: cliText.nullable(),
+    resource: cliText.nullable().optional(),
     owner: cliText,
     name: cliText,
     webUrl: cliText.nullable(),
@@ -375,7 +376,25 @@ const CLI_ERROR_STEPS: Record<string, string> = {
   git_too_old:
     "The git on this computer is too old for publishing. Tell the person it needs an update.",
   server_unsupported:
-    "This Weldall server cannot publish apps yet. Tell the person to ask their Weldall administrator.",
+    "This Weldall server cannot do this yet. Tell the person to ask their Weldall administrator.",
+  no_git_app:
+    "No Git app is registered in Weldall, so apps cannot be published yet. Tell the person to ask their Weldall administrator.",
+  git_app_ambiguous:
+    "Several Git apps are registered (named in error.data.message). Ask the person which Git host the app belongs on, then call publish_app again with gitApp set to that Git app's key.",
+  git_app_unknown:
+    "The named Git app is not one Weldall lists. Call publish_app without gitApp, or with a key from an earlier git_app_ambiguous result.",
+  scope_missing:
+    "The person lacks the permission to publish with this Git app. Tell them to ask their Weldall administrator.",
+  git_app_unsupported:
+    "The Git app does not offer what this CLI needs; it may be an older version. Tell the person to ask their Weldall administrator.",
+  git_app_access:
+    "Weldall did not give access to the Git app. Tell the person; try again only when they ask.",
+  remote_untrusted:
+    "The folder's git settings point somewhere Weldall does not list as the app's Git app, so nothing was sent. Tell the person; never change the folder's git settings yourself to get around it.",
+  git_app_mismatch:
+    "This folder's app belongs to another Git app. Call publish_app again without gitApp.",
+  unsafe_git_config:
+    "The folder's git settings contain entries Weldall does not allow. Tell the person which (error.data.message); never remove or change git settings on your own.",
   network: "Weldall could not be reached. Tell the person; try again only when they ask.",
   timeout: "Weldall did not answer in time. Tell the person; try again only when they ask.",
   too_large:

@@ -1,7 +1,7 @@
 import { PublishError } from "./errors.js";
 import { openRepository, type PublishOptions } from "./publish.js";
 import { CONFIG, readState } from "./state.js";
-import type { AppEntry, AppList, PublishApi } from "./weldall-api.js";
+import type { AppEntry, AppList, RegistryApi } from "./weldall-api.js";
 
 /**
  * `weldall app list` and `weldall app confirm`: the person's entries in Weldall's app registry.
@@ -19,14 +19,14 @@ export interface AppConfirmReport {
   app: AppEntry;
 }
 
-export async function listMyApps(api: PublishApi): Promise<AppListReport> {
+export async function listMyApps(api: Pick<RegistryApi, "listApps">): Promise<AppListReport> {
   return { outcome: "apps", ...(await api.listApps()) };
 }
 
 export interface ConfirmOptions extends Pick<PublishOptions, "directory" | "git" | "environment"> {
   /** Confirms this app instead of the one the folder records; the folder is then not read. */
   appId?: string;
-  api: PublishApi;
+  api: Pick<RegistryApi, "confirmApp">;
 }
 
 /** Confirms the given app, or the folder's app when no id is given. */

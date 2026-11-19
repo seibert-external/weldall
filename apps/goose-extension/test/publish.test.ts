@@ -128,7 +128,7 @@ describe.skipIf(process.platform === "win32")("publish_app through the CLI", () 
       name: "--resolve",
       purpose: `Track expenses; touch ${marker}`,
       template: "react",
-      connector: "github",
+      gitApp: "git-app-github",
       title: "--json",
       body: `- first\n- $(touch ${marker})\n\`touch ${marker}\``,
       resolve: true,
@@ -147,7 +147,7 @@ describe.skipIf(process.platform === "win32")("publish_app through the CLI", () 
         "--name=--resolve",
         `--purpose=Track expenses; touch ${marker}`,
         "--template=react",
-        "--connector=github",
+        "--git-app=git-app-github",
         "--title=--json",
         `--body=- first\n- $(touch ${marker})\n\`touch ${marker}\``,
         "--resolve",
@@ -329,6 +329,32 @@ describe.skipIf(process.platform === "win32")("publish_app through the CLI", () 
     expect(structured.summary).toContain("Published 250 changed files");
   });
 
+  it.each([
+    ["git_app_ambiguous", "call publish_app again with gitApp"],
+    ["no_git_app", "No Git app is registered"],
+    ["remote_untrusted", "never change the folder's git settings"],
+    ["scope_missing", "lacks the permission"],
+  ])("gives fixed next steps for the Git app code %s", async (code, step) => {
+    const { app, cli } = await fakeCli({
+      exit: 1,
+      stdout: {
+        outcome: "error",
+        error: {
+          code,
+          message: "Several Git apps: GitHub (git-app-github), Forgejo (git-app-forgejo).",
+        },
+      },
+    });
+    const result = await callTool(cli, "publish_app", { folder: app, name: "x", purpose: "y" });
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        code: "publish_stopped",
+        cliCode: code,
+        nextSteps: [expect.stringContaining(step), expect.any(String)],
+      },
+    });
+  });
+
   it("passes the CLI's code with fixed steps and its message and hint only as data, without a stack trace", async () => {
     const { app, cli } = await fakeCli({
       exit: 1,
@@ -478,7 +504,8 @@ describe.skipIf(process.platform === "win32")("publish_app through the CLI", () 
     [{ folder: "relative/app" }, "invalid_request"],
     [{ folder: "/does/not/exist" }, "folder_invalid"],
     [{ folder: "APP", template: "-x" }, "invalid_request"],
-    [{ folder: "APP", connector: "--dir=/" }, "invalid_request"],
+    [{ folder: "APP", gitApp: "--dir=/" }, "invalid_request"],
+    [{ folder: "APP", connector: "github" }, "invalid_request"],
     [{ folder: "APP", name: "a\nb" }, "invalid_request"],
     [{ folder: "APP", decisions: [{ path: "../outside", choice: "repo" }] }, "invalid_request"],
     [{ folder: "APP", decisions: [{ path: "/etc/passwd", choice: "repo" }] }, "invalid_request"],
@@ -637,7 +664,8 @@ const registryEntry = (id: string, state: string, name = "expenses") => ({
   name,
   purpose: `${INJECTION}\u001b[31m`,
   repository: {
-    connector: "github",
+    connector: null,
+    resource: "git-app",
     owner: "acme",
     name: `app-${name}`,
     webUrl: "https://github.example/acme/app-expenses",
