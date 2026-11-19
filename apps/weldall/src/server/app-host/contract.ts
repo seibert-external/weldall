@@ -10,7 +10,10 @@ import { z } from "zod";
  * This file is the authority. The Git app keeps a copy with its client (`src/app-host.ts` there);
  * change it when this contract changes. Both repositories check their side against the same
  * example request, `apps/weldall/test/fixtures/app-host/audit-event-request.json` here and
- * `test/fixtures/app-host/audit-event-request.json` there; keep the two files identical.
+ * `test/fixtures/app-host/audit-event-request.json` there; keep the two files identical. Some
+ * exports (`APP_HOST_API_PATH`, `APP_HOST_AUDIT_REASON_CODES`, `appHostHttpsUrlSchema`,
+ * `appHostAuditEventResponseSchema`) have no user in Weldall: they are the template for the Git
+ * app's client, which uses them. Keep them.
  *
  * The app registry (apps, owners, re-verification) is the Git app's own: Weldall keeps no app
  * records. An event names the app by the Git app's id (`appId`, opaque to Weldall) and always by
@@ -28,7 +31,10 @@ import { z } from "zod";
 export const APP_HOST_SCOPE = "weldall:app-host";
 export const APP_HOST_API_PATH = "/api/app-host/v1";
 
-/** List lengths the audit report accepts; send the first entries and the full count. */
+/**
+ * List lengths the audit report accepts; send the first entries and the full count. Weldall's
+ * audit metadata (`../audit/git-metadata.ts`) takes its list bounds from here.
+ */
 export const APP_HOST_AUDIT_LIMITS = {
   refUpdates: 20,
   commits: 100,

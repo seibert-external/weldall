@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { APP_HOST_AUDIT_LIMITS, gitCommitIdSchema } from "../app-host/contract";
 import { redactCredentials } from "../observability/redaction";
 
 /**
  * Bounds for Git audit metadata. Free text is redacted and cut with {@link TRUNCATION_MARKER}
  * instead of rejected, so an unusual branch name or a long reason never fails a git operation.
- * Lists are capped by the reporting Git app (`src/audit.ts` in seibert-external/weldall-git-app,
- * the contract is `../app-host/contract.ts`); the matching `…Count`
- * field keeps the full number, so `count > list.length` shows that the list was cut.
+ * Lists are capped by the reporting Git app with the list lengths of the app host contract
+ * (`../app-host/contract.ts`, the one source for them); the matching `…Count` field keeps the
+ * full number, so `count > list.length` shows that the list was cut.
  */
 export const GIT_AUDIT_LIMITS = {
   /** GitHub allows 100 characters for repository and organisation names. */
@@ -16,13 +17,13 @@ export const GIT_AUDIT_LIMITS = {
   template: 100,
   reason: 500,
   /** Ref updates recorded per push; a publish pushes one branch. */
-  refUpdates: 20,
+  refUpdates: APP_HOST_AUDIT_LIMITS.refUpdates,
   /** Commit ids recorded per pull request; a publish adds one commit per push. */
-  commits: 100,
+  commits: APP_HOST_AUDIT_LIMITS.commits,
   /** Warning codes recorded per created repository or opened pull request. */
-  warnings: 10,
+  warnings: APP_HOST_AUDIT_LIMITS.warnings,
   /** Failed check ids recorded per checklist run. */
-  checks: 70,
+  checks: APP_HOST_AUDIT_LIMITS.checks,
 } as const;
 
 export const TRUNCATION_MARKER = "…[truncated]";
@@ -54,7 +55,7 @@ const id = z.string().regex(/^[A-Za-z0-9._:-]{1,191}$/);
 /** SHA-1 or SHA-256 object id; the all-zero id marks a created or deleted ref. */
 const gitCommitId = z.preprocess(
   (value) => (typeof value === "string" ? value.toLowerCase() : value),
-  z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+  gitCommitIdSchema,
 );
 const count = z.number().int().nonnegative();
 const reason = gitText(GIT_AUDIT_LIMITS.reason);
