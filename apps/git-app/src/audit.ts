@@ -80,25 +80,38 @@ export function createAuditReporter({
     /**
      * Records a denied or failed request. Best effort: the person gets the original error either
      * way, and a report that cannot be stored is logged. An unknown subject is reported again
-     * without one (the Git app's machine client is then the actor), as the contract asks.
+     * without one (the Git app's machine client is then the actor), as the contract asks; an app
+     * Weldall does not know for this resource (`not_found`: deleted, or another resource's) is
+     * reported again without the app, naming `withoutApp.repository` instead (the contract takes
+     * either an app or a repository).
      */
-    async rejection(report: AuditRejection): Promise<void> {
-      const bounded = { ...report, reason: auditText(report.reason) } as AuditRejection;
-      try {
-        await send(bounded);
-      } catch (error) {
-        if (weldallCode(error) === "unknown_subject" && bounded.subject !== null)
-          try {
-            await send({ ...bounded, subject: null } as AuditRejection);
+    async rejection(
+      report: AuditRejection,
+      withoutApp: { repository: { owner: string; name: string } | null } = { repository: null },
+    ): Promise<void> {
+      let pending = { ...report, reason: auditText(report.reason) } as AuditRejection;
+      for (;;)
+        try {
+          await send(pending);
+          return;
+        } catch (error) {
+          const code = weldallCode(error);
+          if (code === "unknown_subject" && pending.subject !== null)
+            pending = { ...pending, subject: null } as AuditRejection;
+          else if (code === "not_found" && "appId" in pending && pending.appId !== null)
+            pending = {
+              ...pending,
+              appId: null,
+              repository: withoutApp.repository,
+            } as AuditRejection;
+          else {
+            log("error", "audit report of a rejection failed", {
+              eventType: report.eventType,
+              ...errorForLog(error),
+            });
             return;
-          } catch (retryError) {
-            error = retryError;
           }
-        log("error", "audit report of a rejection failed", {
-          eventType: report.eventType,
-          ...errorForLog(error),
-        });
-      }
+        }
     },
   };
 }

@@ -144,6 +144,10 @@ describe("configuration", () => {
       { GIT_APP_PUBLIC_ORIGIN: "http://git-app.example.com" },
       "GIT_APP_PUBLIC_ORIGIN must use https.",
     ],
+    // No http exception for loopback: Weldall, the CLI and the SDK accept only https.
+    [{ GIT_APP_PUBLIC_ORIGIN: "http://localhost:3002" }, "GIT_APP_PUBLIC_ORIGIN must use https."],
+    [{ GIT_APP_PUBLIC_ORIGIN: "http://127.0.0.1:3002" }, "GIT_APP_PUBLIC_ORIGIN must use https."],
+    [{ WELDALL_ISSUER: "http://localhost:3000" }, "WELDALL_ISSUER must use https."],
     [
       { GIT_APP_PUBLIC_ORIGIN: "https://git-app.example.com/" },
       "GIT_APP_PUBLIC_ORIGIN must be an origin",

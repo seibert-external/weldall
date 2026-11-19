@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
-import { createGitApp } from "./app.js";
-import { GitAppConfigError, loadConfig } from "./config.js";
+import { GitAppConfigError } from "./config.js";
 import { jsonLogger } from "./log.js";
+import { prepareGitApp, startupErrorMessage } from "./start.js";
 
 /**
  * How long running requests may finish after a stop signal; below Docker's default stop timeout
@@ -10,17 +10,19 @@ import { jsonLogger } from "./log.js";
  */
 const SHUTDOWN_GRACE_MS = 8_000;
 
-let config;
-try {
-  config = await loadConfig();
-} catch (error) {
-  // The message names variables only, never their values.
-  process.stderr.write(
-    `${error instanceof GitAppConfigError ? error.message : "Invalid Git app configuration."}\n`,
-  );
+/** Ends a failed start with the clean message (variables only, never a value) and exit code 1. */
+function failStart(error: unknown): never {
+  process.stderr.write(`${startupErrorMessage(error)}\n`);
   process.exit(1);
 }
-const app = createGitApp({ config });
+
+let prepared;
+try {
+  prepared = await prepareGitApp();
+} catch (error) {
+  failStart(error);
+}
+const { config, app } = prepared;
 const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) =>
   jsonLogger("info", "Git app listening", {
     port,
@@ -29,6 +31,11 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) =>
     origin: config.publicOrigin,
   }),
 );
+// A port in use or not permitted is a start-up failure too, not an uncaught error event.
+const onListenError = () =>
+  failStart(new GitAppConfigError(["PORT cannot be listened on (in use or not permitted)."]));
+server.once("error", onListenError);
+server.once("listening", () => server.off("error", onListenError));
 
 // In a container the process is PID 1, which ignores signals it does not handle: without this,
 // `docker stop` waits for its timeout and kills the process.

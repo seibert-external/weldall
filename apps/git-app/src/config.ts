@@ -69,11 +69,11 @@ type ReadFile = (path: string) => string;
 const scopeKey = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
 const clientId = /^[A-Za-z0-9._:-]{1,128}$/;
 
-function isLoopback(hostname: string) {
-  return ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
-}
-
-/** An https origin (http only on loopback, for local development), without path or credentials. */
+/**
+ * An https origin without path or credentials. There is no http exception for loopback: Weldall
+ * accepts only an https issuer, the CLI finds a Git app only at an https origin, and the SDK would
+ * refuse http at start. Local development uses https, as `apps/expenses` does.
+ */
 function originProblem(value: string): string | null {
   let url: URL;
   try {
@@ -81,8 +81,7 @@ function originProblem(value: string): string | null {
   } catch {
     return "must be an absolute URL";
   }
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback(url.hostname)))
-    return "must use https";
+  if (url.protocol !== "https:") return "must use https";
   if (url.username || url.password || url.search || url.hash || value !== url.origin)
     return "must be an origin without path, trailing slash, credentials, query or fragment";
   return null;

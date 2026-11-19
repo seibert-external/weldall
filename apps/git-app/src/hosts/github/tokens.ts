@@ -21,6 +21,15 @@ export interface InstallationToken {
 
 /** A cached token is reused only while it stays valid for at least this long (a git push may take minutes). */
 export const TOKEN_RENEWAL_MARGIN_MS = 5 * 60_000;
+/**
+ * How long a refused token request (GitHub's 422) is remembered for callers that opt in
+ * (`reuseRefusal`, the status read's parts). A status read asks for checks, commit statuses and
+ * deployments on every call and a publish reads status twice, so without this each read repeats
+ * the same refused requests. Five minutes keeps that to one refusal per repository and permission
+ * set every five minutes, while a permission granted later is picked up within five minutes
+ * without a restart. Only refusals are remembered here; tokens keep their own expiry.
+ */
+export const TOKEN_REFUSAL_TTL_MS = 5 * 60_000;
 /** Installation ids change only when the App is reinstalled. */
 const INSTALLATION_LOOKUP_TTL_MS = 10 * 60_000;
 const MAX_CACHE_ENTRIES = 500;
@@ -103,11 +112,24 @@ function upstreamError(status: number, subject: "token" | "installation"): GitAp
  * Mints installation tokens restricted to one repository and an explicit permission set, and
  * caches them per installation, repository and permission set until shortly before expiry.
  * Concurrent requests for the same key share one upstream call.
+ *
+ * A refusal (`token_refused`) is remembered under the same key for {@link TOKEN_REFUSAL_TTL_MS}
+ * and answered from memory only to callers that pass `reuseRefusal`. The key includes the
+ * repository because GitHub's 422 does not say whether the permission is missing or the
+ * repository left the installation, so one repository's refusal says nothing about another's.
  */
 export function createInstallationTokenCache({ now = Date.now }: { now?: () => number } = {}) {
   const tokens = new Map<string, InstallationToken>();
   const pending = new Map<string, Promise<InstallationToken>>();
   const installations = new Map<string, { id: string; until: number }>();
+  /** Keys whose last token request GitHub refused, until when that answer is reused. */
+  const refusals = new Map<string, number>();
+
+  const rememberRefusal = (key: string) => {
+    for (const [refused, until] of refusals) if (until <= now()) refusals.delete(refused);
+    while (refusals.size >= MAX_CACHE_ENTRIES) refusals.delete(refusals.keys().next().value!);
+    refusals.set(key, now() + TOKEN_REFUSAL_TTL_MS);
+  };
 
   const prune = () => {
     for (const [key, value] of tokens)
@@ -194,6 +216,12 @@ export function createInstallationTokenCache({ now = Date.now }: { now?: () => n
       repository: string;
       permissions: GitHubPermissions;
       signal: AbortSignal;
+      /**
+       * Answer with a refusal GitHub gave for the same key within {@link TOKEN_REFUSAL_TTL_MS}
+       * instead of asking again. For reads that only turn a refusal into a warning; the
+       * checklist and every operation that acts on the repository always ask GitHub.
+       */
+      reuseRefusal?: boolean;
     }): Promise<InstallationToken> {
       const permissions = canonicalPermissions(input.permissions);
       let jwt: string | undefined;
@@ -217,6 +245,9 @@ export function createInstallationTokenCache({ now = Date.now }: { now?: () => n
       ]);
       const cached = tokens.get(key);
       if (cached && cached.expiresAt.getTime() - now() > TOKEN_RENEWAL_MARGIN_MS) return cached;
+      const refusedUntil = refusals.get(key);
+      if (input.reuseRefusal && refusedUntil !== undefined && refusedUntil > now())
+        throw upstreamError(422, "token");
       const inFlight = pending.get(key);
       if (inFlight) return untilAborted(inFlight, input.signal);
       const minted = request({
@@ -228,11 +259,19 @@ export function createInstallationTokenCache({ now = Date.now }: { now?: () => n
         // Shared by concurrent callers, so bounded only by the request timeout.
         signal: new AbortController().signal,
       })
-        .then((token) => {
-          prune();
-          tokens.set(key, token);
-          return token;
-        })
+        .then(
+          (token) => {
+            prune();
+            tokens.set(key, token);
+            refusals.delete(key);
+            return token;
+          },
+          (error: unknown) => {
+            if (error instanceof GitAppError && error.code === "token_refused")
+              rememberRefusal(key);
+            throw error;
+          },
+        )
         .finally(() => pending.delete(key));
       pending.set(key, minted);
       return untilAborted(minted, input.signal);
@@ -302,6 +341,7 @@ export function createInstallationTokenCache({ now = Date.now }: { now?: () => n
     clear() {
       tokens.clear();
       installations.clear();
+      refusals.clear();
     },
   };
 }

@@ -552,12 +552,24 @@ describe.skipIf(skipReason !== null)(
 
       const readOnly = await push(await credential("alice", "read"));
       expect(readOnly.stderr).toContain("remote error: weldall: this git credential is read-only");
+      // Refused before Weldall is asked, but the signed credential names the app.
+      expect(events("git_push.denied").at(-1)).toMatchObject({
+        subject: "alice",
+        appId: "app0001",
+        reasonCode: "scope_not_granted",
+      });
 
       // Bob's credential for his own app does not open Alice's repository.
       const foreign = await push(await credential("bob", "write", "app-bobs"));
       expect(foreign.stderr).toContain(
         "remote error: weldall: this git credential is not valid for this repository",
       );
+      // Bob's app is not linked to a request for Alice's repository.
+      expect(events("git_push.denied").at(-1)).toMatchObject({
+        subject: "bob",
+        appId: null,
+        repository: { owner: ORGANIZATION, name: "app-demo" },
+      });
       const lsForeign = await git(["ls-remote", remote()], {
         password: await credential("bob", "read", "app-bobs"),
       });
@@ -578,8 +590,10 @@ describe.skipIf(skipReason !== null)(
       const expired = signer(new Date(Date.now() - 10 * 60_000)).issue(claims).password;
       issued.push(expired);
       expect((await push(expired)).stderr).toContain("Authentication failed");
+      // An expired credential is not trusted to name the app.
       expect(events("git_push.denied").at(-1)).toMatchObject({
         subject: "alice",
+        appId: null,
         reasonCode: "invalid_grant",
         reason: "The git credential has expired.",
       });
@@ -642,9 +656,35 @@ describe.skipIf(skipReason !== null)(
       expect(await noLogin.text()).toContain("You may no longer use Weldall");
       expect(events("git_fetch.denied").at(-1)).toMatchObject({
         subject: "alice",
+        appId: "app0001",
         reasonCode: "scope_not_granted",
       });
       expect(forwardingCalls).toEqual([]);
+    });
+
+    it("reports a refusal without the app when Weldall no longer knows the credential's app", async () => {
+      const dir = await cloneAs();
+      await commitFile(dir, "gone.txt", "g\n");
+      const password = await credential("alice", "read");
+      gitApp.weldall.apps.delete("app0001");
+      const pushed = await git(["push", "origin", `HEAD:refs/heads/${publish("gone")}`], {
+        cwd: dir,
+        password,
+      });
+      expect(pushed.stderr).toContain("this git credential is read-only");
+      const reports = gitApp.weldall.calls
+        .filter(({ method }) => method === "reportAuditEvent")
+        .map(({ input }) => input as { eventType: string; appId: string | null })
+        .filter(({ eventType }) => eventType === "git_push.denied");
+      // First with the credential's app (refused as unknown), then stored without it.
+      expect(reports.map(({ appId }) => appId)).toEqual(["app0001", null]);
+      expect(events("git_push.denied").at(-1)).toMatchObject({
+        subject: "alice",
+        appId: null,
+        repository: { owner: ORGANIZATION, name: "app-demo" },
+        reasonCode: "scope_not_granted",
+      });
+      expect(gitApp.logs.filter(({ message }) => message.includes("audit report"))).toEqual([]);
     });
 
     it("refuses a push once the app changed owner after the credential was issued", async () => {

@@ -203,6 +203,13 @@ export function createGitProxy({ services, signer, ...options }: GitProxyOptions
 
     /** Set once the app is resolved and owned by the credential's person. */
     let target: { appId: string; repository: GitRepositoryRef } | null = null;
+    /**
+     * The app a validly signed, unexpired credential for this repository names: rejections before
+     * the app is resolved (a read-only push, a revoked scope) are linked to it. Cleared when the
+     * lookup shows it is not this person's app here. Should Weldall no longer know it, the
+     * reporter repeats the rejection without it (`AuditReporter.rejection`).
+     */
+    let credentialAppId: string | null = null;
     let refUpdates: GitRefUpdate[] | undefined;
     const durationMs = () => Math.round(performance.now() - started);
 
@@ -272,11 +279,13 @@ export function createGitProxy({ services, signer, ...options }: GitProxyOptions
         durationMs: durationMs(),
         upstreamStatus: entry.upstreamStatus ?? null,
       };
+      // Another owner's app is never linked to this person's rejection.
+      const appId = target?.appId ?? credentialAppId;
       const common = {
         subject: credential?.subject ?? null,
-        // Another owner's app is never linked to this person's rejection.
-        appId: target?.appId ?? null,
-        repository: target ? null : requested,
+        // The contract takes either the app (Weldall records its repository) or the repository.
+        appId,
+        repository: appId ? null : requested,
         reason: entry.reason,
         ...(entry.reasonCode ? { reasonCode: entry.reasonCode } : {}),
       };
@@ -292,6 +301,8 @@ export function createGitProxy({ services, signer, ...options }: GitProxyOptions
               eventType: entry.outcome === "denied" ? "git_fetch.denied" : "git_fetch.failed",
               details: partial,
             },
+        // Should Weldall no longer know the app, the requested repository is named instead.
+        { repository: requested },
       );
     };
 
@@ -380,6 +391,9 @@ export function createGitProxy({ services, signer, ...options }: GitProxyOptions
 
     if (!sameRepository(verified.repository, requested))
       return await refuse("this git credential is not valid for this repository");
+    credentialAppId = verified.appId;
+    // The credential is valid and the request well-formed; the access it grants (read) does not
+    // include pushing, which is what `scope_not_granted` records.
     if (isPush && verified.access !== "write")
       return await refuse("this git credential is read-only and cannot push", {
         reasonCode: "scope_not_granted",
@@ -461,12 +475,16 @@ export function createGitProxy({ services, signer, ...options }: GitProxyOptions
             subject: verified.subject,
           }),
         ]);
-        if (!found || found.app.id !== verified.appId)
+        if (!found || found.app.id !== verified.appId) {
+          credentialAppId = null;
           return await refuse("this git credential is not valid for this repository");
-        if (found.ownedBySubject !== true)
+        }
+        if (found.ownedBySubject !== true) {
+          credentialAppId = null;
           return await refuse("this app belongs to another person", {
             reasonCode: "scope_not_granted",
           });
+        }
         app = found.app;
       } catch (error) {
         if (!(error instanceof GitAppError)) throw error;

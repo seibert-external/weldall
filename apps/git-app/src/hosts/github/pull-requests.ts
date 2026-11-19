@@ -66,8 +66,16 @@ export interface GitHubRepositoryContext {
   webBaseUrl: string;
   owner: string;
   repository: string;
-  /** Installation token restricted to `repository`; `token_refused` when a permission is not granted. */
-  mint: (permissions: GitHubPermissions, signal: AbortSignal) => Promise<string>;
+  /**
+   * Installation token restricted to `repository`; `token_refused` when a permission is not
+   * granted. With `reuseRefusal`, a refusal of the last few minutes is answered from memory
+   * (see `TOKEN_REFUSAL_TTL_MS`).
+   */
+  mint: (
+    permissions: GitHubPermissions,
+    signal: AbortSignal,
+    options?: { reuseRefusal?: boolean },
+  ) => Promise<string>;
 }
 
 /**
@@ -534,7 +542,8 @@ export function createGitHubPullRequests(context: GitHubRepositoryContext) {
     { permissionOnly = false } = {},
   ): Promise<T | null> {
     try {
-      return await run(await context.mint(part.permission, signal));
+      // A refusal only becomes a warning here, so a recent one is not asked for again.
+      return await run(await context.mint(part.permission, signal, { reuseRefusal: true }));
     } catch (error) {
       if (signal.aborted || !(error instanceof GitAppError)) throw error;
       if (error.code === "token_refused" || error.code === "permission_missing") {

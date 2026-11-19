@@ -514,6 +514,35 @@ describe("reading the status from GitHub", () => {
     else expect(status.links.live).toBe("https://app.example.com/");
   });
 
+  it("does not ask GitHub again for refused permissions on the next read, and keeps the warnings", async () => {
+    const github = mockGitHubPullRequests({
+      ...full,
+      refusePermissions: ["checks", "statuses", "deployments"],
+    });
+    const shared = host();
+    const refusedRequests = () =>
+      github
+        .tokenRequests()
+        .filter(({ permissions }) =>
+          ["checks", "statuses", "deployments"].some((name) => name in permissions),
+        );
+    const first = await shared.readStatus(current, signal());
+    expect(refusedRequests()).toHaveLength(3);
+    // A publish reads the status twice: the second read answers the refusals from memory.
+    const second = await shared.readStatus(current, signal());
+    expect(refusedRequests()).toHaveLength(3);
+    expect(second.warnings).toEqual(first.warnings);
+    expect(second.warnings.map(({ code }) => code).sort()).toEqual([
+      "checks_permission_missing",
+      "deployments_permission_missing",
+      "statuses_permission_missing",
+    ]);
+    // Every token request stays restricted to the one repository.
+    expect(new Set(github.tokenRequests().map(({ repositories }) => repositories.join()))).toEqual(
+      new Set(["app-expenses"]),
+    );
+  });
+
   it.each([
     ["a retry-after header", { "retry-after": "30" }, { message: "Forbidden" }],
     ["a rate limit message", {}, { message: "You have exceeded a secondary rate limit" }],

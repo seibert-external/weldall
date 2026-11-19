@@ -91,7 +91,7 @@ export function createGitHubAppHost({
       webBaseUrl,
       owner: config.organization,
       repository: repository.name,
-      mint: async (permissions, signal) =>
+      mint: async (permissions, signal, options) =>
         (
           await tokens.mint({
             app,
@@ -99,6 +99,7 @@ export function createGitHubAppHost({
             repository: repository.name,
             permissions,
             signal,
+            reuseRefusal: options?.reuseRefusal ?? false,
           })
         ).token,
     });

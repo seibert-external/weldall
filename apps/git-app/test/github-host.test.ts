@@ -6,6 +6,7 @@ import { parseGitHubAppPrivateKey } from "../src/hosts/github/private-key.js";
 import { createAppJwt } from "../src/hosts/github/jwt.js";
 import {
   createInstallationTokenCache,
+  TOKEN_REFUSAL_TTL_MS,
   TOKEN_RENEWAL_MARGIN_MS,
 } from "../src/hosts/github/tokens.js";
 import { createGitHubAppHost } from "../src/hosts/github/host.js";
@@ -387,6 +388,89 @@ describe("installation tokens", () => {
     await expect(mint(createInstallationTokenCache(), { contents: "write" })).rejects.toMatchObject(
       { code: "grant_mismatch" },
     );
+  });
+
+  it("remembers a refused token request for opted-in callers, per repository and permission set", async () => {
+    let now = Date.now();
+    const cache = createInstallationTokenCache({ now: () => now });
+    const reusing = (permissions: Record<string, "read" | "write">, repository = "app-one") =>
+      cache.mint({
+        app,
+        loadPrivateKey,
+        repository,
+        permissions,
+        signal: signal(),
+        reuseRefusal: true,
+      });
+    const refused = mockGitHub({ status: 422 });
+    await expect(reusing({ checks: "read" })).rejects.toMatchObject({ code: "token_refused" });
+    // The same refusal again, from memory.
+    await expect(reusing({ checks: "read" })).rejects.toMatchObject({ code: "token_refused" });
+    expect(refused.calls).toHaveLength(1);
+    // Another repository, another permission set and a caller without the option still ask GitHub.
+    await expect(reusing({ checks: "read" }, "app-two")).rejects.toMatchObject({
+      code: "token_refused",
+    });
+    await expect(reusing({ statuses: "read" })).rejects.toMatchObject({ code: "token_refused" });
+    await expect(mint(cache, { checks: "read" })).rejects.toMatchObject({
+      code: "token_refused",
+    });
+    expect(refused.calls.map(({ body }) => [body.repositories, body.permissions])).toEqual([
+      [["app-one"], { checks: "read" }],
+      [["app-two"], { checks: "read" }],
+      [["app-one"], { statuses: "read" }],
+      [["app-one"], { checks: "read" }],
+    ]);
+
+    // After the expiry a permission granted meanwhile is picked up, still restricted to the one
+    // repository and permission set.
+    now += TOKEN_REFUSAL_TTL_MS + 1;
+    const granted = mockGitHub({ now: () => now });
+    expect((await reusing({ checks: "read" })).token).toBe("ghs_test_token_1");
+    expect(granted.calls.map(({ body }) => body)).toEqual([
+      { repositories: ["app-one"], permissions: { checks: "read" } },
+    ]);
+  });
+
+  it("forgets a refusal as soon as a token for the same key is issued", async () => {
+    const cache = createInstallationTokenCache();
+    const reusing = () =>
+      cache.mint({
+        app,
+        loadPrivateKey,
+        repository: "app-one",
+        permissions: { checks: "read" },
+        signal: signal(),
+        reuseRefusal: true,
+      });
+    mockGitHub({ status: 422 });
+    await expect(reusing()).rejects.toMatchObject({ code: "token_refused" });
+    // A caller that always asks (e.g. after the grant) gets the token; it replaces the refusal.
+    const granted = mockGitHub();
+    const token = await mint(cache, { checks: "read" });
+    expect(await reusing()).toEqual(token);
+    expect(granted.calls).toHaveLength(1);
+  });
+
+  it.each([
+    [404, "installation_not_found"],
+    [429, "upstream_rate_limited"],
+    [500, "upstream_unavailable"],
+  ])("does not remember HTTP %i, only a refused permission", async (status) => {
+    const cache = createInstallationTokenCache();
+    const { calls } = mockGitHub({ status });
+    for (let attempt = 0; attempt < 2; attempt += 1)
+      await expect(
+        cache.mint({
+          app,
+          loadPrivateKey,
+          repository: "app-one",
+          permissions: { checks: "read" },
+          signal: signal(),
+          reuseRefusal: true,
+        }),
+      ).rejects.toBeInstanceOf(GitAppError);
+    expect(calls).toHaveLength(2);
   });
 
   it("rejects invalid permission sets before contacting GitHub", async () => {
