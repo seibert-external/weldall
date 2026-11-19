@@ -1,5 +1,0 @@
----
-"@weldall/git-app": minor
----
-
-First release of the Git app as a Docker image (`docker.io/seibertgroup/weldall-git-app`): a separate service that keeps the repositories of people's apps on one GitHub organisation (through a GitHub App) or one Forgejo organisation (through a bot user) and is registered in Weldall as a resource. It creates app repositories from templates, opens pull requests for the reviewer team, reports status and links, runs the administrator's set-up checklist and serves a git proxy with short-lived git credentials, using Weldall's app host API for the app registry, permissions and the audit log. Configuration and secrets come only from the environment or from files named in `<NAME>_FILE` variables. The instance publishes two skills through skill discovery: `publish-app` (requires the publish scope, default `git-app:publish`) and `admin-checklist` (requires the admin scope, default `git-app:admin`), which point the agent at `weldall app publish` and `weldall app checklist`.
