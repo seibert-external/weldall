@@ -1,5 +1,6 @@
 name: Sign a Windows executable
 description: Authenticode-signs an executable with Azure Artifact Signing via GitHub OIDC and verifies the signature.
+# The calling job must run no dependency code: any step there could mint the same Azure token.
 inputs:
   executable:
     description: Absolute path to the Windows executable
