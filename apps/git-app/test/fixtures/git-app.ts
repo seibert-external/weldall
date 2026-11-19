@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { vi } from "vitest";
 import {
   JWT_DPOP_GRANT,
@@ -8,9 +8,9 @@ import {
   issueIdJag,
   type DpopKeyPair,
 } from "@weldall/sdk";
-import { createGitApp } from "../../src/app.js";
+import { createGitApp, type CreateGitAppOptions } from "../../src/app.js";
 import { loadConfig, type GitAppConfig } from "../../src/config.js";
-import { openConfiguredHost } from "../../src/hosts/index.js";
+import { openConfiguredHost, type ConfiguredHost } from "../../src/hosts/index.js";
 import { createInstallationTokenCache } from "../../src/hosts/github/tokens.js";
 import type { Logger } from "../../src/log.js";
 import { createFakeWeldall, type FakeWeldall } from "./fake-weldall.js";
@@ -58,6 +58,7 @@ export async function testEnvironment(overrides: Record<string, string | undefin
     WELDALL_MACHINE_KID: "machine-1",
     WELDALL_MACHINE_PRIVATE_JWK: jwk(machine.privateJwk),
     WELDALL_MACHINE_PUBLIC_JWK: jwk(machine.publicJwk),
+    GIT_APP_GIT_CREDENTIAL_KEY: randomBytes(32).toString("base64"),
     ...overrides,
   } as Record<string, string | undefined>;
 }
@@ -79,14 +80,24 @@ export type PersonName = keyof typeof people;
  * a GitHub fixture per test) and access tokens obtained through the instance's own token
  * endpoint, as the CLI would get them.
  */
-export async function createTestGitApp() {
+export async function createTestGitApp(
+  options: {
+    /** Replaces the GitHub driver (e.g. a fake host in front of `git http-backend`). */
+    host?: (config: GitAppConfig) => ConfiguredHost;
+    /** People of the fake Weldall; mutate the object to change permissions between calls. */
+    people?: Record<string, string[]>;
+    gitProxy?: CreateGitAppOptions["gitProxy"];
+  } = {},
+) {
   const weldallKey = await generateEs256KeyPair();
   const deviceKey = await generateEs256KeyPair();
   const config: GitAppConfig = await loadConfig(await testEnvironment());
   const logs: Array<{ level: string; message: string; fields?: Record<string, unknown> }> = [];
   const log: Logger = (level, message, fields) =>
     logs.push({ level, message, fields: fields ?? {} });
-  let weldall: FakeWeldall = createFakeWeldall({ resource: GIT_APP_RESOURCE, people });
+  const holders = options.people ?? people;
+  let weldall: FakeWeldall = createFakeWeldall({ resource: GIT_APP_RESOURCE, people: holders });
+  let gitProxy = options.gitProxy;
   let app = build();
   let eventCount = 0;
 
@@ -94,13 +105,16 @@ export async function createTestGitApp() {
     return createGitApp({
       config,
       weldall: weldall.api,
-      host: openConfiguredHost({
-        configuration: config.host,
-        secret: config.hostSecret,
-        tokens: createInstallationTokenCache(),
-        timing: { readyTimeoutMs: 300, pollIntervalMs: 5 },
-      }),
+      host:
+        options.host?.(config) ??
+        openConfiguredHost({
+          configuration: config.host,
+          secret: config.hostSecret,
+          tokens: createInstallationTokenCache(),
+          timing: { readyTimeoutMs: 300, pollIntervalMs: 5 },
+        }),
       log,
+      ...(gitProxy ? { gitProxy } : {}),
       eventId: () => `event-${String(++eventCount).padStart(12, "0")}`,
     });
   }
@@ -124,7 +138,7 @@ export async function createTestGitApp() {
 
   const tokens = new Map<string, string>();
   /** An access token of the Git app for `person`, with the scopes Weldall would grant at issue time. */
-  async function tokenFor(person: PersonName, scopes: string[]) {
+  async function tokenFor(person: string, scopes: string[]) {
     const key = `${person} ${scopes.join(" ")}`;
     const cached = tokens.get(key);
     if (cached) return cached;
@@ -164,7 +178,7 @@ export async function createTestGitApp() {
 
   /** Calls the Git app as `person` with a fresh DPoP proof. */
   async function call(
-    person: PersonName,
+    person: PersonName | (string & {}),
     method: "GET" | "POST",
     path: string,
     { body, scopes = defaultScopes(person) }: { body?: unknown; scopes?: string[] } = {},
@@ -197,16 +211,19 @@ export async function createTestGitApp() {
       return weldall;
     },
     /** A fresh fake Weldall and instance, keeping keys and issued tokens. */
-    reset() {
-      weldall = createFakeWeldall({ resource: GIT_APP_RESOURCE, people });
+    reset(next: { gitProxy?: CreateGitAppOptions["gitProxy"] } = {}) {
+      weldall = createFakeWeldall({ resource: GIT_APP_RESOURCE, people: holders });
+      gitProxy = next.gitProxy ?? options.gitProxy;
       app = build();
       logs.length = 0;
     },
     request: (input: string, init?: RequestInit) => app.request(input, init),
+    /** The current instance's fetch handler, for serving it over real HTTP. */
+    fetch: (request: Request) => app.fetch(request),
   };
 }
 
 /** The scopes Weldall issued in the person's token: what they held when they signed in. */
-function defaultScopes(person: PersonName) {
+function defaultScopes(person: string) {
   return person === "admin" ? [ADMIN_SCOPE] : [PUBLISH_SCOPE];
 }

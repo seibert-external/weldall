@@ -5,6 +5,7 @@ import { loadEs256KeyPairFromEnv, type DpopKeyPair } from "@weldall/sdk";
 
 type JWK = DpopKeyPair["publicJwk"];
 import { GitAppError } from "./errors.js";
+import { parseGitCredentialKey } from "./git/credentials.js";
 import {
   HOST_KINDS,
   parseHostConfiguration,
@@ -38,6 +39,11 @@ export interface GitAppConfig {
     machineKid: string;
     machineKey: DpopKeyPair;
   };
+  /**
+   * Keys of the git credentials (HMAC-SHA256): the first signs and verifies, a second (the
+   * previous key during a rotation) only verifies. Never logged or sent.
+   */
+  gitCredentialKeys: Buffer[];
   /** Resource scopes this instance checks. */
   scopes: { publish: string; admin: string };
   port: number;
@@ -100,7 +106,7 @@ export async function loadConfig(
     return value;
   };
   /** The value of NAME or the content of the file NAME_FILE names; exactly one of both. */
-  const secret = (name: string): string | undefined => {
+  const secret = (name: string, { required = true } = {}): string | undefined => {
     const direct = env[name];
     const path = env[`${name}_FILE`]?.trim();
     if (direct && path) {
@@ -118,7 +124,7 @@ export async function loadConfig(
       }
     }
     if (!direct?.trim()) {
-      problems.push(`${name} or ${name}_FILE is required.`);
+      if (required) problems.push(`${name} or ${name}_FILE is required.`);
       return undefined;
     }
     return direct;
@@ -244,6 +250,21 @@ export async function loadConfig(
   if (scopes.publish === scopes.admin)
     problems.push("GIT_APP_PUBLISH_SCOPE and GIT_APP_ADMIN_SCOPE must differ.");
 
+  // Git credentials
+  const credentialKey = (name: string, required: boolean) => {
+    const value = secret(name, { required });
+    if (value === undefined) return undefined;
+    const key = parseGitCredentialKey(value);
+    if (!key) problems.push(`${name} must be base64 of at least 32 random bytes.`);
+    return key ?? undefined;
+  };
+  const gitCredentialKey = credentialKey("GIT_APP_GIT_CREDENTIAL_KEY", true);
+  const previousGitCredentialKey = credentialKey("GIT_APP_GIT_CREDENTIAL_PREVIOUS_KEY", false);
+  if (gitCredentialKey && previousGitCredentialKey?.equals(gitCredentialKey))
+    problems.push(
+      "GIT_APP_GIT_CREDENTIAL_PREVIOUS_KEY must differ from GIT_APP_GIT_CREDENTIAL_KEY.",
+    );
+
   // Weldall
   const issuer = origin("WELDALL_ISSUER");
   const machineClientId = id("WELDALL_MACHINE_CLIENT_ID");
@@ -264,6 +285,7 @@ export async function loadConfig(
     !downstreamClientId ||
     !signingKid ||
     !signingPair ||
+    !gitCredentialKey ||
     !issuer ||
     !machineClientId ||
     !machineKid ||
@@ -277,6 +299,9 @@ export async function loadConfig(
     resource,
     downstreamClientId,
     signingKey: { kid: signingKid, ...signingPair },
+    gitCredentialKeys: previousGitCredentialKey
+      ? [gitCredentialKey, previousGitCredentialKey]
+      : [gitCredentialKey],
     weldall: {
       issuer,
       machineClientId,

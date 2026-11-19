@@ -99,6 +99,10 @@ describe("POST /api/apps", () => {
       },
       template: { name: "react", commit: templateCommit },
       warnings: [],
+      git: {
+        remotePath: "/git/acme-apps/app-expenses.git",
+        remoteUrl: `${GIT_APP_ORIGIN}/git/acme-apps/app-expenses.git`,
+      },
     });
     expect(methods()).toEqual([
       "checkSubjectScopes",

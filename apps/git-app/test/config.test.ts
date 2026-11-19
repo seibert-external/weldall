@@ -65,6 +65,7 @@ describe("configuration", () => {
       "WELDALL_ISSUER is required.",
       "WELDALL_MACHINE_CLIENT_ID is required.",
       "WELDALL_MACHINE_PRIVATE_JWK or WELDALL_MACHINE_PRIVATE_JWK_FILE is required.",
+      "GIT_APP_GIT_CREDENTIAL_KEY or GIT_APP_GIT_CREDENTIAL_KEY_FILE is required.",
     ])
       expect(error.problems).toContain(name);
   });
@@ -121,6 +122,23 @@ describe("configuration", () => {
     expect(unknown.problems).toContain("GIT_APP_HOST must be one of: github, forgejo.");
   });
 
+  it("accepts a previous git credential key for verification, but not the current one again", async () => {
+    const env = await testEnvironment();
+    const rotated = await loadConfig({
+      ...env,
+      GIT_APP_GIT_CREDENTIAL_KEY: Buffer.alloc(32, 7).toString("base64url"),
+      GIT_APP_GIT_CREDENTIAL_PREVIOUS_KEY: env.GIT_APP_GIT_CREDENTIAL_KEY,
+    });
+    expect(rotated.gitCredentialKeys).toHaveLength(2);
+    expect(rotated.gitCredentialKeys[1]!.toString("base64")).toBe(env.GIT_APP_GIT_CREDENTIAL_KEY);
+    const same = await problems({
+      ...env,
+      GIT_APP_GIT_CREDENTIAL_PREVIOUS_KEY: env.GIT_APP_GIT_CREDENTIAL_KEY,
+    });
+    expect(same.problems).toEqual([expect.stringContaining("must differ")]);
+    expect(same.message).not.toContain(env.GIT_APP_GIT_CREDENTIAL_KEY);
+  });
+
   it.each([
     [
       { GIT_APP_PUBLIC_ORIGIN: "http://git-app.example.com" },
@@ -138,6 +156,14 @@ describe("configuration", () => {
     [{ GIT_APP_ADMIN_SCOPE: "Admin" }, "GIT_APP_ADMIN_SCOPE must be a scope key"],
     [{ GIT_APP_ADMIN_SCOPE: "git-app:publish" }, "must differ"],
     [{ PORT: "70000" }, "PORT must be a TCP port number."],
+    [
+      { GIT_APP_GIT_CREDENTIAL_KEY: "too-short" },
+      "GIT_APP_GIT_CREDENTIAL_KEY must be base64 of at least 32 random bytes.",
+    ],
+    [
+      { GIT_APP_GIT_CREDENTIAL_PREVIOUS_KEY: "not base64!" },
+      "GIT_APP_GIT_CREDENTIAL_PREVIOUS_KEY must be base64 of at least 32 random bytes.",
+    ],
   ])("refuses %j", async (patch, message) => {
     const error = await problems(await testEnvironment(patch));
     expect(error.problems).toEqual([expect.stringContaining(message)]);

@@ -6,11 +6,16 @@ import { authorizePerson } from "./access.js";
 import { createAuditReporter } from "./audit.js";
 import type { GitAppConfig } from "./config.js";
 import { GitAppError } from "./errors.js";
+import { createGitCredentialSigner } from "./git/credentials.js";
+import type { GitProxyLimits, TransferLimiter } from "./git/limits.js";
+import { gitRemotePath } from "./git/paths.js";
+import { createGitProxy } from "./git/proxy.js";
 import { openConfiguredHost, type ConfiguredHost } from "./hosts/index.js";
 import { errorForLog, jsonLogger, type Logger } from "./log.js";
 import { runChecklist } from "./services/checklist.js";
 import type { GitAppServices, Person } from "./services/context.js";
 import { createAppRepository } from "./services/create-app.js";
+import { createIssueLimiter, issueGitCredential } from "./services/git-credentials.js";
 import { resolveOwnApp } from "./services/own-app.js";
 import { PULL_REQUEST_BODY_LIMIT, PULL_REQUEST_TITLE_LIMIT } from "./services/pull-request-body.js";
 import { openPullRequest } from "./services/pull-requests.js";
@@ -37,6 +42,13 @@ const pullRequestBody = z
     body: z.string().max(PULL_REQUEST_BODY_LIMIT).default(""),
   })
   .strict();
+const gitCredentialBody = z
+  .object({
+    path: z.string().min(1).max(400),
+    // Read unless write is asked for explicitly.
+    access: z.enum(["read", "write"]).default("read"),
+  })
+  .strict();
 
 type Env = { Variables: WeldallVariables };
 
@@ -49,6 +61,8 @@ export interface CreateGitAppOptions {
   log?: Logger;
   /** Audit event ids (tests). */
   eventId?: () => string;
+  /** Git proxy limits and transfer limiter (tests); defaults to `GIT_PROXY_LIMITS`. */
+  gitProxy?: { limits?: Partial<GitProxyLimits>; limiter?: TransferLimiter };
 }
 
 /**
@@ -92,6 +106,18 @@ export function createGitApp(options: CreateGitAppOptions) {
     replayStore: inMemory(),
   });
 
+  const signer = createGitCredentialSigner({
+    keys: config.gitCredentialKeys,
+    resource: config.resource,
+  });
+  const issueLimiter = createIssueLimiter();
+  const gitProxy = createGitProxy({ services, signer, ...options.gitProxy });
+  /** Where git reaches an app's repository on this instance. */
+  const gitRemote = (repository: { owner: string; name: string }) => {
+    const remotePath = gitRemotePath(repository);
+    return { remotePath, remoteUrl: `${config.publicOrigin}${remotePath}` };
+  };
+
   const app = new Hono<Env>();
   auth.registerRoutes(app);
   app.get("/health", (c) => c.json({ status: "ok" }, 200, privateHeaders));
@@ -121,14 +147,15 @@ export function createGitApp(options: CreateGitAppOptions) {
   app.post(
     "/api/apps",
     publish,
-    handle(async (c) =>
-      createAppRepository({
+    handle(async (c) => {
+      const created = await createAppRepository({
         services,
         person: personOf(c),
         input: await jsonBody(c.req.raw, createAppBody),
         signal: c.req.raw.signal,
-      }),
-    ),
+      });
+      return { ...created, git: gitRemote(created.repository) };
+    }),
   );
   /** One of the person's apps as Weldall's registry has it. Listing stays in Weldall (`/api/me/apps`). */
   app.get(
@@ -137,11 +164,10 @@ export function createGitApp(options: CreateGitAppOptions) {
     handle(async (c) => {
       const person = personOf(c);
       await authorizePerson(weldall, person.id, [config.scopes.publish]);
-      return {
-        app: await resolveOwnApp(services, person, c.req.param("id") ?? "", {
-          requireReady: false,
-        }),
-      };
+      const own = await resolveOwnApp(services, person, c.req.param("id") ?? "", {
+        requireReady: false,
+      });
+      return { app: own, git: gitRemote(own.repository) };
     }),
   );
   /** Opens the pull request of one of the person's apps from a publish branch. */
@@ -185,6 +211,31 @@ export function createGitApp(options: CreateGitAppOptions) {
       }),
     ),
   );
+  /**
+   * Issues a short-lived git credential for one of the person's apps:
+   * `{ path: "git/<owner>/<repository>.git", access?: "read" | "write" }` returns
+   * `{ username, password, expiresAt }` for git's Basic auth, valid only at this instance's
+   * `/git/` route.
+   */
+  app.post(
+    "/api/git-credentials",
+    publish,
+    handle(async (c) =>
+      issueGitCredential({
+        services,
+        signer,
+        limiter: issueLimiter,
+        person: personOf(c),
+        input: await jsonBody(c.req.raw, gitCredentialBody),
+      }),
+    ),
+  );
+  /**
+   * Git's smart HTTP: `GET /git/<owner>/<repository>.git/info/refs?service=git-upload-pack|
+   * git-receive-pack` and `POST /git/<owner>/<repository>.git/git-upload-pack|git-receive-pack`.
+   * Basic auth with a git credential, never an access token.
+   */
+  app.on(["GET", "POST"], "/git/*", (c) => gitProxy(c.req.raw));
   return app;
 }
 

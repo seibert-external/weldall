@@ -1,6 +1,6 @@
 /**
  * Publish branches, carried over from the server's git proxy rules (`git-proxy/rules.ts`). The
- * git proxy (next part) accepts pushes only to these branches; pull requests and status reads
+ * git proxy (`git/rules.ts`) accepts pushes only to these branches; pull requests and status reads
  * refer only to them.
  */
 
@@ -29,7 +29,7 @@ export function validRefName(ref: string) {
 }
 
 /** Git's own ref-name rules, as far as they matter for a publish branch. */
-function validBranchName(branch: string) {
+export function validBranchName(branch: string) {
   return (
     branch.length <= MAX_BRANCH_LENGTH &&
     /^[A-Za-z0-9._/-]+$/.test(branch) &&
