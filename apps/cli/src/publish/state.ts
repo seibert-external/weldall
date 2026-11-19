@@ -11,7 +11,7 @@ import type { GitRepository } from "./git.js";
  * with the folder and needs no account.
  *
  * Local git config (`git config --local`):
- * - `weldall.template`, `weldall.templateCommit`: the agreement with INV-185 (app templates). The
+ * - `weldall.template`, `weldall.templateCommit`: the agreement with app templates. The
  *   folder is a git repository without a Weldall remote whose first commit is the template state;
  *   whoever creates the folder records the template name and that commit. Publish never guesses
  *   them.

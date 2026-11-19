@@ -193,7 +193,7 @@ const hostChecked = z
 
 const appState = z.enum(["active", "expiring_soon", "expired"]);
 /**
- * The owner confirmed in the Git app's registry that an app is still needed (INV-183): the expiry
+ * The owner confirmed in the Git app's registry that an app is still needed: the expiry
  * moved from `previousExpiresAt` to `expiresAt`. `previousState` shows whether it was flagged.
  */
 const confirmationSucceeded = z

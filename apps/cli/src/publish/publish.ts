@@ -523,7 +523,7 @@ class PublishRun {
     }
   }
 
-  /** The agreement with INV-185: first commit = template state, template name and commit recorded. */
+  /** The agreement with app templates: first commit = template state, template name and commit recorded. */
   private async readTemplateAgreement() {
     const { git } = this;
     const head = await git.resolve("HEAD");

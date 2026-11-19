@@ -18,7 +18,7 @@ import {
  * How the CLI reaches Weldall and the Git apps: the swappable seam between the protocol and
  * publish code and the person's login. The direct variants here use this device's CLI login
  * (keychain session, DPoP). Under a client's sandbox, the git credential helper runs inside the
- * sandbox and gets a {@link GitCredentialAccess} through the sandbox door (INV-133) instead; the
+ * sandbox and gets a {@link GitCredentialAccess} through the sandbox door instead; the
  * door runs outside with the person's session and must keep the checks of
  * {@link gitCredentialAccess}: look the origin up in Weldall's resource registry and answer only
  * for a registered Git app's `/git/` route.

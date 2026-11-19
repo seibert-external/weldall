@@ -738,7 +738,7 @@ export async function startFakeWeldall() {
       await must(["add", "-A"], directory);
       await must(["commit", "-q", "-m", "template update"], directory);
     },
-    /** A local app folder as INV-185 will create it: a git repository whose first commit is the template. */
+    /** A local app folder as an app template creates it: a git repository whose first commit is the template. */
     async createFolder(name: string, template: string, files: Record<string, string | Buffer>) {
       const directory = join(root, "folders", name);
       await mkdir(directory, { recursive: true });

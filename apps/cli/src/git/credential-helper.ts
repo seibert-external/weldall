@@ -37,7 +37,7 @@ export interface GitCredentialRequest {
  * CLI login: it reads Weldall's resource registry, refuses an origin that is not a registered Git
  * app's (`GitAppAccessError` of kind `not_registered`), obtains a downstream token for the Git
  * app and posts to `<origin>/api/git-credentials`. A sandboxed agent gets a variant through the
- * sandbox door (INV-133) instead, which must do the same checks outside the sandbox; the protocol
+ * sandbox door instead, which must do the same checks outside the sandbox; the protocol
  * code below stays unchanged.
  */
 export interface GitCredentialAccess {
