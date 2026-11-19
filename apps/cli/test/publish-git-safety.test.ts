@@ -649,10 +649,8 @@ describe.skipIf(reason !== null)(
 
       const setUp = await folder();
       await configureGitProxyRepository({
-        directory: setUp,
+        repository: repository(setUp),
         remoteUrl: `${fake.origin}/git/acme/app-setup.git`,
-        git: GIT,
-        environment: fake.publishEnvironment(),
       });
       await expect(assertSafeRepository(repository(setUp))).resolves.toBeDefined();
 

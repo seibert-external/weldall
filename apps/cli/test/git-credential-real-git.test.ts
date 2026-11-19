@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { configureGitProxyRepository, gitProxyEnvironment } from "../src/git/repository-setup.js";
+import { GitRepository } from "../src/publish/git.js";
 
 /**
  * Real `/usr/bin/git` against an imitation of a Git app's git route: HTTPS on 127.0.0.1 that
@@ -287,9 +288,15 @@ describe.skipIf(reason !== null)(
     });
 
     it("configures only the proxy URL, idempotently", async () => {
-      await configureGitProxyRepository({ directory: work, remoteUrl, git: GIT });
+      await configureGitProxyRepository({
+        repository: new GitRepository(GIT, work, process.env),
+        remoteUrl,
+      });
       const first = await git(["config", "--local", "--list"]);
-      await configureGitProxyRepository({ directory: work, remoteUrl, git: GIT });
+      await configureGitProxyRepository({
+        repository: new GitRepository(GIT, work, process.env),
+        remoteUrl,
+      });
       const second = await git(["config", "--local", "--list"]);
       expect(second.stdout).toBe(first.stdout);
       const lines = second.stdout.trim().split("\n");

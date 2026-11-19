@@ -3,6 +3,7 @@ import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { access, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { GIT_APP_SCOPES, selectGitApp, type GitApp, type OpenGitApp } from "../git/git-apps.js";
+import { printable } from "../git/printable.js";
 import {
   configureGitProxyRepository,
   gitProxySettings,
@@ -240,12 +241,7 @@ class PublishRun {
     const app = await this.resolveApp(template);
     const appRef = { id: app.id, name: app.name, repositoryUrl: app.repositoryUrl };
 
-    await configureGitProxyRepository({
-      directory: options.directory,
-      remoteUrl: app.remoteUrl,
-      git: git.git,
-      environment: git.cleanEnvironment(),
-    });
+    await configureGitProxyRepository({ repository: git, remoteUrl: app.remoteUrl });
 
     const resumed = await this.resumeConflict();
     if (resumed) return this.result("conflict", appRef, { conflict: resumed });
@@ -962,9 +958,6 @@ class PublishRun {
     }
   }
 }
-
-/** Values from the folder or a server, shown bounded and without control characters. */
-const printable = (text: string) => text.replace(/[^\x20-\x7e]/g, "?").slice(0, 300);
 
 const isBelow = (path: string, prefixes: readonly string[]) =>
   prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));

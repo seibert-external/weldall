@@ -1,8 +1,14 @@
 import type { Prisma } from "@weldall/db";
 
+/** Owners re-confirm a registered app after this many days (INV-183). */
+export const APP_REVERIFICATION_DAYS = 90;
 /** Within this many days before its expiry an app counts as expiring soon (INV-183). */
 export const APP_EXPIRING_SOON_DAYS = 14;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+/** The expiry of an app registered or confirmed at `from`: {@link APP_REVERIFICATION_DAYS} later. */
+export const reverificationExpiry = (from: Date = new Date()) =>
+  new Date(from.getTime() + APP_REVERIFICATION_DAYS * DAY_IN_MS);
 
 /**
  * Re-verification state of a registered app, derived from its expiry and never stored:

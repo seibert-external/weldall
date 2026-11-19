@@ -11,7 +11,7 @@ Du brauchst eine Person mit Administratorrechten auf der Instanz oder Owner-Rech
 
 ## Wie die Git-App Forgejo erreicht
 
-Forgejo kennt nichts wie eine GitHub App mit kurzlebigen Installations-Tokens. Die Git-App handelt als eigener **Bot-Benutzer** und nutzt für alles einen Access Token dieses Benutzers: Repositorys anlegen, Git-Proxy, Pull Requests und Statusabfragen. Der Token ist das Host-Secret der Git-App. Er bleibt in der Git-App und gelangt nie auf den Rechner einer Mitarbeiterin.
+Forgejo kennt nichts wie eine GitHub App mit kurzlebigen Installations-Tokens. Die Git-App handelt als eigener **Bot-Benutzer** und nutzt für alles einen Access Token dieses Benutzers: Repositorys anlegen, Git-Proxy, Pull Requests und Statusabfragen. Der Token ist das Host-Secret der Git-App. Er bleibt in der Git-App und gelangt nie auf den Rechner einer Mitarbeitenden.
 
 :::caution[Der Bot-Token ist langlebig und weitreichend]
 Access Tokens von Forgejo laufen nicht ab, und ihre Scopes lassen sich für das, was die Git-App braucht, nicht pro Repository einschränken: Tokens für einzelne Repositorys können keine Repositorys anlegen, und Tokens erzeugen kann nur der Benutzer selbst mit seinem Passwort oder ein Instanz-Administrator. Die Git-App kann deshalb nicht wie bei GitHub pro Anfrage einen engen Token holen. Wer den Token bekommt, kann als Bot-Benutzer auf jedes Repository zugreifen, das der Bot-Benutzer erreicht, bis jemand den Token in Forgejo widerruft. Halte diese Reichweite klein: eine eigene Organisation, ein Bot-Benutzer, der weder Instanz-Administrator noch Owner der Organisation ist, und die Scopes unten. Die Git-App senkt den Zugriff des Bot-Benutzers auf jedes neue Repository gleich nach dem Anlegen auf Schreibzugriff.

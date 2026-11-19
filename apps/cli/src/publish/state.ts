@@ -1,6 +1,7 @@
-import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { atomicWriteFile } from "../storage/atomic-write.js";
 import type { Folder } from "./folder.js";
 import { PublishError } from "./errors.js";
 import type { GitRepository } from "./git.js";
@@ -147,7 +148,7 @@ export async function writePendingConflict(folder: Folder, conflict: PendingConf
     await folder.commitTree(conflict.merge, [], "weldall conflict: merge result"),
   );
   await mkdir(folder.stateDirectory, { recursive: true });
-  await writeFile(conflictPath(folder), `${JSON.stringify(conflict, null, 2)}\n`, { mode: 0o600 });
+  await atomicWriteFile(conflictPath(folder), `${JSON.stringify(conflict, null, 2)}\n`);
 }
 
 export async function clearPendingConflict(folder: Folder) {

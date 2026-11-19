@@ -5,7 +5,7 @@ sidebar:
   label: App registry
 ---
 
-Every app an employee publishes through a Weldall Git app is in the app registry from its first publish. IT sees what exists, who owns it, what it is for, and which apps nobody has confirmed for a while.
+Every app an employee publishes through a Weldall Git app is in the app registry from its first publish. Administrators see what exists, who owns it, what it is for, and which apps nobody has confirmed for a while.
 
 ## What is recorded
 
@@ -49,7 +49,7 @@ The state follows from the expiry:
 
 ### What "expired" means
 
-An expired app is **only flagged**. Weldall does not stop, delete or block it: its owner can still publish, the Git app still accepts pushes, and the app keeps running wherever it runs. IT sees the flag in the admin list and in the API and decides what to do. Weldall sends no notification; the owner sees the state with `weldall app list`.
+An expired app is **only flagged**. Weldall does not stop, delete or block it: its owner can still publish, the Git app still accepts pushes, and the app keeps running wherever it runs. Administrators see the flag in the admin list and in the API and decide what to do. Weldall sends no notification; the owner sees the state with `weldall app list`.
 
 ## Who sees what
 
@@ -146,6 +146,6 @@ The answer lists the apps in the order they were created, oldest first, so new a
 
 `repository.resource` is the key of the resource the Git app that keeps the repository is registered as.
 
-The owner is given as Weldall user id and email address, not by name. The email address lets IT reach the person and find them in its directory, and the id stays the same when the address changes. The directory already has the name, so the API leaves it out.
+The owner is given as Weldall user id and email address, not by name. The email address lets administrators reach the person and find them in the directory, and the id stays the same when the address changes. The directory already has the name, so the API leaves it out.
 
 A token without `weldall:app-registry-read` gets `403 insufficient_scope`; a missing or invalid machine token gets `401`. The OAuth metadata announces the endpoint as `weldall_app_registry`. A Weldall server without the app registry does not know the scope, so a token request for it fails with `invalid_scope`.

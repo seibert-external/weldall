@@ -1,10 +1,9 @@
 import { db, type App, type Prisma } from "@weldall/db";
+import { APP_REVERIFICATION_DAYS, reverificationExpiry } from "./state";
+
+export { APP_REVERIFICATION_DAYS };
 
 type Client = Prisma.TransactionClient;
-
-/** Owners re-confirm a registered app after this many days (INV-183). */
-export const APP_REVERIFICATION_DAYS = 90;
-const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 export interface NewApp {
   name: string;
@@ -45,7 +44,7 @@ export function createApp(input: NewApp, client: Client = db): Promise<App> {
       defaultBranch: input.defaultBranch,
       template: input.template?.name ?? null,
       templateCommit: input.template?.commit ?? null,
-      expiresAt: input.expiresAt ?? new Date(Date.now() + APP_REVERIFICATION_DAYS * DAY_IN_MS),
+      expiresAt: input.expiresAt ?? reverificationExpiry(),
     },
   });
 }

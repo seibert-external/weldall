@@ -1,5 +1,5 @@
 import { GitAppError } from "../../errors.js";
-import { dispatchUpstream, parseCanonicalHttps, readBoundedBody } from "../http.js";
+import { dispatchUpstream, parseCanonicalHttps, readBoundedBody, segment } from "../http.js";
 
 const RESPONSE_LIMIT = 256 * 1024;
 /** For list responses (pull requests, reviews, statuses, teams). */
@@ -64,8 +64,8 @@ export async function forgejoApi({
   return { status: response.status, headers: response.headers, json };
 }
 
-/** Path segment encoding for owner, repository, team and user names. */
-export const segment = encodeURIComponent;
+export { segment };
+
 /** Branch names may contain `/`; Forgejo routes them as several path segments. */
 export const branchPath = (branch: string) => branch.split("/").map(segment).join("/");
 

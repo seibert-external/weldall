@@ -1,5 +1,6 @@
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { GIT_APP_SCOPES, gitAppsAtOrigin, selectGitApp, type GitApp } from "../git/git-apps.js";
+import { printable } from "../git/printable.js";
 import { parseGitProxyRemote } from "../git/repository-setup.js";
 import { PublishError } from "./errors.js";
 import type { ConfigEntry } from "./repository-safety.js";
@@ -13,7 +14,6 @@ import { CONFIG } from "./state.js";
  */
 
 const PLAIN_ORIGIN = /^https:\/\/[a-z0-9.-]{1,253}(?::[0-9]{1,5})?$/;
-const printable = (text: string) => text.replace(/[^\x20-\x7e]/g, "?").slice(0, 300);
 
 const untrusted = (message: string, hint?: string) =>
   new PublishError(

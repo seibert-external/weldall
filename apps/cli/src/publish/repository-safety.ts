@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { printable } from "../git/printable.js";
 import { GIT_CREDENTIAL_HELPER } from "../git/repository-setup.js";
 import { PublishError } from "./errors.js";
 import type { GitRepository } from "./git.js";
@@ -130,9 +131,6 @@ export function isAllowedConfigEntry({ section, subsection, name, value }: Confi
   }
 }
 
-/** Key names come from a file anyone in the folder can write: shown printable and bounded. */
-const printable = (text: string) => text.replace(/[^\x20-\x7e]/g, "?").slice(0, 120);
-
 const SHOWN_KEYS = 10;
 
 /**
@@ -147,7 +145,7 @@ export async function assertSafeRepository(git: GitRepository): Promise<ConfigEn
   const entries = parseConfigList(listed.stdout.toString("utf8"), ["local", "worktree"]);
   const refused = [
     ...new Set(
-      entries.filter((entry) => !isAllowedConfigEntry(entry)).map(({ key }) => printable(key)),
+      entries.filter((entry) => !isAllowedConfigEntry(entry)).map(({ key }) => printable(key, 120)),
     ),
   ];
   if (refused.length) {

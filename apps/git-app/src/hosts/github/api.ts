@@ -64,5 +64,4 @@ export async function githubApi({
   return { status: response.status, headers: response.headers, json };
 }
 
-/** Path segment encoding for owner, repository, branch and team names. */
-export const segment = encodeURIComponent;
+export { segment } from "../http.js";

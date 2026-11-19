@@ -7,6 +7,9 @@ import { GitAppError } from "../errors.js";
 
 export const URL_LIMIT = 8192;
 
+/** Path segment encoding for owner, repository, branch, team and user names in REST paths. */
+export const segment = encodeURIComponent;
+
 /** Rejects parsing ambiguities before URL normalization can erase them. This does not authorize an origin. */
 export function parseCanonicalHttps(raw: string): URL {
   const invalid = () => new GitAppError("invalid_target", "Invalid Git host URL.");

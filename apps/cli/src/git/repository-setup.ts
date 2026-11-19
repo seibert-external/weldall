@@ -1,10 +1,7 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { CliError } from "../errors.js";
+import { printable } from "./printable.js";
+import { GitCommandError, type GitRepository } from "../publish/git.js";
 import { GIT_ACCESS_ENV, isGitProxyPath, type GitAccess } from "./credential-helper.js";
-import { GIT_HARDENING_OPTIONS } from "./hardening.js";
-
-const run = promisify(execFile);
 
 /**
  * The helper as git runs it: by name from PATH, so the setting survives CLI upgrades and moves of
@@ -57,9 +54,6 @@ export function parseGitProxyRemote(remoteUrl: string): GitProxyRemote {
   return { url: url.href, origin: url.origin, scope: `${url.origin}/git/` };
 }
 
-/** Values from the folder, shown bounded and without control characters. */
-const printable = (text: string) => text.replace(/[^\x20-\x7e]/g, "?").slice(0, 300);
-
 /**
  * The settings for the proxy, in order, as `[key, value]` pairs: usable with `git config` and,
  * for a clone, with `git clone -c key=value` (applies before the first fetch). The empty helper
@@ -96,12 +90,10 @@ export function gitProxyEnvironment({
 }
 
 export interface ConfigureRepositoryOptions {
-  /** Working tree (or any directory inside it) of the local repository. */
-  directory: string;
+  /** The local repository; its git calls carry the hardening options (`GitRepository.run`). */
+  repository: GitRepository;
   remoteUrl: string;
   remoteName?: string;
-  git?: string;
-  environment?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -110,24 +102,19 @@ export interface ConfigureRepositoryOptions {
  * scoped to `https://<git app>/git/` so no other remote changes.
  */
 export async function configureGitProxyRepository({
-  directory,
+  repository,
   remoteUrl,
   remoteName = "weldall",
-  git = "git",
-  environment = process.env,
 }: ConfigureRepositoryOptions): Promise<void> {
   const remote = parseGitProxyRemote(remoteUrl);
   if (!REMOTE_NAME.test(remoteName)) throw new CliError(`Invalid git remote name: ${remoteName}`);
   const config = async (args: string[], { missingOk = false } = {}) => {
     try {
-      await run(git, [...GIT_HARDENING_OPTIONS, "-C", directory, "config", "--local", ...args], {
-        env: environment,
-      });
-    } catch (error) {
       // `git config --unset-all` exits 5 when the key does not exist.
-      if (missingOk && (error as { code?: unknown }).code === 5) return;
-      const stderr = String((error as { stderr?: unknown }).stderr ?? "").trim();
-      throw new CliError(`Configuring the git repository in ${directory} failed`, {
+      await repository.run(["config", "--local", ...args], { allow: missingOk ? [5] : [] });
+    } catch (error) {
+      const stderr = error instanceof GitCommandError ? error.output.stderr.trim() : "";
+      throw new CliError(`Configuring the git repository in ${repository.directory} failed`, {
         cause: error,
         ...(stderr ? { hint: stderr } : {}),
       });

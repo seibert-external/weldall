@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { GitAppError } from "../../errors.js";
-import type { GitHostCheck, GitHostCheckRepository, GitHostCheckState } from "../git-host.js";
+import {
+  cannotVerifyOutcomes,
+  fail,
+  pass,
+  RETRY,
+  unverifiable,
+  type Outcome,
+} from "../check-outcomes.js";
+import type { GitHostCheck, GitHostCheckRepository } from "../git-host.js";
 import { githubApi, segment, type GitHubApiResponse } from "./api.js";
 import type { GitHubAppConfig } from "./config.js";
 import type { GITHUB_OPERATION_PERMISSIONS } from "./host.js";
@@ -69,71 +77,14 @@ const templateRepositoryResponse = z.object({
   owner: z.object({ login: z.string() }),
   is_template: z.boolean().optional(),
 });
-const tokenResponse = z.object({
-  token: z
-    .string()
-    .min(1)
-    .max(4096)
-    .regex(/^[\x21-\x7e]+$/),
-  permissions: z.record(z.string(), z.string()).optional(),
-});
-
-type Outcome = { state: GitHostCheckState; reason: string; action: string | null };
-const pass = (reason: string): Outcome => ({ state: "pass", reason, action: null });
-const fail = (reason: string, action: string): Outcome => ({ state: "fail", reason, action });
-const unverifiable = (reason: string, action: string | null): Outcome => ({
-  state: "unverifiable",
-  reason,
-  action,
-});
 
 const AUTHENTICATION = "“App authentication”";
-const RETRY = "Run the check again later.";
-
-/**
- * Turns an error of a dependent step into "cannot verify" with a fixed text. Host response text
- * is never used; only Weldall's own error codes are named.
- */
-function cannotVerify(error: unknown, organization: string): Outcome {
-  if (error instanceof GitAppError) {
-    if (
-      [
-        "credential_unavailable",
-        "credential_ambiguous",
-        "grant_mismatch",
-        "credential_rejected",
-      ].includes(error.code)
-    )
-      return unverifiable(
-        `Needs a working App credential (see ${AUTHENTICATION}).`,
-        `Fix ${AUTHENTICATION} first.`,
-      );
-    if (error.code === "installation_not_found")
-      return unverifiable(
-        `Needs the App's installation on ${organization} (see “Installation”).`,
-        "Fix “Installation” first.",
-      );
-    if (error.code === "upstream_rate_limited")
-      return unverifiable("GitHub is rate limiting the App.", RETRY);
-    const code = /^[a-z_]{1,64}$/.test(error.code) ? error.code : "error";
-    return unverifiable(`GitHub could not be asked (${code}).`, RETRY);
-  }
-  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
-    return unverifiable("GitHub did not answer in time.", RETRY);
-  return unverifiable("GitHub could not be reached.", RETRY);
-}
-
-/** Maps a status the caller does not handle itself to "cannot verify", naming rate limits. */
-function unexpectedStatus(response: GitHubApiResponse): Outcome {
-  if (rateLimited(response)) return unverifiable("GitHub is rate limiting the App.", RETRY);
-  return unverifiable(`GitHub answered with HTTP ${response.status}.`, RETRY);
-}
 
 /**
  * The set-up checklist for a GitHub-hosted Git app, for one run: upstream answers are shared
  * between its checks, so create one per run. Every request is a read, except minting short-lived
- * installation tokens (restricted to the permissions a check needs), which creates nothing
- * visible in the organisation.
+ * installation tokens (restricted to one repository and the permissions a check needs), which
+ * creates nothing visible in the organisation.
  */
 export function createGitHubChecks({
   config,
@@ -155,6 +106,19 @@ export function createGitHubChecks({
 }) {
   const organization = config.organization;
   const prefix = config.repositoryNamePrefix;
+  const { cannotVerify, unexpectedStatus } = cannotVerifyOutcomes<GitHubApiResponse>({
+    host: "GitHub",
+    credential: "a working App credential",
+    credentialCheck: AUTHENTICATION,
+    rateLimitedReason: "GitHub is rate limiting the App.",
+    byCode: {
+      installation_not_found: unverifiable(
+        `Needs the App's installation on ${organization} (see “Installation”).`,
+        "Fix “Installation” first.",
+      ),
+    },
+    isRateLimited: rateLimited,
+  });
   const ownersAccept = `then an owner of ${organization} accepts the updated permissions on the installation (organisation settings > GitHub Apps).`;
 
   /** The permission sets each part of the product needs, in GitHub's spelling. */
@@ -232,44 +196,46 @@ export function createGitHubChecks({
   }
 
   /**
-   * An installation token without a repository restriction and with only `permissions`, for
-   * organisation lookups. Never cached; it is checked to carry nothing else.
+   * Every token of the checklist is restricted to one repository, like the tokens of the
+   * operations themselves: `metadata` on a token without a repository restriction would reach
+   * every repository of the installation. Lookups that concern the organisation (the reviewer
+   * team, the App's bot user) use the repository the checklist runs with, otherwise the first
+   * template in the organisation that is in the installation. `null` when neither is reachable.
    */
-  async function organizationToken(
-    permissions: GitHubPermissions,
+  let tokenRepositoryPromise: Promise<string | null> | undefined;
+  const tokenRepository = (repository: GitHostCheckRepository | null, signal: AbortSignal) =>
+    (tokenRepositoryPromise ??= findTokenRepository(repository, signal));
+  async function findTokenRepository(
+    repository: GitHostCheckRepository | null,
     signal: AbortSignal,
-  ): Promise<string> {
-    const installationId = config.installationId ?? String((await installation(signal)).id);
-    const response = await githubApi({
-      apiBaseUrl: config.apiBaseUrl,
-      path: `/app/installations/${segment(installationId)}/access_tokens`,
-      method: "POST",
-      token: await jwt(),
-      body: { permissions },
-      signal,
+  ): Promise<string | null> {
+    const templates = config.templates.flatMap(({ name }) => {
+      try {
+        return [templateFor(config, name).name];
+      } catch {
+        return [];
+      }
     });
-    if (response.status === 422)
-      throw new GitAppError("token_refused", "Permission not granted.", 502);
-    if (response.status === 404)
-      throw new GitAppError("installation_not_found", "Not installed.", 502);
-    if (response.status !== 201) throw unexpected(response);
-    const parsed = tokenResponse.safeParse(response.json);
-    if (
-      !parsed.success ||
-      !parsed.data.permissions ||
-      Object.entries(parsed.data.permissions).some(
-        ([name, level]) =>
-          !(name === "metadata" && level === "read") &&
-          !(permissions[name] === level || (permissions[name] === "write" && level === "read")),
-      )
-    )
-      throw new GitAppError(
-        "upstream_protocol_error",
-        "GitHub issued a broader token than requested.",
-        502,
-      );
-    return parsed.data.token;
+    for (const name of [...(repository ? [repository.name] : []), ...templates]) {
+      try {
+        await tokens.mint({
+          app,
+          loadPrivateKey,
+          repository: name,
+          permissions: { metadata: "read" },
+          signal,
+        });
+        return name;
+      } catch (error) {
+        if (!(error instanceof GitAppError && error.code === "token_refused")) throw error;
+      }
+    }
+    return null;
   }
+  const noTokenRepository = unverifiable(
+    `Needs a repository in the App's installation: no app's repository is given and no template in ${organization} is in the installation (see the “Template” checks).`,
+    "Fix the “Template” checks first.",
+  );
 
   const grantInstructions = (missing: string[]) =>
     `In the App's settings on GitHub (Permissions & events), grant ${missing.join(", ")}; ${ownersAccept}`;
@@ -277,14 +243,14 @@ export function createGitHubChecks({
   let authenticationPromise: Promise<Outcome> | undefined;
   const authentication = (signal: AbortSignal) =>
     (authenticationPromise ??= appAuthentication(signal).catch((error: unknown) =>
-      cannotVerify(error, organization),
+      cannotVerify(error),
     ));
   async function appAuthentication(signal: AbortSignal): Promise<Outcome> {
     let token: string;
     try {
       token = await jwt();
     } catch (error) {
-      return cannotVerify(error, organization);
+      return cannotVerify(error);
     }
     const response = await githubApi({
       apiBaseUrl: config.apiBaseUrl,
@@ -313,7 +279,7 @@ export function createGitHubChecks({
         `An owner of ${organization} installs the App (App settings on GitHub > Install App) and selects the template repositories.`,
       );
     if (response.status === 401)
-      return cannotVerify(new GitAppError("credential_rejected", "", 502), organization);
+      return cannotVerify(new GitAppError("credential_rejected", "", 502));
     if (response.status !== 200) return unexpectedStatus(response);
     const parsed = installationResponse.safeParse(response.json);
     if (!parsed.success) return unverifiable("GitHub sent an unexpected answer.", RETRY);
@@ -404,13 +370,23 @@ export function createGitHubChecks({
   }
 
   const teamPermission = permissionLabel("members", "read");
-  async function reviewerTeamCheck(signal: AbortSignal): Promise<Outcome> {
+  async function reviewerTeamCheck(
+    repository: GitHostCheckRepository | null,
+    signal: AbortSignal,
+  ): Promise<Outcome> {
     const team = config.reviewerTeam;
+    const restrictedTo = await tokenRepository(repository, signal);
+    if (!restrictedTo) return noTokenRepository;
     let token: string;
     try {
-      // Only `members`: on a token without a repository restriction, `metadata` would reach
-      // every repository of the installation.
-      token = await organizationToken({ members: "read" }, signal);
+      // The repository was just reached with `metadata`, so a refusal names the permission.
+      ({ token } = await tokens.mint({
+        app,
+        loadPrivateKey,
+        repository: restrictedTo,
+        permissions: operationPermissions.checkReviewerTeam,
+        signal,
+      }));
     } catch (error) {
       if (error instanceof GitAppError && error.code === "token_refused")
         return unverifiable(
@@ -524,18 +500,31 @@ export function createGitHubChecks({
     return unverifiable(warning.message, RETRY);
   }
 
-  async function commitIdentityCheck(signal: AbortSignal): Promise<Outcome> {
+  async function commitIdentityCheck(
+    repository: GitHostCheckRepository | null,
+    signal: AbortSignal,
+  ): Promise<Outcome> {
     // The lookup starts with the App itself; its failure is reported there, not twice.
     if ((await authentication(signal)).state !== "pass")
-      return cannotVerify(new GitAppError("credential_rejected", "", 502), organization);
+      return cannotVerify(new GitAppError("credential_rejected", "", 502));
+    const restrictedTo = await tokenRepository(repository, signal);
+    if (!restrictedTo) return noTokenRepository;
     try {
       const identity = await readGitHubCommitIdentity({
         apiBaseUrl: config.apiBaseUrl,
         webBaseUrl,
         appId: config.appId,
         loadPrivateKey,
-        mintToken: (tokenSignal) =>
-          organizationToken(operationPermissions.readCommitIdentity, tokenSignal),
+        mintToken: async (tokenSignal) =>
+          (
+            await tokens.mint({
+              app,
+              loadPrivateKey,
+              repository: restrictedTo,
+              permissions: operationPermissions.readCommitIdentity,
+              signal: tokenSignal,
+            })
+          ).token,
         signal,
       });
       return pass(`Published commits are attributed to ${identity.name} <${identity.email}>.`);
@@ -563,7 +552,7 @@ export function createGitHubChecks({
       try {
         outcome = await body();
       } catch (error) {
-        outcome = cannotVerify(error, organization);
+        outcome = cannotVerify(error);
       }
       return { id: check.id, title: check.title, required: check.required ?? true, ...outcome };
     };
@@ -580,14 +569,18 @@ export function createGitHubChecks({
           templateCheck(template.name, signal),
         ),
       ),
-      run({ id: "reviewer-team", title: "Reviewer team exists" }, () => reviewerTeamCheck(signal)),
+      run({ id: "reviewer-team", title: "Reviewer team exists" }, () =>
+        reviewerTeamCheck(repository, signal),
+      ),
       run({ id: "reviewer-team-access", title: "Reviewer team write access" }, () =>
         reviewerTeamAccessCheck(repository, signal),
       ),
       run({ id: "branch-rule", title: "Default-branch rule", required: false }, () =>
         branchRuleCheck(repository, signal),
       ),
-      run({ id: "commit-identity", title: "Commit identity" }, () => commitIdentityCheck(signal)),
+      run({ id: "commit-identity", title: "Commit identity" }, () =>
+        commitIdentityCheck(repository, signal),
+      ),
     ]);
   };
 }

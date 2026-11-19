@@ -2,7 +2,7 @@ import { createDpopProof } from "@weldall/sdk";
 import { z } from "zod";
 import type { WeldallConfig } from "../config.js";
 import { CliError, errorMessage } from "../errors.js";
-import { responseValue } from "../http.js";
+import { isRecord, responseValue } from "../http.js";
 import { withAccess } from "../services/auth.js";
 import { PublishError } from "./errors.js";
 
@@ -63,9 +63,6 @@ export interface RegistryApi {
   /** Confirms that one of the caller's apps is still needed; the server moves its expiry. */
   confirmApp(appId: string): Promise<AppEntry>;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const REGISTRY_UPDATE_HINT =
   "Ask your Weldall administrator to update the server; this CLI needs a Weldall server with the app registry.";

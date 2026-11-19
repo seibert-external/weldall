@@ -13,6 +13,7 @@
  * `weldall-access.ts`): the URL git asks about comes from the folder's config, which an agent can
  * write, and the credential must never reach another host.
  */
+import { isRecord } from "../http.js";
 import { GitAppAccessError, type GitAppAnswer } from "./git-apps.js";
 
 export type GitAccess = "read" | "write";
@@ -109,9 +110,6 @@ export function originOfGitHost(gitHost: string): string | null {
     return null;
   }
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Server text for stderr: one bounded line without control characters. */
 const detail = (value: unknown): string | null => {

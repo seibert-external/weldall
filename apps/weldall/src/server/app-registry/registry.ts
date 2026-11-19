@@ -2,8 +2,14 @@ import { db, type App, type Prisma } from "@weldall/db";
 import { prismaAuditWriter } from "../audit/service";
 import { ConnectorError, type ConnectorActor } from "../connectors/contracts";
 import { safeHttpsUrl } from "./links";
-import { APP_REVERIFICATION_DAYS } from "./service";
-import { APP_EXPIRING_SOON_DAYS, appState, appStateWhere, type AppState } from "./state";
+import {
+  APP_EXPIRING_SOON_DAYS,
+  APP_REVERIFICATION_DAYS,
+  appState,
+  appStateWhere,
+  reverificationExpiry,
+  type AppState,
+} from "./state";
 
 /**
  * Reads of the app registry for the three audiences of INV-183 (the owner, administrators, and
@@ -11,7 +17,6 @@ import { APP_EXPIRING_SOON_DAYS, appState, appStateWhere, type AppState } from "
  * derived from the expiry on every read; nothing here stops or blocks an expired app.
  */
 
-const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const appIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** What every audience sees of one app. Dates are ISO 8601 in UTC; links are https or null. */
@@ -110,7 +115,7 @@ export async function confirmApp({
         const updated = await tx.app.update({
           where: { id: app.id },
           data: {
-            expiresAt: new Date(now.getTime() + APP_REVERIFICATION_DAYS * DAY_IN_MS),
+            expiresAt: reverificationExpiry(now),
             confirmedAt: now,
             confirmedBy: actor.id,
           },

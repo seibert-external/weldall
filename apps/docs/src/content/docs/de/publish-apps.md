@@ -5,13 +5,13 @@ sidebar:
   label: Apps veröffentlichen
 ---
 
-Eine Mitarbeiterin baut mit einem Agenten auf ihrem Rechner eine kleine App und bittet ihn, sie zu veröffentlichen. Ein GitHub- oder Forgejo-Konto hat sie nicht. Weldall legt für die App ein privates Repository in deiner Organisation an, überträgt die Änderungen und öffnet einen Pull Request. Ein Reviewer in deiner Organisation gibt ihn auf dem Git-Host frei und mergt ihn. Ohne diesen Pull Request gelangt nichts in den Default-Branch. Jede weitere Veröffentlichung schickt die nächste Änderung in dasselbe Repository, wieder als Pull Request.
+Eine Mitarbeitende baut mit einem Agenten auf ihrem Rechner eine kleine App und bittet ihn, sie zu veröffentlichen. Ein GitHub- oder Forgejo-Konto hat sie nicht. Weldall legt für die App ein privates Repository in deiner Organisation an, überträgt die Änderungen und öffnet einen Pull Request. Ein Reviewer in deiner Organisation gibt ihn auf dem Git-Host frei und mergt ihn. Ohne diesen Pull Request gelangt nichts in den Default-Branch. Jede weitere Veröffentlichung schickt die nächste Änderung in dasselbe Repository, wieder als Pull Request.
 
 Die Arbeit auf dem Git-Host erledigt die **Git-App**, ein eigener Dienst, den deine Organisation neben Weldall betreibt, einer pro Git-Host. Die Einrichtung beschreibt [How to: Git-App betreiben](../git-app/).
 
-## Was die Mitarbeiterin tut
+## Was die Mitarbeitende tut
 
-Die Mitarbeiterin braucht die Scopes `weldall:login` und `git-app:publish`. Der Agent führt die Befehle im Ordner der App aus, einem Git-Repository, dessen erster Commit das Template ist, mit dem die App begonnen hat. Beim ersten Veröffentlichen bekommt die App einen Namen und einen Zweck:
+Die Mitarbeitende braucht die Scopes `weldall:login` und `git-app:publish`. Der Agent führt die Befehle im Ordner der App aus, einem Git-Repository, dessen erster Commit das Template ist, mit dem die App begonnen hat. Beim ersten Veröffentlichen bekommt die App einen Namen und einen Zweck:
 
 ```sh
 weldall app publish --name expenses --purpose "Track team expenses" --json
@@ -35,7 +35,7 @@ Jede Veröffentlichung holt den aktuellen Stand des Repositorys, führt ihn mit 
 
 ### Konflikte
 
-Haben Ordner und Repository dieselben Zeilen geändert, halten Publish und Sync mit `conflict` an, übertragen nichts und nennen die Dateien. Eine erneute Veröffentlichung mit `--resolve` schreibt das Ergebnis der Zusammenführung mit Konfliktmarkern in den Ordner. Danach entscheidet die Mitarbeiterin jede Datei:
+Haben Ordner und Repository dieselben Zeilen geändert, halten Publish und Sync mit `conflict` an, übertragen nichts und nennen die Dateien. Eine erneute Veröffentlichung mit `--resolve` schreibt das Ergebnis der Zusammenführung mit Konfliktmarkern in den Ordner. Danach entscheidet die Mitarbeitende jede Datei:
 
 ```sh
 weldall app publish --resolve --json
@@ -46,9 +46,9 @@ weldall app publish --decide src/total.ts=folder --decide logo.png=repo --json
 
 ## Review, Stand und wer mergt
 
-`weldall app status` zeigt den Pull Request mit Reviews und Checks sowie die Vorschau- und Live-Links, die die CI der App meldet. `--app <app-id>` liest eine andere App der Mitarbeiterin.
+`weldall app status` zeigt den Pull Request mit Reviews und Checks sowie die Vorschau- und Live-Links, die die CI der App meldet. `--app <app-id>` liest eine andere App der Mitarbeitenden.
 
-Die Git-App fordert bei jedem Pull Request ein Review vom Reviewer-Team der Organisation an. Ein Reviewer gibt ihn auf GitHub oder Forgejo frei und mergt ihn. Weder die Mitarbeiterin noch der Agent kann über Weldall freigeben oder mergen. Bittet der Reviewer um Änderungen, nimmt die Mitarbeiterin sie vor und veröffentlicht erneut; der offene Pull Request wird aktualisiert.
+Die Git-App fordert bei jedem Pull Request ein Review vom Reviewer-Team der Organisation an. Ein Reviewer gibt ihn auf GitHub oder Forgejo frei und mergt ihn. Weder die Mitarbeitende noch der Agent kann über Weldall freigeben oder mergen. Bittet der Reviewer um Änderungen, nimmt die Mitarbeitende sie vor und veröffentlicht erneut; der offene Pull Request wird aktualisiert.
 
 Jede veröffentlichte App steht in der [App-Registry](../app-registry/). Dort sehen Administratoren alle Apps, und Besitzer bestätigen alle 90 Tage, dass sie ihre Apps noch brauchen (`weldall app list`, `weldall app confirm`).
 
@@ -63,7 +63,7 @@ Wer diese Person ist, bleibt in Weldall: in der App-Registry und im Audit-Log.
 
 ## Wie Git das Repository erreicht
 
-Git auf dem Rechner der Mitarbeiterin spricht nie mit dem Git-Host. Es pusht zur Git-App und holt von dort, unter `https://git-app.example.com/git/<owner>/<repository>.git`. Die Git-App prüft jede Anfrage, bevor sie etwas weiterleitet:
+Git auf dem Rechner der Mitarbeitenden spricht nie mit dem Git-Host. Es pusht zur Git-App und holt von dort, unter `https://git-app.example.com/git/<owner>/<repository>.git`. Die Git-App prüft jede Anfrage, bevor sie etwas weiterleitet:
 
 - Die Git-Anmeldung ist gültig, nennt dieses Repository und gewährt bei einem Push Schreibrecht.
 - Weldall bestätigt ohne Zwischenspeichern, dass die Person Weldall noch nutzen darf, `git-app:publish` hat und die App besitzt, die für dieses Repository registriert ist. Ohne Antwort von Weldall wird nichts weitergeleitet.
@@ -72,7 +72,7 @@ Git auf dem Rechner der Mitarbeiterin spricht nie mit dem Git-Host. Es pusht zur
 
 Erst dann nutzt die Git-App ihren Zugang zum Git-Host und leitet die Anfrage als Stream dorthin weiter. Auf GitHub holt sie einen Token für genau dieses Repository, mit Lese- oder Schreibrecht auf die Inhalte. Auf Forgejo nutzt sie den Token des Bot-Benutzers, der sich nicht einschränken lässt.
 
-## Was auf den Rechner der Mitarbeiterin gelangt
+## Was auf den Rechner der Mitarbeitenden gelangt
 
 Provider-Tokens gelangen nie in die CLI, und das gilt auch für den Git-Host: Kein GitHub- oder Forgejo-Token verlässt die Git-App.
 
@@ -81,7 +81,7 @@ Git kann die DPoP-gebundene Anmeldung von Weldall nicht senden. Deshalb arbeitet
 - Sie gilt fünf Minuten lang, für das Repository einer App und für eine Person.
 - Sie erlaubt nur Lesen, es sei denn, Publish fordert Schreibrecht an.
 - Sie funktioniert nur an der Git-Route der Git-App und unterliegt allen Regeln oben. Die API des Git-Hosts und andere Repositorys erreicht sie nicht.
-- Anders als die Access Tokens von Weldall ist sie **nicht an den Geräteschlüssel gebunden**. Wer sie innerhalb dieser fünf Minuten kopiert, kann das Repository holen und, falls sie Schreibrecht gewährt, auf seine Publish-Branches pushen. Das gilt auch für einen Agenten, der mit den Rechten der Mitarbeiterin auf dem Gerät läuft: Er kann sich eine Git-Anmeldung holen und lesen, obwohl die Weldall-Anleitung es ihm verbietet.
+- Anders als die Access Tokens von Weldall ist sie **nicht an den Geräteschlüssel gebunden**. Wer sie innerhalb dieser fünf Minuten kopiert, kann das Repository holen und, falls sie Schreibrecht gewährt, auf seine Publish-Branches pushen. Das gilt auch für einen Agenten, der mit den Rechten der Mitarbeitenden auf dem Gerät läuft: Er kann sich eine Git-Anmeldung holen und lesen, obwohl die Weldall-Anleitung es ihm verbietet.
 - Die Git-App signiert Git-Anmeldungen und speichert sie nicht. Eine einzelne Git-Anmeldung lässt sich nicht widerrufen, aber wer `git-app:publish` verliert, wird bei der nächsten Git-Anfrage abgewiesen.
 
 Die CLI gibt eine Git-Anmeldung nur an den Origin, den Weldall für die Git-App nennt. Git fragt den Helper nur für die Git-Route dieses Origins, Publish leert dafür alle anderen Credential-Helper, und der Helper speichert nichts. Die Git-Anmeldung landet deshalb nicht im Schlüsselbund.

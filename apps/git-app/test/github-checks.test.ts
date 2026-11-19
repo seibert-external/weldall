@@ -103,15 +103,65 @@ describe("GitHub App connect checklist", () => {
         ({ method, path }) => method !== "GET" && !path.endsWith("/access_tokens"),
       ),
     ).toEqual([]);
-    // Organisation lookups use tokens without repositories and with one permission each.
+    // Every token is restricted to one repository; without an app's repository, organisation
+    // lookups (team, bot user) use the template.
     expect(github.tokenRequests()).toEqual(
       expect.arrayContaining([
-        { permissions: { members: "read" } },
-        { permissions: { metadata: "read" } },
+        { repositories: ["react-starter"], permissions: { members: "read", metadata: "read" } },
         { repositories: ["react-starter"], permissions: { metadata: "read" } },
       ]),
     );
+    expect(github.tokenRequests().every(({ repositories }) => repositories?.length === 1)).toBe(
+      true,
+    );
     expect(JSON.stringify(checks)).not.toMatch(/ghs_check_|BEGIN|eyJ/);
+  });
+
+  it("restricts the organisation lookups to the app's repository when there is one", async () => {
+    const { byId, github } = await check({}, { repository: existing });
+    expect(byId["reviewer-team"]!.state).toBe("pass");
+    expect(byId["commit-identity"]!.state).toBe("pass");
+    expect(github.tokenRequests()).not.toContainEqual(
+      expect.objectContaining({
+        repositories: ["react-starter"],
+        permissions: { members: "read", metadata: "read" },
+      }),
+    );
+    expect(github.tokenRequests()).toContainEqual({
+      repositories: ["app-expenses"],
+      permissions: { members: "read", metadata: "read" },
+    });
+    expect(github.tokenRequests().every(({ repositories }) => repositories?.length === 1)).toBe(
+      true,
+    );
+  });
+
+  it("falls back to the template when the app's repository is gone", async () => {
+    const { byId, github } = await check(
+      { outsideInstallation: ["app-expenses"] },
+      { repository: existing },
+    );
+    expect(byId["reviewer-team"]!.state).toBe("pass");
+    expect(byId["commit-identity"]!.state).toBe("pass");
+    expect(github.tokenRequests()).toContainEqual({
+      repositories: ["react-starter"],
+      permissions: { members: "read", metadata: "read" },
+    });
+  });
+
+  it("cannot verify team and bot user without any repository in the installation", async () => {
+    const { byId, github } = await check({ outsideInstallation: ["react-starter"] });
+    for (const id of ["reviewer-team", "commit-identity"])
+      expect(byId[id]).toMatchObject({
+        state: "unverifiable",
+        reason: expect.stringContaining("Needs a repository in the App's installation"),
+        action: "Fix the “Template” checks first.",
+      });
+    expect(github.calls.some(({ path }) => path.startsWith("/orgs/acme-apps/teams/"))).toBe(false);
+    expect(github.calls.some(({ path }) => path.startsWith("/users/"))).toBe(false);
+    expect(github.tokenRequests().every(({ repositories }) => repositories?.length === 1)).toBe(
+      true,
+    );
   });
 
   it("checks the reviewer team's access with an App that has Members", async () => {

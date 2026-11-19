@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { GitAppError } from "../../errors.js";
-import type { GitHostCheck, GitHostCheckRepository, GitHostCheckState } from "../git-host.js";
+import {
+  cannotVerifyOutcomes,
+  fail,
+  pass,
+  RETRY,
+  unverifiable,
+  type Outcome,
+} from "../check-outcomes.js";
+import type { GitHostCheck, GitHostCheckRepository } from "../git-host.js";
 import {
   branchPath,
   FORGEJO_PAGE_SIZE,
@@ -62,40 +70,12 @@ const branchResponse = z.object({
   user_can_push: z.boolean().optional(),
 });
 
-type Outcome = { state: GitHostCheckState; reason: string; action: string | null };
-const pass = (reason: string): Outcome => ({ state: "pass", reason, action: null });
-const fail = (reason: string, action: string): Outcome => ({ state: "fail", reason, action });
-const unverifiable = (reason: string, action: string | null): Outcome => ({
-  state: "unverifiable",
-  reason,
-  action,
+const { cannotVerify, unexpectedStatus } = cannotVerifyOutcomes<ForgejoApiResponse>({
+  host: "Forgejo",
+  credential: "a working bot user token",
+  credentialCheck: "“Bot user token”",
+  rateLimitedReason: "Forgejo is rate limiting Weldall.",
 });
-const RETRY = "Run the check again later.";
-const TOKEN = "“Bot user token”";
-
-/** Turns an error of a dependent step into "cannot verify" with a fixed text. */
-function cannotVerify(error: unknown): Outcome {
-  if (error instanceof GitAppError) {
-    if (
-      [
-        "credential_unavailable",
-        "credential_ambiguous",
-        "grant_mismatch",
-        "credential_rejected",
-      ].includes(error.code)
-    )
-      return unverifiable(`Needs a working bot user token (see ${TOKEN}).`, `Fix ${TOKEN} first.`);
-    if (error.code === "upstream_rate_limited")
-      return unverifiable("Forgejo is rate limiting Weldall.", RETRY);
-    const code = /^[a-z_]{1,64}$/.test(error.code) ? error.code : "error";
-    return unverifiable(`Forgejo could not be asked (${code}).`, RETRY);
-  }
-  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
-    return unverifiable("Forgejo did not answer in time.", RETRY);
-  return unverifiable("Forgejo could not be reached.", RETRY);
-}
-const unexpectedStatus = (response: ForgejoApiResponse): Outcome =>
-  unverifiable(`Forgejo answered with HTTP ${response.status}.`, RETRY);
 
 /**
  * The set-up checklist for a Forgejo-hosted Git app, for one run. Every request is a read. The bot

@@ -223,7 +223,7 @@ Zeigt Weldall dir mehrere Git-Apps, ergänze `--git-app <resource key>`.
 
 ## Mehrere Git-Apps
 
-Betreibe eine Git-App pro Git-Host, zum Beispiel eine für GitHub und eine für Forgejo, jede mit eigenem Origin, eigener Resource, eigenem Machine-Client und eigenen Schlüsseln. Darf eine Mitarbeiterin in mehrere veröffentlichen, hält die erste Veröffentlichung einer App an und listet die Git-Apps auf. Sie wählt mit `--git-app <resource key>`, und der Ordner der App merkt sich die Wahl.
+Betreibe eine Git-App pro Git-Host, zum Beispiel eine für GitHub und eine für Forgejo, jede mit eigenem Origin, eigener Resource, eigenem Machine-Client und eigenen Schlüsseln. Darf eine Mitarbeitende in mehrere veröffentlichen, hält die erste Veröffentlichung einer App an und listet die Git-Apps auf. Sie wählt mit `--git-app <resource key>`, und der Ordner der App merkt sich die Wahl.
 
 Die CLI schickt einen Token oder eine Git-Anmeldung nur an den Origin, den Weldall für diesen Resource key nennt. Änderst du den Origin einer Git-App später in Weldall, lehnt die CLI App-Ordner ab, die noch auf die alte Adresse zeigen, und nennt die neue.
 

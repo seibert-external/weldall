@@ -5,7 +5,7 @@ sidebar:
   label: App-Registry
 ---
 
-Jede App, die eine Mitarbeiterin über eine Git-App von Weldall veröffentlicht, steht ab der ersten Veröffentlichung in der App-Registry. Die IT sieht, was es gibt, wem es gehört, wofür es da ist und welche Apps länger niemand bestätigt hat.
+Jede App, die eine Mitarbeitende über eine Git-App von Weldall veröffentlicht, steht ab der ersten Veröffentlichung in der App-Registry. Administratoren sehen, was es gibt, wem es gehört, wofür es da ist und welche Apps länger niemand bestätigt hat.
 
 ## Was festgehalten wird
 
@@ -49,7 +49,7 @@ Der Zustand folgt aus dem Ablauf:
 
 ### Was „abgelaufen“ bedeutet
 
-Eine abgelaufene App wird **nur markiert**. Weldall stoppt, löscht und sperrt sie nicht: Ihr Besitzer kann weiter veröffentlichen, die Git-App nimmt weiter Pushes an, und die App läuft weiter, wo immer sie läuft. Die IT sieht die Markierung in der Admin-Liste und in der API und entscheidet, was zu tun ist. Weldall verschickt keine Benachrichtigung. Der Besitzer sieht den Zustand mit `weldall app list`.
+Eine abgelaufene App wird **nur markiert**. Weldall stoppt, löscht und sperrt sie nicht: Ihr Besitzer kann weiter veröffentlichen, die Git-App nimmt weiter Pushes an, und die App läuft weiter, wo immer sie läuft. Administratoren sehen die Markierung in der Admin-Liste und in der API und entscheiden, was zu tun ist. Weldall verschickt keine Benachrichtigung. Der Besitzer sieht den Zustand mit `weldall app list`.
 
 ## Wer was sieht
 
@@ -146,6 +146,6 @@ Die Antwort listet die Apps in der Reihenfolge ihres Anlegens, die älteste zuer
 
 `repository.resource` ist der Schlüssel der Ressource, als die die Git-App registriert ist, die das Repository verwaltet.
 
-Den Besitzer gibt die API als Weldall-User-ID und E-Mail-Adresse an, nicht mit Namen. Über die E-Mail-Adresse erreicht die IT die Person und findet sie im eigenen Verzeichnis. Die ID bleibt gleich, wenn sich die Adresse ändert. Den Namen kennt das Verzeichnis schon, deshalb lässt die API ihn weg.
+Den Besitzer gibt die API als Weldall-User-ID und E-Mail-Adresse an, nicht mit Namen. Über die E-Mail-Adresse erreichen Administratoren die Person und finden sie im eigenen Verzeichnis. Die ID bleibt gleich, wenn sich die Adresse ändert. Den Namen kennt das Verzeichnis schon, deshalb lässt die API ihn weg.
 
 Ein Token ohne `weldall:app-registry-read` bekommt `403 insufficient_scope`, ein fehlendes oder ungültiges Machine-Token `401`. Die OAuth-Metadaten kündigen den Endpunkt als `weldall_app_registry` an. Ein Weldall-Server ohne App-Registry kennt den Scope nicht. Eine Token-Anfrage dafür scheitert dann mit `invalid_scope`.
