@@ -4,7 +4,7 @@ import { PublishError } from "../publish/errors.js";
 
 /**
  * Git apps: the separate services an organisation registers in Weldall as resources to keep
- * people's app repositories on a Git host (`apps/git-app`), one per host. The CLI talks to a Git
+ * people's app repositories on a Git host (seibert-external/weldall-git-app), one per host. The CLI talks to a Git
  * app like to any registered resource (token exchange at Weldall, downstream token at the Git
  * app, DPoP requests below `<origin>/api/`), and git reaches it at `<origin>/git/`.
  *

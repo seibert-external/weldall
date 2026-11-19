@@ -755,8 +755,9 @@ describe.skipIf(process.platform === "win32")("app registry tools through the CL
       stdout: {
         outcome: "error",
         error: {
-          code: "server_unsupported",
-          message: "Confirming the app: this Weldall server has no app registry.",
+          code: "git_app_unsupported",
+          message:
+            "Confirming the app: the Git app does not offer this (it may be an older version).",
         },
       },
       exit: 1,
@@ -766,7 +767,7 @@ describe.skipIf(process.platform === "win32")("app registry tools through the CL
     expect(await recorded()).toEqual([]);
     const failed = await callTool(cli, "confirm_app", { appId: "app1" });
     expect(failed.structuredContent).toMatchObject({
-      error: { code: "confirm_failed", cliCode: "server_unsupported" },
+      error: { code: "confirm_failed", cliCode: "git_app_unsupported" },
     });
   });
 });

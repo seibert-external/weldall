@@ -177,7 +177,6 @@ describe.skipIf(reason !== null)(
       const { folder, first } = await published();
       const options = {
         gitApps: fake.gitApps,
-        registry: fake.registry,
         git: GIT,
         environment: fake.publishEnvironment(),
       };
@@ -650,7 +649,6 @@ describe.skipIf(reason !== null)(
       const statusOf = (directory: string) =>
         readAppStatus({
           gitApps: fake.gitApps,
-          registry: fake.registry,
           git: GIT,
           environment: fake.publishEnvironment(),
           directory,
@@ -661,7 +659,7 @@ describe.skipIf(reason !== null)(
         await inFolder(folder, ["config", "remote.weldall.url", remoteUrl]);
       }
       afterEach(() => {
-        fake.setResources([fake.gitAppResource()], GIT_APP_KEY);
+        fake.setResources([fake.gitAppResource()]);
       });
 
       it("first publish records the Git app chosen from the registry and its git URL", async () => {
@@ -837,7 +835,7 @@ describe.skipIf(reason !== null)(
         });
       });
 
-      it("reads the status of an app id from the Git app the app registry names", async () => {
+      it("reads the status of an app id from the Git app whose registry lists it", async () => {
         const { first } = await published();
         fake.setResources([
           fake.gitAppResource(),
@@ -845,7 +843,6 @@ describe.skipIf(reason !== null)(
         ]);
         const status = await readAppStatus({
           gitApps: fake.gitApps,
-          registry: fake.registry,
           directory: "/nonexistent",
           appId: first.app!.id,
         });
@@ -869,11 +866,10 @@ describe.skipIf(reason !== null)(
         await expect(
           readAppStatus({
             gitApps: fake.gitApps,
-            registry: fake.registry,
             directory: "/x",
             appId: "app1",
           }),
-        ).rejects.toMatchObject({ code: "server_unsupported" });
+        ).rejects.toMatchObject({ code: "no_git_app" });
       } finally {
         fake.useOldServer(false);
       }

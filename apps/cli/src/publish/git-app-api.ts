@@ -8,8 +8,8 @@ import {
   type GitAppRequest,
   type OpenGitApp,
 } from "../git/git-apps.js";
+import { isRecord } from "../http.js";
 import { PublishError } from "./errors.js";
-import { parseAnswer } from "./weldall-api.js";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 
 /**
@@ -101,6 +101,29 @@ const checklist = z.object({
 });
 export type ChecklistAnswer = z.output<typeof checklist>;
 
+export const APP_STATES = ["active", "expiring_soon", "expired"] as const;
+/** One entry of the Git app's app registry, as the owner sees it (`GET /api/apps`). */
+const appEntry = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string(),
+  purpose: z.string(),
+  repository: z.object({ owner: z.string(), name: z.string(), webUrl: z.string().nullable() }),
+  template: z.string().nullable(),
+  links: z.object({ preview: z.string().nullable(), live: z.string().nullable() }),
+  createdAt: z.string(),
+  confirmedAt: z.string().nullable(),
+  expiresAt: z.string(),
+  state: z.enum(APP_STATES),
+});
+export type GitAppAppEntry = z.output<typeof appEntry>;
+const appList = z.object({
+  apps: z.array(appEntry),
+  reverificationDays: z.number().int().positive(),
+  expiringSoonDays: z.number().int().nonnegative(),
+});
+export type GitAppAppList = z.output<typeof appList>;
+const confirmedApp = z.object({ app: appEntry });
+
 /** The calls of one Git app a publish needs; tests provide one without DPoP. */
 export interface GitAppApi {
   /** The Git app as Weldall's registry lists it; its origin is the only one git may reach. */
@@ -113,6 +136,61 @@ export interface GitAppApi {
   ): Promise<OpenedPullRequest>;
   /** The administrator's set-up checklist; `appId` names a ready app for the repository checks. */
   readChecklist(appId?: string): Promise<ChecklistAnswer>;
+  /** The person's apps in this Git app's app registry, with their re-verification state. */
+  listApps(): Promise<GitAppAppList>;
+  /** Confirms that one of the person's apps is still needed; the Git app moves its expiry. */
+  confirmApp(appId: string): Promise<GitAppAppEntry>;
+}
+
+/** A Git app's answer: the HTTP status and the parsed body. */
+export interface GitAppAnswerLike {
+  status: number;
+  body: unknown;
+}
+
+/** Turns a failed answer into a `PublishError`; `unsupported` describes a missing route. */
+export function answerFailure(
+  label: string,
+  answer: GitAppAnswerLike,
+  unsupported: { code: string; message: string; hint: string },
+  loginHint = "Run `weldall login`, then publish again.",
+): PublishError {
+  const body = isRecord(answer.body) ? answer.body : {};
+  const code = typeof body.error === "string" ? body.error : null;
+  const description =
+    typeof body.error_description === "string"
+      ? body.error_description.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").slice(0, 500)
+      : null;
+  // An older Git app answers unknown routes without an OAuth error body.
+  if ((answer.status === 404 || answer.status === 405) && code === null)
+    return new PublishError(unsupported.code, `${label}: ${unsupported.message}`, {
+      hint: unsupported.hint,
+    });
+  if (answer.status === 401)
+    return new PublishError("login", `${label}: your Weldall login has expired.`, {
+      hint: loginHint,
+    });
+  return new PublishError(
+    code ?? `http_${answer.status}`,
+    `${label} failed (HTTP ${answer.status})${description ? `: ${description}` : ""}`,
+  );
+}
+
+/** Parses a successful answer with `schema`; anything else is a `PublishError`. */
+export function parseAnswer<T>(
+  schema: z.ZodType<T>,
+  label: string,
+  answer: GitAppAnswerLike,
+  unsupported: { code: string; message: string; hint: string },
+  source = "The Git app",
+): T {
+  if (answer.status < 200 || answer.status > 299) throw answerFailure(label, answer, unsupported);
+  const parsed = schema.safeParse(answer.body);
+  if (!parsed.success)
+    throw new PublishError(unsupported.code, `${label}: ${source} returned an unexpected answer.`, {
+      hint: unsupported.hint,
+    });
+  return parsed.data;
 }
 
 /** Maps a failure to open a Git app (login, network, refused token) to a stable publish code. */
@@ -216,5 +294,19 @@ export function createGitAppApi(client: GitAppClient): GitAppApi {
         path: `admin/checklist${appId === undefined ? "" : `?app=${encodeURIComponent(appId)}`}`,
         timeoutMs: CHECKLIST_TIMEOUT_MS,
       }),
+    listApps: () =>
+      call(appList, "Listing your apps", {
+        method: "GET",
+        path: "apps",
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      }),
+    confirmApp: async (appId) =>
+      (
+        await call(confirmedApp, "Confirming the app", {
+          method: "POST",
+          path: `${app(appId)}/confirm`,
+          timeoutMs: REQUEST_TIMEOUT_MS,
+        })
+      ).app,
   };
 }

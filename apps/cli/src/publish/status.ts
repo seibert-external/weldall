@@ -1,10 +1,9 @@
-import { GIT_APP_SCOPES, selectGitApp } from "../git/git-apps.js";
 import { PublishError } from "./errors.js";
 import { openGitAppApi, type AppStatus } from "./git-app-api.js";
 import { assertSettingsScopedTo, recordedGitApp } from "./git-app-choice.js";
 import { openRepository, type PublishOptions } from "./publish.js";
+import { gitAppOfApp } from "./registry.js";
 import { CONFIG, readState } from "./state.js";
-import type { RegistryApi } from "./weldall-api.js";
 
 export interface AppStatusOptions extends Pick<
   PublishOptions,
@@ -12,10 +11,8 @@ export interface AppStatusOptions extends Pick<
 > {
   /** Reads this app instead of the one the folder records; the folder is then not read. */
   appId?: string;
-  /** With `appId`: the Git app's resource key; otherwise Weldall's app registry names it. */
+  /** With `appId`: the Git app's resource key; by default the CLI finds the Git app. */
   gitApp?: string;
-  /** Weldall's app registry, to find the Git app of `appId`. */
-  registry: Pick<RegistryApi, "listApps">;
 }
 
 /**
@@ -61,23 +58,7 @@ export async function readAppStatus(options: AppStatusOptions): Promise<AppStatu
     status = await api.readStatus(appId, branch);
   } else {
     const appId = options.appId;
-    let key = options.gitApp;
-    if (key === undefined) {
-      const app = (await options.registry.listApps()).apps.find(({ id }) => id === appId);
-      if (!app)
-        throw new PublishError(
-          "not_found",
-          `Weldall's app registry has no app ${appId} of yours.`,
-          {
-            hint: "`weldall app list` shows your apps and their ids.",
-          },
-        );
-      key = app.repository.resource;
-    }
-    const chosen = key;
-    const api = await openGitAppApi(options.gitApps, (resources) =>
-      selectGitApp(resources, { key: chosen, scope: GIT_APP_SCOPES.publish }),
-    );
+    const api = await gitAppOfApp(options.gitApps, appId, options.gitApp);
     status = await api.readStatus(appId);
   }
   return {

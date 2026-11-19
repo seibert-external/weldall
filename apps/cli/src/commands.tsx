@@ -89,7 +89,6 @@ import {
   PUBLISH_EXIT_CODES,
   publishJson,
 } from "./publish/report.js";
-import { directRegistryApi } from "./publish/weldall-api.js";
 import {
   CHECKLIST_FAILED_EXIT_CODE,
   formatChecklist,
@@ -1509,7 +1508,7 @@ const appStatusCommand = define({
     dir: publishFolderArguments.dir,
     app: { type: "string", description: "App id; reads that app instead of the folder's" },
     gitApp: gitAppArgument(
-      "With --app: resource key of the Git app that keeps it; by default Weldall's app registry names it",
+      "With --app: resource key of the Git app that keeps it; by default the CLI asks the Git apps you can publish with",
     ),
     json: jsonArgument,
   },
@@ -1522,7 +1521,6 @@ const appStatusCommand = define({
         ...(values.app === undefined ? {} : { appId: values.app }),
         ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
         gitApps: directOpenGitApp(config),
-        registry: directRegistryApi(config),
       });
       if (values.json) console.log(publishJson(status));
       else printAppStatus(status);
@@ -1563,7 +1561,7 @@ const appListColumns = [
 
 function printAppList(report: AppListReport) {
   if (report.apps.length === 0) {
-    info("You have no apps in Weldall's app registry yet. `weldall app publish` adds one.");
+    info("You have no apps in the app registry yet. `weldall app publish` adds one.");
     return;
   }
   printWideUi(
@@ -1597,13 +1595,20 @@ function printAppList(report: AppListReport) {
 const appListCommand = define({
   name: "list",
   description:
-    "List your apps in Weldall's app registry with their expiry and whether they need confirming",
-  args: { json: jsonArgument },
+    "List your apps in the app registry of each Git app you can publish with, with their expiry and whether they need confirming",
+  args: {
+    gitApp: gitAppArgument("Lists only the apps of this Git app (resource key)"),
+    json: jsonArgument,
+  },
   examples: "weldall app list\nweldall app list --json",
   run: ({ values }) =>
     runAppJsonCommand(
       values.json,
-      async () => listMyApps(directRegistryApi(await resolveWeldallConfig())),
+      async () =>
+        listMyApps({
+          gitApps: directOpenGitApp(await resolveWeldallConfig()),
+          ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
+        }),
       printAppList,
     ),
 });
@@ -1619,6 +1624,9 @@ const appConfirmCommand = define({
       description: "App id from `weldall app list`; defaults to the app of --dir",
     },
     dir: publishFolderArguments.dir,
+    gitApp: gitAppArgument(
+      "With an app id: resource key of the Git app that keeps it; by default the CLI asks the Git apps you can publish with",
+    ),
     json: jsonArgument,
   },
   examples: "weldall app confirm cm123\nweldall app confirm --json",
@@ -1629,7 +1637,8 @@ const appConfirmCommand = define({
         confirmMyApp({
           directory: values.dir ?? process.cwd(),
           ...(values.app === undefined ? {} : { appId: values.app }),
-          api: directRegistryApi(await resolveWeldallConfig()),
+          ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
+          gitApps: directOpenGitApp(await resolveWeldallConfig()),
         }),
       printAppConfirmed,
     ),

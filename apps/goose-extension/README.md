@@ -127,8 +127,8 @@ cancellation or oversized output is reported as `publish_interrupted`: the publi
 automatically, and a new publish continues where the interrupted one stopped.
 
 `list_apps({})` runs `weldall app list --json` and returns the person's apps from the app registry
-with their state (`active`, `expiring_soon`, `expired`) and expiry; names, purposes and links stay
-under `data`. `confirm_app({ appId })` runs `weldall app confirm <appId> --json`, which moves that
+of each Git app they publish with, with their state (`active`, `expiring_soon`, `expired`) and
+expiry; names, purposes and links stay under `data`. `confirm_app({ appId })` runs `weldall app confirm <appId> --json`, which moves that
 app's expiry to 90 days from now. Its description tells the agent to call it only when the person
 explicitly asks to confirm that app, never on its own or as part of publishing. A CLI without these
 commands yields `cli_outdated`.

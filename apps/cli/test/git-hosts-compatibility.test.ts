@@ -9,8 +9,9 @@ import type { WeldallConfig } from "../src/config.js";
 
 /**
  * Cross-version: this CLI against a Weldall server released before Git apps (it has the resource
- * registry, but no Git app is registered and there is no `/api/me/apps`, which it answers with
- * Next's HTML 404 page), and against a current server where no Git app is registered. Each
+ * registry, but no Git app is registered), and against a current server where no Git app is
+ * registered. The app registry lives in the Git apps, so `app list`, `app confirm` and `app status`
+ * of an app id ask Weldall only for its resource registry. Each
  * command must say so clearly, with a stable code and exit code, ask no token for anything, and
  * change nothing locally. The real direct code runs; only the login and `fetch` are stand-ins.
  */
@@ -127,7 +128,7 @@ afterEach(async () => {
 });
 
 describe.each([
-  ["an older server (no Git app, no app registry)", []],
+  ["an older server (no Git app)", []],
   ["a current server without a registered Git app", [expenses]],
 ])("this CLI against %s", (_case, registry) => {
   beforeEach(() => {
@@ -175,6 +176,22 @@ describe.each([
     expect(mocks.urls).toEqual([config.scopes]);
   });
 
+  it("app list, app confirm and app status of an app id fail with no_git_app", async () => {
+    for (const argv of [
+      ["app", "list", "--json"],
+      ["app", "confirm", "app1", "--json"],
+      ["app", "status", "--app=app1", "--json"],
+    ]) {
+      process.exitCode = undefined;
+      expect(await run(argv)).toMatchObject({
+        outcome: "error",
+        error: { code: "no_git_app", hint: expect.stringContaining("Weldall administrator") },
+      });
+      expect(process.exitCode).toBe(1);
+    }
+    expect(mocks.urls).toEqual([config.scopes, config.scopes, config.scopes]);
+  });
+
   it("app publish with --git-app names what Weldall lists instead", async () => {
     const result = await run([
       "app",
@@ -186,39 +203,5 @@ describe.each([
       "--json",
     ]);
     expect(result).toMatchObject({ outcome: "error", error: { code: "git_app_unknown" } });
-  });
-});
-
-describe("this CLI against an older server", () => {
-  beforeEach(() => {
-    mocks.registry = [];
-  });
-
-  it("app status of an app id says that the server has no app registry", async () => {
-    const result = await run(["app", "status", "--app=app1", "--json"]);
-    expect(result).toMatchObject({
-      outcome: "error",
-      error: { code: "server_unsupported", message: expect.stringContaining("no app registry") },
-    });
-    expect(process.exitCode).toBe(1);
-  });
-
-  it("app list and app confirm say that the server has no app registry", async () => {
-    for (const argv of [
-      ["app", "list", "--json"],
-      ["app", "confirm", "app1", "--json"],
-    ]) {
-      process.exitCode = undefined;
-      expect(await run(argv)).toEqual({
-        outcome: "error",
-        error: expect.objectContaining({
-          code: "server_unsupported",
-          message: expect.stringContaining("this Weldall server has no app registry"),
-          hint: expect.stringContaining("update the server"),
-        }),
-      });
-      expect(process.exitCode).toBe(1);
-    }
-    expect(mocks.urls).toEqual([`${ISSUER}/api/me/apps`, `${ISSUER}/api/me/apps/app1/confirm`]);
   });
 });

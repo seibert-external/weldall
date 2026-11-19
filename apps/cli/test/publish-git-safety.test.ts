@@ -266,7 +266,6 @@ describe.skipIf(reason !== null)(
       await expect(
         readAppStatus({
           gitApps: fake.gitApps,
-          registry: fake.registry,
           git: GIT,
           environment: fake.publishEnvironment(),
           directory,
@@ -389,7 +388,6 @@ describe.skipIf(reason !== null)(
         () =>
           readAppStatus({
             gitApps: fake.gitApps,
-            registry: fake.registry,
             git: GIT,
             environment: fake.publishEnvironment(),
             directory,
@@ -635,7 +633,6 @@ describe.skipIf(reason !== null)(
       await expect(
         readAppStatus({
           gitApps: fake.gitApps,
-          registry: fake.registry,
           git: GIT,
           environment: fake.publishEnvironment(),
           directory: published,

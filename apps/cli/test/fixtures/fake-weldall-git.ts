@@ -3,14 +3,15 @@
  * with the real `/usr/bin/git`:
  *
  * - Weldall: the resource registry for the person (the Git app as a registered resource with its
- *   own origin, authorization server and scopes) and the app registry (`/api/me/apps`);
+ *   own origin, authorization server and scopes);
  * - the Git app's git route `https://<origin>/git/<owner>/<repository>.git` on 127.0.0.1 in front
  *   of `git http-backend`, which asks for Basic auth, accepts only credentials the fake Git app
  *   issued for that repository, and refuses pushes like the real Git app (publish branches only,
  *   none to a branch whose pull request is merged or closed), with the same `weldall: <reason>`
  *   status lines;
  * - the Git app's API (`/api/apps`, `/api/apps/{id}/status`, `/api/apps/{id}/pull-requests`,
- *   `/api/git-credentials`, `/api/admin/checklist`), reached over plain HTTP through
+ *   `/api/apps/{id}/confirm`, `/api/git-credentials`, `/api/admin/checklist`), reached over plain
+ *   HTTP through
  *   `testOpenGitApp` (the stand-in's certificate is self-signed; the token exchange is left out,
  *   see `test-git-apps.ts`);
  * - helpers that play the reviewer and the Git host: commit to a branch, squash-merge or close
@@ -31,7 +32,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
-import { createRegistryApi, type RegistryApi } from "../../src/publish/weldall-api.js";
 import { testOpenGitApp } from "./test-git-apps.js";
 
 export const GIT = "/usr/bin/git";
@@ -179,6 +179,8 @@ export async function startFakeWeldall() {
   const servers: Server[] = [];
   const issued = new Map<string, { repository: string; access: "read" | "write" }>();
   const apps = new Map<string, FakeApp>();
+  /** When the owner confirmed each app (re-verification). */
+  const confirmed = new Map<string, string>();
   const pulls: FakePull[] = [];
   const pushes: Array<{ ref: string; next: string; accepted: boolean }> = [];
   const templates = new Map<string, string>();
@@ -354,6 +356,40 @@ export async function startFakeWeldall() {
         summary: { pass: 1, fail: 0, unverifiable: 0 },
       });
     }
+    const entry = (app: FakeApp) => ({
+      id: app.id,
+      name: app.name,
+      purpose: "Tests",
+      repository: {
+        owner: "acme",
+        name: `app-${app.name}`,
+        webUrl: `https://github.example/acme/app-${app.name}`,
+      },
+      template: app.template,
+      links: { preview: null, live: null },
+      createdAt: "2026-11-01T10:00:00.000Z",
+      confirmedAt: confirmed.get(app.id) ?? null,
+      expiresAt: confirmed.has(app.id) ? "2027-02-16T09:00:00.000Z" : "2027-02-01T10:00:00.000Z",
+      state: "active",
+    });
+    if (url.pathname === "/api/apps" && req.method === "GET")
+      return json(res, 200, {
+        resource: `${origin}/api`,
+        apps: [...apps.values()].map(entry),
+        reverificationDays: 90,
+        expiringSoonDays: 14,
+      });
+    const confirm = /^\/api\/apps\/([^/]+)\/confirm$/.exec(url.pathname);
+    if (confirm && req.method === "POST") {
+      const app = appOf(decodeURIComponent(confirm[1]!));
+      if (!app)
+        return json(res, 404, {
+          error: "not_found",
+          error_description: "No app of yours has this id.",
+        });
+      confirmed.set(app.id, "2026-11-18T09:00:00.000Z");
+      return json(res, 200, { app: entry(app) });
+    }
     if (url.pathname === "/api/apps" && req.method === "POST") {
       const name = input.name!;
       const existing = [...apps.values()].find((app) => app.name === name);
@@ -467,7 +503,7 @@ export async function startFakeWeldall() {
   const apiBase = `http://127.0.0.1:${await listen(api)}`;
   servers.push(api);
 
-  /** Weldall: the resource registry for the person and the app registry, as plain HTTP. */
+  /** Weldall: the resource registry for the person, as plain HTTP. */
   const weldall = createHttpServer(async (req, res) => {
     const url = new URL(req.url!, "http://fake");
     if (url.pathname === "/api/me/scopes") return json(res, 200, currentResources());
@@ -475,28 +511,6 @@ export async function startFakeWeldall() {
       res.writeHead(404, { "content-type": "text/html" });
       return res.end("<html>Not Found</html>");
     }
-    if (url.pathname === "/api/me/apps" && req.method === "GET")
-      return json(res, 200, {
-        apps: [...apps.values()].map((app) => ({
-          id: app.id,
-          name: app.name,
-          purpose: "Tests",
-          repository: {
-            resource: registeredKey,
-            owner: "acme",
-            name: `app-${app.name}`,
-            webUrl: `https://github.example/acme/app-${app.name}`,
-          },
-          template: app.template,
-          links: { preview: null, live: null },
-          createdAt: "2026-11-01T10:00:00.000Z",
-          confirmedAt: null,
-          expiresAt: "2027-02-01T10:00:00.000Z",
-          state: "active",
-        })),
-        reverificationDays: 90,
-        expiringSoonDays: 14,
-      });
     return json(res, 404, { error: "not_found", error_description: "Not found." });
   });
   const weldallOrigin = `http://127.0.0.1:${await listen(weldall)}`;
@@ -645,8 +659,6 @@ export async function startFakeWeldall() {
     grantedScopes,
   });
   let resources: ResourceRegistryEntry[] = [gitAppResource()];
-  /** The key the app registry reports for the fake's apps. */
-  let registeredKey = GIT_APP_KEY;
   const currentResources = () => (apiMode === "old-server" ? [] : resources);
   /** Origins that reach this fake's Git app API; others are unreachable. */
   const apiOrigins = new Set([origin]);
@@ -657,24 +669,6 @@ export async function startFakeWeldall() {
     requests: apiRequests,
   });
 
-  const send = async ({ method, path, body }: { method: string; path: string; body?: unknown }) => {
-    const response = await fetch(`${weldallOrigin}/api/me/${path}`, {
-      method,
-      ...(body === undefined
-        ? {}
-        : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
-    });
-    const text = await response.text();
-    let value: unknown = text || null;
-    try {
-      value = JSON.parse(text);
-    } catch {
-      // not JSON
-    }
-    return { status: response.status, body: value };
-  };
-  const registryApi: RegistryApi = createRegistryApi(weldallOrigin, send);
-
   return {
     root,
     /** The Git app's origin: its git route is `<origin>/git/`. */
@@ -682,12 +676,10 @@ export async function startFakeWeldall() {
     weldallOrigin,
     /** Opens the fake Git app the way the CLI does, from the fake registry. */
     gitApps: openGitApp,
-    registry: registryApi,
     gitAppResource,
     /** Replaces the resource registry Weldall lists for the person. */
-    setResources(next: ResourceRegistryEntry[], key = registeredKey) {
+    setResources(next: ResourceRegistryEntry[]) {
       resources = next;
-      registeredKey = key;
     },
     /** Lets another origin reach the fake Git app's API (a moved or second Git app). */
     serveApiAt(at: string) {
@@ -706,8 +698,6 @@ export async function startFakeWeldall() {
     /** The next git command whose arguments contain `pattern` is killed before (or after) it runs. */
     killGit: (pattern: string, when: "before" | "after" = "before") =>
       writeFile(join(control, when === "before" ? "fail" : "fail-after"), pattern),
-    /** The fake Weldall `/api/me` transport. */
-    send,
     apps,
     pulls,
     pushes,
@@ -781,7 +771,7 @@ export async function startFakeWeldall() {
     closeBeforeNextPush(branch: string) {
       closeBeforePush = branch;
     },
-    /** An older Weldall: no Git app registered and no app registry. */
+    /** An older Weldall: no Git app registered. */
     useOldServer(old: boolean) {
       apiMode = old ? "old-server" : "current";
     },
