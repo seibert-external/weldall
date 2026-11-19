@@ -44,8 +44,11 @@ const gitResource = `https://git-${prefix}.example.com/api`;
 const otherResource = `https://other-${prefix}.example.com/api`;
 const gitAppClientId = `${prefix}-git-app`;
 const outsiderClientId = `${prefix}-outsider`;
+/** Allowed for the Git app's resource with `weldall:subject-scopes-check`, but not a Git app. */
+const checkerClientId = `${prefix}-checker`;
 let gitAppKey: DpopKeyPair;
 let outsiderKey: DpopKeyPair;
+let checkerKey: DpopKeyPair;
 let gitResourceId: string;
 const commit = (digit: string) => digit.repeat(40);
 /** The example request the Git app's client is tested to send (an identical copy lives there). */
@@ -131,7 +134,8 @@ describe.skipIf(!approvedTarget)(
     beforeAll(async () => {
       if (!approvedTarget) throw new Error("Unsafe database target");
       const issuerKey = await generateEs256KeyPair();
-      [gitAppKey, outsiderKey] = await Promise.all([
+      [gitAppKey, outsiderKey, checkerKey] = await Promise.all([
+        generateEs256KeyPair(),
         generateEs256KeyPair(),
         generateEs256KeyPair(),
       ]);
@@ -180,16 +184,17 @@ describe.skipIf(!approvedTarget)(
       gitResourceId = (await resource(`${prefix}-git`, gitResource)).id;
       const otherResourceId = (await resource(`${prefix}-other`, otherResource)).id;
       const { createMachineClient } = await import("../src/server/machines/service.js");
-      for (const [clientId, key, resourceIds] of [
-        [gitAppClientId, gitAppKey, [gitResourceId]],
-        [outsiderClientId, outsiderKey, [otherResourceId]],
+      for (const [clientId, key, resourceIds, scopeIds] of [
+        [gitAppClientId, gitAppKey, [gitResourceId], [appHost.id, subjectCheck.id]],
+        [outsiderClientId, outsiderKey, [otherResourceId], [appHost.id, subjectCheck.id]],
+        [checkerClientId, checkerKey, [gitResourceId], [subjectCheck.id]],
       ] as const)
         await createMachineClient(
           {
             clientId,
             name: clientId,
             key: { kid: "current", publicJwk: key.publicJwk },
-            access: { resourceIds: [...resourceIds], scopeIds: [appHost.id, subjectCheck.id] },
+            access: { resourceIds: [...resourceIds], scopeIds: [...scopeIds] },
           },
           { id: prefix, requestId: `${prefix}-machine` },
         );
@@ -497,6 +502,8 @@ describe.skipIf(!approvedTarget)(
           { subject, scopes: ["weldall:login"] },
           { scope: SUBJECT_SCOPES_CHECK_SCOPE_KEY },
         );
+      // The Git app's resource does not list `weldall:login`; holding `weldall:app-host` is what
+      // lets the Git app's machine client check it.
       expect(await check(alice.id)).toMatchObject({
         status: 200,
         json: { granted: ["weldall:login"], missing: [] },
@@ -505,6 +512,20 @@ describe.skipIf(!approvedTarget)(
         status: 200,
         json: { granted: [], missing: ["weldall:login"] },
       });
+    });
+
+    it("refuses the login permission check to a machine client that is not a Git app", async () => {
+      // Allowed for the same resource, which does not list `weldall:login`, but without
+      // `weldall:app-host`: the same answer as for any scope its resources do not support.
+      for (const subject of [alice.id, carol.id])
+        expect(
+          await call(
+            subjectScopesCheck,
+            "/api/authorization/v1/check-scopes",
+            { subject, scopes: ["weldall:login"] },
+            { clientId: checkerClientId, key: checkerKey, scope: SUBJECT_SCOPES_CHECK_SCOPE_KEY },
+          ),
+        ).toMatchObject({ status: 403, json: { error: "insufficient_scope" } });
     });
   },
 );

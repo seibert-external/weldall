@@ -88,7 +88,7 @@ Die Git-App spricht mit Weldall über einen eigenen Machine-Client. Wähle unter
 - **Resources:** die eigene Resource der Git-App, `git-app`.
 - **Scopes:** `weldall:app-host` und `weldall:subject-scopes-check`.
 
-Mit `weldall:app-host` meldet die Git-App Audit-Ereignisse, immer nur für ihre eigene Resource. Mit `weldall:subject-scopes-check` fragt sie bei jeder Anfrage, ob die Person Weldall noch nutzen darf und `git-app:publish` noch hat. Siehe [Machine-Authentifizierung](../machine-authentication/).
+Mit `weldall:app-host` meldet die Git-App Audit-Ereignisse, immer nur für ihre eigene Resource. Mit `weldall:subject-scopes-check` fragt sie bei jeder Anfrage, ob die Person Weldall noch nutzen darf und `git-app:publish` noch hat; `weldall:login` steht nicht in der Resource der Git-App, und es abzufragen braucht zusätzlich `weldall:app-host`. Siehe [Machine-Authentifizierung](../machine-authentication/).
 
 ### Scopes zuweisen
 
