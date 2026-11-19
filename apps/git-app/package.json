@@ -10,7 +10,10 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
-    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "build:image-bundle": "node scripts/build-image.mjs",
+    "image:build": "docker build --file Dockerfile --tag weldall-git-app:local ../..",
+    "image:test": "pnpm image:build && sh scripts/test-image.sh"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
@@ -21,6 +24,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@weldall/tsconfig": "workspace:*",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -35,20 +35,31 @@ export const imageReleaseUnits = {
     // Inherited from nginxinc/nginx-unprivileged; it runs docker-entrypoint.d/ including the upstream validator.
     entrypoint: ["/docker-entrypoint.sh"],
   },
+  "@weldall/git-app": {
+    image: "weldall-git-app",
+    directory: "apps/git-app",
+    // Built from the repository root: the image bundles the workspace SDK.
+    context: ".",
+    dockerfile: "apps/git-app/Dockerfile",
+    title: "Weldall Git app",
+    description:
+      "Weldall Git app: keeps app repositories on one GitHub or Forgejo organisation, registered in Weldall as a resource.",
+    entrypoint: ["node", "/app/index.mjs"],
+  },
 };
 
 export const imageReleaseUnitsByImage = Object.fromEntries(
   Object.values(imageReleaseUnits).map((unit) => [unit.image, unit]),
 );
 
-const tagPattern = /^(@weldall\/(?:weldall|discovery-proxy))@(\d+)\.(\d+)\.(\d+)$/;
+const tagPattern = /^(@weldall\/(?:weldall|discovery-proxy|git-app))@(\d+)\.(\d+)\.(\d+)$/;
 const versionPattern = /^(\d+)\.(\d+)\.(\d+)$/;
 
 export function parseImageReleaseTag(tag) {
   const match = tagPattern.exec(tag);
   if (!match)
     throw new Error(
-      `Expected an exact @weldall/weldall@X.Y.Z or @weldall/discovery-proxy@X.Y.Z release tag; got ${JSON.stringify(tag)}`,
+      `Expected an exact @weldall/weldall@X.Y.Z, @weldall/discovery-proxy@X.Y.Z or @weldall/git-app@X.Y.Z release tag; got ${JSON.stringify(tag)}`,
     );
   const [, packageName, major, minor, patch] = match;
   return {

@@ -32,6 +32,20 @@ describe("image release tags", () => {
       context: "apps/discovery-proxy",
       dockerfile: "apps/discovery-proxy/Dockerfile",
     });
+    expect(parseImageReleaseTag("@weldall/git-app@0.1.0")).toMatchObject({
+      packageName: "@weldall/git-app",
+      image: "weldall-git-app",
+      version: "0.1.0",
+      context: ".",
+      dockerfile: "apps/git-app/Dockerfile",
+    });
+  });
+
+  it("keeps every image release unit a versioned, tagged changeset release unit", () => {
+    const config = JSON.parse(readFileSync(new URL(".changeset/config.json", repoRoot), "utf8"));
+    expect(config.privatePackages).toEqual({ version: true, tag: true });
+    for (const packageName of Object.keys(imageReleaseUnits))
+      expect(config.ignore).not.toContain(packageName);
   });
 
   it("names the package of each unit after its directory's package.json", () => {
@@ -50,6 +64,8 @@ describe("image release tags", () => {
     "@weldall/weldall@1.0",
     "@weldall/weldall@1.0.0-rc.1",
     "@weldall/weldall@v1.0.0",
+    "@weldall/git-app@1.0",
+    "@weldall/expenses@1.0.0",
     "weldall@1.0.0",
     "",
   ])("rejects %j", (tag) => {
@@ -122,6 +138,7 @@ describe("image check", () => {
     expect(Object.keys(imageReleaseUnitsByImage).sort()).toEqual([
       "weldall",
       "weldall-discovery-proxy",
+      "weldall-git-app",
     ]);
     for (const unit of Object.values(imageReleaseUnits)) expect(unit.entrypoint).not.toEqual([]);
   });
@@ -201,11 +218,12 @@ describe("published version lookup", () => {
 });
 
 describe("release-docker-images workflow", () => {
-  it("only starts for the two image release units", () => {
+  it("only starts for the three image release units", () => {
     expect(workflow).toContain("startsWith(github.event.release.tag_name, '@weldall/weldall@')");
     expect(workflow).toContain(
       "startsWith(github.event.release.tag_name, '@weldall/discovery-proxy@')",
     );
+    expect(workflow).toContain("startsWith(github.event.release.tag_name, '@weldall/git-app@')");
     expect(workflow).not.toContain("@weldall/cli@");
   });
 
@@ -215,6 +233,7 @@ describe("release-docker-images workflow", () => {
     expect(workflow).toContain("node scripts/image-release.mjs check-image");
     expect(workflow).toContain("sh scripts/test-weldall-image.sh");
     expect(workflow).toContain("sh apps/discovery-proxy/scripts/test-image.sh");
+    expect(workflow).toContain("sh apps/git-app/scripts/test-image.sh");
   });
 
   it("pushes only from the release environment and writes the SHA tag before floating tags", () => {

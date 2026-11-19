@@ -19,7 +19,6 @@
     "@weldall/example-next",
     "@weldall/example-starlight-weldall-search",
     "@weldall/expenses",
-    "@weldall/git-app",
     "@weldall/prettier-config",
     "@weldall/tsconfig"
   ],

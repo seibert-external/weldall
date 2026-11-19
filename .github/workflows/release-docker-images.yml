@@ -1,10 +1,12 @@
 name: Release Docker images
 
-# Builds, tests and publishes the two customer-facing linux/amd64 images:
+# Builds, tests and publishes the three customer-facing linux/amd64 images:
 #   docker.io/<namespace>/weldall                  from the root Dockerfile
 #   docker.io/<namespace>/weldall-discovery-proxy  from apps/discovery-proxy/Dockerfile
-# A Changesets release of @weldall/weldall or @weldall/discovery-proxy is the trigger;
-# the tag decides which image is built, so a proxy release never rebuilds the server.
+#   docker.io/<namespace>/weldall-git-app          from apps/git-app/Dockerfile
+# A Changesets release of @weldall/weldall, @weldall/discovery-proxy or @weldall/git-app is
+# the trigger; the tag decides which image is built, so a proxy or Git app release never
+# rebuilds the server.
 #
 # The tested bytes are what gets published: the image is built once, tested, saved as an
 # artifact, and only the publish job (guarded by the `release` environment) pushes. The
@@ -17,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Exact scoped release tag (@weldall/weldall@X.Y.Z or @weldall/discovery-proxy@X.Y.Z)
+        description: Exact scoped release tag (@weldall/weldall@X.Y.Z, @weldall/discovery-proxy@X.Y.Z or @weldall/git-app@X.Y.Z)
         required: true
         type: string
       publish:
@@ -48,7 +50,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, '@weldall/weldall@') ||
-      startsWith(github.event.release.tag_name, '@weldall/discovery-proxy@')
+      startsWith(github.event.release.tag_name, '@weldall/discovery-proxy@') ||
+      startsWith(github.event.release.tag_name, '@weldall/git-app@')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -155,6 +158,9 @@ jobs:
       - name: Test the discovery proxy endpoint allowlist, unprivileged user and upstream validation
         if: needs.prepare.outputs.image == 'weldall-discovery-proxy'
         run: sh apps/discovery-proxy/scripts/test-image.sh "$IMAGE_UNDER_TEST"
+      - name: Test the Git app health check, unprivileged user, configuration validation and secret hygiene
+        if: needs.prepare.outputs.image == 'weldall-git-app'
+        run: sh apps/git-app/scripts/test-image.sh "$IMAGE_UNDER_TEST"
       # The content-addressed identity of the image that just passed the tests; the
       # publish job proves the loaded artifact and the pushed tag are this image.
       - name: Record the tested image identity

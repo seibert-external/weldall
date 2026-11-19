@@ -20,6 +20,7 @@ import { resolveOwnApp } from "./services/own-app.js";
 import { PULL_REQUEST_BODY_LIMIT, PULL_REQUEST_TITLE_LIMIT } from "./services/pull-request-body.js";
 import { openPullRequest } from "./services/pull-requests.js";
 import { readAppStatus } from "./services/status.js";
+import { gitAppSkills } from "./skills.js";
 import type { AppHostApi } from "./weldall.js";
 
 const MAX_BODY_BYTES = 32_000;
@@ -104,6 +105,9 @@ export function createGitApp(options: CreateGitAppOptions) {
     signingKey: config.signingKey,
     // One instance per host: proofs are replay-checked in memory. Several replicas need a shared store.
     replayStore: inMemory(),
+    // Skill discovery: Weldall fetches the catalog with a signed assertion and shows each skill
+    // only to people who hold its scopes.
+    skills: { items: gitAppSkills(config) },
   });
 
   const signer = createGitCredentialSigner({

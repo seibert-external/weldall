@@ -3,9 +3,11 @@ import { vi } from "vitest";
 import {
   JWT_DPOP_GRANT,
   LOGIN_SCOPE,
+  SKILL_ASSERTION_TYPE,
   createDpopProof,
   generateEs256KeyPair,
   issueIdJag,
+  signEs256,
   type DpopKeyPair,
 } from "@weldall/sdk";
 import { createGitApp, type CreateGitAppOptions } from "../../src/app.js";
@@ -218,6 +220,32 @@ export async function createTestGitApp(
       logs.length = 0;
     },
     request: (input: string, init?: RequestInit) => app.request(input, init),
+    /** Fetches the skill catalog as Weldall's skill discovery does, with a signed assertion. */
+    async skillCatalog(claims: Record<string, unknown> = {}) {
+      const endpoint = `${GIT_APP_ORIGIN}/.well-known/weldall-skills`;
+      const now = Math.floor(Date.now() / 1_000);
+      const assertion = await signEs256(
+        {
+          iss: WELDALL_ISSUER,
+          sub: WELDALL_ISSUER,
+          aud: endpoint,
+          resource: GIT_APP_RESOURCE,
+          purpose: "skills:read",
+          iat: now,
+          exp: now + 60,
+          jti: `skills-${randomBytes(8).toString("hex")}`,
+          ...claims,
+        },
+        { kid: "weldall-1", privateJwk: weldallKey.privateJwk, typ: SKILL_ASSERTION_TYPE },
+      );
+      const previous = globalThis.fetch;
+      vi.stubGlobal("fetch", withWeldallDiscovery(previous));
+      try {
+        return await app.request(endpoint, { headers: { authorization: `Bearer ${assertion}` } });
+      } finally {
+        vi.stubGlobal("fetch", previous);
+      }
+    },
     /** The current instance's fetch handler, for serving it over real HTTP. */
     fetch: (request: Request) => app.fetch(request),
   };
