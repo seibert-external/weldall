@@ -91,6 +91,7 @@ jobs:
     # The environment MUST have required reviewers configured before those secrets exist:
     # they are the only gate between "can dispatch a workflow" and "can produce a
     # Seibert-signed binary" (see rehearse-macos-signing.yml for the full reasoning).
+    # The Windows executable leaves this job unsigned and is signed in sign-windows.
     environment: release
     env:
       WELDALL_RUNNER_LABEL: ${{ matrix.runner }}
@@ -153,6 +154,7 @@ jobs:
         if: matrix.target != 'linux-x64'
         run: node apps/cli/scripts/smoke-standalone.mjs --target "${{ matrix.target }}" --executable "$RUNNER_TEMP/standalone/${{ matrix.executable }}"
       - name: Create and independently extract the target archive
+        if: matrix.target != 'windows-x64'
         run: node apps/cli/scripts/create-standalone-archive.mjs --target "${{ matrix.target }}" --version "${{ needs.prepare.outputs.version }}" --executable "$RUNNER_TEMP/standalone/${{ matrix.executable }}" --output-dir "$RUNNER_TEMP/archive"
       - name: Assert immutable-commit build left no repository debris
         run: |
@@ -162,11 +164,12 @@ jobs:
       - name: Upload one raw standalone executable artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cli-executable-${{ matrix.target }}
+          name: ${{ matrix.target == 'windows-x64' && 'cli-unsigned-windows-x64' || format('cli-executable-{0}', matrix.target) }}
           path: ${{ runner.temp }}/standalone/${{ matrix.executable }}
           if-no-files-found: error
           retention-days: 7
       - name: Upload one native archive artifact
+        if: matrix.target != 'windows-x64'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cli-archive-${{ matrix.target }}
@@ -174,10 +177,113 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  sign-windows:
+    # A job of its own because id-token cannot be limited to one step: the build job runs
+    # dependency lifecycle scripts, and none of them may be able to mint an Azure signing token.
+    # Apart from the signing action this job runs no repository or dependency code, not even
+    # the executable it signs. The Azure federated credential trusts only the `release`
+    # environment, which MUST have required reviewers (see rehearse-macos-signing.yml).
+    name: Sign release executable (windows-x64)
+    needs: [prepare, build-native]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out only the signing action from the immutable release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/sign-windows
+      - name: Download the unsigned executable
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-unsigned-windows-x64
+          path: ${{ runner.temp }}/standalone
+      - name: Sign the executable
+        uses: ./.github/actions/sign-windows
+        with:
+          executable: ${{ runner.temp }}\standalone\weldall.exe
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile: ${{ vars.AZURE_SIGNING_PROFILE }}
+      - name: Upload the signed executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-signed-windows-x64
+          path: ${{ runner.temp }}/standalone/weldall.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  package-windows:
+    name: Smoke and archive the signed release executable (windows-x64)
+    needs: [prepare, sign-windows]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      WELDALL_RUNNER_LABEL: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - name: Install immutable-commit dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build CLI workspace dependencies
+        run: pnpm --filter @weldall/sdk build
+      - name: Download the signed executable
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-signed-windows-x64
+          path: ${{ runner.temp }}/standalone
+      - name: Smoke the signed executable with system-CA diagnostics
+        run: node apps/cli/scripts/smoke-standalone.mjs --target windows-x64 --executable "$RUNNER_TEMP/standalone/weldall.exe"
+      - name: Create and independently extract the target archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/archive"
+          node apps/cli/scripts/create-standalone-archive.mjs --target windows-x64 --version "${{ needs.prepare.outputs.version }}" --executable "$RUNNER_TEMP/standalone/weldall.exe" --output-dir "$RUNNER_TEMP/archive"
+      - name: Assert the packaging left no repository debris
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+          node apps/cli/scripts/assert-no-package-debris.mjs
+      - name: Upload one raw standalone executable artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-executable-windows-x64
+          path: ${{ runner.temp }}/standalone/weldall.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload one native archive artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-archive-windows-x64
+          path: ${{ runner.temp }}/archive/*
+          if-no-files-found: error
+          retention-days: 7
+
   detached-smoke:
     # No checkout is intentional: this matrix may consume only each raw executable artifact.
     name: Detached release executable (${{ matrix.target }})
-    needs: build-native
+    needs: [build-native, package-windows]
     strategy:
       fail-fast: false
       matrix:
@@ -216,7 +322,7 @@ jobs:
           env PATH="$RUNNER_TEMP/empty-path" "$EXECUTABLE" init --help
 
   assemble:
-    needs: [prepare, build-native, detached-smoke]
+    needs: [prepare, build-native, package-windows, detached-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
