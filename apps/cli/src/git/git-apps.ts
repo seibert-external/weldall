@@ -1,6 +1,7 @@
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { CliError } from "../errors.js";
 import { PublishError } from "../publish/errors.js";
+import { printable } from "./printable.js";
 
 /**
  * Git apps: the separate services an organisation registers in Weldall as resources to keep
@@ -110,22 +111,22 @@ export function httpsOrigin(value: string): string | null {
   return url.origin;
 }
 
+/** A Git app as named in messages: its registry name and resource key, made printable. */
 const describe = (app: Pick<GitApp, "key" | "name">) =>
-  `${terminalText(app.name)} (${terminalText(app.key)})`;
-
-/** Names from the registry, shown on one line without control characters. */
-const terminalText = (value: string) =>
-  value.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").slice(0, 200);
+  `${printable(app.name, 200)} (${printable(app.key, 200)})`;
 
 /**
- * Raised when no registered Git app fits, as a `PublishError` with a stable code:
- * `no_git_app`, `git_app_unknown`, `git_app_ambiguous` or `scope_missing`.
+ * `git_app_ambiguous`: several Git apps fit where the CLI needs one. `situation` says how they
+ * fit; the error names each one and lists their keys in `details.gitApps`.
  */
-const selectionError = (
-  code: "no_git_app" | "git_app_unknown" | "git_app_ambiguous" | "scope_missing",
-  message: string,
-  options: { hint?: string; details?: Record<string, string> } = {},
-) => new PublishError(code, message, options);
+export const ambiguousGitApps = (
+  situation: string,
+  apps: readonly Pick<GitApp, "key" | "name">[],
+) =>
+  new PublishError("git_app_ambiguous", `${situation}: ${apps.map(describe).join(", ")}.`, {
+    hint: "Add `--git-app <key>` to name the Git app; ask the person which Git host the app belongs on.",
+    details: { gitApps: apps.map(({ key }) => key).join(", ") },
+  });
 
 const ADMIN_HINT =
   "Ask your Weldall administrator; the Git app's README describes how to register it.";
@@ -147,21 +148,21 @@ export function selectGitApp(
   if (key !== undefined) {
     const named = apps.find((candidate) => candidate.key === key);
     if (!named)
-      throw selectionError(
+      throw new PublishError(
         "git_app_unknown",
         resources.some((resource) => resource.key === key)
-          ? `"${terminalText(key)}" is registered in Weldall but is not a Git app that offers ${scope}.`
-          : `Weldall lists no Git app "${terminalText(key)}" for you.`,
+          ? `"${printable(key)}" is registered in Weldall but is not a Git app that offers ${scope}.`
+          : `Weldall lists no Git app "${printable(key)}" for you.`,
         {
           hint: available
-            ? `Git apps you can use: ${terminalText(available)}.`
+            ? `Git apps you can use: ${printable(available)}.`
             : `No Git app is registered. ${ADMIN_HINT}`,
         },
       );
     app = named;
   } else {
     if (!apps.length)
-      throw selectionError(
+      throw new PublishError(
         "no_git_app",
         `No Git app is registered in Weldall, so this Weldall installation cannot ${scope === GIT_APP_SCOPES.admin ? "check a Git host" : "publish apps"} yet.`,
         { hint: ADMIN_HINT },
@@ -169,24 +170,17 @@ export function selectGitApp(
     const granted = apps.filter((candidate) => candidate.resource.grantedScopes.includes(scope));
     if (granted.length === 1) return granted[0]!;
     if (granted.length > 1)
-      throw selectionError(
-        "git_app_ambiguous",
-        `Several Git apps are registered in Weldall: ${granted.map(describe).join(", ")}. Name the one to use.`,
-        {
-          hint: "Add `--git-app <key>`; ask the person which Git host the app belongs on.",
-          details: { gitApps: granted.map(({ key: name }) => name).join(", ") },
-        },
-      );
+      throw ambiguousGitApps("Several Git apps are registered in Weldall", granted);
     app = apps[0]!;
     if (apps.length > 1)
-      throw selectionError(
+      throw new PublishError(
         "scope_missing",
         `You lack the permission ${scope} for every Git app registered in Weldall (${apps.map(describe).join(", ")}).`,
         { hint: `Ask your Weldall administrator for ${scope}.` },
       );
   }
   if (!app.resource.grantedScopes.includes(scope))
-    throw selectionError(
+    throw new PublishError(
       "scope_missing",
       `You lack the permission ${scope} for the Git app ${describe(app)}.`,
       { hint: `Ask your Weldall administrator for ${scope}.` },

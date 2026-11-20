@@ -1,5 +1,11 @@
 import type { ResourceRegistryEntry } from "@weldall/sdk";
-import { GIT_APP_SCOPES, asGitApp, selectGitApp, type OpenGitApp } from "../git/git-apps.js";
+import {
+  GIT_APP_SCOPES,
+  ambiguousGitApps,
+  asGitApp,
+  selectGitApp,
+  type OpenGitApp,
+} from "../git/git-apps.js";
 import { PublishError } from "./errors.js";
 import {
   openGitAppApi,
@@ -106,10 +112,9 @@ export async function gitAppOfApp(
   if (!keeping.length && failures.length) throw failures[0];
   const keys = apis.map(({ gitApp }) => gitApp.key).join(", ");
   throw keeping.length
-    ? new PublishError(
-        "git_app_ambiguous",
-        `Several Git apps list an app ${appId} of yours (${keeping.map(({ gitApp }) => gitApp.key).join(", ")}).`,
-        { hint: "Add `--git-app <key>` to name the Git app that keeps it." },
+    ? ambiguousGitApps(
+        `Several Git apps list an app ${appId} of yours`,
+        keeping.map(({ gitApp }) => gitApp),
       )
     : new PublishError(
         "not_found",
