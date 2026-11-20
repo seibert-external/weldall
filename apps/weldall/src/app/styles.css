@@ -342,6 +342,8 @@
     min-height: 100dvh;
     place-items: center;
     padding: 1.5rem;
+    background: var(--color-background-body);
+    color: var(--color-text-primary);
   }
 
   .appearance-sequence {
@@ -351,6 +353,7 @@
   .login-panel {
     width: min(28rem, 100%);
     border: 1px solid var(--color-border);
+    border-radius: var(--radius-container);
     background: var(--color-background-surface);
     padding: 1.5rem;
   }
@@ -368,6 +371,10 @@
     width: 10rem;
     height: auto;
     margin-inline: auto;
+  }
+
+  .consent-panel .login-auth-logo {
+    margin-inline: 0;
   }
 
   .skill-directory-page,
