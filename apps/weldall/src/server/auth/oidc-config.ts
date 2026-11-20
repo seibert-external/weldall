@@ -78,10 +78,38 @@ export function buttonForeground(color: string): string {
     ? "#000000"
     : "#ffffff";
 }
+const ENTRA_ISSUER =
+  /^https:\/\/login\.microsoftonline\.com\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/v2\.0$/;
+/** Tenant GUID of a tenant-bound Entra ID v2.0 issuer; multi-tenant and v1 issuers are generic OIDC. */
+export function entraTenant(issuer: string): string | undefined {
+  return ENTRA_ISSUER.exec(issuer)?.[1];
+}
+// Weldall links accounts by email, so an unverified email would allow account takeover ("nOAuth").
+// Entra never sends email_verified; it marks verified emails with xms_edov instead (claims xms_edov,
+// acct, idp: https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference).
+// Only boolean true is accepted until a real tenant confirms the claim's JSON type. xms_edov can be
+// true for guests whose email is a Microsoft account, Google or one-time passcode, so the guest
+// check (acct/idp, failing closed on any unexpected value) is the actual barrier.
+function assertTrustedEmail(claims: Record<string, unknown>, config: ProviderConfig) {
+  const tenant = entraTenant(config.issuer);
+  if (!tenant) {
+    if (claims.email_verified !== true) throw new LoginError("unverified_identity");
+    return;
+  }
+  if (claims.tid !== tenant) throw new LoginError("unverified_identity");
+  if (
+    (claims.acct !== undefined && claims.acct !== 0) ||
+    (claims.idp !== undefined &&
+      claims.idp !== config.issuer &&
+      claims.idp !== `https://sts.windows.net/${tenant}/`)
+  )
+    throw new LoginError("entra_guest_denied");
+  if (claims.xms_edov !== true) throw new LoginError("entra_email_unverified");
+}
 export function verifiedIdentity(claims: Record<string, unknown>, config: ProviderConfig) {
+  assertTrustedEmail(claims, config);
   const email = emailSchema.safeParse(claims.email);
   if (
-    claims.email_verified !== true ||
     !email.success ||
     typeof claims.sub !== "string" ||
     !claims.sub.trim() ||
