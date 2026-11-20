@@ -31,6 +31,21 @@ export interface TreeEntry {
   size: number | null;
 }
 
+/** The blobs of `git ls-tree -z -l` output by path; subtrees (without `-r`) are left out. */
+const parseTreeListing = (output: Buffer): Map<string, TreeEntry> => {
+  const result = new Map<string, TreeEntry>();
+  for (const record of output.toString("utf8").split("\0")) {
+    const match = /^(\d{6}) (\w+) ([0-9a-f]+) +(\d+|-)\t([\s\S]+)$/.exec(record);
+    if (match && match[2] !== "tree")
+      result.set(match[5]!, {
+        mode: match[1]!,
+        object: match[3]!,
+        size: match[4] === "-" ? null : Number(match[4]),
+      });
+  }
+  return result;
+};
+
 /**
  * Operations on the local folder's repository that never lose work: trees are built in a
  * private index, the person's index and working tree change only in {@link Folder.adopt} and
@@ -184,32 +199,13 @@ export class Folder {
       "--",
       path,
     ]);
-    for (const record of listed.stdout.toString("utf8").split("\0")) {
-      const match = /^(\d{6}) (\w+) ([0-9a-f]+) +(\d+|-)\t([\s\S]+)$/.exec(record);
-      if (match && match[5] === path && match[2] !== "tree")
-        return {
-          mode: match[1]!,
-          object: match[3]!,
-          size: match[4] === "-" ? null : Number(match[4]),
-        };
-    }
-    return null;
+    return parseTreeListing(listed.stdout).get(path) ?? null;
   }
 
   /** Every blob in `tree` by path, with its size. */
   async entries(tree: string): Promise<Map<string, TreeEntry>> {
     const listed = await this.repository.run(["ls-tree", "-r", "-z", "-l", "--full-tree", tree]);
-    const result = new Map<string, TreeEntry>();
-    for (const record of listed.stdout.toString("utf8").split("\0")) {
-      const match = /^(\d{6}) (\w+) ([0-9a-f]+) +(\d+|-)\t([\s\S]+)$/.exec(record);
-      if (match)
-        result.set(match[5]!, {
-          mode: match[1]!,
-          object: match[3]!,
-          size: match[4] === "-" ? null : Number(match[4]),
-        });
-    }
-    return result;
+    return parseTreeListing(listed.stdout);
   }
 
   /** Paths that differ between two trees, without rename detection. */
