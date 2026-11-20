@@ -55,11 +55,11 @@ Microsoft empfiehlt Zertifikate statt Client-Secrets, und manche Tenants verbiet
 
 Entra ID sendet kein `email_verified`. Stattdessen gibt der optionale Claim `xms_edov` an, ob der Domain-Inhaber der E-Mail-Adresse verifiziert ist. Weldall braucht drei optionale Claims im ID-Token:
 
-| Claim      | Zweck                                                                                    |
-| ---------- | ---------------------------------------------------------------------------------------- |
-| `email`    | Die Adresse, die Weldall als Identität verwendet. `xms_edov` kommt nur zusammen mit ihr. |
-| `xms_edov` | `true`, wenn die Adresse zu einer im Tenant verifizierten Domain gehört.                 |
-| `acct`     | `0` für Mitglieder, `1` für Gäste. Weldall lehnt Gäste ab.                               |
+| Claim      | Zweck                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| `email`    | Die Adresse, die Weldall als Identität verwendet. `xms_edov` kommt nur zusammen mit ihr.   |
+| `xms_edov` | `true`, wenn die Adresse zu einer im Tenant verifizierten Domain gehört.                   |
+| `acct`     | Pflicht. `0` für Mitglieder, `1` für Gäste. Weldall lehnt Gäste und Tokens ohne `acct` ab. |
 
 Öffne **Token configuration** > **Add optional claim**, wähle den Tokentyp **ID** und füge `email`, `xms_edov` und `acct` hinzu.
 
@@ -119,11 +119,12 @@ Führe **Test login** mit einem Konto des Tenants aus, bevor du speicherst oder 
 
 ## Fehlerbehebung
 
-Für zwei Entra-ID-Regeln zeigt die Anmeldeseite eine eigene Meldung:
+Für drei Entra-ID-Regeln zeigt die Anmeldeseite eine eigene Meldung:
 
 | Meldung                                                                                                                                                                                                    | Bedeutung und wahrscheinliche Ursachen                                                                                                                                                                                                                                 |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | „Microsoft Entra ID did not confirm a verified email address for your account. Ask your administrator to check the optional claims of the Weldall app registration and the email address of your account.“ | Das ID-Token enthielt kein `xms_edov` mit dem Wert `true`. In der App-Registrierung fehlen die optionalen Claims `email` oder `xms_edov` (Schritt 3), das Konto hat kein `mail`-Attribut, oder die Adresse liegt in einer Domain, die im Tenant nicht verifiziert ist. |
+| „Microsoft Entra ID did not send the claims Weldall needs. Ask your administrator to add the optional claims email, xms_edov and acct to the Weldall app registration.“                                    | Das ID-Token enthielt keinen `acct`-Claim. Füge den optionalen Claim `acct` in der App-Registrierung hinzu (Schritt 3).                                                                                                                                                |
 | „Guest accounts cannot sign in. Sign in with a member account of your organization.“                                                                                                                       | Das Konto ist Gast im Tenant: `acct` ist nicht `0`, oder `idp` nennt einen anderen Identity Provider. Melde dich mit einem Mitgliedskonto des Tenants an.                                                                                                              |
 
 Jede andere Ablehnung zeigt die allgemeine Meldung „Login failed. Please retry or contact your administrator.“ Häufige Ursachen: Die Callback-URL stimmt nicht exakt, der Issuer hat die falsche Form, das Client-Secret ist abgelaufen, oder die Adresse liegt außerhalb von **Allowed email domains**.

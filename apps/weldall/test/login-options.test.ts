@@ -16,9 +16,14 @@ describe("login error message", () => {
     );
   });
 
+  it("explains missing Entra ID claims", () => {
+    expect(loginErrorMessage("entra_claims_missing")).toBe(
+      "Microsoft Entra ID did not send the claims Weldall needs. Ask your administrator to add the optional claims email, xms_edov and acct to the Weldall app registration.",
+    );
+  });
+
   it.each([
     "unverified_identity",
-    "entra_claims_missing",
     "email_domain_denied",
     "session_unavailable",
     "",

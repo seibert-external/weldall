@@ -87,7 +87,13 @@ describe("Entra ID identities", () => {
     issuer: `https://login.microsoftonline.com/${tenant}/v2.0`,
     allowedEmailDomains: ["example.com"],
   });
-  const member = { sub: "entra-sub", email: "Alice@Example.com", tid: tenant, xms_edov: true };
+  const member = {
+    sub: "entra-sub",
+    email: "Alice@Example.com",
+    tid: tenant,
+    xms_edov: true,
+    acct: 0,
+  };
   it("accepts a tenant member with a verified email", () =>
     expect(verifiedIdentity(member, provider)).toEqual({
       issuer: provider.issuer,
@@ -99,11 +105,14 @@ describe("Entra ID identities", () => {
     ["no idp", {}],
     ["idp equal to the issuer", { idp: `https://login.microsoftonline.com/${tenant}/v2.0` }],
     ["idp in the v1 sts form", { idp: `https://sts.windows.net/${tenant}/` }],
-    ["acct 0", { acct: 0 }],
     ["email_verified false ignored", { email_verified: false }],
   ])("accepts a member with %s", (_, patch) =>
     expect(verifiedIdentity({ ...member, ...patch }, provider).subject).toBe("entra-sub"),
   );
+  it("rejects a missing acct claim as a configuration error", () =>
+    expect(() => verifiedIdentity({ ...member, acct: undefined }, provider)).toThrow(
+      "entra_claims_missing",
+    ));
   it.each([undefined, false, "true", 1, null])("rejects xms_edov %j", (xms_edov) =>
     expect(() => verifiedIdentity({ ...member, xms_edov }, provider)).toThrow(
       "entra_email_unverified",

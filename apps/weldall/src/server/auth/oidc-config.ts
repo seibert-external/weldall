@@ -78,6 +78,7 @@ export function buttonForeground(color: string): string {
     ? "#000000"
     : "#ffffff";
 }
+
 const ENTRA_ISSUER =
   /^https:\/\/login\.microsoftonline\.com\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/v2\.0$/;
 /** Tenant GUID of a tenant-bound Entra ID v2.0 issuer; multi-tenant and v1 issuers are generic OIDC. */
@@ -89,7 +90,8 @@ export function entraTenant(issuer: string): string | undefined {
 // acct, idp: https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference).
 // Only boolean true is accepted until a real tenant confirms the claim's JSON type. xms_edov can be
 // true for guests whose email is a Microsoft account, Google or one-time passcode, so the guest
-// check (acct/idp, failing closed on any unexpected value) is the actual barrier.
+// check is the actual barrier: acct must be exactly 0 (a missing acct is a configuration error, not
+// proof of membership) and idp, if present, must name this tenant.
 function assertTrustedEmail(claims: Record<string, unknown>, config: ProviderConfig) {
   const tenant = entraTenant(config.issuer);
   if (!tenant) {
@@ -97,8 +99,9 @@ function assertTrustedEmail(claims: Record<string, unknown>, config: ProviderCon
     return;
   }
   if (claims.tid !== tenant) throw new LoginError("unverified_identity");
+  if (claims.acct === undefined) throw new LoginError("entra_claims_missing");
   if (
-    (claims.acct !== undefined && claims.acct !== 0) ||
+    claims.acct !== 0 ||
     (claims.idp !== undefined &&
       claims.idp !== config.issuer &&
       claims.idp !== `https://sts.windows.net/${tenant}/`)
