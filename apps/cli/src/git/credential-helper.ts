@@ -15,6 +15,7 @@
  */
 import { isRecord } from "../http.js";
 import { GitAppAccessError, type GitAppAnswer } from "./git-apps.js";
+import { printable } from "./printable.js";
 
 export type GitAccess = "read" | "write";
 
@@ -55,7 +56,6 @@ interface Output {
 }
 
 const MAX_INPUT_BYTES = 64 * 1024;
-const MAX_DETAIL_CHARS = 300;
 const CREDENTIAL_PREFIX = "wgc_";
 const LOGIN_HINT = "Run `weldall login`, then retry the git command.";
 
@@ -111,14 +111,10 @@ export function originOfGitHost(gitHost: string): string | null {
   }
 }
 
-/** Server text for stderr: one bounded line without control characters. */
+/** Server text for stderr: one bounded, printable line. */
 const detail = (value: unknown): string | null => {
   if (!isRecord(value) || typeof value.error_description !== "string") return null;
-  const text = value.error_description
-    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ")
-    .trim()
-    .slice(0, MAX_DETAIL_CHARS);
-  return text || null;
+  return printable(value.error_description.trim()) || null;
 };
 
 const errorCode = (value: unknown) =>

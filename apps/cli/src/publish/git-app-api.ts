@@ -8,6 +8,7 @@ import {
   type GitAppRequest,
   type OpenGitApp,
 } from "../git/git-apps.js";
+import { printable } from "../git/printable.js";
 import { isRecord } from "../http.js";
 import { PublishError } from "./errors.js";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
@@ -158,9 +159,7 @@ export function answerFailure(
   const body = isRecord(answer.body) ? answer.body : {};
   const code = typeof body.error === "string" ? body.error : null;
   const description =
-    typeof body.error_description === "string"
-      ? body.error_description.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").slice(0, 500)
-      : null;
+    typeof body.error_description === "string" ? printable(body.error_description, 500) : null;
   // An older Git app answers unknown routes without an OAuth error body.
   if ((answer.status === 404 || answer.status === 405) && code === null)
     return new PublishError(unsupported.code, `${label}: ${unsupported.message}`, {

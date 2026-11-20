@@ -254,13 +254,13 @@ describe("weldall git-credential get", () => {
     },
   );
 
-  it("strips control characters from server text", async () => {
+  it("replaces control and non-ASCII characters in server text", async () => {
     const { access } = weldall({
       status: 409,
-      body: { error: "repository_not_ready", error_description: "a\u001b[31mred\nline" },
+      body: { error: "repository_not_ready", error_description: "a\u001b[31mred\nline\u202e" },
     });
     expect((await helper({ access })).stderr).toBe(
-      "weldall git-credential: The app's repository is not ready yet (a [31mred line)\n",
+      "weldall git-credential: The app's repository is not ready yet (a?[31mred?line?)\n",
     );
   });
 
