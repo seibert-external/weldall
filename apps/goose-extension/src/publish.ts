@@ -553,7 +553,9 @@ function publishResult(value: z.infer<typeof publishOutput>): CallToolResult {
         pullRequest?.webUrl
           ? "Tell the person the app was published and give them the pull request link from data.pullRequest.webUrl."
           : "Tell the person the app was published; call app_status for the pull request link.",
-        "Later, call app_status to see reviews, checks and the preview or live link.",
+        data.links.preview || data.links.live
+          ? "Give the person the preview or live link from data.links as well. Later, call app_status to see reviews and checks."
+          : "The app's CI reports the preview and live links; tell the person they appear once the CI reports them. Later, call app_status to see reviews, checks and those links.",
       );
       break;
     case "nothing_to_publish":

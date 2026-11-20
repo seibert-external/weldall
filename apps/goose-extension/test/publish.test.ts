@@ -180,6 +180,20 @@ describe.skipIf(process.platform === "win32")("publish_app through the CLI", () 
     expect(result.content).toEqual([{ type: "text", text: JSON.stringify(structured) }]);
   });
 
+  it("passes on the preview or live link after a publish, or says the CI reports them later", async () => {
+    const publish = async (stdout: unknown) => {
+      const { app, cli } = await fakeCli({ stdout });
+      return (await callTool(cli, "publish_app", { folder: app })).structuredContent as Record<
+        string,
+        any
+      >;
+    };
+    expect((await publish(base)).nextSteps[1]).toContain("preview or live link from data.links");
+    const without = await publish({ ...base, links: { preview: null, live: null } });
+    expect(without.nextSteps[1]).toContain("appear once the CI reports them");
+    expect(instructionText(without)).not.toContain("data.links");
+  });
+
   it("passes the publish timeout and maps an interruption to a clear next step", async () => {
     const runForResult = vi.fn().mockRejectedValue(new ExtensionError("timeout"));
     const app = (await fakeCli({})).app;

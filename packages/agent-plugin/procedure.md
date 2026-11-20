@@ -150,7 +150,9 @@ files, and do not publish personal data, customer data or credentials.
 
 Act on the outcome:
 
-- `published`: give the pull request link and say a reviewer must approve it.
+- `published`: give the pull request link and say a reviewer must approve it. The app's CI
+  reports the preview and live links (`links.preview`, `links.live`): give any the result
+  includes. When it includes none, say they appear in the app status once the CI reports them.
 - `conflict`: nothing was published. Name the conflicting files. Publish again with
   `--resolve`, then with one `--decide <path>=folder|local|repo` per listed file, and choose
   each with the user.
