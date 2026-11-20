@@ -47,6 +47,8 @@
     --color-icon-accent: light-dark(#5730cc, #9ca3ec);
     --color-background-body: light-dark(#eef0f4, #1b1b1b);
     --color-background-card: var(--color-background-surface);
+    --color-background-inverted: light-dark(#0a1317, #ffffff);
+    --color-background-error-inverted: light-dark(#aa071e, #e3193b);
     --radius-container: 1rem;
     --radius-page: 1.5rem;
     --_button-radius: var(--radius-full);
