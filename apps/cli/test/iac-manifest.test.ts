@@ -87,6 +87,38 @@ describe("native YAML workspaces", () => {
     });
   });
 
+  it("accepts home skills in both policies and a model key only in the default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
+    const group =
+      "groupAssignments:\n  dev:\n    provider: directory\n    groupId: dev\n    scopes: [expenses:read]\n    policy:\n      version: 1\n";
+    const modelKey = (indent: string) =>
+      ["modelKey:", "  url: https://vllm.example.com/key", "  hosts: [vllm.example.com]"]
+        .map((line) => `${indent}${line}\n`)
+        .join("");
+    await workspace(
+      root,
+      [
+        'cli:\n  logoUrl: ""\n  policy:\n    version: 1\n    homeSkills: [basics.search]\n',
+        modelKey("    "),
+        group,
+        "      homeSkills: [gateway.hubspot-read]\n",
+      ].join(""),
+    );
+    const loaded = await loadWorkspace(root);
+    const manifest = serverManifest(loaded.manifest, newLock(loaded.manifest));
+    expect(manifest.cli?.policy).toEqual({
+      version: 1,
+      homeSkills: ["basics.search"],
+      modelKey: { url: "https://vllm.example.com/key", hosts: ["vllm.example.com"] },
+    });
+    expect(manifest.groupAssignments.dev.policy).toEqual({
+      version: 1,
+      homeSkills: ["gateway.hubspot-read"],
+    });
+    await workspace(root, group + modelKey("      "));
+    await expect(loadWorkspace(root)).rejects.toThrow(/groupAssignments.policy/);
+  });
+
   it("sends a null default policy to clear it", async () => {
     const root = await mkdtemp(join(tmpdir(), "weldall-iac-"));
     await workspace(root, 'cli:\n  logoUrl: ""\n  policy: null\n');
