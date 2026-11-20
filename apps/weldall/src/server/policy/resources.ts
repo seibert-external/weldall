@@ -220,9 +220,11 @@ export class SubjectScopeCheckError extends Error {
 /**
  * Scopes a machine may check for a person: those supported by one of its enabled allowed
  * resources. A Git app's machine client (one holding `weldall:app-host`) with at least one allowed
- * resource may also check the login permission `weldall:login`: it keeps its own long-lived
- * credentials (git credentials) and must stop serving a person who lost the login permission,
- * even when its resource does not list `weldall:login`. Other machine clients may check
+ * resource may also check the login permission `weldall:login`: it acts for people with its own
+ * long-lived Git host secret (the GitHub App key or the Forgejo token), and the git credentials it
+ * issues (valid for five minutes) cannot be revoked, so it asks on every request and must stop
+ * serving a person who lost the login permission, even when its resource does not list
+ * `weldall:login`. Other machine clients may check
  * `weldall:login` only for a resource that supports it.
  */
 function subjectCheckQueryableScopes(machine: {
