@@ -22,7 +22,7 @@ import { CONFIG, readState } from "./state.js";
  * app keeps the registry of the apps it holds (`GET /api/apps`, `POST /api/apps/{id}/confirm`,
  * scope `git-app:publish`), so the CLI asks every Git app the person may publish with and names
  * each app's Git app by its resource key. An app must be confirmed as still needed every 90 days;
- * past its expiry it is only flagged for IT, nothing is stopped. Publishing does not confirm an app.
+ * past its expiry it is only flagged for administrators, nothing is stopped. Publishing does not confirm an app.
  */
 
 /** An app registry entry with the Git app that keeps it (`repository.resource`, its resource key). */

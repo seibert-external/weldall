@@ -1588,7 +1588,7 @@ function printAppList(report: AppListReport) {
   );
   if (report.apps.some((app) => app.state !== "active"))
     info(
-      `Apps must be confirmed as still needed every ${report.reverificationDays} days. Run \`weldall app confirm <id>\` for each app that is still in use; IT sees expired apps flagged.`,
+      `Apps must be confirmed as still needed every ${report.reverificationDays} days. Run \`weldall app confirm <id>\` for each app that is still in use; administrators see expired apps flagged.`,
     );
 }
 
