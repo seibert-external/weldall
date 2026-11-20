@@ -7,6 +7,21 @@ import { authClient } from "@/lib/auth-client";
 import { buttonForeground } from "@/server/auth/oidc-config";
 import { queueOperationSuccess } from "../_components/use-operation-toast";
 
+const GENERIC_LOGIN_ERROR = "Login failed. Please retry or contact your administrator.";
+
+// Only the codes of the Entra ID trust rules get a specific message. Every other code, including
+// unknown or hostile query input, stays generic on purpose so failures reveal nothing else.
+export function loginErrorMessage(code: string | null): string {
+  switch (code) {
+    case "entra_email_unverified":
+      return "Microsoft Entra ID did not confirm a verified email address for your account. Ask your administrator to check the optional claims of the Weldall app registration and the email address of your account.";
+    case "entra_guest_denied":
+      return "Guest accounts cannot sign in. Sign in with a member account of your organization.";
+    default:
+      return GENERIC_LOGIN_ERROR;
+  }
+}
+
 export function LoginOptions({
   providers,
 }: {
@@ -18,7 +33,7 @@ export function LoginOptions({
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     if (query.has("loginError")) {
-      setError("Login failed. Please retry or contact your administrator.");
+      setError(loginErrorMessage(query.get("loginError")));
       return;
     }
     if (session.isPending || !session.data) return;
