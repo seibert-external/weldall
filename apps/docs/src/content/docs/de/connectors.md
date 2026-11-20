@@ -5,7 +5,7 @@ description: Google- und Atlassian-Cloud-APIs im Namen der angemeldeten Person a
 
 Connectors rufen einen Dienst **im Namen der nutzenden Person** auf. Jede Person verbindet ihr eigenes Konto und gibt den Zugriff frei. Weldall speichert die Zugangsdaten verschlüsselt auf dem Server und führt die Aufrufe aus; Provider-Tokens gelangen nie in die CLI.
 
-Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt.
+Google und Atlassian Cloud (Jira und Confluence) werden als Connector-Provider unterstützt. Du möchtest einen anderen Dienst mit API-Token anbinden? Das geht schon heute über eine [Resource](../service-configuration/), die Anfragen weiterleitet und den Token serverseitig verwahrt. Apps auf GitHub oder Forgejo zu veröffentlichen ist kein Connector: Das übernimmt eine eigene [Git-App](../publish-apps/).
 
 Connectoren/geteilte Verbindungen können deaktiviert angelegt, in der UI provisioniert und anschließend ausdrücklich aktiviert werden. Provisionierung/Rotation aktiviert sie nicht; beide müssen für Aufrufe aktiv sein. [IaC](../infrastructure-as-code/#öffentliche-konfiguration-secrets-nur-in-der-ui) verwaltet öffentliche Konfiguration/Import, niemals Secrets.
 

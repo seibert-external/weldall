@@ -6,11 +6,18 @@ export const MCP_SCOPE_KEY = "weldall:mcp";
 export const IAC_SCOPE_KEY = "weldall:iac";
 export const SUBJECT_SCOPES_CHECK_SCOPE_KEY = "weldall:subject-scopes-check";
 export const STATISTICS_SCOPE_KEY = "weldall:statistics";
+/**
+ * Lets a Git app (a separate service registered as a resource) report the Git and app registry
+ * audit events of its resource through `/api/app-host/v1/audit-events`. The machine client must
+ * also be allowed for that resource.
+ */
+export const APP_HOST_SCOPE_KEY = "weldall:app-host";
 
 export const MACHINE_ONLY_SYSTEM_SCOPE_KEYS = [
   IAC_SCOPE_KEY,
   MCP_SCOPE_KEY,
   SUBJECT_SCOPES_CHECK_SCOPE_KEY,
+  APP_HOST_SCOPE_KEY,
 ] as const;
 
 export function isMachineOnlySystemScope(key: string): boolean {
@@ -47,6 +54,11 @@ export const SYSTEM_SCOPE_DEFINITIONS = [
     id: "scope-weldall-statistics",
     key: STATISTICS_SCOPE_KEY,
     description: "View org-wide Weldall usage statistics.",
+  },
+  {
+    id: "scope-weldall-app-host",
+    key: APP_HOST_SCOPE_KEY,
+    description: "Report Git and app registry audit events for an allowed resource.",
   },
 ] as const;
 

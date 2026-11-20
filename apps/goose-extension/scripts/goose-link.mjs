@@ -4,7 +4,7 @@ const params = new URLSearchParams({ cmd: "npx" });
 params.append("arg", "-y");
 params.append("arg", `${pkg.name}@${pkg.version}`);
 for (const [key, value] of Object.entries({
-  timeout: "300",
+  timeout: "660",
   id: "weldall",
   name: "Weldall",
   description: "Requires the local Weldall binary in PATH.",

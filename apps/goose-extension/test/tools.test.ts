@@ -25,7 +25,7 @@ const runner = (value: unknown) => ({
 });
 
 describe("fixed tool adapters", () => {
-  it("advertises six tools with separate read/write annotations", () => {
+  it("advertises ten tools with separate read/write annotations", () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       "search_skills",
       "list_skills",
@@ -33,10 +33,14 @@ describe("fixed tool adapters", () => {
       "list_connections",
       "get",
       "send",
+      "publish_app",
+      "app_status",
+      "list_apps",
+      "confirm_app",
     ]);
     expect(
       tools.filter((tool) => tool.annotations?.destructiveHint).map((tool) => tool.name),
-    ).toEqual(["send"]);
+    ).toEqual(["send", "publish_app", "confirm_app"]);
   });
   it("searches via CLI and preserves ranking and paging", async () => {
     const cli = runner([skill, { ...skill, slug: "expenses.create" }]);

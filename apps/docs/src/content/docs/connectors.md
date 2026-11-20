@@ -5,7 +5,7 @@ description: Call Google and Atlassian Cloud APIs on behalf of the signed-in use
 
 Connectors let you call a service **on behalf of the user**. Each person connects their own account and approves access. Weldall keeps the credentials encrypted on the server and makes the calls; provider tokens never reach the CLI.
 
-Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side.
+Google and Atlassian Cloud (Jira and Confluence) are supported connector providers. Want to use another service with an API token? You can already do that through a [resource](../service-configuration/) that proxies requests to it and keeps the token server-side. Publishing apps to GitHub or Forgejo is not a connector: a separate [Git app](../publish-apps/) does it.
 
 Connectors/shared connections can be created disabled and provisioned in the UI, then explicitly enabled. Provisioning/rotation does not enable them; both must be enabled for use. [IaC](../infrastructure-as-code/#public-configuration-ui-only-credentials) manages public configuration/import, never secrets.
 

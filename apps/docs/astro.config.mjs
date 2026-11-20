@@ -89,6 +89,17 @@ export default defineConfig({
               ],
             },
             { slug: "connectors" },
+            {
+              label: "Publish apps",
+              translations: { de: "Apps veröffentlichen" },
+              items: [
+                { slug: "publish-apps" },
+                { slug: "git-app" },
+                { slug: "github-app" },
+                { slug: "forgejo" },
+                { slug: "app-registry" },
+              ],
+            },
             { slug: "machine-authentication" },
             { slug: "group-provider-http-interface" },
             {

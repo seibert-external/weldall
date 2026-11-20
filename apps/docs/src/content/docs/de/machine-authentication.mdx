@@ -71,7 +71,7 @@ Nach Ablauf des DPoP-gebundenen Access Tokens fordert der Service ein neues Toke
 
 ## Aktuelle Benutzer-Scopes prüfen
 
-Ein Backend, das eine langlebige lokale Berechtigung erneut prüfen muss, kann für die Weldall API den Machine-only-Scope `weldall:subject-scopes-check` anfordern. Dafür werden dem Machine Client dieser System-Scope und die eigene Ressource des Backends zugewiesen. Weldall erlaubt nur Abfragen für Scopes, die mindestens einer freigegebenen Ressource des Machine Clients zugeordnet sind.
+Ein Backend, das eine langlebige lokale Berechtigung erneut prüfen muss, kann für die Weldall API den Machine-only-Scope `weldall:subject-scopes-check` anfordern. Dafür werden dem Machine Client dieser System-Scope und die eigene Ressource des Backends zugewiesen. Weldall erlaubt nur Abfragen für Scopes, die mindestens einer freigegebenen Ressource des Machine Clients zugeordnet sind. Der Machine Client einer [Git-App](../git-app/), der zusätzlich `weldall:app-host` hat und mindestens eine freigegebene Ressource, darf auch `weldall:login` abfragen, wenn seine Ressource diesen Scope nicht unterstützt. So kann er aufhören, eine Person zu bedienen, die Weldall nicht mehr nutzen darf. Jeder andere Machine Client fragt `weldall:login` nur ab, wenn eine seiner freigegebenen Ressourcen den Scope unterstützt.
 
 Als Benutzerkennung wird ausschließlich der opake `sub` aus einem zuvor verifizierten Weldall-Benutzertoken verwendet, niemals eine E-Mail-Adresse:
 

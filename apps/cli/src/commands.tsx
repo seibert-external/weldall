@@ -74,6 +74,27 @@ import { weldallConfigCache } from "./storage/config-cache.js";
 import { keychain } from "./storage/keychain.js";
 import { issuerPreferences } from "./storage/preferences.js";
 import { buildRequestPayload, isTextResponse, writeResponseBody } from "./transfers.js";
+import { runGitCredentialHelper } from "./git/credential-helper.js";
+import { directOpenGitApp, directWeldallAccess } from "./git/weldall-access.js";
+import { publishApp, type PublishOptions } from "./publish/publish.js";
+import { readAppStatus } from "./publish/status.js";
+import { confirmMyApp, listMyApps, type AppListReport } from "./publish/registry.js";
+import {
+  APP_STATE_LABELS,
+  isoDay,
+  parseDecisions,
+  printAppConfirmed,
+  printAppStatus,
+  printPublishResult,
+  PUBLISH_EXIT_CODES,
+  publishJson,
+} from "./publish/report.js";
+import {
+  CHECKLIST_FAILED_EXIT_CODE,
+  formatChecklist,
+  readChecklist,
+  requiredCheckFailed,
+} from "./publish/checklist.js";
 
 const jsonOutput = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 type Identity = Awaited<ReturnType<typeof whoAmI>>;
@@ -1353,6 +1374,324 @@ export const configCommand = define({
     refresh: refreshConfigCommand,
   },
   run: () => info("Run `weldall config --help` to see configuration commands."),
+});
+
+export const gitCredentialCommand = define({
+  name: "git-credential",
+  description:
+    "Git credential helper for the git route of a Git app registered in Weldall; git runs it, not people",
+  args: {
+    operation: {
+      type: "positional",
+      required: true,
+      description: "Operation from git: get, store, or erase (store and erase do nothing)",
+    },
+  },
+  examples:
+    "git config credential.https://git-app.example.com/git/.helper '!weldall git-credential'",
+  // stdout belongs to git's credential protocol: no Ink output, no colors, no notices.
+  run: (context) =>
+    runGitCredentialHelper({
+      operation: context.values.operation,
+      input: process.stdin,
+      output: process.stdout,
+      errors: process.stderr,
+      environment: process.env,
+      weldall: directWeldallAccess(),
+    }),
+});
+
+const gitAppArgument = (description: string) => ({
+  type: "string" as const,
+  toKebab: true as const,
+  description,
+});
+
+const publishFolderArguments = {
+  dir: {
+    type: "string",
+    description:
+      "The app's folder (top level of its git repository); defaults to the current folder",
+  },
+  resolve: {
+    type: "boolean",
+    description:
+      "On conflict, write the merge result with conflict markers into the folder so they can be resolved",
+  },
+  decide: {
+    type: "string",
+    multiple: true,
+    description:
+      "After --resolve: `<path>=folder|local|repo` for each conflicted file; repeat per file",
+  },
+  json: jsonArgument,
+} as const;
+
+/** Runs publish or sync and prints the result; with --json also errors become JSON on stdout. */
+async function runPublishCommand(
+  values: { dir?: string | undefined; json?: boolean | undefined; decide?: string[] | undefined },
+  options: Omit<PublishOptions, "directory" | "gitApps" | "decisions">,
+) {
+  try {
+    const result = await publishApp({
+      ...options,
+      directory: values.dir ?? process.cwd(),
+      decisions: parseDecisions(values.decide),
+      gitApps: directOpenGitApp(await resolveWeldallConfig()),
+    });
+    if (values.json) console.log(publishJson(result));
+    else printPublishResult(result);
+    if (result.outcome === "conflict") process.exitCode = PUBLISH_EXIT_CODES.conflict;
+    if (result.outcome === "refused") process.exitCode = PUBLISH_EXIT_CODES.refused;
+  } catch (error) {
+    if (!values.json || !(error instanceof CliError)) throw error;
+    console.log(publishJson(error));
+    process.exitCode = error.exitCode;
+  }
+}
+
+const appPublishCommand = define({
+  name: "publish",
+  description:
+    "Publish the app folder: create its repository on first use, merge the repository's state, push one commit and open or update the pull request",
+  args: {
+    ...publishFolderArguments,
+    name: { type: "string", description: "App name (first publish only)" },
+    purpose: { type: "string", description: "What the app is for (first publish only)" },
+    template: {
+      type: "string",
+      description: "Template name, when the folder does not record it in `weldall.template`",
+    },
+    gitApp: gitAppArgument(
+      "Resource key of the Git app to publish to, when Weldall lists more than one (first publish only)",
+    ),
+    title: { type: "string", description: "Pull request title" },
+    body: { type: "string", description: "Pull request description" },
+  },
+  examples:
+    'weldall app publish --name expenses --purpose "Track team expenses" --json\n' +
+    "weldall app publish --title 'Add receipt upload' --json\n" +
+    "weldall app publish --resolve --json\n" +
+    "weldall app publish --decide src/total.ts=folder --decide logo.png=repo --json\n" +
+    'weldall app publish --git-app git-app-forgejo --name expenses --purpose "Track team expenses" --json',
+  run: ({ values }) =>
+    runPublishCommand(values, {
+      resolve: values.resolve ?? false,
+      app: {
+        ...(values.name === undefined ? {} : { name: values.name }),
+        ...(values.purpose === undefined ? {} : { purpose: values.purpose }),
+        ...(values.template === undefined ? {} : { template: values.template }),
+        ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
+      },
+      pullRequest: {
+        ...(values.title === undefined ? {} : { title: values.title }),
+        ...(values.body === undefined ? {} : { body: values.body }),
+      },
+    }),
+});
+
+const appSyncCommand = define({
+  name: "sync",
+  description:
+    "Bring the app repository's current state into the folder without publishing anything",
+  args: publishFolderArguments,
+  examples: "weldall app sync --json\nweldall app sync --resolve --json",
+  run: ({ values }) =>
+    runPublishCommand(values, { syncOnly: true, resolve: values.resolve ?? false }),
+});
+
+const appStatusCommand = define({
+  name: "status",
+  description:
+    "Show the app's pull request with its reviews and checks, and the preview and live links",
+  args: {
+    dir: publishFolderArguments.dir,
+    app: { type: "string", description: "App id; reads that app instead of the folder's" },
+    gitApp: gitAppArgument(
+      "With --app: resource key of the Git app that keeps it; by default the CLI asks the Git apps you can publish with",
+    ),
+    json: jsonArgument,
+  },
+  examples: "weldall app status --json\nweldall app status --app cm123 --json",
+  run: async ({ values }) => {
+    try {
+      const config = await resolveWeldallConfig();
+      const status = await readAppStatus({
+        directory: values.dir ?? process.cwd(),
+        ...(values.app === undefined ? {} : { appId: values.app }),
+        ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
+        gitApps: directOpenGitApp(config),
+      });
+      if (values.json) console.log(publishJson(status));
+      else printAppStatus(status);
+    } catch (error) {
+      if (!values.json || !(error instanceof CliError)) throw error;
+      console.log(publishJson(error));
+      process.exitCode = error.exitCode;
+    }
+  },
+});
+
+/** Prints a command's JSON on stdout; with --json also its CLI errors become JSON. */
+async function runAppJsonCommand<T>(
+  json: boolean | undefined,
+  operation: () => Promise<T>,
+  print: (value: T) => void,
+  after?: (value: T) => void,
+) {
+  try {
+    const value = await operation();
+    if (json) console.log(JSON.stringify(value, null, 2));
+    else print(value);
+    after?.(value);
+  } catch (error) {
+    if (!json || !(error instanceof CliError)) throw error;
+    console.log(publishJson(error));
+    process.exitCode = error.exitCode;
+  }
+}
+
+const appListColumns = [
+  { header: "App" },
+  { header: "State" },
+  { header: "Expires" },
+  { header: "Repository" },
+  { header: "ID" },
+] satisfies readonly TableColumn[];
+
+function printAppList(report: AppListReport) {
+  if (report.apps.length === 0) {
+    info("You have no apps in the app registry yet. `weldall app publish` adds one.");
+    return;
+  }
+  printWideUi(
+    <TableCard
+      title="Your apps"
+      columns={appListColumns}
+      rows={report.apps.map((app) => [
+        app.name,
+        APP_STATE_LABELS[app.state],
+        isoDay(app.expiresAt),
+        `${app.repository.owner}/${app.repository.name}`,
+        app.id,
+      ])}
+      cellColor={(_rowIndex, columnIndex, value) =>
+        columnIndex !== 1
+          ? undefined
+          : value === APP_STATE_LABELS.expired
+            ? palette.danger
+            : value === APP_STATE_LABELS.expiring_soon
+              ? palette.warning
+              : undefined
+      }
+    />,
+  );
+  if (report.apps.some((app) => app.state !== "active"))
+    info(
+      `Apps must be confirmed as still needed every ${report.reverificationDays} days. Run \`weldall app confirm <id>\` for each app that is still in use; administrators see expired apps flagged.`,
+    );
+}
+
+const appListCommand = define({
+  name: "list",
+  description:
+    "List your apps in the app registry of each Git app you can publish with, with their expiry and whether they need confirming",
+  args: {
+    gitApp: gitAppArgument("Lists only the apps of this Git app (resource key)"),
+    json: jsonArgument,
+  },
+  examples: "weldall app list\nweldall app list --json",
+  run: ({ values }) =>
+    runAppJsonCommand(
+      values.json,
+      async () =>
+        listMyApps({
+          gitApps: directOpenGitApp(await resolveWeldallConfig()),
+          ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
+        }),
+      printAppList,
+    ),
+});
+
+const appConfirmCommand = define({
+  name: "confirm",
+  description:
+    "Confirm that one of your apps is still needed; its expiry moves to 90 days from now. Publishing does not do this",
+  args: {
+    app: {
+      type: "positional",
+      required: false,
+      description: "App id from `weldall app list`; defaults to the app of --dir",
+    },
+    dir: publishFolderArguments.dir,
+    gitApp: gitAppArgument(
+      "With an app id: resource key of the Git app that keeps it; by default the CLI asks the Git apps you can publish with",
+    ),
+    json: jsonArgument,
+  },
+  examples: "weldall app confirm cm123\nweldall app confirm --json",
+  run: ({ values }) =>
+    runAppJsonCommand(
+      values.json,
+      async () =>
+        confirmMyApp({
+          directory: values.dir ?? process.cwd(),
+          ...(values.app === undefined ? {} : { appId: values.app }),
+          ...(values.gitApp === undefined ? {} : { gitApp: values.gitApp }),
+          gitApps: directOpenGitApp(await resolveWeldallConfig()),
+        }),
+      printAppConfirmed,
+    ),
+});
+
+const appChecklistCommand = define({
+  name: "checklist",
+  description:
+    "Administrators: run a Git app's set-up checklist against its Git host (access, organisation, templates, reviewer team, branch rule, commit identity); changes nothing",
+  args: {
+    gitApp: gitAppArgument(
+      "Resource key of the Git app to check, when Weldall lists more than one for you",
+    ),
+    app: {
+      type: "string",
+      description: "Id of a published app of this Git app, for the checks that need a repository",
+    },
+    json: jsonArgument,
+  },
+  examples:
+    "weldall app checklist\nweldall app checklist --git-app git-app-github --app cm123 --json\n" +
+    `Exits with ${CHECKLIST_FAILED_EXIT_CODE} when a required check failed.`,
+  run: ({ values }) =>
+    runAppJsonCommand(
+      values.json,
+      async () =>
+        readChecklist({
+          gitApps: directOpenGitApp(await resolveWeldallConfig()),
+          gitApp: values.gitApp,
+          appId: values.app,
+        }),
+      (report) => console.log(formatChecklist(report)),
+      (report) => {
+        if (requiredCheckFailed(report)) process.exitCode = CHECKLIST_FAILED_EXIT_CODE;
+      },
+    ),
+});
+
+export const appCommand = define({
+  name: "app",
+  description: "Publish a locally built app through Weldall, without a Git account",
+  subCommands: {
+    publish: appPublishCommand,
+    sync: appSyncCommand,
+    status: appStatusCommand,
+    list: appListCommand,
+    confirm: appConfirmCommand,
+    checklist: appChecklistCommand,
+  },
+  run: () =>
+    info(
+      "Run `weldall app publish --help`, `weldall app sync --help`, `weldall app status --help`, `weldall app list --help`, `weldall app confirm --help` or `weldall app checklist --help`.",
+    ),
 });
 
 export const mainCommand = define({

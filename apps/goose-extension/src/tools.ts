@@ -8,6 +8,20 @@ import {
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { REQUEST_TIMEOUT, type CliRunner } from "./cli.js";
 import { ExtensionError, safeError } from "./errors.js";
+import {
+  confirmApp,
+  confirmAppDescription,
+  confirmAppSchema,
+  listApps,
+  listAppsDescription,
+  listAppsSchema,
+  publishApp,
+  publishDescription,
+  publishSchema,
+  readAppStatus,
+  statusDescription,
+  statusSchema,
+} from "./publish.js";
 
 const text = z.string().max(16_000);
 const identifier = z
@@ -221,7 +235,33 @@ const definitions = [
       'Use instead of shell for a skill\'s weldall request --method/-X POST, PUT, PATCH or DELETE. For an operation with side effects, proceed only when the loaded skill explicitly supports that write and the user authorized it; a read/search/list/lookup/review skill never authorizes a write. A skill may explicitly document POST as a read-only, repeatable transport such as a query or batch of inner reads; that does not require write confirmation. For a managed connection, pass the exact provider permissions from the skill as requiredScopes; the extension checks the live READY connection and its grantedScopes before the request. Preserve URL and method. Map --connection to connection or --scope/-s to scope (exactly one), --header/-H to headers, --json/-j to a JSON value in json or --data/-d to text (at most one body). Set responseMode to "text" only for a documented textual response whose content type is not handled automatically, including multipart/mixed. Files, uploads and binary downloads remain unsupported. This tool is never automatically retried, including after timeout, cancellation or ambiguous failure.',
     schema: sendSchema,
   },
+  {
+    name: "publish_app",
+    title: "Publish an app",
+    description: publishDescription,
+    schema: publishSchema,
+  },
+  {
+    name: "app_status",
+    title: "App publishing status",
+    description: statusDescription,
+    schema: statusSchema,
+  },
+  {
+    name: "list_apps",
+    title: "List my apps",
+    description: listAppsDescription,
+    schema: listAppsSchema,
+  },
+  {
+    name: "confirm_app",
+    title: "Confirm an app is still needed",
+    description: confirmAppDescription,
+    schema: confirmAppSchema,
+  },
 ] as const;
+
+const WRITE_TOOLS = new Set<string>(["send", "publish_app", "confirm_app"]);
 
 export const tools: Tool[] = definitions.map(({ name, title, description, schema }) => ({
   name,
@@ -232,9 +272,9 @@ export const tools: Tool[] = definitions.map(({ name, title, description, schema
       ? sendInputSchema
       : (z.toJSONSchema(schema, { io: "input" }) as Tool["inputSchema"]),
   annotations: {
-    readOnlyHint: name !== "send",
-    destructiveHint: name === "send",
-    idempotentHint: name !== "send",
+    readOnlyHint: !WRITE_TOOLS.has(name),
+    destructiveHint: WRITE_TOOLS.has(name),
+    idempotentHint: !WRITE_TOOLS.has(name),
     openWorldHint: true,
   },
 }));
@@ -369,6 +409,10 @@ export async function callTool(
       const body = await cli.run(requestArguments(args), signal, REQUEST_TIMEOUT);
       return result({ body }, body);
     }
+    if (name === "publish_app") return await publishApp(cli, publishSchema.parse(input), signal);
+    if (name === "app_status") return await readAppStatus(cli, statusSchema.parse(input), signal);
+    if (name === "list_apps") return await listApps(cli, listAppsSchema.parse(input), signal);
+    if (name === "confirm_app") return await confirmApp(cli, confirmAppSchema.parse(input), signal);
     if (name === "read_skill_document") {
       const args = z.object({ slug }).parse(input);
       const skill = parsed(detail, await cli.run(["skills", "show", args.slug, "--json"], signal));

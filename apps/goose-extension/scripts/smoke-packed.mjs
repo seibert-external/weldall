@@ -59,7 +59,7 @@ try {
   assert.ok(client.getInstructions()?.includes("CLI-to-MCP mapping:"));
   assert.ok(client.getInstructions()?.includes("do not silently drop options"));
   const advertised = (await client.listTools()).tools;
-  assert.equal(advertised.length, 6);
+  assert.equal(advertised.length, 10);
   for (const name of ["get", "send"]) {
     assert.ok(
       advertised.find((tool) => tool.name === name)?.description?.includes("Use instead of shell"),
@@ -124,7 +124,7 @@ try {
   assert.equal(toolChanges, 1);
   assert.equal(resourceChanges, 1);
   const activated = (await client.listTools()).tools;
-  assert.equal(activated.length, 7);
+  assert.equal(activated.length, 11);
   const tool = activated.find((tool) => tool.name.endsWith("__fixture.read"));
   assert.ok(tool);
   const called = await client.callTool({ name: tool.name, arguments: {} });
@@ -135,7 +135,7 @@ try {
   assert.equal(read.contents[0].text, "Packed fixture result");
   assert.equal(stderr, "");
   console.log(
-    "Installed tarball + npx + stdio: six stable tools, dynamic activation, list-change notifications, tool call and resource read passed (fake CLI; not Stock Goose acceptance).",
+    "Installed tarball + npx + stdio: ten stable tools, dynamic activation, list-change notifications, tool call and resource read passed (fake CLI; not Stock Goose acceptance).",
   );
 } finally {
   await client.close();

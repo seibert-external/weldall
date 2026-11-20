@@ -4,9 +4,11 @@ import { discoveryCommand } from "./discovery-command.js";
 import { cli } from "gunshi";
 import packageJson from "../package.json" with { type: "json" };
 import {
+  appCommand,
   configCommand,
   connectionsCommand,
   connectorsCommand,
+  gitCredentialCommand,
   loginCommand,
   logoutCommand,
   mainCommand,
@@ -110,6 +112,8 @@ export async function runCli(argv = process.argv.slice(2)) {
         mcp: mcpCommand,
         discover: discoveryCommand,
         connectors: connectorsCommand,
+        "git-credential": gitCredentialCommand,
+        app: appCommand,
         ...iacSubCommands(isIacMachineConfigured()),
       },
       renderHeader: async (context) => {
