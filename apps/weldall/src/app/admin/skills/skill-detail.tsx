@@ -22,6 +22,10 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions, HerocrumbsTitle } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
 
+// Card icon and gradient fields are hidden: the current frontend no longer
+// renders these appearance values. Existing values are kept and saved unchanged.
+const SHOW_APPEARANCE_FIELDS = false;
+
 const catalogStatuses = {
   fresh: { icon: "success", color: "success", label: "Fresh" },
   stale: { icon: "warning", color: "warning", label: "Stale" },
@@ -367,117 +371,124 @@ export function SkillDetail({
                   />
                 )}
               </form.Field>
-              <form.Field name="icon">
-                {(field) => {
-                  const value = String(field.state.value);
-                  const query = value.trim().toLocaleLowerCase();
-                  const suggestions = query
-                    ? iconOptions
-                        .filter((name) => name !== value && name.includes(query))
-                        .slice(0, 8)
-                    : [];
-                  const isKnownIcon = iconOptions.includes(value);
-                  return (
-                    <div className="skill-icon-picker">
-                      <TextInput
-                        description="Canonical Lucide icon name; unknown values use the slug-hashed fallback."
-                        hasClear
-                        isDisabled={isReadOnly}
-                        label="Card icon"
-                        labelTooltip="Browse available names at lucide.dev/icons"
-                        onChange={field.handleChange}
-                        placeholder="file-text"
-                        startIcon={
-                          isKnownIcon ? (
-                            <img
-                              alt=""
-                              aria-hidden="true"
-                              height={16}
-                              src={`/api/lucide-icons/${encodeURIComponent(value)}`}
-                              width={16}
-                            />
-                          ) : undefined
-                        }
-                        value={value}
-                        width="100%"
-                      />
-                      {suggestions.length ? (
-                        <div aria-label="Matching Lucide icons" className="skill-icon-suggestions">
-                          {suggestions.map((name) => (
-                            <Button
-                              icon={
+              {SHOW_APPEARANCE_FIELDS ? (
+                <>
+                  <form.Field name="icon">
+                    {(field) => {
+                      const value = String(field.state.value);
+                      const query = value.trim().toLocaleLowerCase();
+                      const suggestions = query
+                        ? iconOptions
+                            .filter((name) => name !== value && name.includes(query))
+                            .slice(0, 8)
+                        : [];
+                      const isKnownIcon = iconOptions.includes(value);
+                      return (
+                        <div className="skill-icon-picker">
+                          <TextInput
+                            description="Canonical Lucide icon name; unknown values use the slug-hashed fallback."
+                            hasClear
+                            isDisabled={isReadOnly}
+                            label="Card icon"
+                            labelTooltip="Browse available names at lucide.dev/icons"
+                            onChange={field.handleChange}
+                            placeholder="file-text"
+                            startIcon={
+                              isKnownIcon ? (
                                 <img
                                   alt=""
                                   aria-hidden="true"
                                   height={16}
-                                  src={`/api/lucide-icons/${encodeURIComponent(name)}`}
+                                  src={`/api/lucide-icons/${encodeURIComponent(value)}`}
                                   width={16}
                                 />
-                              }
-                              key={name}
-                              label={`Use ${name}`}
-                              onClick={() => field.handleChange(name)}
-                              size="sm"
-                              type="button"
-                              variant="ghost"
+                              ) : undefined
+                            }
+                            value={value}
+                            width="100%"
+                          />
+                          {suggestions.length ? (
+                            <div
+                              aria-label="Matching Lucide icons"
+                              className="skill-icon-suggestions"
                             >
-                              {name}
-                            </Button>
-                          ))}
+                              {suggestions.map((name) => (
+                                <Button
+                                  icon={
+                                    <img
+                                      alt=""
+                                      aria-hidden="true"
+                                      height={16}
+                                      src={`/api/lucide-icons/${encodeURIComponent(name)}`}
+                                      width={16}
+                                    />
+                                  }
+                                  key={name}
+                                  label={`Use ${name}`}
+                                  onClick={() => field.handleChange(name)}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {name}
+                                </Button>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </div>
-                  );
-                }}
-              </form.Field>
-              <form.Field name="gradientFrom">
-                {(field) => (
-                  <TextInput
-                    isDisabled={isReadOnly}
-                    label="Light gradient from"
-                    onChange={field.handleChange}
-                    placeholder="#555BD6"
-                    value={String(field.state.value)}
-                    width="100%"
-                  />
-                )}
-              </form.Field>
-              <form.Field name="gradientTo">
-                {(field) => (
-                  <TextInput
-                    isDisabled={isReadOnly}
-                    label="Light gradient to"
-                    onChange={field.handleChange}
-                    placeholder="#7773E5"
-                    value={String(field.state.value)}
-                    width="100%"
-                  />
-                )}
-              </form.Field>
-              <form.Field name="darkGradientFrom">
-                {(field) => (
-                  <TextInput
-                    isDisabled={isReadOnly}
-                    label="Dark gradient from"
-                    onChange={field.handleChange}
-                    placeholder="#2A2660"
-                    value={String(field.state.value)}
-                    width="100%"
-                  />
-                )}
-              </form.Field>
-              <form.Field name="darkGradientTo">
-                {(field) => (
-                  <TextInput
-                    isDisabled={isReadOnly}
-                    label="Dark gradient to"
-                    onChange={field.handleChange}
-                    placeholder="#403A86"
-                    value={String(field.state.value)}
-                    width="100%"
-                  />
-                )}
-              </form.Field>
+                      );
+                    }}
+                  </form.Field>
+                  <form.Field name="gradientFrom">
+                    {(field) => (
+                      <TextInput
+                        isDisabled={isReadOnly}
+                        label="Light gradient from"
+                        onChange={field.handleChange}
+                        placeholder="#555BD6"
+                        value={String(field.state.value)}
+                        width="100%"
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="gradientTo">
+                    {(field) => (
+                      <TextInput
+                        isDisabled={isReadOnly}
+                        label="Light gradient to"
+                        onChange={field.handleChange}
+                        placeholder="#7773E5"
+                        value={String(field.state.value)}
+                        width="100%"
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="darkGradientFrom">
+                    {(field) => (
+                      <TextInput
+                        isDisabled={isReadOnly}
+                        label="Dark gradient from"
+                        onChange={field.handleChange}
+                        placeholder="#2A2660"
+                        value={String(field.state.value)}
+                        width="100%"
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="darkGradientTo">
+                    {(field) => (
+                      <TextInput
+                        isDisabled={isReadOnly}
+                        label="Dark gradient to"
+                        onChange={field.handleChange}
+                        placeholder="#403A86"
+                        value={String(field.state.value)}
+                        width="100%"
+                      />
+                    )}
+                  </form.Field>
+                </>
+              ) : null}
               <form.Field name="lastUpdatedAt">
                 {(field) => (
                   <TextInput
