@@ -4,17 +4,24 @@
 
 Allow Weldall deployments to authenticate users through Microsoft Entra ID and other standards-based upstream identity providers, in addition to Google and the development IdP.
 
-## Scope
+Weldall links accounts by email and maps scopes to it, so every provider must deliver a verified email. Group synchronization and provider-backed scope assignments remain separate from upstream user authentication.
 
-- Add first-class Microsoft Entra ID configuration, including explicit tenant selection and documented callback URLs.
-- Generalize production configuration to support one or more trusted OpenID Connect providers through discovery.
-- Consider provider-specific OAuth integrations only when they can supply a stable subject and verified email; prefer OIDC where available.
-- Render login options from configured provider metadata instead of hard-coded Google/dev provider unions.
-- Normalize account linking and claims (`sub`, issuer, name, email, `email_verified`) without trusting unverified profile data.
-- Validate HTTPS issuers, discovery metadata, redirect URIs, PKCE/state/nonce handling, and provider-specific issuer behavior.
-- Document environment variables, secret rotation, Entra app registration, tenant policy, and common troubleshooting steps.
+## Done
 
-Group synchronization and provider-backed scope assignments remain separate from upstream user authentication.
+- Login providers are database rows (installer, administration UI and IaC), each an OIDC provider with discovery, PKCE/state/nonce and exact issuer checks.
+- The login page renders buttons from the configured provider metadata.
+- Tenant-bound Microsoft Entra ID: for issuers `https://login.microsoftonline.com/<tenant GUID>/v2.0`, Weldall requires `tid` to match, rejects guests (`acct`/`idp`) and accepts the email only when `xms_edov` is `true`. The login page explains these rejections. Setup guide: `apps/docs/src/content/docs/entra-id.md`. The tenant-boundary checks are unit-tested only (`apps/weldall/test/oidc-config.test.ts`).
+
+## Open
+
+- Confirm `xms_edov` type, portal availability and guest `idp` format against a real tenant.
+- Integration tests for Entra tenant boundaries.
+- Multi-tenant Entra ID (`/organizations` with a tenant allowlist). Needs the per-tenant `iss` stored per account and the `{tenantid}` issuer substitution in `oidc-runtime.ts`.
+- Guest (B2B) accounts. Microsoft treats a guest as a new identity per tenant, and `xms_edov` alone does not distinguish guests.
+- A generic per-provider "trust email" switch for IdPs without `email_verified`, coupled to mandatory allowed domains. Changes the provider contract (schema, IaC, CLI), so it needs cross-version tests.
+- `oid` + `tid` instead of the per-app `sub` as the stable Entra identifier. Changing it after rollout is a data migration.
+- Show the rejection reason in the provider test result (installer and administration UI); today it only reports failure.
+- National clouds (other hosts than `login.microsoftonline.com`).
 
 ## Acceptance criteria
 
