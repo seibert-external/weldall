@@ -4,6 +4,7 @@ import { useId, useMemo, useState } from "react";
 import { ManagementBadge } from "@/components/admin/management-badge";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import { Card } from "@astryxdesign/core/Card";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -182,58 +183,60 @@ export function GroupProvidersPage() {
           verticalAlign: "middle",
         }}
       >
-        <div className="w-full overflow-x-auto" role="group" aria-label="Group providers table">
-          <table
-            className="admin-resizable-table table-fixed border-collapse text-left"
-            style={{ minWidth: "100%", width: table.getTotalSize() }}
-          >
-            <ResizableTableHeader table={table} />
-            <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  aria-label={`Edit ${row.original.name}`}
-                  data-clickable="true"
-                  onClick={(event) => {
-                    if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
-                    setEditingProvider(row.original);
-                  }}
-                >
-                  {row.getVisibleCells().map((cell, index) => (
-                    <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                      {index === 0 ? (
-                        <TableRowAction
-                          label={`Edit ${row.original.name}`}
-                          onActivate={() => setEditingProvider(row.original)}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableRowAction>
-                      ) : (
-                        flexRender(cell.column.columnDef.cell, cell.getContext())
-                      )}
+        <Card>
+          <div className="w-full overflow-x-auto" role="group" aria-label="Group providers table">
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
+              <TableBody>
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    aria-label={`Edit ${row.original.name}`}
+                    data-clickable="true"
+                    onClick={(event) => {
+                      if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                      setEditingProvider(row.original);
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell, index) => (
+                      <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                        {index === 0 ? (
+                          <TableRowAction
+                            label={`Edit ${row.original.name}`}
+                            onActivate={() => setEditingProvider(row.original)}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableRowAction>
+                        ) : (
+                          flexRender(cell.column.columnDef.cell, cell.getContext())
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+                {!providersQuery.isPending &&
+                !providersQuery.error &&
+                table.getRowModel().rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <Text color="secondary">No group providers have been configured.</Text>
                     </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-              {!providersQuery.isPending &&
-              !providersQuery.error &&
-              table.getRowModel().rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length}>
-                    <Text color="secondary">No group providers have been configured.</Text>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-              {providersQuery.isPending ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length}>
-                    <Text color="secondary">Loading group providers…</Text>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </table>
-        </div>
+                  </TableRow>
+                ) : null}
+                {providersQuery.isPending ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <Text color="secondary">Loading group providers…</Text>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </table>
+          </div>
+        </Card>
       </TableContext.Provider>
       <AlertDialog
         actionLabel="Delete provider"

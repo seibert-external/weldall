@@ -2,6 +2,7 @@
 
 import { useEffect, useId } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
+import { Card } from "@astryxdesign/core/Card";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Text } from "@astryxdesign/core/Text";
@@ -86,79 +87,83 @@ export function CliSettings() {
       </HerocrumbsActions>
 
       <div className="skill-detail-surface">
-        <form
-          className="admin-dialog-form"
-          id={formId}
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <FormLayout>
-            <form.Field
-              name="logoUrl"
-              validators={{
-                onChange: ({ value }) => (value.length <= 2_000 ? undefined : copy.logoUrl.tooLong),
-                onSubmit: ({ value }) => (value.length <= 2_000 ? undefined : copy.logoUrl.tooLong),
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  label={copy.logoUrl.label}
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder={copy.logoUrl.placeholder}
-                  value={String(field.state.value)}
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="darkLogoUrl"
-              validators={{
-                onChange: ({ value }) =>
-                  value.length <= 2_000 ? undefined : copy.darkLogoUrl.tooLong,
-                onSubmit: ({ value }) =>
-                  value.length <= 2_000 ? undefined : copy.darkLogoUrl.tooLong,
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  label={copy.darkLogoUrl.label}
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder={copy.darkLogoUrl.placeholder}
-                  value={String(field.state.value)}
-                />
-              )}
-            </form.Field>
-            <form.Field
-              name="appendix"
-              validators={{
-                onChange: ({ value }) =>
-                  value.length <= 100_000
-                    ? undefined
-                    : "CLI appendix must be 100,000 characters or less.",
-                onSubmit: ({ value }) =>
-                  value.length <= 100_000
-                    ? undefined
-                    : "CLI appendix must be 100,000 characters or less.",
-              }}
-            >
-              {(field) => (
-                <TextArea
-                  label="CLI appendix"
-                  maxLength={100_000}
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="Use this CLI for everything that is related to ACME Corp. and their internal tools like Stripe, Hubspot and Jira."
-                  rows={24}
-                  value={String(field.state.value)}
-                />
-              )}
-            </form.Field>
-          </FormLayout>
-        </form>
+        <Card padding={6}>
+          <form
+            className="admin-dialog-form"
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void form.handleSubmit();
+            }}
+          >
+            <FormLayout>
+              <form.Field
+                name="logoUrl"
+                validators={{
+                  onChange: ({ value }) =>
+                    value.length <= 2_000 ? undefined : copy.logoUrl.tooLong,
+                  onSubmit: ({ value }) =>
+                    value.length <= 2_000 ? undefined : copy.logoUrl.tooLong,
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    label={copy.logoUrl.label}
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder={copy.logoUrl.placeholder}
+                    value={String(field.state.value)}
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="darkLogoUrl"
+                validators={{
+                  onChange: ({ value }) =>
+                    value.length <= 2_000 ? undefined : copy.darkLogoUrl.tooLong,
+                  onSubmit: ({ value }) =>
+                    value.length <= 2_000 ? undefined : copy.darkLogoUrl.tooLong,
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    label={copy.darkLogoUrl.label}
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder={copy.darkLogoUrl.placeholder}
+                    value={String(field.state.value)}
+                  />
+                )}
+              </form.Field>
+              <form.Field
+                name="appendix"
+                validators={{
+                  onChange: ({ value }) =>
+                    value.length <= 100_000
+                      ? undefined
+                      : "CLI appendix must be 100,000 characters or less.",
+                  onSubmit: ({ value }) =>
+                    value.length <= 100_000
+                      ? undefined
+                      : "CLI appendix must be 100,000 characters or less.",
+                }}
+              >
+                {(field) => (
+                  <TextArea
+                    label="CLI appendix"
+                    maxLength={100_000}
+                    onBlur={field.handleBlur}
+                    onChange={field.handleChange}
+                    placeholder="Use this CLI for everything that is related to ACME Corp. and their internal tools like Stripe, Hubspot and Jira."
+                    rows={24}
+                    value={String(field.state.value)}
+                  />
+                )}
+              </form.Field>
+            </FormLayout>
+          </form>
+        </Card>
       </div>
     </>
   );

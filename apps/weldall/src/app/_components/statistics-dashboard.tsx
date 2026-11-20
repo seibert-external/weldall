@@ -63,7 +63,7 @@ export function StatisticsDashboard({
     <div className="statistics-page" aria-busy={query.isFetching || undefined}>
       <div className="statistics-heading">
         <h1>Statistics</h1>
-        <SegmentedControl label="Interval" onChange={changeInterval} size="sm" value={interval}>
+        <SegmentedControl label="Interval" onChange={changeInterval} size="lg" value={interval}>
           {STATISTICS_INTERVALS.map((value) => (
             <SegmentedControlItem key={value} label={value} value={value} />
           ))}
@@ -121,7 +121,7 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
   return (
     <>
       <div className="statistics-summary">
-        <Card className="statistics-card">
+        <Card className="statistics-card" padding={6}>
           <h2>Active people</h2>
           {activeHumans.count === 0 ? (
             <EmptyState
@@ -146,7 +146,7 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
             </div>
           )}
         </Card>
-        <Card className="statistics-card">
+        <Card className="statistics-card" padding={6}>
           <h2>Machines</h2>
           {machines.count === 0 ? (
             <EmptyState
@@ -163,7 +163,7 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
         </Card>
       </div>
       <div className="statistics-charts">
-        <Card className="statistics-card">
+        <Card className="statistics-card" padding={6}>
           <h2>Resources</h2>
           <p className="statistics-muted">
             Token exchanges by people. Machine tokens are not included.
@@ -182,7 +182,7 @@ function StatisticsPanels({ statistics }: { statistics: UsageStatistics }) {
             />
           )}
         </Card>
-        <Card className="statistics-card">
+        <Card className="statistics-card" padding={6}>
           <h2>Skills</h2>
           <p className="statistics-muted">
             People who retrieved each skill, including former users.

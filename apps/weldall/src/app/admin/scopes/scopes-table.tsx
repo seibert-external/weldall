@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
+import { Card } from "@astryxdesign/core/Card";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -174,66 +175,68 @@ export function ScopesTable() {
             verticalAlign: "middle",
           }}
         >
-          <div className="w-full overflow-x-auto" role="group" aria-label="Scopes table">
-            <table
-              className="admin-resizable-table table-fixed border-collapse text-left"
-              style={{ minWidth: "100%", width: table.getTotalSize() }}
-            >
-              <ResizableTableHeader table={table} />
-              <TableBody>
-                {table.getRowModel().rows.map((row) => {
-                  const isEditable = !row.original.isSystem;
-                  return (
-                    <TableRow
-                      key={row.id}
-                      aria-label={isEditable ? `Edit ${row.original.key}` : undefined}
-                      data-clickable={isEditable ? "true" : undefined}
-                      onClick={
-                        isEditable
-                          ? (event) => {
-                              if (isInteractiveTableTarget(event.target, event.currentTarget))
-                                return;
-                              setEditingScope(row.original);
-                            }
-                          : undefined
-                      }
-                    >
-                      {row.getVisibleCells().map((cell, index) => (
-                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                          {index === 0 && isEditable ? (
-                            <TableRowAction
-                              label={`Edit ${row.original.key}`}
-                              onActivate={() => setEditingScope(row.original)}
-                            >
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </TableRowAction>
-                          ) : (
-                            flexRender(cell.column.columnDef.cell, cell.getContext())
-                          )}
-                        </TableCell>
-                      ))}
+          <Card>
+            <div className="w-full overflow-x-auto" role="group" aria-label="Scopes table">
+              <table
+                className="admin-resizable-table table-fixed border-collapse text-left"
+                style={{ minWidth: "100%", width: table.getTotalSize() }}
+              >
+                <ResizableTableHeader table={table} />
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => {
+                    const isEditable = !row.original.isSystem;
+                    return (
+                      <TableRow
+                        key={row.id}
+                        aria-label={isEditable ? `Edit ${row.original.key}` : undefined}
+                        data-clickable={isEditable ? "true" : undefined}
+                        onClick={
+                          isEditable
+                            ? (event) => {
+                                if (isInteractiveTableTarget(event.target, event.currentTarget))
+                                  return;
+                                setEditingScope(row.original);
+                              }
+                            : undefined
+                        }
+                      >
+                        {row.getVisibleCells().map((cell, index) => (
+                          <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                            {index === 0 && isEditable ? (
+                              <TableRowAction
+                                label={`Edit ${row.original.key}`}
+                                onActivate={() => setEditingScope(row.original)}
+                              >
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              </TableRowAction>
+                            ) : (
+                              flexRender(cell.column.columnDef.cell, cell.getContext())
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
+                  {!scopesQuery.isPending && table.getRowModel().rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">
+                          {q ? "No scopes match this search." : "No scopes have been created."}
+                        </Text>
+                      </TableCell>
                     </TableRow>
-                  );
-                })}
-                {!scopesQuery.isPending && table.getRowModel().rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">
-                        {q ? "No scopes match this search." : "No scopes have been created."}
-                      </Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-                {scopesQuery.isPending ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">Loading scopes…</Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </table>
-          </div>
+                  ) : null}
+                  {scopesQuery.isPending ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">Loading scopes…</Text>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </table>
+            </div>
+          </Card>
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination

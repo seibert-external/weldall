@@ -5,7 +5,7 @@ import { ConsentOptions } from "./consent-options";
 export default function Consent() {
   return (
     <main className="login-shell">
-      <section className="login-panel" aria-labelledby="consent-heading">
+      <section className="login-panel consent-panel" aria-labelledby="consent-heading">
         <VStack gap={4} hAlign="stretch">
           <img
             src="/assets/images/weldall.png"

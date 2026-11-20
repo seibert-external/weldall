@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SVGProps } from "react";
 
 const promptForSkill = (origin: string, slug: string, title: string) =>
   `Check if Weldall is installed. Otherwise, read ${origin}/install.md to install the Weldall CLI. Then run \`weldall skills show ${slug}\` and follow the returned instructions to help me with: ${title}.`;
@@ -26,10 +26,11 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function CopySkillPrompt({ slug, title }: { slug: string; title: string }) {
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+type CopyState = "idle" | "copied" | "failed";
+
+function useCopySkillPrompt(slug: string, title: string) {
+  const [copyState, setCopyState] = useState<CopyState>("idle");
   const resetTimer = useRef<number | undefined>(undefined);
-  const promptPreview = `Run weldall skills show ${slug} and follow the returned instructions.`;
 
   useEffect(() => () => window.clearTimeout(resetTimer.current), []);
 
@@ -37,54 +38,110 @@ export function CopySkillPrompt({ slug, title }: { slug: string; title: string }
     const copied = await copyToClipboard(promptForSkill(window.location.origin, slug, title));
     setCopyState(copied ? "copied" : "failed");
     window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => setCopyState("idle"), 5000);
+    resetTimer.current = window.setTimeout(() => setCopyState("idle"), 3000);
   };
 
+  return { copyState, copyPrompt };
+}
+
+const copyLabels: Record<CopyState, string> = {
+  idle: "Copy Prompt",
+  copied: "Copied",
+  failed: "Copy failed",
+};
+
+export function CopySkillPromptButton({ slug, title }: { slug: string; title: string }) {
+  const { copyState, copyPrompt } = useCopySkillPrompt(slug, title);
+
   return (
-    <div className="welcome-prompt">
-      <div className="welcome-copy-action" data-state={copyState}>
-        <button className="welcome-copy-button" onClick={() => void copyPrompt()} type="button">
-          {/* Agent marks adapted from https://github.com/withastro/flue (Apache-2.0). */}
-          <span className="welcome-copy-icons" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" clipRule="evenodd">
-              <path d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z" />
-            </svg>
-            <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd">
-              <path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z" />
-            </svg>
-            <svg viewBox="82.65 82.65 634.71 634.71" fill="currentColor" fillRule="evenodd">
-              <path d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z" />
-              <path d="M517.36 400H634.72V634.72H517.36Z" />
-            </svg>
-            <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd">
-              <path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
-            </svg>
-          </span>
-          <span>Copy Prompt</span>
-        </button>
-        <span className="welcome-copy-subline">
-          <span
-            className="welcome-copy-preview"
-            data-visible={copyState === "idle"}
-            title={promptPreview}
-          >
-            <span className="welcome-copy-quote" aria-hidden="true">
-              “
-            </span>
-            <span className="welcome-copy-preview-text">{promptPreview}</span>
-            <span className="welcome-copy-quote" aria-hidden="true">
-              ”
-            </span>
-          </span>
-          <span className="welcome-copy-feedback" data-visible={copyState !== "idle"} role="status">
-            {copyState === "copied"
-              ? "✓ Copied — now paste that into your coding agent to get started."
-              : copyState === "failed"
-                ? "! Could not copy prompt"
-                : null}
-          </span>
+    <div className="welcome-copy-action" data-state={copyState}>
+      <button className="welcome-copy-button" onClick={() => void copyPrompt()} type="button">
+        {/* Agent marks adapted from https://github.com/withastro/flue (Apache-2.0). */}
+        <span className="welcome-copy-icons" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" clipRule="evenodd">
+            <path d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z" />
+          </svg>
+          <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd">
+            <path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z" />
+          </svg>
+          <svg viewBox="82.65 82.65 634.71 634.71" fill="currentColor" fillRule="evenodd">
+            <path d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z" />
+            <path d="M517.36 400H634.72V634.72H517.36Z" />
+          </svg>
+          <svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd">
+            <path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
+          </svg>
         </span>
-      </div>
+        <span aria-live="polite">{copyLabels[copyState]}</span>
+      </button>
     </div>
+  );
+}
+
+export function SkillPromptTerminal({ slug, title }: { slug: string; title: string }) {
+  const { copyState, copyPrompt } = useCopySkillPrompt(slug, title);
+  const CopyIcon = copyState === "copied" ? CheckIcon : ClipboardCopyIcon;
+
+  return (
+    <section className="welcome-prompt" aria-label="Prompt">
+      <div className="skill-prompt-terminal">
+        <div className="skill-prompt-terminal-bar">
+          <span className="skill-prompt-terminal-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <button
+            className="skill-prompt-terminal-copy"
+            data-state={copyState}
+            onClick={() => void copyPrompt()}
+            type="button"
+            aria-label={copyState === "copied" ? "Prompt copied" : "Copy prompt to clipboard"}
+            title={copyState === "failed" ? "Could not copy prompt" : "Copy to clipboard"}
+          >
+            <CopyIcon aria-hidden="true" />
+          </button>
+        </div>
+        <pre className="skill-prompt-terminal-body">
+          <span className="skill-prompt-terminal-sign" aria-hidden="true">
+            ${" "}
+          </span>
+          <code>{`Run weldall skills show ${slug} and follow the returned instructions.`}</code>
+        </pre>
+      </div>
+    </section>
+  );
+}
+
+type IconProps = SVGProps<SVGSVGElement>;
+
+function IconBase(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    />
+  );
+}
+
+function ClipboardCopyIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M4 16V6a2 2 0 0 1 2-2h10" />
+    </IconBase>
+  );
+}
+
+function CheckIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M20 6 9 17l-5-5" />
+    </IconBase>
   );
 }

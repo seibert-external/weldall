@@ -11,6 +11,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useQuery } from "@tanstack/react-query";
+import { Card } from "@astryxdesign/core/Card";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -162,58 +163,60 @@ export function LoginProvidersPage() {
           verticalAlign: "middle",
         }}
       >
-        <div className="w-full overflow-x-auto" role="group" aria-label="Login providers table">
-          <table
-            className="admin-resizable-table table-fixed border-collapse text-left"
-            style={{ minWidth: "100%", width: table.getTotalSize() }}
-          >
-            <ResizableTableHeader table={table} />
-            <TableBody>
-              {table.getRowModel().rows.map((row) => {
-                const href = `/admin/login-providers/${row.original.id}`;
-                return (
-                  <TableRow
-                    key={row.id}
-                    aria-label={`Edit ${row.original.name}`}
-                    data-clickable="true"
-                    onClick={(event) => {
-                      if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
-                      router.push(href);
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell, index) => (
-                      <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                        {index === 0 ? (
-                          <TableRowAction href={href} label={`Edit ${row.original.name}`}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableRowAction>
-                        ) : (
-                          flexRender(cell.column.columnDef.cell, cell.getContext())
-                        )}
-                      </TableCell>
-                    ))}
+        <Card>
+          <div className="w-full overflow-x-auto" role="group" aria-label="Login providers table">
+            <table
+              className="admin-resizable-table table-fixed border-collapse text-left"
+              style={{ minWidth: "100%", width: table.getTotalSize() }}
+            >
+              <ResizableTableHeader table={table} />
+              <TableBody>
+                {table.getRowModel().rows.map((row) => {
+                  const href = `/admin/login-providers/${row.original.id}`;
+                  return (
+                    <TableRow
+                      key={row.id}
+                      aria-label={`Edit ${row.original.name}`}
+                      data-clickable="true"
+                      onClick={(event) => {
+                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                        router.push(href);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 ? (
+                            <TableRowAction href={href} label={`Edit ${row.original.name}`}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
+                {!providersQuery.isPending &&
+                !providersQuery.error &&
+                table.getRowModel().rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <Text color="secondary">No login providers have been configured.</Text>
+                    </TableCell>
                   </TableRow>
-                );
-              })}
-              {!providersQuery.isPending &&
-              !providersQuery.error &&
-              table.getRowModel().rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length}>
-                    <Text color="secondary">No login providers have been configured.</Text>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-              {providersQuery.isPending ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length}>
-                    <Text color="secondary">Loading login providers…</Text>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </table>
-        </div>
+                ) : null}
+                {providersQuery.isPending ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <Text color="secondary">Loading login providers…</Text>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </table>
+          </div>
+        </Card>
       </TableContext.Provider>
     </>
   );

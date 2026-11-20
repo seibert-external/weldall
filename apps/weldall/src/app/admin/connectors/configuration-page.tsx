@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import { Card } from "@astryxdesign/core/Card";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -301,56 +302,58 @@ function ManagedTable({
         verticalAlign: "middle",
       }}
     >
-      <div className="w-full overflow-x-auto" role="group" aria-label={label}>
-        <table
-          className="admin-resizable-table table-fixed border-collapse text-left"
-          style={{ minWidth: "100%", width: table.getTotalSize() }}
-        >
-          <ResizableTableHeader table={table} />
-          <TableBody>
-            {table.getRowModel().rows.map((row) => (
-              <TableRow
-                key={row.id}
-                aria-label={`Edit ${row.original.config.name}`}
-                data-clickable="true"
-                onClick={(event) => {
-                  if (!isInteractiveTableTarget(event.target, event.currentTarget))
-                    onEdit(row.original);
-                }}
-              >
-                {row.getVisibleCells().map((cell, index) => (
-                  <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                    {index === 0 ? (
-                      <TableRowAction
-                        label={`Edit ${row.original.config.name}`}
-                        onActivate={() => onEdit(row.original)}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableRowAction>
-                    ) : (
-                      flexRender(cell.column.columnDef.cell, cell.getContext())
-                    )}
+      <Card>
+        <div className="w-full overflow-x-auto" role="group" aria-label={label}>
+          <table
+            className="admin-resizable-table table-fixed border-collapse text-left"
+            style={{ minWidth: "100%", width: table.getTotalSize() }}
+          >
+            <ResizableTableHeader table={table} />
+            <TableBody>
+              {table.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  aria-label={`Edit ${row.original.config.name}`}
+                  data-clickable="true"
+                  onClick={(event) => {
+                    if (!isInteractiveTableTarget(event.target, event.currentTarget))
+                      onEdit(row.original);
+                  }}
+                >
+                  {row.getVisibleCells().map((cell, index) => (
+                    <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                      {index === 0 ? (
+                        <TableRowAction
+                          label={`Edit ${row.original.config.name}`}
+                          onActivate={() => onEdit(row.original)}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableRowAction>
+                      ) : (
+                        flexRender(cell.column.columnDef.cell, cell.getContext())
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+              {!isPending && table.getRowModel().rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length}>
+                    <Text color="secondary">{empty}</Text>
                   </TableCell>
-                ))}
-              </TableRow>
-            ))}
-            {!isPending && table.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length}>
-                  <Text color="secondary">{empty}</Text>
-                </TableCell>
-              </TableRow>
-            ) : null}
-            {isPending ? (
-              <TableRow>
-                <TableCell colSpan={columns.length}>
-                  <Text color="secondary">Loading connectors…</Text>
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </table>
-      </div>
+                </TableRow>
+              ) : null}
+              {isPending ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length}>
+                    <Text color="secondary">Loading connectors…</Text>
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </table>
+        </div>
+      </Card>
     </TableContext.Provider>
   );
 }

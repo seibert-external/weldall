@@ -53,6 +53,7 @@ export function ScopeChecklist({
           label="Find scopes"
           onChange={setSearch}
           placeholder="Find scopes…"
+          size="lg"
           startIcon="search"
           value={search}
           width={280}
