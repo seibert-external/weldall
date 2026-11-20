@@ -269,7 +269,10 @@ async function freshInstallation(run: () => Promise<void>) {
     execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
   }
 }
-describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => {
+// The upgrade tests replay every migration on a populated database; each new migration adds
+// time, so the default 5 s is too tight on CI runners.
+const SUITE_OPTIONS = { timeout: 30_000 };
+describe.skipIf(!server)("login installation (isolated real PostgreSQL)", SUITE_OPTIONS, () => {
   beforeAll(async () => {
     const url = new URL(server!);
     url.pathname = `/${databaseName}`;
