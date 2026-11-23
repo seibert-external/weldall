@@ -12,9 +12,12 @@ import { SkillRetrievalFlame } from "../../_components/skill-retrieval-flame";
 import { SkillContent } from "../../_components/skill-content";
 import { formatTagLabel } from "../../_components/format-tag";
 import { SkillNoiseBadge } from "../../_components/skill-noise-badge";
+import { SkillIconTile } from "../../_components/skill-icon-tile";
 import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
+import { resolveLucideIconNode } from "@/server/skills/appearance-icons";
+import { resolveBrandIcon } from "@/server/skills/brand-icons";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { getSkillRetrievalSummaryBySlug } from "@/server/skills/retrieval-metrics";
 import { getVisibleSkill } from "@/server/skills/service";
@@ -40,6 +43,8 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
     retrievalSummaryPromise,
   ]);
   if (!skill) notFound();
+  const iconNode = await resolveLucideIconNode(skill.meta?.appearance?.icon);
+  const brand = resolveBrandIcon(skill.meta?.appearance?.brandIcon);
 
   return (
     <div className="skill-detail-page">
@@ -75,15 +80,24 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
                 </div>
 
                 <header className="skill-detail-hero">
-                  <h1 aria-label={skill.title}>
-                    {skill.title}
-                    {retrievalSummary ? (
-                      <SkillRetrievalFlame
-                        count={retrievalSummary.uniqueRetrievalCount}
-                        days={retrievalSummary.windowDays}
-                      />
-                    ) : null}
-                  </h1>
+                  <div className="skill-detail-title-row">
+                    <SkillIconTile
+                      appearance={skill.meta?.appearance}
+                      brand={brand ? { hex: brand.hex, path: brand.path } : undefined}
+                      iconNode={iconNode}
+                      seed={skill.slug}
+                      size={44}
+                    />
+                    <h1 aria-label={skill.title}>
+                      {skill.title}
+                      {retrievalSummary ? (
+                        <SkillRetrievalFlame
+                          count={retrievalSummary.uniqueRetrievalCount}
+                          days={retrievalSummary.windowDays}
+                        />
+                      ) : null}
+                    </h1>
+                  </div>
                   <SkillPromptTerminal slug={skill.slug} title={skill.title} />
                 </header>
 

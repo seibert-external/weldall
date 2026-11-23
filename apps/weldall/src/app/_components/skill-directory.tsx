@@ -7,7 +7,8 @@ import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { parseAsString, parseAsStringEnum, useQueryStates } from "nuqs";
 import { useEffect, useMemo, type CSSProperties, type SVGProps } from "react";
 import type { VisibleSkill } from "@/server/skills/service";
-import { resolveSkillAppearance, type SkillAppearanceIconNode } from "./skill-appearance";
+import type { SkillAppearanceIconNode } from "./skill-appearance";
+import { SkillIconTile, type SkillTileBrand } from "./skill-icon-tile";
 import { formatTagLabel } from "./format-tag";
 import {
   DEFAULT_SKILL_DIRECTORY_SORT,
@@ -19,7 +20,10 @@ import {
 } from "./skill-directory-sorting";
 import { SkillRetrievalFlame } from "./skill-retrieval-flame";
 
-type DirectorySkill = VisibleSkill & { appearanceIconNode?: SkillAppearanceIconNode };
+type DirectorySkill = VisibleSkill & {
+  appearanceIconNode?: SkillAppearanceIconNode;
+  appearanceBrand?: SkillTileBrand;
+};
 
 const skillSortOptions = [...SKILL_DIRECTORY_SORT_OPTIONS];
 
@@ -212,7 +216,6 @@ function SkillCard({
 }) {
   const resourceTag = getSkillResourceTag(skill);
   const style = {
-    ...getSkillGradientStyle(skill.slug, skill.meta?.appearance),
     "--skill-card-animation-order": animationOrder,
   } as CSSProperties;
 
@@ -225,7 +228,16 @@ function SkillCard({
       />
       <div className="skill-card-heading">
         <div className="skill-card-title">
-          <h2>{skill.title}</h2>
+          <SkillIconTile
+            appearance={skill.meta?.appearance}
+            brand={skill.appearanceBrand}
+            iconNode={skill.appearanceIconNode}
+            seed={skill.slug}
+          />
+          <div className="skill-card-name">
+            <h2>{skill.title}</h2>
+            <span className="skill-card-slug">{skill.slug}</span>
+          </div>
           <div className="skill-card-status">
             {!skill.available ? (
               <Tooltip
@@ -276,16 +288,6 @@ function skillMatchesSearch(skill: VisibleSkill, terms: readonly string[]): bool
     .join(" ")
     .toLocaleLowerCase();
   return terms.every((term) => searchableText.includes(term));
-}
-
-function getSkillGradientStyle(seed: string, appearance?: Record<string, string>): CSSProperties {
-  const gradient = resolveSkillAppearance(seed, appearance);
-  return {
-    "--skill-card-light-from": gradient.light[0],
-    "--skill-card-light-to": gradient.light[1],
-    "--skill-card-dark-from": gradient.dark[0],
-    "--skill-card-dark-to": gradient.dark[1],
-  } as CSSProperties;
 }
 
 function getSkillSourceLabel(skill: VisibleSkill): string {
