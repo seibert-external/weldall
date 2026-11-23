@@ -1,8 +1,6 @@
 import { WELDALL_CLIENT_ID, WELDALL_ISSUER } from "../oauth/constants";
+import { authorizePath, consentPath } from "./endpoint-allowlist";
 import { LOGIN_SCOPE_REQUIRED_DESCRIPTION, hasLoginScopeForUserId } from "./login-policy";
-
-const authorizePath = "/api/auth/oauth2/authorize";
-const consentPath = "/api/auth/oauth2/consent";
 
 export function enforceCliConsent(request: Request): Request {
   if (request.method !== "GET") return request;
