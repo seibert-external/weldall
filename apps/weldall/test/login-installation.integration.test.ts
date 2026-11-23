@@ -311,6 +311,28 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
+  it("advertises only served endpoints in both discovery documents", async () => {
+    const { GET: oauth } = await import("../src/app/.well-known/oauth-authorization-server/route");
+    const { GET: oidc } = await import("../src/app/.well-known/openid-configuration/route");
+    for (const [path, get] of [
+      ["oauth-authorization-server", oauth],
+      ["openid-configuration", oidc],
+    ] as const) {
+      const response = await get(new Request(`${origin}/.well-known/${path}`));
+      expect(response.status).toBe(200);
+      const metadata = await response.json();
+      expect(metadata).toMatchObject({
+        authorization_endpoint: `${origin}/api/auth/oauth2/authorize`,
+        token_endpoint: `${origin}/api/auth/oauth2/token`,
+        revocation_endpoint: `${origin}/api/auth/oauth2/revoke`,
+        jwks_uri: `${origin}/api/oauth/jwks`,
+      });
+      expect(Object.keys(metadata).some((key) => key.startsWith("introspection_endpoint"))).toBe(
+        false,
+      );
+      expect(metadata).not.toHaveProperty("end_session_endpoint");
+    }
+  });
   it("replays all migrations and initializes singleton without any provider", async () => {
     expect(
       (await fixture.prisma.loginInstallation.findUniqueOrThrow({ where: { id: "default" } }))
@@ -847,11 +869,17 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       "/set-password",
       "/send-verification-email",
       "/verify-email",
+      "/update-user",
+      "/oauth2/create-client",
+      "/oauth2/update-client",
     ])
       expect(
         (await request(path, { email: "attacker@example.com", provider: "google" })).status,
         path,
       ).toBe(404);
+    // GET-only routes: a POST would get 404 even while they are enabled.
+    for (const path of ["/token", "/oauth2/public-client"])
+      expect((await request(path)).status, path).toBe(404);
     expect([
       await fixture.prisma.user.count(),
       await fixture.prisma.account.count(),
@@ -969,7 +997,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
   });
-  it("upgrades populated secret primitives without losing credentials or activation semantics", async () => {
+  it("upgrades populated installations, preserving operator configuration and clearing stale auth data", async () => {
     const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(server!);
     url.pathname = `/${name}`;
@@ -990,7 +1018,14 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
           name: "Migration fixture",
           email: "migration@example.com",
           emailVerified: true,
+          image: "https://avatars.example.com/cached.png",
         },
+      });
+      await upgrade.oauthClient.createMany({
+        data: [
+          { id: "user-client", clientId: "user-client", userId, redirectUris: [] },
+          { id: "weldall-cli", clientId: "weldall-cli", redirectUris: [] },
+        ],
       });
       const connector = await upgrade.connector.create({
         data: {
@@ -1061,6 +1096,16 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       const credentials = await upgrade.encryptedValue.findMany({ orderBy: { id: "asc" } });
       deployMigrations(databaseUrl);
       deployMigrations(databaseUrl);
+      expect((await upgrade.user.findUniqueOrThrow({ where: { id: userId } })).image).toBeNull();
+      expect(
+        await upgrade.oauthClient.findMany({
+          select: { clientId: true, disabled: true },
+          orderBy: { clientId: "asc" },
+        }),
+      ).toEqual([
+        { clientId: "user-client", disabled: true },
+        { clientId: "weldall-cli", disabled: false },
+      ]);
       expect(await upgrade.connector.findUniqueOrThrow({ where: { id: connector.id } })).toEqual(
         connector,
       );
