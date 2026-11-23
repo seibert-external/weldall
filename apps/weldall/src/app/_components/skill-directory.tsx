@@ -236,7 +236,6 @@ function SkillCard({
           />
           <div className="skill-card-name">
             <h2>{skill.title}</h2>
-            <span className="skill-card-slug">{skill.slug}</span>
           </div>
           <div className="skill-card-status">
             {!skill.available ? (

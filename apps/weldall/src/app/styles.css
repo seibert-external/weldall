@@ -1045,18 +1045,15 @@
     flex: 1;
     flex-direction: column;
     gap: 0.125rem;
+    padding-top: calc((40px - 1.25rem * 1.25) / 2);
+  }
+
+  .skill-card-title > .skill-card-status {
+    margin-top: calc((40px - 1.25rem * 1.25) / 2);
   }
 
   .skill-card-name h2 {
     flex: none;
-  }
-
-  .skill-card-slug {
-    overflow: hidden;
-    color: var(--color-text-secondary);
-    font-size: 0.75rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .skill-icon-tile {
