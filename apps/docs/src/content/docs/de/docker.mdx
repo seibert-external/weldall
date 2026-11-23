@@ -108,9 +108,8 @@ Verwendet deine Plattform stattdessen eigene Probes, richte sie auf denselben Pf
 Ein Upgrade kann das Datenbankschema ändern. Vor jedem Upgrade:
 
 1. **Erstelle ein Datenbank-Backup.** Und zwar direkt vor dem Upgrade; alles, was nach dem Backup geschrieben wird, geht bei einer Wiederherstellung verloren.
-2. Wenn die Datenbank zuletzt mit Weldall 0.9.0 oder älter lief, [prüfe die bestehenden Anmeldedaten](#bestehende-anmeldedaten-prüfen), bevor der neue Server Anfragen annimmt.
-3. Ändere das Image-Tag auf die neue `X.Y.Z` und starte den Container neu. Die neue Version wendet ihre Migrationen beim Start an.
-4. Prüfe im Log auf `All migrations have been successfully applied.` oder `No pending migrations to apply.`, gefolgt vom Serverstart.
+2. Ändere das Image-Tag auf die neue `X.Y.Z` und starte den Container neu. Die neue Version wendet ihre Migrationen beim Start an.
+3. Prüfe im Log auf `All migrations have been successfully applied.` oder `No pending migrations to apply.`, gefolgt vom Serverstart.
 
 :::caution[Ein Rollback nimmt keine Migrationen zurück]
 Ein älteres Image entfernt keine Migrationen, die eine neuere Version angewendet hat. Die ältere Version startet ohne Warnung und meldet `No pending migrations to apply.`, weil sie die neueren Migrationen nicht kennt. Hat die neuere Version eine Spalte geändert oder entfernt, scheitert die ältere Version später, bei der ersten Anfrage, die sie betrifft.
@@ -119,23 +118,6 @@ Für einen sicheren Rollback stellst du das Backup von vor dem Upgrade wieder he
 :::
 
 Den Discovery-Proxy aktualisierst du unabhängig davon. Er speichert nichts; du kannst seine Version ohne weitere Schritte vor- und zurückschalten.
-
-### Bestehende Anmeldedaten prüfen
-
-Die Allowlist für Anmelderouten verhindert, dass Nutzer neue Avatar-URLs setzen oder selbst OAuth-Clients registrieren. Bestehende Einträge ändert sie nicht. Stoppe nach dem Backup alle alten Instanzen und prüfe vor der Freigabe für den Betrieb zwei Arten von Einträgen:
-
-- **Gespeicherte Avatare:** Weldall ruft die URLs aus `User.image` weiterhin ab. Behalte nur URLs, die nachweislich von einem vertrauenswürdigen Group Provider stammen. Die Datenbank hält nicht fest, wer sie gesetzt hat.
-- **Von Nutzern registrierte OAuth-Clients:** Weldall verwendet die registrierten Redirect-URIs aktiver Clients weiterhin. Deaktiviere jeden Client mit gesetzter `OauthClient.userId`, dessen Redirect-URIs du nicht freigegeben hast.
-
-Wenn du die Einträge nicht prüfen kannst, führe diese Transaktion in der Weldall-Datenbank aus. Sie leert den Avatar-Cache und deaktiviert alle von Nutzern registrierten OAuth-Clients, ohne sie zu löschen. Der Group Provider kann die Avatare bei der nächsten Abfrage der Gruppenmitgliedschaften erneut liefern. Der integrierte CLI-Client und die Maschinen-Clients bleiben unverändert. Bei Neuinstallationen entfällt die Bereinigung.
-
-```sql
-BEGIN;
-UPDATE "User" SET "image" = NULL WHERE "image" IS NOT NULL;
-UPDATE "OauthClient" SET "disabled" = TRUE, "updatedAt" = NOW()
-WHERE "userId" IS NOT NULL AND NOT "disabled";
-COMMIT;
-```
 
 ## Warum genau ein Weldall-Container
 
