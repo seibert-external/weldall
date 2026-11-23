@@ -48,12 +48,13 @@ describe("skill gradient", () => {
     expect(needsDarkRing(brandGradient("#000000").dark)).toBe(true);
   });
 
-  it("offers single-colour swatches across the colour wheel with readable gradients", () => {
+  it("offers vivid single-colour swatches that keep their exact colour and a readable icon", () => {
     expect(SKILL_COLOR_SWATCHES).toHaveLength(13);
     expect(new Set(SKILL_COLOR_SWATCHES.map(({ color }) => color)).size).toBe(13);
     for (const swatch of SKILL_COLOR_SWATCHES) {
       expect(isHexColor(swatch.color)).toBe(true);
       const gradient = gradientFromColor(swatch.color);
+      expect(gradient.light[0]).toBe(swatch.color);
       expect(allColors(gradient).every(isHexColor)).toBe(true);
       expect(contrastRatio(SKILL_ICON_LIGHT, gradient.light[0])).toBeGreaterThanOrEqual(3);
     }

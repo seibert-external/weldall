@@ -20,41 +20,39 @@ export function isHexColor(value: string | undefined): value is string {
   return value !== undefined && HEX_COLOR.test(value);
 }
 
-// Twelve hues evenly spread around the colour wheel at the same lightness and chroma, plus a
-// neutral graphite. Each swatch is a single colour; the gradient is derived from it.
-const SWATCH_HUES = [
-  ["Red", 25],
-  ["Orange", 55],
-  ["Yellow", 90],
-  ["Lime", 125],
-  ["Green", 150],
-  ["Teal", 180],
-  ["Cyan", 210],
-  ["Sky", 235],
-  ["Blue", 260],
-  ["Indigo", 280],
-  ["Violet", 305],
-  ["Pink", 350],
-] as const;
-
+// Vivid preset colours that all keep a white icon at 3:1 contrast or more. Amber stands in
+// for yellow, as a bright yellow cannot carry a white icon.
 export const SKILL_COLOR_SWATCHES: readonly { name: string; color: string }[] = [
-  ...SWATCH_HUES.map(([name, hue]) => ({ name, color: oklchToHex({ L: 0.6, C: 0.15, H: hue }) })),
-  { name: "Graphite", color: oklchToHex({ L: 0.45, C: 0.01, H: 260 }) },
+  { name: "Red", color: "#dc2626" },
+  { name: "Orange", color: "#ea580c" },
+  { name: "Amber", color: "#d97706" },
+  { name: "Lime", color: "#65a30d" },
+  { name: "Green", color: "#16a34a" },
+  { name: "Teal", color: "#0d9488" },
+  { name: "Sky", color: "#0284c7" },
+  { name: "Blue", color: "#2563eb" },
+  { name: "Indigo", color: "#4f46e5" },
+  { name: "Violet", color: "#7c3aed" },
+  { name: "Fuchsia", color: "#c026d3" },
+  { name: "Pink", color: "#db2777" },
+  { name: "Graphite", color: "#4b5563" },
 ];
 
 /**
- * A gradient for a colour the admin picked. Lightness is kept in a range where a white
- * icon stays readable, and the dark variant never drops below a level that still stands
- * out from a dark page.
+ * A gradient for a colour the admin picked. The colour is kept as it is when a white icon
+ * reaches 3:1 on it and only darkened as far as needed otherwise; very dark colours are
+ * lifted a little. The dark variant never drops below a level that still stands out from
+ * a dark page.
  */
 export function gradientFromColor(hex: string): SkillGradient {
   const color = hexToOklch(hex);
-  const L = clamp(color.L, 0.42, 0.64);
+  let L = Math.max(0.42, color.L);
+  while (L > 0.42 && contrastRatio(SKILL_ICON_LIGHT, oklchToHex({ ...color, L })) < 3) {
+    L -= 0.01;
+  }
+  const start = L === color.L ? hex.toLowerCase() : oklchToHex({ L, C: color.C, H: color.H });
   return {
-    light: [
-      oklchToHex({ L, C: color.C, H: color.H }),
-      oklchToHex({ L: L + 0.12, C: color.C * 0.8, H: color.H + 14 }),
-    ],
+    light: [start, oklchToHex({ L: L + 0.12, C: color.C * 0.8, H: color.H + 14 })],
     dark: [
       oklchToHex({ L: Math.max(0.3, L - 0.18), C: color.C * 0.85, H: color.H }),
       oklchToHex({ L: Math.max(0.38, L - 0.05), C: color.C * 0.9, H: color.H + 10 }),
