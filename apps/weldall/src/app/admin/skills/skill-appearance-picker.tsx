@@ -120,6 +120,15 @@ export function SkillAppearancePicker({
       ? lucideIconUrl(values.icon)
       : undefined;
   const previewBrand = brand ? { hex: brand.hex } : undefined;
+  // Without a skill ID the slug-based fallback is not known yet, so the preview shows a
+  // neutral placeholder instead of a fallback for an arbitrary seed.
+  const hasSeed = seed.trim() !== "";
+  const automaticIcon = !values.icon && !isBrand;
+  const automaticGradient = !isBrand && currentGradient === undefined;
+  const previewAppearance =
+    !hasSeed && automaticGradient ? { ...appearance, ...PLACEHOLDER_GRADIENT } : appearance;
+  const previewTileIconUrl =
+    previewIconUrl ?? (!hasSeed && automaticIcon ? lucideIconUrl("sparkles") : undefined);
 
   const resetPaging = () => setVisibleCount(PAGE_SIZE);
   const chooseIcon = (name: string) => {
@@ -225,9 +234,9 @@ export function SkillAppearancePicker({
             <div className="skill-appearance-preview-pair">
               <div className="skill-appearance-preview-mode" data-mode="light">
                 <SkillIconTile
-                  appearance={appearance}
+                  appearance={previewAppearance}
                   brand={previewBrand}
-                  iconUrl={previewIconUrl}
+                  iconUrl={previewTileIconUrl}
                   mode="light"
                   seed={seed || "new-skill"}
                   size={56}
@@ -236,9 +245,9 @@ export function SkillAppearancePicker({
               </div>
               <div className="skill-appearance-preview-mode" data-mode="dark">
                 <SkillIconTile
-                  appearance={appearance}
+                  appearance={previewAppearance}
                   brand={previewBrand}
-                  iconUrl={previewIconUrl}
+                  iconUrl={previewTileIconUrl}
                   mode="dark"
                   seed={seed || "new-skill"}
                   size={56}
@@ -352,6 +361,13 @@ function colorHint(
     ? "The light and dark gradients are automatically generated from the selected color."
     : "Without a color, the skill gets an automatic Seibert gradient.";
 }
+
+const PLACEHOLDER_GRADIENT = {
+  gradientFrom: "#8e919b",
+  gradientTo: "#b4b7bf",
+  darkGradientFrom: "#4b4e57",
+  darkGradientTo: "#62656f",
+};
 
 const GRADIENT_LABELS: Record<(typeof GRADIENT_FIELDS)[number], string> = {
   gradientFrom: "Light gradient from",
