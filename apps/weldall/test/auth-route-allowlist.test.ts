@@ -40,6 +40,12 @@ describe("public Better Auth catch-all", () => {
     expect(mocks.dispatch).toHaveBeenCalledOnce();
   });
 
+  it("still requires a completed installation before forwarding authorization", async () => {
+    mocks.installationCompleted.mockResolvedValueOnce(false);
+    expect((await request("GET", "/oauth2/authorize")).status).toBe(503);
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["POST", "/update-user"],
     ["GET", "/token"],
@@ -51,6 +57,7 @@ describe("public Better Auth catch-all", () => {
     ["POST", "/get-session"],
     ["GET", "/oidc/admin-save"],
     ["HEAD", "/get-session"],
+    ["GET", "/callback/:providerId"],
     ["GET", "/callback/not-a-uuid"],
     ["GET", callback + "/extra"],
     ["POST", callback],
