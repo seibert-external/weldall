@@ -11,10 +11,11 @@ Weldall links accounts by email and maps scopes to it, so every provider must de
 - Login providers are database rows (installer, administration UI and IaC), each an OIDC provider with discovery, PKCE/state/nonce and exact issuer checks.
 - The login page renders buttons from the configured provider metadata.
 - Tenant-bound Microsoft Entra ID: for issuers `https://login.microsoftonline.com/<tenant GUID>/v2.0`, Weldall requires `tid` to match, rejects guests (`acct`/`idp`) and accepts the email only when `xms_edov` is `true`. The login page explains these rejections. Setup guide: `apps/docs/src/content/docs/entra-id.md`. The tenant-boundary checks are unit-tested only (`apps/weldall/test/oidc-config.test.ts`).
+- Portal offers `xms_edov`/`email`/`acct` as optional ID claims; member tokens carry `acct` as number 0 and no `idp`.
 
 ## Open
 
-- Confirm `xms_edov` type, portal availability and guest `idp` format against a real tenant.
+- Confirm `xms_edov` JSON type (needs a member with a `mail` attribute) and guest `acct`/`idp` against a real tenant.
 - Integration tests for Entra tenant boundaries.
 - Multi-tenant Entra ID (`/organizations` with a tenant allowlist). Needs the per-tenant `iss` stored per account and the `{tenantid}` issuer substitution in `oidc-runtime.ts`.
 - Guest (B2B) accounts. Microsoft treats a guest as a new identity per tenant, and `xms_edov` alone does not distinguish guests.

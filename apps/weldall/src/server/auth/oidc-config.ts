@@ -82,7 +82,7 @@ export function buttonForeground(color: string): string {
 const ENTRA_ISSUER =
   /^https:\/\/login\.microsoftonline\.com\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/v2\.0$/;
 /** Tenant GUID of a tenant-bound Entra ID v2.0 issuer; multi-tenant and v1 issuers are generic OIDC. */
-export function entraTenant(issuer: string): string | undefined {
+function entraTenant(issuer: string): string | undefined {
   return ENTRA_ISSUER.exec(issuer)?.[1];
 }
 // Weldall links accounts by email, so an unverified email would allow account takeover ("nOAuth").
@@ -92,7 +92,7 @@ export function entraTenant(issuer: string): string | undefined {
 // true for guests whose email is a Microsoft account, Google or one-time passcode, so the guest
 // check is the actual barrier: acct must be exactly 0 (a missing acct is a configuration error, not
 // proof of membership) and idp, if present, must name this tenant.
-function assertTrustedEmail(claims: Record<string, unknown>, config: ProviderConfig) {
+function assertTrustedProviderClaims(claims: Record<string, unknown>, config: ProviderConfig) {
   const tenant = entraTenant(config.issuer);
   if (!tenant) {
     if (claims.email_verified !== true) throw new LoginError("unverified_identity");
@@ -110,7 +110,7 @@ function assertTrustedEmail(claims: Record<string, unknown>, config: ProviderCon
   if (claims.xms_edov !== true) throw new LoginError("entra_email_unverified");
 }
 export function verifiedIdentity(claims: Record<string, unknown>, config: ProviderConfig) {
-  assertTrustedEmail(claims, config);
+  assertTrustedProviderClaims(claims, config);
   const email = emailSchema.safeParse(claims.email);
   if (
     !email.success ||

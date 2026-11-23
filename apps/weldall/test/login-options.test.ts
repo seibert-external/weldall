@@ -16,9 +16,9 @@ describe("login error message", () => {
     );
   });
 
-  it("explains missing Entra ID claims", () => {
+  it("explains a missing Entra ID acct claim", () => {
     expect(loginErrorMessage("entra_claims_missing")).toBe(
-      "Microsoft Entra ID did not send the claims Weldall needs. Ask your administrator to add the optional claims email, xms_edov and acct to the Weldall app registration.",
+      "Microsoft Entra ID did not send the acct claim Weldall needs. Ask your administrator to add the optional claim acct to the Weldall app registration.",
     );
   });
 
