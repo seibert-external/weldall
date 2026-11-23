@@ -997,7 +997,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
   });
-  it("upgrades populated installations, preserving operator configuration and clearing stale auth data", async () => {
+  it("upgrades populated secret primitives without losing credentials or activation semantics", async () => {
     const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(server!);
     url.pathname = `/${name}`;
@@ -1018,14 +1018,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
           name: "Migration fixture",
           email: "migration@example.com",
           emailVerified: true,
-          image: "https://avatars.example.com/cached.png",
         },
-      });
-      await upgrade.oauthClient.createMany({
-        data: [
-          { id: "user-client", clientId: "user-client", userId, redirectUris: [] },
-          { id: "weldall-cli", clientId: "weldall-cli", redirectUris: [] },
-        ],
       });
       const connector = await upgrade.connector.create({
         data: {
@@ -1096,16 +1089,6 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       const credentials = await upgrade.encryptedValue.findMany({ orderBy: { id: "asc" } });
       deployMigrations(databaseUrl);
       deployMigrations(databaseUrl);
-      expect((await upgrade.user.findUniqueOrThrow({ where: { id: userId } })).image).toBeNull();
-      expect(
-        await upgrade.oauthClient.findMany({
-          select: { clientId: true, disabled: true },
-          orderBy: { clientId: "asc" },
-        }),
-      ).toEqual([
-        { clientId: "user-client", disabled: true },
-        { clientId: "weldall-cli", disabled: false },
-      ]);
       expect(await upgrade.connector.findUniqueOrThrow({ where: { id: connector.id } })).toEqual(
         connector,
       );

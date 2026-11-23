@@ -2,4 +2,6 @@
 "@weldall/weldall": patch
 ---
 
-Limit the server's public Better Auth routes to those used by Weldall. On upgrade, disable previously self-registered OAuth clients and clear cached profile images; the group provider supplies avatars again on the next membership lookup. Update Next.js, its sharp image dependency, and Zod in the server image.
+Limit the server's public Better Auth routes to those used by Weldall. Update Next.js, its sharp image dependency, and Zod in the server image.
+
+**Upgrading from 0.9.0 or earlier:** The allowlist prevents new user-set avatar URLs and self-registered OAuth clients, but existing records remain in use. Before restoring traffic, [review cached avatars and user-owned clients](https://docs.weldall.ai/docker/#review-existing-auth-data) and clear or disable untrusted entries. There is no automatic cleanup. Fresh installs need no action.

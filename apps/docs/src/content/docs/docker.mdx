@@ -108,8 +108,9 @@ If your platform uses its own probes instead, point them at the same path and th
 An upgrade can change the database schema. Before every upgrade:
 
 1. **Take a database backup.** Do it directly before the upgrade; everything written after the backup is lost if you restore it.
-2. Change the image tag to the new `X.Y.Z` and restart the container. The new version applies its migrations on start.
-3. Check the log for `All migrations have been successfully applied.` or `No pending migrations to apply.`, followed by the server start.
+2. If the database was last used with Weldall 0.9.0 or earlier, [review existing auth data](#review-existing-auth-data) before bringing the updated server online.
+3. Change the image tag to the new `X.Y.Z` and restart the container. The new version applies its migrations on start.
+4. Check the log for `All migrations have been successfully applied.` or `No pending migrations to apply.`, followed by the server start.
 
 :::caution[A rollback does not undo migrations]
 Starting an older image does not remove the migrations a newer version applied. The older version starts without a warning and reports `No pending migrations to apply.`, because it does not know the newer migrations. If the newer version changed or removed a column, the older version fails later, on the first request that touches it.
@@ -118,6 +119,23 @@ To roll back safely, restore the database backup from before the upgrade **and**
 :::
 
 Upgrade the discovery proxy independently. It stores nothing, so you can switch its version back and forth without further steps.
+
+### Review existing auth data
+
+The auth route allowlist stops new user-set avatar URLs and self-registered OAuth clients. It does not change old records. With the backup taken and all old instances stopped, check two kinds of records before serving traffic again:
+
+- **Cached avatars:** Weldall still fetches URLs in `User.image`. Keep only URLs you can verify came from a trusted group provider. The database does not record who set them.
+- **User-owned OAuth clients:** Weldall still honors registered redirect URIs for enabled clients. Disable any client with a non-null `OauthClient.userId` whose redirects you haven't approved.
+
+If you can't verify the records, run this transaction in the Weldall database. It clears all cached avatars and disables all user-owned OAuth clients without deleting them. The group provider can supply avatars again on the next membership lookup. The built-in CLI and machine clients are unaffected. Fresh installations need no cleanup.
+
+```sql
+BEGIN;
+UPDATE "User" SET "image" = NULL WHERE "image" IS NOT NULL;
+UPDATE "OauthClient" SET "disabled" = TRUE, "updatedAt" = NOW()
+WHERE "userId" IS NOT NULL AND NOT "disabled";
+COMMIT;
+```
 
 ## Why exactly one Weldall container
 
