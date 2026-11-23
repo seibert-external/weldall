@@ -2,6 +2,6 @@
 "@weldall/weldall": patch
 ---
 
-Limit the server's public Better Auth routes to those used by Weldall. Update Next.js, its sharp image dependency, and Zod in the server image.
+Fix server authentication issues involving profile images and OAuth client registration. Update Next.js, sharp, and Zod in the server image.
 
-**Upgrading from 0.9.0 or earlier:** The allowlist prevents new user-set avatar URLs and self-registered OAuth clients, but existing records remain in use. Before restoring traffic, review cached avatars and user-owned clients and clear or disable untrusted entries. There is no automatic cleanup. Fresh installs need no action.
+**Upgrading from 0.9.0 or earlier:** Existing records are not cleaned up automatically. Before restoring traffic, clear cached avatar URLs you can't verify and disable untrusted user-owned OAuth clients. Fresh installs need no action.
