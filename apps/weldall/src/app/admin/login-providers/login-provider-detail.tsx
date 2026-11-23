@@ -136,7 +136,7 @@ export function LoginProviderDetail({ providerId }: { providerId: string | null 
         );
       } else {
         operationToast.error(
-          "Test login failed. Check the configuration and try again.",
+          "Test login failed. See the test tab for details, then check the configuration and try again.",
           new Error("test_failed"),
           "login-provider-test",
         );

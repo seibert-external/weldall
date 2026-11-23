@@ -119,7 +119,7 @@ Run **Test login** with an account of the tenant before you save or complete the
 
 ## Troubleshooting
 
-The login page shows a specific message for three Entra ID rules:
+The login page shows a specific message for three Entra ID rules. **Test login** in the installer and in the administration interface shows the same message on its result page, and so does the installer when the first administrator login fails:
 
 | Message                                                                                                                                                                                                    | Meaning and likely causes                                                                                                                                                                                                                              |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -129,4 +129,4 @@ The login page shows a specific message for three Entra ID rules:
 
 Every other rejection shows the generic message "Login failed. Please retry or contact your administrator." Common causes: the callback URL does not match exactly, the issuer has the wrong form, the client secret expired, or the address is outside **Allowed email domains**.
 
-**Test login** in the installer and in the administration interface does not show these messages. It only reports that the test failed. Check the configuration in this order: callback URL, issuer, client secret, optional claims, then the test account (member, `mail` attribute, verified domain). In the installer, the test account must be the nominated first administrator. To rule out the domain list, compare the domain of the test account's `mail` attribute with **Allowed email domains**. Weldall compares exact domains, so a subdomain needs its own entry.
+For every other rejection, **Test login** only reports that the test failed. Check the configuration in this order: callback URL, issuer, client secret, optional claims, then the test account (member, `mail` attribute, verified domain). In the installer, the test account must be the nominated first administrator. To rule out the domain list, compare the domain of the test account's `mail` attribute with **Allowed email domains**. Weldall compares exact domains, so a subdomain needs its own entry.

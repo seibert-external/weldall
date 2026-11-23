@@ -119,7 +119,7 @@ Führe **Test login** mit einem Konto des Tenants aus, bevor du speicherst oder 
 
 ## Fehlerbehebung
 
-Für drei Entra-ID-Regeln zeigt die Anmeldeseite eine eigene Meldung:
+Für drei Entra-ID-Regeln zeigt die Anmeldeseite eine eigene Meldung. **Test login** im Installer und in der Administrationsoberfläche zeigt dieselbe Meldung auf seiner Ergebnisseite, ebenso der Installer, wenn die Anmeldung des ersten Administrators scheitert:
 
 | Meldung                                                                                                                                                                                                    | Bedeutung und wahrscheinliche Ursachen                                                                                                                                                                                                                                 |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -129,4 +129,4 @@ Für drei Entra-ID-Regeln zeigt die Anmeldeseite eine eigene Meldung:
 
 Jede andere Ablehnung zeigt die allgemeine Meldung „Login failed. Please retry or contact your administrator.“ Häufige Ursachen: Die Callback-URL stimmt nicht exakt, der Issuer hat die falsche Form, das Client-Secret ist abgelaufen, oder die Adresse liegt außerhalb von **Allowed email domains**.
 
-**Test login** im Installer und in der Administrationsoberfläche zeigt diese Meldungen nicht. Es meldet nur, dass der Test fehlgeschlagen ist. Prüfe die Konfiguration in dieser Reihenfolge: Callback-URL, Issuer, Client-Secret, optionale Claims, dann das Testkonto (Mitglied, `mail`-Attribut, verifizierte Domain). Im Installer muss das Testkonto der angegebene erste Administrator sein. Um die Domain-Liste auszuschließen, vergleiche die Domain im `mail`-Attribut des Testkontos mit **Allowed email domains**. Weldall vergleicht exakte Domains; eine Subdomain braucht einen eigenen Eintrag.
+Bei jeder anderen Ablehnung meldet **Test login** nur, dass der Test fehlgeschlagen ist. Prüfe die Konfiguration in dieser Reihenfolge: Callback-URL, Issuer, Client-Secret, optionale Claims, dann das Testkonto (Mitglied, `mail`-Attribut, verifizierte Domain). Im Installer muss das Testkonto der angegebene erste Administrator sein. Um die Domain-Liste auszuschließen, vergleiche die Domain im `mail`-Attribut des Testkontos mit **Allowed email domains**. Weldall vergleicht exakte Domains; eine Subdomain braucht einen eigenen Eintrag.

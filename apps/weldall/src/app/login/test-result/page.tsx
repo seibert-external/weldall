@@ -4,6 +4,7 @@ import { Text } from "@astryxdesign/core/Text";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { explainedLoginErrorSchema, loginErrorMessage } from "@/lib/login-error-messages";
 import { TestResultNotifier } from "./test-result-notifier";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,8 @@ const testResultSchema = z
     mode: z.enum(["setup-test", "provider-test"]),
     testId: z.string().uuid(),
     passed: z.enum(["true", "false"]).transform((value) => value === "true"),
+    // Optional and fail-soft: a non-allowlisted reason renders the generic failure, as before.
+    reason: explainedLoginErrorSchema.optional().catch(undefined),
   })
   .strict();
 
@@ -29,12 +32,14 @@ export default async function LoginTestResultPage({
   const result = testResultSchema.safeParse(await searchParams);
   if (!result.success) notFound();
 
-  const { mode, testId, passed } = result.data;
+  const { mode, testId, passed, reason } = result.data;
   const message = passed
     ? mode === "setup-test"
       ? "The test login passed. Nothing was saved; return to setup to complete installation with a separate verified login."
       : "The test login passed. Return to the provider form and save explicitly."
-    : "The test login failed. Return to the form, review the provider settings, and try again.";
+    : reason
+      ? loginErrorMessage(reason)
+      : "The test login failed. Return to the form, review the provider settings, and try again.";
 
   return (
     <div className="login-shell">

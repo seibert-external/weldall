@@ -5,24 +5,8 @@ import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/Stack";
 import { authClient } from "@/lib/auth-client";
 import { buttonForeground } from "@/server/auth/oidc-config";
+import { loginErrorMessage } from "@/lib/login-error-messages";
 import { queueOperationSuccess } from "../_components/use-operation-toast";
-
-const GENERIC_LOGIN_ERROR = "Login failed. Please retry or contact your administrator.";
-
-// Only the codes of the Entra ID trust rules get a specific message. Every other code, including
-// unknown or hostile query input, stays generic on purpose so failures reveal nothing else.
-export function loginErrorMessage(code: string | null): string {
-  switch (code) {
-    case "entra_email_unverified":
-      return "Microsoft Entra ID did not confirm a verified email address for your account. Ask your administrator to check the optional claims of the Weldall app registration and the email address of your account.";
-    case "entra_claims_missing":
-      return "Microsoft Entra ID did not send the acct claim Weldall needs. Ask your administrator to add the optional claim acct to the Weldall app registration.";
-    case "entra_guest_denied":
-      return "Guest accounts cannot sign in. Sign in with a member account of your organization.";
-    default:
-      return GENERIC_LOGIN_ERROR;
-  }
-}
 
 export function LoginOptions({
   providers,

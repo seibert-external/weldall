@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loginErrorMessage } from "../src/app/login/login-options";
+import { explainedLoginError, loginErrorMessage } from "../src/lib/login-error-messages";
 
 const generic = "Login failed. Please retry or contact your administrator.";
 
@@ -36,5 +36,30 @@ describe("login error message", () => {
     " entra_guest_denied",
   ])("keeps the generic message for %j", (code) => {
     expect(loginErrorMessage(code)).toBe(generic);
+  });
+});
+
+describe("explained login error", () => {
+  it.each(["entra_email_unverified", "entra_guest_denied", "entra_claims_missing"])(
+    "allowlists %s",
+    (code) => {
+      expect(explainedLoginError(code)).toBe(code);
+    },
+  );
+
+  it.each([
+    "unverified_identity",
+    "setup_email_mismatch",
+    "",
+    null,
+    undefined,
+    "__proto__",
+    "ENTRA_GUEST_DENIED",
+    " entra_guest_denied",
+    "<script>alert(1)</script>",
+    ["entra_guest_denied"],
+    ["entra_guest_denied", "entra_claims_missing"],
+  ])("rejects %j", (code) => {
+    expect(explainedLoginError(code)).toBeUndefined();
   });
 });

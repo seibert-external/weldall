@@ -23,6 +23,8 @@ import {
   setupFormSchema,
 } from "../src/app/setup/setup-form-schema";
 
+const renderSetup = (query: Record<string, string | string[] | undefined> = {}) =>
+  Setup({ searchParams: Promise.resolve(query) });
 const token = "t".repeat(43);
 const key = Buffer.alloc(32, 7).toString("base64");
 beforeEach(() => {
@@ -42,7 +44,7 @@ describe("installer configuration gate", () => {
     async (value) => {
       vi.stubEnv("WELDALL_SETUP_TOKEN", value);
       expect(setupConfigurationIssues()).toEqual(["WELDALL_SETUP_TOKEN"]);
-      const html = renderToStaticMarkup(await Setup());
+      const html = renderToStaticMarkup(await renderSetup());
       expect(html).toContain("Setup requires server configuration");
       expect(html).toContain("WELDALL_SETUP_TOKEN");
       expect(html).toContain("restart Weldall");
@@ -56,7 +58,7 @@ describe("installer configuration gate", () => {
     async (value) => {
       vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", value);
       expect(setupConfigurationIssues()).toEqual(["WELDALL_CREDENTIAL_ENCRYPTION_KEY"]);
-      const html = renderToStaticMarkup(await Setup());
+      const html = renderToStaticMarkup(await renderSetup());
       expect(html).toContain("WELDALL_CREDENTIAL_ENCRYPTION_KEY");
       expect(html).not.toContain("<form");
       expect(html).not.toContain(token);
@@ -69,12 +71,12 @@ describe("installer configuration gate", () => {
       "WELDALL_SETUP_TOKEN",
       "WELDALL_CREDENTIAL_ENCRYPTION_KEY",
     ]);
-    const html = renderToStaticMarkup(await Setup());
+    const html = renderToStaticMarkup(await renderSetup());
     expect(html).not.toContain("invalid-sensitive");
   });
   it("renders the branded form only when configured, without embedding server secrets", async () => {
     expect(setupConfigurationIssues()).toEqual([]);
-    const html = renderToStaticMarkup(await Setup());
+    const html = renderToStaticMarkup(await renderSetup());
     expect(html).toContain('alt="Weldall"');
     expect(html).toContain("<form");
     expect(html).toContain("Operator setup token");
@@ -83,7 +85,7 @@ describe("installer configuration gate", () => {
     expect(html).not.toContain("Test login and complete installation");
     expect(html).toContain(callback);
     expect(html).not.toContain("Loading…");
-    expect(renderToStaticMarkup(await Setup())).toContain(callback);
+    expect(renderToStaticMarkup(await renderSetup())).toContain(callback);
     expect(html).toContain('type="password"');
     expect(html).not.toContain(token);
     expect(html).not.toContain(key);
@@ -93,12 +95,38 @@ describe("installer configuration gate", () => {
     mocks.installationCompleted.mockResolvedValue(true);
     vi.stubEnv("WELDALL_SETUP_TOKEN", undefined);
     vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", undefined);
-    await expect(Setup()).rejects.toThrow("redirect");
+    await expect(renderSetup()).rejects.toThrow("redirect");
     expect(mocks.redirect).toHaveBeenCalledWith("/login");
   });
   it("does not turn database failures into an open installer", async () => {
     mocks.installationCompleted.mockRejectedValue(new Error("database unavailable"));
-    await expect(Setup()).rejects.toThrow("database unavailable");
+    await expect(renderSetup()).rejects.toThrow("database unavailable");
+  });
+});
+
+describe("first administrator login failure", () => {
+  it.each([
+    ["entra_email_unverified", "did not confirm a verified email address"],
+    ["entra_guest_denied", "Guest accounts cannot sign in."],
+    ["entra_claims_missing", "did not send the acct claim"],
+  ])("explains the allowlisted reason %s above the form", async (reason, copy) => {
+    const html = renderToStaticMarkup(await renderSetup({ failed: "1", reason }));
+    expect(html).toContain("First administrator login failed");
+    expect(html).toContain(copy);
+    expect(html.indexOf(copy)).toBeLessThan(html.indexOf("<form"));
+  });
+  it.each([
+    {},
+    { failed: "1" },
+    { reason: "entra_guest_denied" },
+    { failed: "1", reason: "setup_email_mismatch" },
+    { failed: "1", reason: "<b>injected</b>" },
+    { failed: "1", reason: ["entra_guest_denied", "entra_claims_missing"] },
+  ])("keeps today's page for a missing or non-allowlisted reason %#", async (query) => {
+    const html = renderToStaticMarkup(await renderSetup(query));
+    expect(html).toContain("<form");
+    expect(html).not.toContain("First administrator login failed");
+    expect(html).not.toContain("injected");
   });
 });
 
