@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@weldall/db";
+import { db, type Prisma } from "@weldall/db";
 import { parseSkillCatalog, SKILL_ASSERTION_TYPE, type SkillCatalog } from "@weldall/sdk";
+import {
+  AGENT_CATALOG_METADATA_KEY,
+  AgentCatalogError,
+  fetchAgentCatalog,
+  type AgentCatalogFailureCategory,
+  type PublishedAgent,
+} from "../agents/discovery";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
 import { errorForLog, logger } from "../observability/logger";
@@ -19,6 +26,7 @@ export type CatalogFailureCategory =
   | "catalog_unavailable"
   | "catalog_unauthorized"
   | "catalog_invalid"
+  | AgentCatalogFailureCategory
   | "refresh_internal_error";
 
 export interface CatalogRefreshSource {
@@ -73,10 +81,27 @@ const readBoundedJson = async (response: Response, limit: number): Promise<unkno
   return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
 };
 
+/** An endpoint a resource names in its metadata: https, on the resource's origin, nothing else. */
+const safeEndpoint = (value: string, resourceIdentifier: string): string => {
+  const endpoint = new URL(value);
+  const resource = new URL(resourceIdentifier);
+  if (
+    endpoint.protocol !== "https:" ||
+    endpoint.origin !== resource.origin ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error("unsafe endpoint");
+  }
+  return endpoint.toString();
+};
+
 const fetchMetadata = async (
   source: CatalogRefreshSource,
   fetcher: typeof fetch,
-): Promise<{ metadataUrl: string; catalogEndpoint: string }> => {
+): Promise<{ metadataUrl: string; catalogEndpoint: string; agentsEndpoint: string | null }> => {
   const metadataUrl = deriveMetadataUrl(source.resourceIdentifier);
   let response: Response;
   try {
@@ -101,28 +126,26 @@ const fetchMetadata = async (
   const metadata = value as Record<string, unknown>;
   const authorizationServers = metadata.authorization_servers;
   const endpointValue = metadata.weldall_skills_endpoint;
+  const agentsEndpointValue = metadata[AGENT_CATALOG_METADATA_KEY];
   if (
     metadata.resource !== source.resourceIdentifier ||
     !Array.isArray(authorizationServers) ||
     !authorizationServers.includes(source.authorizationServer) ||
-    typeof endpointValue !== "string"
+    typeof endpointValue !== "string" ||
+    (agentsEndpointValue !== undefined && typeof agentsEndpointValue !== "string")
   ) {
     throw new CatalogRefreshError("metadata_invalid");
   }
   try {
-    const endpoint = new URL(endpointValue);
-    const resource = new URL(source.resourceIdentifier);
-    if (
-      endpoint.protocol !== "https:" ||
-      endpoint.origin !== resource.origin ||
-      endpoint.username ||
-      endpoint.password ||
-      endpoint.search ||
-      endpoint.hash
-    ) {
-      throw new Error("unsafe endpoint");
-    }
-    return { metadataUrl, catalogEndpoint: endpoint.toString() };
+    return {
+      metadataUrl,
+      catalogEndpoint: safeEndpoint(endpointValue, source.resourceIdentifier),
+      // Agents are optional: a resource without the endpoint publishes none.
+      agentsEndpoint:
+        agentsEndpointValue === undefined
+          ? null
+          : safeEndpoint(agentsEndpointValue, source.resourceIdentifier),
+    };
   } catch {
     throw new CatalogRefreshError("metadata_invalid");
   }
@@ -175,6 +198,30 @@ const fetchCatalog = async (
   }
 };
 
+const fetchAgents = async (
+  source: CatalogRefreshSource,
+  endpoint: string,
+  fetcher: typeof fetch,
+  now: Date,
+): Promise<PublishedAgent[]> => {
+  try {
+    return await fetchAgentCatalog({
+      resourceIdentifier: source.resourceIdentifier,
+      endpoint,
+      fetcher,
+      now,
+      readJson: readBoundedJson,
+    });
+  } catch (error) {
+    if (error instanceof AgentCatalogError) throw new CatalogRefreshError(error.category);
+    throw error;
+  }
+};
+
+const AGENT_INSERT_BATCH = 200;
+/** Room for a large agent catalog; the lease is renewed at the start of the transaction. */
+const PERSIST_TRANSACTION = { timeout: 15_000 } as const;
+
 const failureBackoffMs = (retryCount: number): number =>
   Math.min(REFRESH_INTERVAL_MS, 30_000 * 2 ** Math.min(retryCount, 5));
 
@@ -213,8 +260,12 @@ export async function refreshCatalog(
   const fetcher = options.fetcher ?? fetch;
   const started = performance.now();
   try {
-    const { metadataUrl, catalogEndpoint } = await fetchMetadata(source, fetcher);
+    const { metadataUrl, catalogEndpoint, agentsEndpoint } = await fetchMetadata(source, fetcher);
     const catalog = await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt);
+    // Skills and agents are replaced together: when either cannot be read, both copies stay.
+    const agents = agentsEndpoint
+      ? await fetchAgents(source, agentsEndpoint, fetcher, attemptedAt)
+      : [];
     const persisted = await db.$transaction(async (tx) => {
       const lease = await tx.discoveredSkillCatalog.updateMany({
         where: { id: catalogId, refreshLeaseId: leaseId },
@@ -263,6 +314,26 @@ export async function refreshCatalog(
           })),
         });
       }
+      await tx.discoveredAgent.deleteMany({ where: { catalogId } });
+      for (let start = 0; start < agents.length; start += AGENT_INSERT_BATCH) {
+        await tx.discoveredAgent.createMany({
+          data: agents.slice(start, start + AGENT_INSERT_BATCH).map((agent) => ({
+            catalogId,
+            localId: agent.id,
+            canonicalId: `${source.key}.${agent.id}`,
+            name: agent.name,
+            description: agent.description,
+            ownerId: agent.owner,
+            scopes: agent.scopes,
+            configFormat: agent.config.format,
+            configVersion: agent.config.version,
+            config: agent.config.definition as Prisma.InputJsonObject,
+            revision: agent.revision,
+            sourceUpdatedAt: agent.updatedAt,
+            expiresAt: agent.expiresAt,
+          })),
+        });
+      }
       const updated = await tx.discoveredSkillCatalog.updateMany({
         where: { id: catalogId, refreshLeaseId: leaseId },
         data: {
@@ -283,7 +354,7 @@ export async function refreshCatalog(
       });
       if (updated.count !== 1) throw new Error("Skill catalog refresh lease was lost");
       return true;
-    });
+    }, PERSIST_TRANSACTION);
     if (persisted) {
       logger.info(
         {
@@ -293,6 +364,7 @@ export async function refreshCatalog(
           resourceVersion: source.version,
           durationMs: Math.max(0, Math.round(performance.now() - started)),
           skillCount: catalog.skills.length,
+          agentCount: agents.length,
         },
         "Skill catalog refresh succeeded",
       );

@@ -216,8 +216,36 @@ model DiscoveredSkillCatalog {
   updatedAt               DateTime           @updatedAt
   resource                DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   skills                  DiscoveredSkill[]
+  agents                  DiscoveredAgent[]
 
   @@index([nextRefreshAt, refreshLeaseUntil])
+}
+
+/// A shared agent a resource published through agent discovery. Weldall keeps a copy, refreshed
+/// together with the resource's skill catalog. `ownerId` is the Weldall user id the resource
+/// reported; a person sees an agent they own or hold any one of `scopes` for.
+model DiscoveredAgent {
+  id              String                 @id @default(cuid())
+  catalogId       String
+  localId         String
+  canonicalId     String                 @unique
+  name            String
+  description     String
+  ownerId         String
+  scopes          String[]               @default([])
+  configFormat    String
+  configVersion   Int
+  config          Json
+  revision        Int
+  sourceUpdatedAt DateTime
+  expiresAt       DateTime
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  catalog         DiscoveredSkillCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@unique([catalogId, localId])
+  @@index([catalogId])
+  @@index([ownerId])
 }
 
 model DiscoveredSkill {
