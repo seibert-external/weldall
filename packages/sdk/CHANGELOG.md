@@ -1,5 +1,12 @@
 # @weldall/sdk
 
+## 0.14.0
+
+### Minor Changes
+
+- 70ef87d: The client policy schemas accept `homeSkills`, the skill slugs the client pins on its home screen, and the default policy accepts `modelKey`, the `https` route from which the client fetches the user's personal model key. A new `DefaultClientPolicy` type describes the default policy.
+- 51f34a0: The client policy schemas accept a boolean `sandbox` field.
+
 ## 0.13.0
 
 ### Minor Changes

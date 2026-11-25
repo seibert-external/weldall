@@ -1,5 +1,19 @@
 # @weldall/weldall
 
+## 0.10.0
+
+### Minor Changes
+
+- b24525b: Every change to a client policy, on a group assignment or the default in the `cli` block, now writes a `client_policy.updated` audit event. It records which fields changed and SHA-256 digests of the old and new policy, never the policy content.
+- 70ef87d: Client policies can set `homeSkills`, and the default policy (`cli.policy`) can set `modelKey`. `GET /api/me/policy` serves every group's pins in group order, then the default's, without duplicates, and the default's `modelKey` as is.
+- 51f34a0: A client policy can set `sandbox`. With `sandbox: true` a client that offers the sandbox keeps a chat's shell commands and file tools inside the chat's project folder. Where groups disagree, `false` wins.
+
+### Patch Changes
+
+- Updated dependencies [70ef87d]
+- Updated dependencies [51f34a0]
+  - @weldall/sdk@0.14.0
+
 ## 0.9.1
 
 ### Patch Changes
