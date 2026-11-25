@@ -252,6 +252,20 @@ describe("client_policy.updated audit event", () => {
     });
   });
 
+  it("names modelKey when only the default's model key changes", async () => {
+    const target = workspace("model-key");
+    const logoUrl = originalCli!.logoUrl;
+    const policy = (path: string) => ({
+      version: 1,
+      modelKey: { url: `https://models.example.com/${path}`, hosts: ["models.example.com"] },
+    });
+    await apply(target, { cli: { logoUrl, policy: policy("old") } });
+    const requestId = await apply(target, { cli: { logoUrl, policy: policy("new") } });
+    const [event, ...rest] = await events(requestId, "client_policy.updated");
+    expect(rest).toEqual([]);
+    expect(event).toMatchObject({ metadata: { target: "default", changedFields: ["modelKey"] } });
+  });
+
   const writeDefaultEvent = (extra: object) =>
     prismaAuditWriter.write({
       eventType: "client_policy.updated",

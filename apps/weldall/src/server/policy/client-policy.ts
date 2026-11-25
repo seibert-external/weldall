@@ -98,13 +98,15 @@ export function withoutInstructions(policy: MergedClientPolicy): ClientPolicyWit
   return rest;
 }
 
-type ClientPolicyField = Exclude<keyof ClientPolicy, "version">;
+type ClientPolicyField = Exclude<keyof MergedClientPolicy, "version">;
 
 /** Every policy field except `version`, sorted. Shared by the audit helper and its schema. */
 export const CLIENT_POLICY_FIELDS = [
   "approvalMode",
   "extensions",
+  "homeSkills",
   "instructions",
+  "modelKey",
   "models",
   "sandbox",
   "shell",

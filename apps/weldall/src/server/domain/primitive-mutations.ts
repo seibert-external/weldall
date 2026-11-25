@@ -18,6 +18,7 @@ import {
   canonicalPolicyJson,
   clientPolicySchema,
   type ClientPolicy,
+  type MergedClientPolicy,
 } from "../policy/client-policy";
 import { scopeKeySchema } from "../policy/scope-key";
 
@@ -1349,8 +1350,8 @@ export async function clientPolicyAudit(
         assignment: { id: string; providerId: string; provider: { key: string }; groupId: string };
       }
     | { kind: "default" },
-  before: ClientPolicy | null,
-  after: ClientPolicy | null,
+  before: MergedClientPolicy | null,
+  after: MergedClientPolicy | null,
 ) {
   const beforeJson = canonicalPolicyJson(before);
   const afterJson = canonicalPolicyJson(after);
