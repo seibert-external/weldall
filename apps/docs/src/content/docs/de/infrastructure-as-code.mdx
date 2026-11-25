@@ -235,6 +235,8 @@ Ein Client, dessen Build die Sandbox anbietet, wendet `sandbox: true` unter macO
 
 Fehlt `cli.policy`, bleibt die aktuelle Standard-Policy erhalten; `null` entfernt sie. Eine Gruppenzuweisung ohne `policy` hat keine Policy. Eine Gruppenzuweisung braucht mindestens einen Scope, deshalb führt auch eine Gruppe, die nur eine Policy braucht, einen Scope auf. Da `logoUrl` im `cli`-Block Pflicht ist, muss beim Setzen einer Standard-Policy das aktuelle Logo mit angegeben werden.
 
+Jede Änderung an einer Standard- oder Gruppen-Policy schreibt ein Audit-Ereignis `client_policy.updated` mit den Namen der geänderten Felder und SHA-256-Digests der alten und neuen Policy. Den Inhalt der Policy enthält das Ereignis nie; dessen Historie ist das IaC-Repository.
+
 Administrativ verwaltete Skills enthalten das Markdown direkt und geben alle konfigurierbaren Felder explizit an:
 
 ```yaml

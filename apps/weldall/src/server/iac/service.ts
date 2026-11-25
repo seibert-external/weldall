@@ -40,7 +40,9 @@ import {
 } from "../connectors/configuration";
 import { ConnectorError } from "../connectors/contracts";
 import { connectorScopeInclude } from "../connectors/access";
+import type { ClientPolicy } from "../policy/client-policy";
 import {
+  clientPolicyAudit,
   deleteMachine,
   mutateEmailAssignment,
   mutateGroupAssignment,
@@ -484,6 +486,14 @@ async function executeDesiredState({
           updatedBy: actor.clientId,
         },
       });
+    if (policyChanged)
+      await clientPolicyAudit(
+        tx,
+        mutationActor(actor),
+        { kind: "default" },
+        current.policy as ClientPolicy | null,
+        manifest.cli.policy ?? null,
+      );
   }
 
   if (replacementResources.size || replacementScopes.size)

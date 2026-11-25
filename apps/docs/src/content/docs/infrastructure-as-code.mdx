@@ -235,6 +235,8 @@ A client whose build offers the sandbox applies `sandbox: true` on macOS; on Win
 
 Leaving out `cli.policy` keeps the current default and `null` removes it. A group assignment without `policy` has no policy. A group assignment needs at least one scope, so a group that only needs a policy still lists one scope. Because `logoUrl` is required in the `cli` block, restate the current logo when you set a default policy.
 
+Every change to a default or group policy writes a `client_policy.updated` audit event with the changed field names and SHA-256 digests of the old and new policy. The event never carries the policy content; the IaC repository is its history.
+
 Administrator-managed skills use inline Markdown and explicitly declare every configurable field:
 
 ```yaml
