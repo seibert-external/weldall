@@ -1653,6 +1653,9 @@
         "shell": {
           "type": "boolean"
         },
+        "sandbox": {
+          "type": "boolean"
+        },
         "models": {
           "type": "object",
           "additionalProperties": false,
@@ -1746,6 +1749,9 @@
           }
         },
         "shell": {
+          "type": "boolean"
+        },
+        "sandbox": {
           "type": "boolean"
         },
         "models": {

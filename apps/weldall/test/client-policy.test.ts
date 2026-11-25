@@ -13,19 +13,26 @@ describe("client policy", () => {
 
   it("keeps a default field no group sets and lets a group replace it", () => {
     const merged = mergeClientPolicies(
-      { version: 1, approvalMode: "smart_approve", shell: false },
+      { version: 1, approvalMode: "smart_approve", shell: false, sandbox: true },
       [{ version: 1, approvalMode: "chat" }],
     );
-    expect(merged).toEqual({ version: 1, approvalMode: "chat", shell: false });
+    expect(merged).toEqual({ version: 1, approvalMode: "chat", shell: false, sandbox: true });
   });
 
   it("lets the most permissive group win", () => {
     const merged = mergeClientPolicies({ version: 1 }, [
-      { version: 1, approvalMode: "approve", shell: false, extensions: { developer: false } },
+      {
+        version: 1,
+        approvalMode: "approve",
+        shell: false,
+        sandbox: true,
+        extensions: { developer: false },
+      },
       {
         version: 1,
         approvalMode: "auto",
         shell: true,
+        sandbox: false,
         extensions: { developer: true, computercontroller: false },
       },
     ]);
@@ -33,6 +40,7 @@ describe("client policy", () => {
       version: 1,
       approvalMode: "auto",
       shell: true,
+      sandbox: false,
       extensions: { developer: true, computercontroller: false },
     });
   });

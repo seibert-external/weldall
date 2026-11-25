@@ -55,6 +55,10 @@ export function mergeClientPolicies(
   const shell = shells.length ? shells.some(Boolean) : defaultPolicy?.shell;
   if (shell !== undefined) merged.shell = shell;
 
+  const sandboxes = set("sandbox");
+  const sandbox = sandboxes.length ? sandboxes.every(Boolean) : defaultPolicy?.sandbox;
+  if (sandbox !== undefined) merged.sandbox = sandbox;
+
   const modelSets = set("models");
   if (modelSets.length) {
     const provider = modelSets[0]!.provider;
@@ -93,6 +97,24 @@ export function withoutInstructions(policy: MergedClientPolicy): ClientPolicyWit
   const { instructions: _instructions, ...rest } = policy;
   return rest;
 }
+
+type ClientPolicyField = Exclude<keyof ClientPolicy, "version">;
+
+/** Every policy field except `version`, sorted. Shared by the audit helper and its schema. */
+export const CLIENT_POLICY_FIELDS = [
+  "approvalMode",
+  "extensions",
+  "instructions",
+  "models",
+  "sandbox",
+  "shell",
+] as const satisfies readonly ClientPolicyField[];
+
+// Fails to compile when the SDK schema gains a field that is missing above.
+const _everyClientPolicyField: Record<
+  Exclude<ClientPolicyField, (typeof CLIENT_POLICY_FIELDS)[number]>,
+  never
+> = {};
 
 /** Sorted-key JSON; `null` and `undefined` both serialise as `null`. */
 export function canonicalPolicyJson(value: unknown): string {
