@@ -12,6 +12,7 @@ const policyFields = {
     .refine((value) => Object.keys(value).length <= 100, "At most 100 extensions.")
     .optional(),
   shell: z.boolean().optional(),
+  sandbox: z.boolean().optional(),
   models: z
     .object({
       provider: z.string().min(1).max(100),

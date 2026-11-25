@@ -1,5 +1,11 @@
 # @weldall/weldall
 
+## 0.9.1
+
+### Patch Changes
+
+- f5e567b: Fix server authentication issues involving profile images and OAuth client registration. Update Next.js, sharp, and Zod in the server image.
+
 ## 0.9.0
 
 ### Minor Changes

@@ -14,6 +14,7 @@ const cases: Record<string, [unknown, boolean, boolean]> = {
       approvalMode: "smart_approve",
       extensions: { developer: true, memory: false },
       shell: false,
+      sandbox: true,
       models: { provider: "openai", allowed: [model] },
       instructions: "Be careful.",
     },
@@ -31,6 +32,7 @@ const cases: Record<string, [unknown, boolean, boolean]> = {
   "long extension key": [{ version: 1, extensions: { ["x".repeat(101)]: true } }, false, false],
   "non-boolean extension": [{ version: 1, extensions: { developer: "yes" } }, false, false],
   "non-boolean shell": [{ version: 1, shell: "no" }, false, false],
+  "non-boolean sandbox": [{ version: 1, sandbox: "yes" }, false, false],
   "no allowed models": [{ version: 1, models: { provider: "openai", allowed: [] } }, false, false],
   "201 allowed models": [
     {
