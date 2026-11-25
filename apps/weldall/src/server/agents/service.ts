@@ -1,4 +1,4 @@
-import { ADMIN_SCOPE_KEY, db } from "@weldall/db";
+import { ADMIN_SCOPE_KEY, db, type Prisma } from "@weldall/db";
 import { effectiveScopesFor } from "../policy/resources";
 
 /**
@@ -136,5 +136,102 @@ export async function listVisibleAgents(user: {
         (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
       ),
     warnings,
+  };
+}
+
+/**
+ * A discovered agent as an administrator sees it: who shared it with whom, from which resource.
+ * The agent's definition (its instructions) is left out on purpose: administering Weldall does not
+ * open what people wrote for the colleagues they shared it with.
+ */
+export interface AdminAgentDto {
+  id: string;
+  name: string;
+  description: string;
+  ownerId: string;
+  /** Null when Weldall does not know the owner the resource reported. */
+  ownerName: string | null;
+  ownerEmail: string | null;
+  scopes: string[];
+  revision: number;
+  updatedAt: string;
+  expiresAt: string;
+  expired: boolean;
+  resource: { id: string; key: string; name: string };
+}
+
+/** Agents of resources whose agent discovery is on, by name. `source` is a resource id. */
+export async function listDiscoveredAgents(input: {
+  page: number;
+  pageSize: number;
+  q?: string | undefined;
+  source?: string | undefined;
+}): Promise<{ items: AdminAgentDto[]; total: number }> {
+  const page = Math.max(1, Math.trunc(input.page) || 1);
+  const pageSize = Math.min(Math.max(1, Math.trunc(input.pageSize) || 20), 200);
+  const q = input.q?.trim();
+  const where: Prisma.DiscoveredAgentWhereInput = {
+    catalog: {
+      resource: {
+        enabled: true,
+        agentDiscoveryEnabled: true,
+        ...(input.source ? { id: input.source } : {}),
+      },
+    },
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { description: { contains: q, mode: "insensitive" } },
+            { scopes: { has: q } },
+          ],
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    db.discoveredAgent.findMany({
+      where,
+      orderBy: [{ name: "asc" }, { canonicalId: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        canonicalId: true,
+        name: true,
+        description: true,
+        ownerId: true,
+        scopes: true,
+        revision: true,
+        sourceUpdatedAt: true,
+        expiresAt: true,
+        catalog: { select: { resource: { select: { id: true, key: true, name: true } } } },
+      },
+    }),
+    db.discoveredAgent.count({ where }),
+  ]);
+  const ownerIds = [...new Set(rows.map((row) => row.ownerId))];
+  const owners = ownerIds.length
+    ? await db.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const ownersById = new Map(owners.map((owner) => [owner.id, owner]));
+  const now = new Date();
+  return {
+    total,
+    items: rows.map((row) => ({
+      id: row.canonicalId,
+      name: row.name,
+      description: row.description,
+      ownerId: row.ownerId,
+      ownerName: ownersById.get(row.ownerId)?.name ?? null,
+      ownerEmail: ownersById.get(row.ownerId)?.email ?? null,
+      scopes: [...row.scopes].sort(),
+      revision: row.revision,
+      updatedAt: row.sourceUpdatedAt.toISOString(),
+      expiresAt: row.expiresAt.toISOString(),
+      expired: row.expiresAt <= now,
+      resource: row.catalog.resource,
+    })),
   };
 }

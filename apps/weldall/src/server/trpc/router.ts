@@ -68,6 +68,7 @@ import {
   testGroupProvider,
   updateGroupProvider,
 } from "../group-providers/service";
+import { listDiscoveredAgents } from "../agents/service";
 import { refreshResourceCatalog } from "../skills/catalogs";
 import { errorForLog, logger } from "../observability/logger";
 import {
@@ -305,6 +306,11 @@ export const appRouter = trpc.router({
       authenticated: true as const,
       email: ctx.adminActor.email ?? null,
     })),
+    agents: trpc.router({
+      list: adminProcedure
+        .input(z.object({ ...pageInput, source: z.string().min(1).max(191).optional() }).strict())
+        .query(({ input }) => listDiscoveredAgents(input)),
+    }),
     users: trpc.router({
       list: adminProcedure
         .input(

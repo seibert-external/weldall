@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
 import { parseAgentCatalogPage } from "../src/server/agents/discovery.js";
-import { listVisibleAgents } from "../src/server/agents/service.js";
+import { listDiscoveredAgents, listVisibleAgents } from "../src/server/agents/service.js";
 import { refreshResourceCatalog } from "../src/server/skills/catalogs.js";
 
 const id = randomUUID().replaceAll("-", "");
@@ -393,6 +393,70 @@ describe("agent discovery", () => {
     });
     expect((await listVisibleAgents(owner)).items).toEqual([]);
     await expect(refresh()).resolves.toBe("unavailable");
+  });
+
+  it("lists discovered agents for administrators without their instructions", async () => {
+    served.agentPages = [
+      page([
+        agent(),
+        agent({
+          id: "agt_old",
+          name: "Archive",
+          owner: `gone-${id}`,
+          scopes: [salesScope],
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        }),
+      ]),
+    ];
+    await expect(refresh()).resolves.toBe("succeeded");
+
+    const all = await listDiscoveredAgents({ page: 1, pageSize: 20, source: resource.id });
+    expect(all.total).toBe(2);
+    expect(all.items).toEqual([
+      {
+        id: `${key}.agt_old`,
+        name: "Archive",
+        description: "Answers questions about the intranet",
+        ownerId: `gone-${id}`,
+        ownerName: null,
+        ownerEmail: null,
+        scopes: [salesScope],
+        revision: 3,
+        updatedAt: "2026-11-20T10:00:00.000Z",
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        expired: true,
+        resource: { id: resource.id, key, name: "Agent catalog test" },
+      },
+      expect.objectContaining({
+        id: `${key}.agt_intranet`,
+        ownerName: "Olivia Owner",
+        ownerEmail: owner.email,
+        scopes: [intranetScope, salesScope],
+        expired: false,
+      }),
+    ]);
+    expect(JSON.stringify(all)).not.toContain("Read the intranet pages");
+
+    const found = await listDiscoveredAgents({
+      page: 1,
+      pageSize: 20,
+      q: "archive",
+      source: resource.id,
+    });
+    expect(found.items.map((item) => item.name)).toEqual(["Archive"]);
+    const byScope = await listDiscoveredAgents({ page: 1, pageSize: 20, q: intranetScope });
+    expect(byScope.items.map((item) => item.name)).toEqual(["Intranet helper"]);
+    const paged = await listDiscoveredAgents({ page: 2, pageSize: 1, source: resource.id });
+    expect(paged).toMatchObject({ total: 2, items: [{ name: "Intranet helper" }] });
+
+    // Switched off: nothing is listed, although the copy is still stored.
+    await db.downstreamResource.update({
+      where: { id: resource.id },
+      data: { agentDiscoveryEnabled: false },
+    });
+    expect((await listDiscoveredAgents({ page: 1, pageSize: 20, source: resource.id })).total).toBe(
+      0,
+    );
   });
 
   it("parses a page strictly", () => {

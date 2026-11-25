@@ -73,7 +73,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       onSuccess: async (outcome) => {
         await queryClient.invalidateQueries();
         if (outcome === "succeeded") {
-          operationToast.success("Skills reloaded", "resource-skills-refresh");
+          operationToast.success("Skills and agents reloaded", "resource-skills-refresh");
           return;
         }
         const detail =
@@ -83,13 +83,17 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
               ? "Skill discovery is disabled for this resource"
               : "The refresh failed; see the discovery status for details";
         operationToast.error(
-          "Could not reload skills",
+          "Could not reload skills and agents",
           new Error(detail),
           "resource-skills-refresh",
         );
       },
       onError: (error) =>
-        operationToast.error("Could not reload skills", error, "resource-skills-refresh"),
+        operationToast.error(
+          "Could not reload skills and agents",
+          error,
+          "resource-skills-refresh",
+        ),
     }),
   );
   const mutation = isNew ? createMutation : updateMutation;
@@ -180,6 +184,11 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
               label={`View skills (${current.catalogStatus?.skillCount ?? 0})`}
               variant="secondary"
             />
+            <Button
+              href={`/admin/agents?source=${encodeURIComponent(current.id)}`}
+              label={`View agents (${current.catalogStatus?.agentCount ?? 0})`}
+              variant="secondary"
+            />
           </HStack>
         ) : null}
         {current ? (
@@ -191,7 +200,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
               deleteMutation.isPending
             }
             isLoading={refreshSkillsMutation.isPending}
-            label="Reload skills"
+            label="Reload skills and agents"
             onClick={() => refreshSkillsMutation.mutate({ id: current.id })}
             type="button"
             variant="secondary"
