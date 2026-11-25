@@ -49,6 +49,10 @@ export function mergeClientPolicies(
   const shell = shells.length ? shells.some(Boolean) : defaultPolicy?.shell;
   if (shell !== undefined) merged.shell = shell;
 
+  const sandboxes = set("sandbox");
+  const sandbox = sandboxes.length ? sandboxes.every(Boolean) : defaultPolicy?.sandbox;
+  if (sandbox !== undefined) merged.sandbox = sandbox;
+
   const modelSets = set("models");
   if (modelSets.length) {
     const provider = modelSets[0]!.provider;
