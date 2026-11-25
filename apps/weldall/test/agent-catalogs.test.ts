@@ -46,6 +46,7 @@ const served: {
   agentPages: Array<Record<string, unknown>> | null;
   agentStatus: number;
   skillsEndpoint: boolean;
+  agentApi?: unknown;
 } = { agentPages: [], agentStatus: 200, skillsEndpoint: false };
 /** Requests per URL without its query. */
 const requested: string[] = [];
@@ -62,6 +63,7 @@ const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) 
       authorization_servers: [origin],
       ...(served.skillsEndpoint ? { weldall_skills_endpoint: skillsEndpoint } : {}),
       ...(served.agentPages ? { weldall_agents_endpoint: agentsEndpoint } : {}),
+      ...(served.agentApi === undefined ? {} : { weldall_agents_api: served.agentApi }),
     });
   if (url.toString() === skillsEndpoint)
     return Response.json({
@@ -169,6 +171,7 @@ afterAll(async () => {
 beforeEach(async () => {
   served.agentPages = [page([agent()])];
   served.agentStatus = 200;
+  delete served.agentApi;
   served.skillsEndpoint = false;
   assertions.length = 0;
   requested.length = 0;
@@ -229,8 +232,9 @@ describe("agent discovery", () => {
     await expect(refresh()).resolves.toBe("succeeded");
 
     const own = await listVisibleAgents(owner);
-    expect(own).toEqual({
+    expect(own).toMatchObject({
       warnings: [],
+      registries: [],
       items: [
         {
           id: `${key}.agt_intranet`,
@@ -275,6 +279,39 @@ describe("agent discovery", () => {
     expect((await listVisibleAgents(colleague)).items).toMatchObject([
       { sourceId: "agt_old", expired: true },
     ]);
+  });
+
+  it("tells a client where agents are kept and which permissions it can share with", async () => {
+    await db.resourceScope.create({
+      data: { resourceId: resource.id, scopeId: scopeIds[salesScope]! },
+    });
+    const api = { endpoint: `${origin}/api/agents`, scope: salesScope };
+    served.agentApi = api;
+    await expect(refresh()).resolves.toBe("succeeded");
+
+    // The colleague holds the resource's permission, the owner holds none.
+    const allowed = await listVisibleAgents(colleague);
+    expect(allowed.registries).toEqual([
+      { key, name: "Agent catalog test", ...api, allowed: true },
+    ]);
+    expect(allowed.shareableScopes).toEqual([
+      { key: salesScope, description: "Agent catalog test" },
+    ]);
+    const other = await listVisibleAgents(owner);
+    expect(other.registries).toMatchObject([{ key, allowed: false }]);
+    expect(other.shareableScopes).toEqual([]);
+    // Weldall's own permissions are never offered for sharing.
+    expect((await listVisibleAgents(admin)).shareableScopes).toEqual([]);
+
+    // A permission that is not the resource's own is not passed on.
+    served.agentApi = { ...api, scope: intranetScope };
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect((await listVisibleAgents(colleague)).registries).toEqual([]);
+    // An address elsewhere, or half an entry, fails the refresh like other broken metadata.
+    served.agentApi = { ...api, endpoint: "https://elsewhere.example.com/api/agents" };
+    await expect(refresh()).resolves.not.toBe("succeeded");
+    served.agentApi = { endpoint: api.endpoint };
+    await expect(refresh()).resolves.not.toBe("succeeded");
   });
 
   it("never opens an agent through one of Weldall's own permissions", async () => {
@@ -379,7 +416,11 @@ describe("agent discovery", () => {
       where: { resourceId: resource.id },
       data: { staleAfter: new Date("2000-01-01T00:00:00.000Z") },
     });
-    expect(await listVisibleAgents(owner)).toEqual({ items: [], warnings: [] });
+    expect(await listVisibleAgents(owner)).toMatchObject({
+      items: [],
+      warnings: [],
+      registries: [],
+    });
     expect((await listVisibleAgents(admin)).warnings).toContainEqual({
       source: key,
       code: "catalog_expired",

@@ -15,6 +15,12 @@ import { signWeldallJwt } from "../oauth/jwt";
  */
 export const AGENT_CATALOG_SCHEMA_VERSION = 1 as const;
 export const AGENT_CATALOG_METADATA_KEY = "weldall_agents_endpoint" as const;
+/**
+ * Optional in the same metadata: the API people's clients use to keep and share agents at the
+ * resource, `{ endpoint, scope }`. Weldall passes it on (`service.ts`), so a client is not
+ * configured with a resource's address.
+ */
+export const AGENT_API_METADATA_KEY = "weldall_agents_api" as const;
 export const AGENT_ASSERTION_TYPE = "weldall-agents+jwt" as const;
 export const AGENT_ASSERTION_PURPOSE = "agents:read" as const;
 
@@ -69,6 +75,13 @@ const agentCatalogPageSchema = z.strictObject({
   agents: z.array(publishedAgentSchema).max(500),
   nextCursor: z.string().min(1).max(200).optional(),
 });
+
+const agentApiSchema = z.strictObject({
+  endpoint: z.string().max(2_000),
+  scope: z.string().max(200).regex(GLOBAL_SCOPE),
+});
+/** The agents API a resource names in its metadata; throws when it is malformed. */
+export const parseAgentApi = (value: unknown) => agentApiSchema.parse(value);
 
 export function parseAgentCatalogPage(value: unknown, expectedResource: string) {
   const page = agentCatalogPageSchema.parse(value);

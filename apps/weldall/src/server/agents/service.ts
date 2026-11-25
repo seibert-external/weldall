@@ -32,9 +32,31 @@ export interface AgentWarning {
   code: "catalog_pending" | "catalog_temporarily_unavailable" | "catalog_expired";
 }
 
+/**
+ * A resource that keeps agents for people: where a client stores and shares them. Listed for every
+ * signed-in person; `allowed` says whether this person holds the permission the resource asks for.
+ */
+export interface AgentRegistry {
+  key: string;
+  name: string;
+  /** The agents API, e.g. `https://registry.example.com/api/agents`. */
+  endpoint: string;
+  /** The permission to request for it. */
+  scope: string;
+  allowed: boolean;
+}
+
+/** A permission the person holds and can therefore share an agent with. */
+export interface ShareableScope {
+  key: string;
+  description: string;
+}
+
 export interface VisibleAgentsEnvelope {
   items: VisibleAgent[];
   warnings: AgentWarning[];
+  registries: AgentRegistry[];
+  shareableScopes: ShareableScope[];
 }
 
 export async function listVisibleAgents(user: {
@@ -45,12 +67,12 @@ export async function listVisibleAgents(user: {
   // An agent's scopes widen who sees it, and Weldall takes them from the resource as reported.
   // Weldall's own permissions (administration, login, ...) therefore never open an agent: no
   // resource can address administrators or simply everyone.
-  const shareable = (
-    await db.scope.findMany({
-      where: { key: { in: [...grants] }, isSystem: false },
-      select: { key: true },
-    })
-  ).map((scope) => scope.key);
+  const shareableScopes = await db.scope.findMany({
+    where: { key: { in: [...grants] }, isSystem: false },
+    orderBy: { key: "asc" },
+    select: { key: true, description: true },
+  });
+  const shareable = shareableScopes.map((scope) => scope.key);
   const now = new Date();
   const resources = await db.downstreamResource.findMany({
     where: { enabled: true, agentDiscoveryEnabled: true },
@@ -59,8 +81,11 @@ export async function listVisibleAgents(user: {
       key: true,
       name: true,
       version: true,
+      scopes: { select: { scope: { select: { key: true } } } },
       discoveredCatalog: {
         select: {
+          agentApiEndpoint: true,
+          agentApiScope: true,
           lastSuccessfulRefreshAt: true,
           staleAfter: true,
           sourceResourceVersion: true,
@@ -75,6 +100,7 @@ export async function listVisibleAgents(user: {
   });
   const canViewCatalogIssues = new Set<string>(grants).has(ADMIN_SCOPE_KEY);
   const warnings: AgentWarning[] = [];
+  const registries: AgentRegistry[] = [];
   const visible: Array<{
     resource: (typeof resources)[number];
     agent: NonNullable<(typeof resources)[number]["discoveredCatalog"]>["agents"][number];
@@ -103,6 +129,19 @@ export async function listVisibleAgents(user: {
     if (canViewCatalogIssues && catalog.lastFailureCategory)
       warnings.push({ source: resource.key, code: "catalog_temporarily_unavailable" });
     for (const agent of catalog.agents) visible.push({ resource, agent });
+    // Only a permission of the resource itself: a resource cannot make clients ask for another's.
+    if (
+      catalog.agentApiEndpoint &&
+      catalog.agentApiScope &&
+      resource.scopes.some(({ scope }) => scope.key === catalog.agentApiScope)
+    )
+      registries.push({
+        key: resource.key,
+        name: resource.name,
+        endpoint: catalog.agentApiEndpoint,
+        scope: catalog.agentApiScope,
+        allowed: new Set<string>(grants).has(catalog.agentApiScope),
+      });
   }
 
   const ownerIds = [...new Set(visible.map(({ agent }) => agent.ownerId))];
@@ -136,6 +175,8 @@ export async function listVisibleAgents(user: {
         (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
       ),
     warnings,
+    registries,
+    shareableScopes,
   };
 }
 

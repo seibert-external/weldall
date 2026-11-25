@@ -204,6 +204,10 @@ model DiscoveredSkillCatalog {
   schemaVersion           Int?
   metadataUrl             String?
   catalogEndpoint         String?
+  /// Where people's clients keep and share agents at the resource, and the scope they ask for;
+  /// from the resource's metadata (`weldall_agents_api`) while agent discovery is on.
+  agentApiEndpoint        String?
+  agentApiScope           String?
   lastAttemptAt           DateTime?
   lastSuccessfulRefreshAt DateTime?
   nextRefreshAt           DateTime           @default(now())

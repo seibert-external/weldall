@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import { db, type Prisma } from "@weldall/db";
 import { parseSkillCatalog, SKILL_ASSERTION_TYPE, type SkillCatalog } from "@weldall/sdk";
 import {
+  AGENT_API_METADATA_KEY,
   AGENT_CATALOG_METADATA_KEY,
   AgentCatalogError,
   fetchAgentCatalog,
   type AgentCatalogFailureCategory,
   type PublishedAgent,
+  parseAgentApi,
 } from "../agents/discovery";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
@@ -108,6 +110,7 @@ const fetchMetadata = async (
   metadataUrl: string;
   catalogEndpoint: string | null;
   agentsEndpoint: string | null;
+  agentApi: { endpoint: string; scope: string } | null;
 }> => {
   const metadataUrl = deriveMetadataUrl(source.resourceIdentifier);
   let response: Response;
@@ -134,6 +137,7 @@ const fetchMetadata = async (
   const authorizationServers = metadata.authorization_servers;
   const endpointValue = metadata.weldall_skills_endpoint;
   const agentsEndpointValue = metadata[AGENT_CATALOG_METADATA_KEY];
+  const agentApiValue = metadata[AGENT_API_METADATA_KEY];
   if (
     metadata.resource !== source.resourceIdentifier ||
     !Array.isArray(authorizationServers) ||
@@ -153,6 +157,13 @@ const fetchMetadata = async (
       agentsEndpoint: source.agentDiscoveryEnabled
         ? safeEndpoint(agentsEndpointValue as string, source.resourceIdentifier)
         : null,
+      agentApi:
+        source.agentDiscoveryEnabled && agentApiValue !== undefined
+          ? (({ endpoint, scope }) => ({
+              endpoint: safeEndpoint(endpoint, source.resourceIdentifier),
+              scope,
+            }))(parseAgentApi(agentApiValue))
+          : null,
     };
   } catch {
     throw new CatalogRefreshError("metadata_invalid");
@@ -268,7 +279,10 @@ export async function refreshCatalog(
   const fetcher = options.fetcher ?? fetch;
   const started = performance.now();
   try {
-    const { metadataUrl, catalogEndpoint, agentsEndpoint } = await fetchMetadata(source, fetcher);
+    const { metadataUrl, catalogEndpoint, agentsEndpoint, agentApi } = await fetchMetadata(
+      source,
+      fetcher,
+    );
     const catalog = catalogEndpoint
       ? await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt)
       : null;
@@ -353,6 +367,8 @@ export async function refreshCatalog(
           schemaVersion: catalog?.schemaVersion ?? null,
           metadataUrl,
           catalogEndpoint,
+          agentApiEndpoint: agentApi?.endpoint ?? null,
+          agentApiScope: agentApi?.scope ?? null,
           lastAttemptAt: attemptedAt,
           lastSuccessfulRefreshAt: attemptedAt,
           nextRefreshAt: new Date(attemptedAt.getTime() + REFRESH_INTERVAL_MS),

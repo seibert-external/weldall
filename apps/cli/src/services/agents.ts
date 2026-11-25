@@ -29,6 +29,10 @@ export interface AgentWarning {
 export interface AgentList {
   items: AgentSummary[];
   warnings: AgentWarning[];
+  /** Where a client keeps and shares agents; passed through as the server sends it. */
+  registries?: unknown[];
+  /** The permissions the person can share an agent with; passed through likewise. */
+  shareableScopes?: unknown[];
 }
 
 const isAgentSummary = (value: unknown): value is AgentSummary =>

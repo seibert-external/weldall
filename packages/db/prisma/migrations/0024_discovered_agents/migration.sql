@@ -1,6 +1,8 @@
 -- Agent discovery: a resource an administrator allowed to (agentDiscoveryEnabled) publishes the
 -- agents people shared through it; Weldall copies them with the resource's skill catalog.
 ALTER TABLE "DownstreamResource" ADD COLUMN "agentDiscoveryEnabled" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentApiEndpoint" TEXT;
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentApiScope" TEXT;
 
 CREATE TABLE "DiscoveredAgent" (
     "id" TEXT NOT NULL,
