@@ -129,6 +129,8 @@ const resourceSnapshot = z
     requestPrefixes: stringArray,
     enabled: z.boolean(),
     skillDiscoveryEnabled: z.boolean(),
+    // Absent in events written before agent discovery existed.
+    agentDiscoveryEnabled: z.boolean().optional(),
     ownerId: z.string().min(1).max(320),
     version: z.number().int().positive(),
   })

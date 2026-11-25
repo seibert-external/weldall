@@ -53,7 +53,7 @@ export async function listVisibleAgents(user: {
   ).map((scope) => scope.key);
   const now = new Date();
   const resources = await db.downstreamResource.findMany({
-    where: { enabled: true, skillDiscoveryEnabled: true },
+    where: { enabled: true, agentDiscoveryEnabled: true },
     orderBy: { key: "asc" },
     select: {
       key: true,

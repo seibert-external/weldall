@@ -180,6 +180,7 @@ model DownstreamResource {
   downstreamClientId    String
   enabled               Boolean                  @default(true)
   skillDiscoveryEnabled Boolean                  @default(false)
+  agentDiscoveryEnabled Boolean                  @default(false)
   version               Int                      @default(1)
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
@@ -221,8 +222,8 @@ model DiscoveredSkillCatalog {
   @@index([nextRefreshAt, refreshLeaseUntil])
 }
 
-/// A shared agent a resource published through agent discovery. Weldall keeps a copy, refreshed
-/// together with the resource's skill catalog. `ownerId` is the Weldall user id the resource
+/// A shared agent a resource published through agent discovery (`agentDiscoveryEnabled`). Weldall
+/// keeps a copy, refreshed together with the resource's skill catalog. `ownerId` is the Weldall user id the resource
 /// reported; a person sees an agent they own or hold any one of `scopes` for.
 model DiscoveredAgent {
   id              String                 @id @default(cuid())

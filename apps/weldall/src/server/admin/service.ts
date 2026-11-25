@@ -40,7 +40,7 @@ const emailSchema = z.string().email().max(320);
 const resourceInclude = {
   scopes: { include: { scope: { select: { id: true, key: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
-  discoveredCatalog: { include: { _count: { select: { skills: true } } } },
+  discoveredCatalog: { include: { _count: { select: { skills: true, agents: true } } } },
   iacBinding: managementBindingInclude,
 } as const;
 const scopeInclude = {
@@ -202,9 +202,11 @@ export interface ResourceDto {
   downstreamClientId: string;
   enabled: boolean;
   skillDiscoveryEnabled: boolean;
+  agentDiscoveryEnabled: boolean;
   catalogStatus: {
     state: "disabled" | "pending" | "fresh" | "stale" | "expired" | "failed";
     skillCount: number;
+    agentCount: number;
     lastAttemptAt: string | null;
     lastSuccessfulRefreshAt: string | null;
     lastFailureCategory: string | null;
@@ -549,6 +551,7 @@ export async function createResource(
     downstreamClientId: string;
     enabled: boolean;
     skillDiscoveryEnabled: boolean;
+    agentDiscoveryEnabled?: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
   },
@@ -572,6 +575,7 @@ export async function createResource(
                 downstreamClientId: parsed.downstreamClientId,
                 enabled: parsed.enabled,
                 skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
+                agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
                 scopeKeys: (await validateResourceScopes(tx, parsed.scopeIds)).map(
                   ({ key }) => key,
                 ),
@@ -602,6 +606,7 @@ export async function updateResource(
     downstreamClientId: string;
     enabled: boolean;
     skillDiscoveryEnabled: boolean;
+    agentDiscoveryEnabled?: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
     expectedVersion: number;
@@ -639,6 +644,7 @@ export async function updateResource(
                 downstreamClientId: parsed.downstreamClientId,
                 enabled: parsed.enabled,
                 skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
+                agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
                 scopeKeys: (await validateResourceScopes(tx, parsed.scopeIds)).map(
                   ({ key }) => key,
                 ),
@@ -1136,6 +1142,7 @@ function parseResourceInput(
     downstreamClientId: string;
     enabled: boolean;
     skillDiscoveryEnabled?: boolean;
+    agentDiscoveryEnabled?: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
   },
@@ -1195,6 +1202,7 @@ function parseResourceInput(
     downstreamClientId,
     enabled: input.enabled,
     skillDiscoveryEnabled: input.skillDiscoveryEnabled === true,
+    agentDiscoveryEnabled: input.agentDiscoveryEnabled === true,
     scopeIds: sortedUnique(input.scopeIds),
     requestPrefixes,
   };
@@ -1229,6 +1237,7 @@ function serializeResource(resource: {
   downstreamClientId: string;
   enabled: boolean;
   skillDiscoveryEnabled: boolean;
+  agentDiscoveryEnabled: boolean;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -1242,7 +1251,7 @@ function serializeResource(resource: {
     staleAfter: Date | null;
     lastFailureCategory: string | null;
     lastFailureAt: Date | null;
-    _count: { skills: number };
+    _count: { skills: number; agents: number };
   } | null;
   iacBinding?: {
     address: string;
@@ -1252,7 +1261,7 @@ function serializeResource(resource: {
   const now = new Date();
   const catalog = resource.discoveredCatalog;
   const catalogState =
-    !resource.enabled || !resource.skillDiscoveryEnabled
+    !resource.enabled || !(resource.skillDiscoveryEnabled || resource.agentDiscoveryEnabled)
       ? "disabled"
       : !catalog?.lastSuccessfulRefreshAt
         ? catalog?.lastFailureCategory
@@ -1274,10 +1283,13 @@ function serializeResource(resource: {
     downstreamClientId: resource.downstreamClientId,
     enabled: resource.enabled,
     skillDiscoveryEnabled: resource.skillDiscoveryEnabled,
+    agentDiscoveryEnabled: resource.agentDiscoveryEnabled,
     catalogStatus: catalog
       ? {
           state: catalogState,
-          skillCount: catalog._count.skills,
+          // Rows of a kind that was switched off stay until the next refresh; they are not shown.
+          skillCount: resource.skillDiscoveryEnabled ? catalog._count.skills : 0,
+          agentCount: resource.agentDiscoveryEnabled ? catalog._count.agents : 0,
           lastAttemptAt: catalog.lastAttemptAt?.toISOString() ?? null,
           lastSuccessfulRefreshAt: catalog.lastSuccessfulRefreshAt?.toISOString() ?? null,
           lastFailureCategory: catalog.lastFailureCategory,

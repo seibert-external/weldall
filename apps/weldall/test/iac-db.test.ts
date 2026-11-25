@@ -1083,7 +1083,7 @@ describe("IaC database transaction contracts", () => {
       name: `${prefix}-replacement`,
       issuer: "https://weldall.example.com",
     };
-    const resource = (identifier: string) =>
+    const resource = (identifier: string, agentDiscoveryEnabled?: boolean) =>
       parseDesiredState({
         apiVersion: "weldall.dev/v1",
         workspace,
@@ -1096,6 +1096,7 @@ describe("IaC database transaction contracts", () => {
             downstreamClientId: "api",
             enabled: true,
             skillDiscoveryEnabled: false,
+            ...(agentDiscoveryEnabled === undefined ? {} : { agentDiscoveryEnabled }),
             requestPrefixes: [identifier],
             scopes: [],
           },
@@ -1126,6 +1127,26 @@ describe("IaC database transaction contracts", () => {
     });
     expect(after.id).not.toBe(before.id);
     expect(after.resourceIdentifier).toBe(newIdentifier);
+
+    // Agent discovery: switched on by the manifest, a no-op when applied again, off when the
+    // manifest no longer names it.
+    const agentState = () =>
+      db.downstreamResource.findUniqueOrThrow({
+        where: { key: `${prefix}-api` },
+        select: { agentDiscoveryEnabled: true, version: true, discoveredCatalog: true },
+      });
+    expect(await agentState()).toMatchObject({ agentDiscoveryEnabled: false });
+    await apply(resource(newIdentifier, true));
+    const switchedOn = await agentState();
+    expect(switchedOn.agentDiscoveryEnabled).toBe(true);
+    expect(switchedOn.discoveredCatalog).not.toBeNull();
+    const replan = await planIac(resource(newIdentifier, true));
+    expect(replan.actions.filter((action) => action.action !== "noop")).toEqual([]);
+    await apply(resource(newIdentifier));
+    expect(await agentState()).toMatchObject({
+      agentDiscoveryEnabled: false,
+      version: switchedOn.version + 1,
+    });
   });
 
   it("replaces a scope after staging same-workspace resource and machine relations", async () => {

@@ -4,8 +4,8 @@ import { WELDALL_ISSUER } from "../oauth/constants";
 import { signWeldallJwt } from "../oauth/jwt";
 
 /**
- * Agent discovery: a resource may publish the agents people shared through it, next to its skill
- * catalog. Its resource metadata names the endpoint (`weldall_agents_endpoint`), Weldall reads it
+ * Agent discovery: a resource an administrator switched it on for (`agentDiscoveryEnabled`)
+ * publishes the agents people shared through it. Its resource metadata names the endpoint (`weldall_agents_endpoint`), Weldall reads it
  * with a short-lived signed assertion, as it reads the skill catalog, and keeps a copy. Unlike the
  * skill catalog the answer is paged (`?cursor=<nextCursor>`), because agents are made by people
  * and have no natural upper bound.

@@ -301,6 +301,7 @@ function validatePrimitive({
       "downstreamClientId",
       "enabled",
       "skillDiscoveryEnabled",
+      "agentDiscoveryEnabled",
       "requestPrefixes",
       "scopes",
     ],
@@ -324,6 +325,7 @@ function validatePrimitive({
     (field) =>
       ![
         "skillDiscoveryEnabled",
+        "agentDiscoveryEnabled",
         "publicKeys",
         "meta",
         "lastUpdatedAt",
@@ -408,6 +410,13 @@ function validatePrimitive({
       typeof object.skillDiscoveryEnabled !== "boolean"
     )
       throw new CliError(`${section}.skillDiscoveryEnabled must be boolean`);
+    // Sent only when on (see the canonical form below): a server that predates agent discovery
+    // refuses the field, and a default would change the digest of every existing manifest.
+    if (
+      object.agentDiscoveryEnabled !== undefined &&
+      typeof object.agentDiscoveryEnabled !== "boolean"
+    )
+      throw new CliError(`${section}.agentDiscoveryEnabled must be boolean`);
     if (
       canonicalHttpsUrl(
         validateText({ field: "resourceIdentifier", max: 2000 }),
@@ -645,8 +654,9 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
         ]),
     ),
     scopes: canonicalRecords("scopes", (value) => value),
-    resources: canonicalRecords("resources", (value) => ({
+    resources: canonicalRecords("resources", ({ agentDiscoveryEnabled, ...value }) => ({
       ...value,
+      ...(agentDiscoveryEnabled ? { agentDiscoveryEnabled: true } : {}),
       skillDiscoveryEnabled: value.skillDiscoveryEnabled ?? false,
       requestPrefixes: canonicalSet(value.requestPrefixes),
       scopes: canonicalSet(value.scopes),

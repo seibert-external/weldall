@@ -370,8 +370,32 @@ describe("admin scope service", () => {
     expect(resource).toMatchObject({
       enabled: true,
       version: 1,
+      // Off unless an administrator switches it on.
+      skillDiscoveryEnabled: false,
+      agentDiscoveryEnabled: false,
+      catalogStatus: null,
       scopeKeys: [sharedScope.key],
       requestPrefixes: [`${origin}/api`, `${origin}/api/events`],
+    });
+    const agentOrigin = `https://${namespace}-agents.example`;
+    const agentResource = await createResource(
+      {
+        key: `${namespace}-agents`,
+        name: "Agent resource",
+        resourceIdentifier: `${agentOrigin}/resource`,
+        authorizationServer: agentOrigin,
+        downstreamClientId: "agent-client",
+        enabled: true,
+        agentDiscoveryEnabled: true,
+        scopeIds: [sharedScope.id],
+        requestPrefixes: [`${agentOrigin}/api`],
+      },
+      primaryActor,
+    );
+    expect(agentResource).toMatchObject({
+      skillDiscoveryEnabled: false,
+      agentDiscoveryEnabled: true,
+      catalogStatus: { state: "pending", skillCount: 0, agentCount: 0 },
     });
     await expect(db.emailScopeGrant.count()).resolves.toBe(grantCountBefore);
 

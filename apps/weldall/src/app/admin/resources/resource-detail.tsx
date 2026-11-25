@@ -104,6 +104,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       scopeIds: [] as string[],
       enabled: true,
       skillDiscoveryEnabled: false,
+      agentDiscoveryEnabled: false,
     },
     onSubmit: async ({ value }) => {
       const requestPrefixes = parsePrefixLines(value.requestPrefixes);
@@ -117,6 +118,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           scopeIds: value.scopeIds,
           enabled: value.enabled,
           skillDiscoveryEnabled: value.skillDiscoveryEnabled,
+          agentDiscoveryEnabled: value.agentDiscoveryEnabled,
           expectedVersion: resourceQuery.data.version,
         });
       } else {
@@ -130,6 +132,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           scopeIds: value.scopeIds,
           enabled: value.enabled,
           skillDiscoveryEnabled: value.skillDiscoveryEnabled,
+          agentDiscoveryEnabled: value.agentDiscoveryEnabled,
         });
       }
       await queryClient.invalidateQueries();
@@ -149,6 +152,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       scopeIds: resourceQuery.data.scopeIds,
       enabled: resourceQuery.data.enabled,
       skillDiscoveryEnabled: resourceQuery.data.skillDiscoveryEnabled,
+      agentDiscoveryEnabled: resourceQuery.data.agentDiscoveryEnabled,
     });
   }, [form, resourceQuery.data]);
 
@@ -182,7 +186,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           <Button
             isDisabled={
               !current.enabled ||
-              !current.skillDiscoveryEnabled ||
+              !(current.skillDiscoveryEnabled || current.agentDiscoveryEnabled) ||
               mutation.isPending ||
               deleteMutation.isPending
             }
@@ -237,11 +241,13 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 size="sm"
               />
               <Text type="body">
-                Skill discovery: {catalogStatuses[current.catalogStatus.state].label}
+                Discovery: {catalogStatuses[current.catalogStatus.state].label}
               </Text>
             </HStack>
             <Text color="secondary" type="body">
-              {`Discovered skills: ${current.catalogStatus.skillCount} · Last attempt: ${
+              {`Discovered skills: ${current.catalogStatus.skillCount} · Discovered agents: ${
+                current.catalogStatus.agentCount
+              } · Last attempt: ${
                 current.catalogStatus.lastAttemptAt
                   ? new Date(current.catalogStatus.lastAttemptAt).toLocaleString()
                   : "never"
@@ -424,6 +430,19 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 <Switch
                   description="Trust this resource to publish read-only agent instructions. Discovered documents and refresh status are stored in PostgreSQL."
                   label="Discover skills from this resource"
+                  labelPosition="start"
+                  labelSpacing="spread"
+                  onChange={field.handleChange}
+                  value={field.state.value}
+                  width="100%"
+                />
+              )}
+            </form.Field>
+            <form.Field name="agentDiscoveryEnabled">
+              {(field) => (
+                <Switch
+                  description="Trust this resource to publish agents that people shared through it, and to say who owns each agent and which permissions open it. A person sees an agent they own or hold one of its permissions for."
+                  label="Discover agents from this resource"
                   labelPosition="start"
                   labelSpacing="spread"
                   onChange={field.handleChange}

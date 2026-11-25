@@ -35,6 +35,9 @@ export interface CatalogRefreshSource {
   resourceIdentifier: string;
   authorizationServer: string;
   version: number;
+  /** What the administrator allowed this resource to publish; at least one of them is on. */
+  skillDiscoveryEnabled: boolean;
+  agentDiscoveryEnabled: boolean;
 }
 
 class CatalogRefreshError extends Error {
@@ -101,7 +104,11 @@ const safeEndpoint = (value: string, resourceIdentifier: string): string => {
 const fetchMetadata = async (
   source: CatalogRefreshSource,
   fetcher: typeof fetch,
-): Promise<{ metadataUrl: string; catalogEndpoint: string; agentsEndpoint: string | null }> => {
+): Promise<{
+  metadataUrl: string;
+  catalogEndpoint: string | null;
+  agentsEndpoint: string | null;
+}> => {
   const metadataUrl = deriveMetadataUrl(source.resourceIdentifier);
   let response: Response;
   try {
@@ -131,20 +138,21 @@ const fetchMetadata = async (
     metadata.resource !== source.resourceIdentifier ||
     !Array.isArray(authorizationServers) ||
     !authorizationServers.includes(source.authorizationServer) ||
-    typeof endpointValue !== "string" ||
-    (agentsEndpointValue !== undefined && typeof agentsEndpointValue !== "string")
+    (source.skillDiscoveryEnabled && typeof endpointValue !== "string") ||
+    (source.agentDiscoveryEnabled && typeof agentsEndpointValue !== "string")
   ) {
     throw new CatalogRefreshError("metadata_invalid");
   }
   try {
     return {
       metadataUrl,
-      catalogEndpoint: safeEndpoint(endpointValue, source.resourceIdentifier),
-      // Agents are optional: a resource without the endpoint publishes none.
-      agentsEndpoint:
-        agentsEndpointValue === undefined
-          ? null
-          : safeEndpoint(agentsEndpointValue, source.resourceIdentifier),
+      // An endpoint the administrator did not switch on is not read, whatever the resource names.
+      catalogEndpoint: source.skillDiscoveryEnabled
+        ? safeEndpoint(endpointValue as string, source.resourceIdentifier)
+        : null,
+      agentsEndpoint: source.agentDiscoveryEnabled
+        ? safeEndpoint(agentsEndpointValue as string, source.resourceIdentifier)
+        : null,
     };
   } catch {
     throw new CatalogRefreshError("metadata_invalid");
@@ -261,7 +269,9 @@ export async function refreshCatalog(
   const started = performance.now();
   try {
     const { metadataUrl, catalogEndpoint, agentsEndpoint } = await fetchMetadata(source, fetcher);
-    const catalog = await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt);
+    const catalog = catalogEndpoint
+      ? await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt)
+      : null;
     // Skills and agents are replaced together: when either cannot be read, both copies stay.
     const agents = agentsEndpoint
       ? await fetchAgents(source, agentsEndpoint, fetcher, attemptedAt)
@@ -277,13 +287,15 @@ export async function refreshCatalog(
         select: {
           enabled: true,
           skillDiscoveryEnabled: true,
+          agentDiscoveryEnabled: true,
           version: true,
           key: true,
         },
       });
       if (
         !currentResource?.enabled ||
-        !currentResource.skillDiscoveryEnabled ||
+        currentResource.skillDiscoveryEnabled !== source.skillDiscoveryEnabled ||
+        currentResource.agentDiscoveryEnabled !== source.agentDiscoveryEnabled ||
         currentResource.version !== source.version ||
         currentResource.key !== source.key
       ) {
@@ -298,7 +310,7 @@ export async function refreshCatalog(
         return false;
       }
       await tx.discoveredSkill.deleteMany({ where: { catalogId } });
-      if (catalog.skills.length) {
+      if (catalog?.skills.length) {
         await tx.discoveredSkill.createMany({
           data: catalog.skills.map((skill) => ({
             catalogId,
@@ -338,7 +350,7 @@ export async function refreshCatalog(
         where: { id: catalogId, refreshLeaseId: leaseId },
         data: {
           sourceResourceVersion: source.version,
-          schemaVersion: catalog.schemaVersion,
+          schemaVersion: catalog?.schemaVersion ?? null,
           metadataUrl,
           catalogEndpoint,
           lastAttemptAt: attemptedAt,
@@ -363,7 +375,7 @@ export async function refreshCatalog(
           publisherKey: source.key,
           resourceVersion: source.version,
           durationMs: Math.max(0, Math.round(performance.now() - started)),
-          skillCount: catalog.skills.length,
+          skillCount: catalog?.skills.length ?? 0,
           agentCount: agents.length,
         },
         "Skill catalog refresh succeeded",
@@ -408,9 +420,11 @@ export async function refreshResourceCatalog(
       version: true,
       enabled: true,
       skillDiscoveryEnabled: true,
+      agentDiscoveryEnabled: true,
     },
   });
-  if (!resource?.enabled || !resource.skillDiscoveryEnabled) return "unavailable";
+  if (!resource?.enabled || !(resource.skillDiscoveryEnabled || resource.agentDiscoveryEnabled))
+    return "unavailable";
 
   const catalog = await db.discoveredSkillCatalog.upsert({
     where: { resourceId },
@@ -447,7 +461,10 @@ export async function refreshDueCatalogs(
     where: {
       nextRefreshAt: { lte: now },
       OR: [{ refreshLeaseUntil: null }, { refreshLeaseUntil: { lt: now } }],
-      resource: { enabled: true, skillDiscoveryEnabled: true },
+      resource: {
+        enabled: true,
+        OR: [{ skillDiscoveryEnabled: true }, { agentDiscoveryEnabled: true }],
+      },
     },
     orderBy: { nextRefreshAt: "asc" },
     take: limit,
@@ -459,6 +476,8 @@ export async function refreshDueCatalogs(
           resourceIdentifier: true,
           authorizationServer: true,
           version: true,
+          skillDiscoveryEnabled: true,
+          agentDiscoveryEnabled: true,
         },
       },
     },

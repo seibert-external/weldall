@@ -41,26 +41,42 @@ const agent = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-/** What the resource serves; tests replace it. `agentPages: null` drops the endpoint. */
+/** What the resource serves; tests replace it. `agentPages: null` drops the agent endpoint. */
 const served: {
   agentPages: Array<Record<string, unknown>> | null;
   agentStatus: number;
-} = { agentPages: [], agentStatus: 200 };
+  skillsEndpoint: boolean;
+} = { agentPages: [], agentStatus: 200, skillsEndpoint: false };
+/** Requests per URL without its query. */
+const requested: string[] = [];
 const assertions: string[] = [];
 
 const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = new URL(
     typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
   );
+  requested.push(`${url.origin}${url.pathname}`);
   if (url.toString() === metadataUrl)
     return Response.json({
       resource: resourceIdentifier,
       authorization_servers: [origin],
-      weldall_skills_endpoint: skillsEndpoint,
+      ...(served.skillsEndpoint ? { weldall_skills_endpoint: skillsEndpoint } : {}),
       ...(served.agentPages ? { weldall_agents_endpoint: agentsEndpoint } : {}),
     });
   if (url.toString() === skillsEndpoint)
-    return Response.json({ schemaVersion: 1, resource: resourceIdentifier, skills: [] });
+    return Response.json({
+      schemaVersion: 1,
+      resource: resourceIdentifier,
+      skills: [
+        {
+          id: "howto",
+          title: "How to share an agent",
+          requiredScopes: [],
+          visibility: "DEFAULT",
+          content: "# How to share an agent",
+        },
+      ],
+    });
   if (`${url.origin}${url.pathname}` === agentsEndpoint) {
     assertions.push(new Headers(init?.headers).get("authorization")!.replace(/^Bearer /, ""));
     if (served.agentStatus !== 200) return new Response(null, { status: served.agentStatus });
@@ -101,7 +117,9 @@ const resource = await db.downstreamResource.create({
     authorizationServer: origin,
     downstreamClientId: `client-${key}`,
     enabled: true,
-    skillDiscoveryEnabled: true,
+    // Agents only: the resource publishes no skill catalog.
+    skillDiscoveryEnabled: false,
+    agentDiscoveryEnabled: true,
     createdBy: by,
     updatedBy: by,
     discoveredCatalog: { create: {} },
@@ -151,7 +169,13 @@ afterAll(async () => {
 beforeEach(async () => {
   served.agentPages = [page([agent()])];
   served.agentStatus = 200;
+  served.skillsEndpoint = false;
   assertions.length = 0;
+  requested.length = 0;
+  await db.downstreamResource.update({
+    where: { id: resource.id },
+    data: { skillDiscoveryEnabled: false, agentDiscoveryEnabled: true },
+  });
   await db.discoveredSkillCatalog.update({
     where: { resourceId: resource.id },
     data: { refreshLeaseId: null, refreshLeaseUntil: null },
@@ -268,15 +292,59 @@ describe("agent discovery", () => {
     ]);
   });
 
-  it("replaces the copy on every refresh and empties it when the endpoint is gone", async () => {
+  it("replaces the copy on every refresh", async () => {
     await expect(refresh()).resolves.toBe("succeeded");
     served.agentPages = [page([agent({ id: "agt_other", name: "Other" })])];
     await expect(refresh()).resolves.toBe("succeeded");
     expect((await storedAgents()).map((stored) => stored.localId)).toEqual(["agt_other"]);
+    // Skill discovery is off: the skill catalog is not even asked for.
+    expect(requested).not.toContain(skillsEndpoint);
+  });
 
-    served.agentPages = null;
+  it("reads agents only from a resource the administrator switched it on for", async () => {
+    served.skillsEndpoint = true;
+    await db.downstreamResource.update({
+      where: { id: resource.id },
+      data: { skillDiscoveryEnabled: true, agentDiscoveryEnabled: false },
+    });
+    // The resource names the agent endpoint all the same.
     await expect(refresh()).resolves.toBe("succeeded");
+    expect(requested).toContain(skillsEndpoint);
+    expect(requested).not.toContain(agentsEndpoint);
     expect(await storedAgents()).toEqual([]);
+    expect((await listVisibleAgents(owner)).items).toEqual([]);
+    const skills = () =>
+      db.discoveredSkill.count({ where: { catalog: { resourceId: resource.id } } });
+    expect(await skills()).toBe(1);
+
+    // Both on: skills and agents are replaced together.
+    await db.downstreamResource.update({
+      where: { id: resource.id },
+      data: { agentDiscoveryEnabled: true },
+    });
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await storedAgents()).toHaveLength(1);
+    expect(await skills()).toBe(1);
+
+    // Skills off again: the next refresh removes them and keeps the agents.
+    await db.downstreamResource.update({
+      where: { id: resource.id },
+      data: { skillDiscoveryEnabled: false },
+    });
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await skills()).toBe(0);
+    expect(await storedAgents()).toHaveLength(1);
+  });
+
+  it("fails the refresh when agents are switched on and the resource names no endpoint", async () => {
+    await expect(refresh()).resolves.toBe("succeeded");
+    served.agentPages = null;
+    await expect(refresh()).resolves.toBe("failed");
+    const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
+      where: { resourceId: resource.id },
+    });
+    expect(catalog.lastFailureCategory).toBe("metadata_invalid");
+    expect(await storedAgents()).toHaveLength(1);
   });
 
   it.each([
@@ -321,16 +389,10 @@ describe("agent discovery", () => {
     expect((await listVisibleAgents(owner)).items).toHaveLength(1);
     await db.downstreamResource.update({
       where: { id: resource.id },
-      data: { skillDiscoveryEnabled: false },
+      data: { agentDiscoveryEnabled: false },
     });
-    try {
-      expect((await listVisibleAgents(owner)).items).toEqual([]);
-    } finally {
-      await db.downstreamResource.update({
-        where: { id: resource.id },
-        data: { skillDiscoveryEnabled: true },
-      });
-    }
+    expect((await listVisibleAgents(owner)).items).toEqual([]);
+    await expect(refresh()).resolves.toBe("unavailable");
   });
 
   it("parses a page strictly", () => {

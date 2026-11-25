@@ -1,4 +1,7 @@
--- Shared agents a resource publishes through agent discovery, copied with its skill catalog.
+-- Agent discovery: a resource an administrator allowed to (agentDiscoveryEnabled) publishes the
+-- agents people shared through it; Weldall copies them with the resource's skill catalog.
+ALTER TABLE "DownstreamResource" ADD COLUMN "agentDiscoveryEnabled" BOOLEAN NOT NULL DEFAULT false;
+
 CREATE TABLE "DiscoveredAgent" (
     "id" TEXT NOT NULL,
     "catalogId" TEXT NOT NULL,
