@@ -72,7 +72,12 @@ const isSkillSummary = (value: unknown): value is SkillSummary =>
   (value.lastUpdatedAt === undefined || typeof value.lastUpdatedAt === "string") &&
   isSource(value.source);
 
-async function authenticatedGet(config: WeldallConfig, url: string, signal?: AbortSignal) {
+export async function authenticatedGet(
+  config: WeldallConfig,
+  url: string,
+  signal?: AbortSignal,
+  label = "Weldall skill registry request",
+) {
   return withAccess(
     config,
     async (session) => {
@@ -93,7 +98,7 @@ async function authenticatedGet(config: WeldallConfig, url: string, signal?: Abo
       });
       const value = await (signal
         ? boundedJsonResponse(response, signal)
-        : successfulResponse(response, "Weldall skill registry request", CONFIG_REFRESH_HINT));
+        : successfulResponse(response, label, CONFIG_REFRESH_HINT));
       return { value, subject: session.subject };
     },
     signal,

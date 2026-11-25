@@ -56,6 +56,7 @@ import {
   resourceRequest,
   type ResourceGrant,
 } from "./services/resources.js";
+import { listAgents } from "./services/agents.js";
 import {
   listSkills,
   listSkillsWithSubject,
@@ -1264,6 +1265,36 @@ export const connectionsCommand = define({
   },
   run: (context) =>
     printConnections({ asJson: context.values.json, asAgentic: context.values.agentic }),
+});
+
+export const agentsCommand = define({
+  name: "agents",
+  description: "List shared agents you own or that are shared with a permission you hold",
+  args: { json: jsonArgument },
+  examples: "weldall agents\nweldall agents --json",
+  run: async (context) => {
+    const result = await listAgents(await resolveWeldallConfig());
+    if (context.values.json) {
+      jsonOutput(result);
+      return;
+    }
+    for (const warning of result.warnings)
+      printWarning({ message: `Agents from ${warning.source}: ${warning.code}` });
+    if (result.items.length === 0) {
+      info("No shared agents are visible to this account.");
+      return;
+    }
+    for (const agent of result.items)
+      console.log(
+        [
+          agent.id,
+          agent.name,
+          agent.own ? "yours" : `by ${agent.ownerName ?? "unknown"}`,
+          `shared with ${agent.scopes.join(", ") || "nobody"}`,
+          ...(agent.expired ? ["expired"] : []),
+        ].join("  ·  "),
+      );
+  },
 });
 
 export const skillsCommand = define({
