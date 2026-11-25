@@ -90,6 +90,7 @@ export const CLIENT_POLICY_FIELDS = [
   "extensions",
   "instructions",
   "models",
+  "sandbox",
   "shell",
 ] as const satisfies readonly ClientPolicyField[];
 
