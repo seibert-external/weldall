@@ -40,7 +40,7 @@ import {
 } from "../connectors/configuration";
 import { ConnectorError } from "../connectors/contracts";
 import { connectorScopeInclude } from "../connectors/access";
-import type { ClientPolicy } from "../policy/client-policy";
+import type { DefaultClientPolicy } from "../policy/client-policy";
 import {
   clientPolicyAudit,
   deleteMachine,
@@ -491,7 +491,7 @@ async function executeDesiredState({
         tx,
         mutationActor(actor),
         { kind: "default" },
-        current.policy as ClientPolicy | null,
+        current.policy as DefaultClientPolicy | null,
         manifest.cli.policy ?? null,
       );
   }
