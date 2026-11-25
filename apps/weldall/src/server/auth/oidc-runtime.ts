@@ -1,13 +1,8 @@
 import * as openid from "openid-client";
 import { z } from "zod";
-import {
-  discoveryUrl,
-  httpsUrlSchema,
-  LoginError,
-  verifiedIdentity,
-  type ProviderConfig,
-} from "./oidc-config";
+import { discoveryUrl, httpsUrlSchema, LoginError, type ProviderConfig } from "./oidc-config";
 import { digest } from "./oidc-credentials";
+import { identityVerifierForIssuer } from "./oidc-identity";
 
 const algorithms = ["RS256", "ES256", "EdDSA"];
 const metadataSchema = z
@@ -176,7 +171,7 @@ export async function verifyCallback(
       (claims.azp !== undefined && claims.azp !== config.clientId)
     )
       throw new LoginError("invalid_id_token");
-    return verifiedIdentity(claims, config);
+    return identityVerifierForIssuer(config.issuer).verifyIdentity(claims, config);
   } catch (error) {
     if (error instanceof LoginError) throw error;
     throw new LoginError(
