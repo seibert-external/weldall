@@ -224,6 +224,52 @@ describe("GET /api/me/policy", () => {
     expect(typeof body.updatedAt).toBe("string");
   });
 
+  it("serves home skills and the model key, with an etag that follows the pin order", async () => {
+    signIn(email);
+    const modelKey = { url: "https://vllm.example.com/key", hosts: ["vllm.example.com"] };
+    const settings = await db.cliSettings.findUniqueOrThrow({ where: { id: "default" } });
+    const dev = await db.groupScopeAssignment.findFirstOrThrow({
+      where: { provider: { key: providerKey }, groupId: "dev" },
+    });
+    const pin = (homeSkills: string[]) =>
+      db.groupScopeAssignment.update({
+        where: { id: dev.id },
+        data: { policy: { ...(dev.policy as Prisma.JsonObject), homeSkills } },
+      });
+    const fetchPolicy = async () => (await getPolicy(request("/api/me/policy"))).json();
+    try {
+      await db.cliSettings.update({
+        where: { id: "default" },
+        data: {
+          policy: { ...(settings.policy as Prisma.JsonObject), homeSkills: ["d.one"], modelKey },
+        },
+      });
+      await pin(["g.one", "g.two"]);
+      const first = await fetchPolicy();
+      expect(first.policy).toEqual({
+        version: 1,
+        approvalMode: "auto",
+        shell: true,
+        homeSkills: ["g.one", "g.two", "d.one"],
+        modelKey,
+      });
+      await pin(["g.two", "g.one"]);
+      const second = await fetchPolicy();
+      expect(second.policy.homeSkills).toEqual(["g.two", "g.one", "d.one"]);
+      expect(second.etag).toBe(policyEtag(second.policy));
+      expect(second.etag).not.toBe(first.etag);
+    } finally {
+      await db.cliSettings.update({
+        where: { id: "default" },
+        data: { policy: settings.policy as Prisma.InputJsonValue },
+      });
+      await db.groupScopeAssignment.update({
+        where: { id: dev.id },
+        data: { policy: dev.policy as Prisma.InputJsonValue },
+      });
+    }
+  });
+
   it("answers 503 while a group provider is unavailable", async () => {
     signIn(email);
     await withBrokenProvider(async () => {

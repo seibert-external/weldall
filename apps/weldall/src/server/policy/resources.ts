@@ -12,7 +12,8 @@ import {
   clientPolicySchema,
   defaultClientPolicySchema,
   mergeClientPolicies,
-  type ClientPolicy,
+  type DefaultClientPolicy,
+  type MergedClientPolicy,
 } from "./client-policy";
 
 const sortedUnique = <T extends string>(values: T[]): T[] => [...new Set(values)].sort();
@@ -66,7 +67,7 @@ export async function effectiveScopeAccessFor(email: string): Promise<EffectiveS
 
 export interface EffectiveClientPolicy {
   /** `instructions` holds only the group instructions; the organization appendix is separate. */
-  policy: ClientPolicy;
+  policy: MergedClientPolicy;
   updatedAt: Date | null;
   unavailableGroupProviders: EffectiveScopeAccess["unavailableGroupProviders"];
 }
@@ -95,7 +96,7 @@ export async function effectivePolicyFor(email: string): Promise<EffectiveClient
   // An invalid stored value is skipped and logged, never served. `updatedAt` is the latest
   // change among the values that contributed.
   const contributedAt: Date[] = [];
-  let defaultPolicy: ClientPolicy | null = null;
+  let defaultPolicy: DefaultClientPolicy | null = null;
   if (settings?.policy != null) {
     const parsed = defaultClientPolicySchema.safeParse(settings.policy);
     if (parsed.success) {

@@ -1653,67 +1653,7 @@
         "shell": {
           "type": "boolean"
         },
-        "models": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["provider", "allowed"],
-          "properties": {
-            "provider": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100
-            },
-            "allowed": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 200,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["name", "context_limit", "supports_vision"],
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  },
-                  "context_limit": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "supports_vision": {
-                    "type": "boolean"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "clientPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["version"],
-      "properties": {
-        "version": {
-          "const": 1
-        },
-        "approvalMode": {
-          "enum": ["auto", "smart_approve", "approve", "chat"]
-        },
-        "extensions": {
-          "type": "object",
-          "maxProperties": 100,
-          "propertyNames": {
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "additionalProperties": {
-            "type": "boolean"
-          }
-        },
-        "shell": {
+        "sandbox": {
           "type": "boolean"
         },
         "models": {
@@ -1750,6 +1690,114 @@
                 }
               }
             }
+          }
+        },
+        "homeSkills": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "modelKey": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "hosts"],
+          "properties": {
+            "url": {
+              "type": "string",
+              "maxLength": 2000,
+              "pattern": "^https://"
+            },
+            "hosts": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "type": "string",
+                "maxLength": 253,
+                "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "clientPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "approvalMode": {
+          "enum": ["auto", "smart_approve", "approve", "chat"]
+        },
+        "extensions": {
+          "type": "object",
+          "maxProperties": 100,
+          "propertyNames": {
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "shell": {
+          "type": "boolean"
+        },
+        "sandbox": {
+          "type": "boolean"
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "allowed"],
+          "properties": {
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "allowed": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "context_limit", "supports_vision"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "context_limit": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "supports_vision": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "homeSkills": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           }
         },
         "instructions": {

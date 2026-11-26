@@ -14,9 +14,11 @@ import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
 import { prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
+  CLIENT_POLICY_FIELDS,
   canonicalPolicyJson,
   clientPolicySchema,
   type ClientPolicy,
+  type MergedClientPolicy,
 } from "../policy/client-policy";
 import { scopeKeySchema } from "../policy/scope-key";
 
@@ -689,6 +691,7 @@ export async function mutateGroupAssignment(
       include: groupInclude,
     });
     await groupAudit(tx, actor, "group_scopes.created", saved, [], keys, 0, saved.version);
+    await clientPolicyAudit(tx, actor, { kind: "group", assignment: saved }, null, policy ?? null);
     return saved;
   }
   const current = await tx.groupScopeAssignment.findUnique({
@@ -712,6 +715,13 @@ export async function mutateGroupAssignment(
       [],
       current.version,
       current.version + 1,
+    );
+    await clientPolicyAudit(
+      tx,
+      actor,
+      { kind: "group", assignment: current },
+      current.policy as ClientPolicy | null,
+      null,
     );
     return { id: current.id };
   }
@@ -745,7 +755,6 @@ export async function mutateGroupAssignment(
     where: { id: current.id },
     include: groupInclude,
   });
-  // Policy changes are not audited yet; only a scope change writes the scope audit event.
   if (scopesChanged)
     await groupAudit(
       tx,
@@ -756,6 +765,14 @@ export async function mutateGroupAssignment(
       keys,
       current.version,
       saved.version,
+    );
+  if (policyChanged)
+    await clientPolicyAudit(
+      tx,
+      actor,
+      { kind: "group", assignment: saved },
+      current.policy as ClientPolicy | null,
+      policy ?? null,
     );
   return saved;
 }
@@ -1319,6 +1336,54 @@ async function groupAudit(
     versionBefore,
     versionAfter,
   });
+}
+/**
+ * Records a client policy change with digests and changed field names only: the policy content
+ * stays in the IaC repository. No-op when both sides are canonically equal.
+ */
+export async function clientPolicyAudit(
+  tx: Prisma.TransactionClient,
+  actor: MutationActor,
+  target:
+    | {
+        kind: "group";
+        assignment: { id: string; providerId: string; provider: { key: string }; groupId: string };
+      }
+    | { kind: "default" },
+  before: MergedClientPolicy | null,
+  after: MergedClientPolicy | null,
+) {
+  const beforeJson = canonicalPolicyJson(before);
+  const afterJson = canonicalPolicyJson(after);
+  if (beforeJson === afterJson) return;
+  const sha256 = (policy: ClientPolicy | null, json: string) =>
+    policy === null ? null : createHash("sha256").update(json).digest("hex");
+  const metadata = {
+    target: target.kind,
+    ...(target.kind === "group"
+      ? {
+          providerId: target.assignment.providerId,
+          providerKey: target.assignment.provider.key,
+          groupId: target.assignment.groupId,
+        }
+      : {}),
+    beforeSha256: sha256(before, beforeJson),
+    afterSha256: sha256(after, afterJson),
+    changedFields: CLIENT_POLICY_FIELDS.filter(
+      (field) => canonicalPolicyJson(before?.[field]) !== canonicalPolicyJson(after?.[field]),
+    ),
+    source: actor.source,
+  };
+  if (target.kind === "group")
+    await basicAudit(
+      tx,
+      actor,
+      "client_policy.updated",
+      "group_scope_assignment",
+      target.assignment.id,
+      metadata,
+    );
+  else await basicAudit(tx, actor, "client_policy.updated", "cli_settings", "default", metadata);
 }
 async function machineAudit(
   tx: Prisma.TransactionClient,
