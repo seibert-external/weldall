@@ -1,0 +1,54 @@
+name: Sign a Windows executable
+description: Authenticode-signs an executable with Azure Artifact Signing via GitHub OIDC and verifies the signature.
+# The calling job must run no dependency code: any step there could mint the same Azure token.
+inputs:
+  executable:
+    description: Absolute path to the Windows executable
+    required: true
+  azure-client-id:
+    description: Client ID of the Azure identity with the release federated credential
+    required: true
+  azure-tenant-id:
+    description: Azure tenant ID
+    required: true
+  azure-subscription-id:
+    description: Subscription that holds the signing account
+    required: true
+  endpoint:
+    description: Regional Artifact Signing endpoint
+    required: true
+  signing-account:
+    description: Artifact Signing account name
+    required: true
+  certificate-profile:
+    description: Certificate profile name
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Log in to Azure with the workflow's OIDC token
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ inputs.azure-client-id }}
+        tenant-id: ${{ inputs.azure-tenant-id }}
+        subscription-id: ${{ inputs.azure-subscription-id }}
+    - name: Sign the executable with Azure Artifact Signing
+      uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+      with:
+        endpoint: ${{ inputs.endpoint }}
+        signing-account-name: ${{ inputs.signing-account }}
+        certificate-profile-name: ${{ inputs.certificate-profile }}
+        files: ${{ inputs.executable }}
+        # Signing tools restored from the shared Actions cache could be planted by any workflow.
+        cache-dependencies: false
+    - name: Verify the signature
+      shell: pwsh
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+      run: |
+        $sig = Get-AuthenticodeSignature -LiteralPath $env:EXECUTABLE
+        Write-Output "Status: $($sig.Status)"
+        Write-Output "Signer: $($sig.SignerCertificate.Subject)"
+        Write-Output "Timestamp: $($sig.TimeStamperCertificate.Subject)"
+        if ($sig.Status -ne 'Valid') { throw "Authenticode signature is $($sig.Status): $($sig.StatusMessage)" }
+        if ($null -eq $sig.TimeStamperCertificate) { throw 'Authenticode signature has no timestamp' }
