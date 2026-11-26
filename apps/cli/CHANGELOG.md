@@ -1,5 +1,15 @@
 # @weldall/cli
 
+## 0.24.0
+
+### Minor Changes
+
+- 51f34a0: IaC manifests accept `sandbox` in `cli.policy` and in a group assignment's `policy`.
+
+### Patch Changes
+
+- 70ef87d: `weldall validate`, `weldall plan` and `weldall up` accept `homeSkills` in client policies and `modelKey` in `cli.policy`.
+
 ## 0.23.0
 
 ### Minor Changes
