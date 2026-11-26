@@ -40,6 +40,55 @@ const resourceColumns: ColumnDef<DirectoryResource>[] = [
   },
 ];
 
+/** A shared agent as the signed-in person's directory lists it. */
+export interface DirectoryAgent {
+  key: string;
+  name: string;
+  description: string;
+  /** Who shared it; "You" for the person's own. */
+  sharedBy: string;
+  scopes: string[];
+  resource: string;
+  expired: boolean;
+}
+
+const agentColumns: ColumnDef<DirectoryAgent>[] = [
+  {
+    accessorKey: "name",
+    header: "Agent",
+    cell: ({ row }) => (
+      <span>
+        <span className="directory-table-name">{row.original.name}</span>
+        {row.original.description && row.original.description !== row.original.name ? (
+          <>
+            <br />
+            {row.original.description}
+          </>
+        ) : null}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "sharedBy",
+    header: "Shared by",
+    cell: ({ row }) =>
+      row.original.expired
+        ? `${row.original.sharedBy} (not confirmed for a while)`
+        : row.original.sharedBy,
+  },
+  {
+    id: "scopes",
+    accessorFn: (agent) => agent.scopes.join(", "),
+    header: "Shared with holders of any of",
+    cell: ({ row }) =>
+      row.original.scopes.length > 0 ? <code>{row.original.scopes.join(", ")}</code> : "Only you",
+  },
+  {
+    accessorKey: "resource",
+    header: "Kept at",
+  },
+];
+
 const scopeColumns: ColumnDef<DirectoryScope>[] = [
   {
     accessorKey: "key",
@@ -72,6 +121,24 @@ export function ResourceDirectoryTable({
       }
       selectedKey={selectedKey}
       title="Resources"
+    />
+  );
+}
+
+export function AgentDirectoryTable({ agents }: { agents: DirectoryAgent[] }) {
+  return (
+    <DirectoryTable
+      columns={agentColumns}
+      emptyLabel="No agents are shared with you."
+      initialSortColumn="name"
+      itemLabel="agent"
+      items={agents}
+      searchPlaceholder="Search agents"
+      searchText={(agent) =>
+        [agent.name, agent.description, agent.sharedBy, agent.resource, ...agent.scopes].join(" ")
+      }
+      selectedKey={undefined}
+      title="Agents"
     />
   );
 }

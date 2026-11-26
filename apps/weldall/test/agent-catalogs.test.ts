@@ -4,7 +4,11 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
 import { parseAgentCatalogPage } from "../src/server/agents/discovery.js";
-import { listDiscoveredAgents, listVisibleAgents } from "../src/server/agents/service.js";
+import {
+  agentsOffered,
+  listDiscoveredAgents,
+  listVisibleAgents,
+} from "../src/server/agents/service.js";
 import { refreshResourceCatalog } from "../src/server/skills/catalogs.js";
 
 const id = randomUUID().replaceAll("-", "");
@@ -312,6 +316,25 @@ describe("agent discovery", () => {
     await expect(refresh()).resolves.not.toBe("succeeded");
     served.agentApi = { endpoint: api.endpoint };
     await expect(refresh()).resolves.not.toBe("succeeded");
+  });
+
+  it("offers the Agents tab while a resource has agent discovery switched on", async () => {
+    expect(await agentsOffered()).toBe(true);
+    const others = await db.downstreamResource.count({
+      where: { enabled: true, agentDiscoveryEnabled: true, id: { not: resource.id } },
+    });
+    await db.downstreamResource.update({
+      where: { id: resource.id },
+      data: { agentDiscoveryEnabled: false },
+    });
+    try {
+      expect(await agentsOffered()).toBe(others > 0);
+    } finally {
+      await db.downstreamResource.update({
+        where: { id: resource.id },
+        data: { agentDiscoveryEnabled: true },
+      });
+    }
   });
 
   it("never opens an agent through one of Weldall's own permissions", async () => {

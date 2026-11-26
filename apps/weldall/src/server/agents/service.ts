@@ -181,6 +181,17 @@ export async function listVisibleAgents(user: {
 }
 
 /**
+ * True when an enabled resource has agent discovery switched on: only then do people have a place
+ * agents can come from, and the directory shows its Agents tab.
+ */
+export async function agentsOffered(): Promise<boolean> {
+  return (
+    (await db.downstreamResource.count({ where: { enabled: true, agentDiscoveryEnabled: true } })) >
+    0
+  );
+}
+
+/**
  * A discovered agent as an administrator sees it: who shared it with whom, from which resource.
  * The agent's definition (its instructions) is left out on purpose: administering Weldall does not
  * open what people wrote for the colleagues they shared it with.

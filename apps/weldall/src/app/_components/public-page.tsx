@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
+import { agentsOffered } from "@/server/agents/service";
 import { canViewStatistics } from "@/server/statistics/access";
 import { DirectoryHeader } from "./directory-header";
 import { DirectoryUserMenu } from "./directory-user-menu";
@@ -14,10 +15,11 @@ import { DirectoryUserMenu } from "./directory-user-menu";
 export async function PublicPage({ children }: { children?: React.ReactNode }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user.email) redirect("/login");
-  const [logoUrls, isAdmin, canSeeStatistics] = await Promise.all([
+  const [logoUrls, isAdmin, canSeeStatistics, showAgents] = await Promise.all([
     getEffectiveCliLogoUrls(),
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
+    agentsOffered(),
   ]);
 
   return (
@@ -27,6 +29,7 @@ export async function PublicPage({ children }: { children?: React.ReactNode }) {
           email={session.user.email}
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
+          showAgents={showAgents}
         />
       </DirectoryHeader>
       <main className="public-page-main">{children}</main>
