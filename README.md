@@ -23,6 +23,11 @@
   <a href="https://seibert.link/weldalldiscord"><img alt="Join our Discord" src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white" /></a>
 </p>
 
+<p align="center">
+  Want help installing Weldall CLI? We set it up on your servers for free.
+  <a href="https://seibert.link/freeweldallsetuphelp">Promotional Video (80 secs)</a>
+</p>
+
 ---
 
 <img src="docs/assets/seibert-group-team-overlay.png" alt="The Seibert/Media group team" width="1280" />
