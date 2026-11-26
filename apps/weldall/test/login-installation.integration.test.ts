@@ -10,6 +10,8 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 const fixture = vi.hoisted(() => ({
   prisma: null as unknown as PrismaClient,
   claims: {} as Record<string, unknown>,
+  // The discovery document and ID tokens name this issuer; tests reset it after use.
+  issuer: "https://id.example.com",
   nonce: "",
   offline: false,
   pauseDiscovery: null as (() => Promise<void>) | null,
@@ -32,7 +34,7 @@ const upstreamFetch = async (url: string) => {
   if (url.endsWith("openid-configuration")) {
     await fixture.pauseDiscovery?.();
     return Response.json({
-      issuer: "https://id.example.com",
+      issuer: fixture.issuer,
       authorization_endpoint: "https://id.example.com/authorize",
       token_endpoint: "https://id.example.com/token",
       jwks_uri: "https://id.example.com/jwks",
@@ -55,7 +57,7 @@ const upstreamFetch = async (url: string) => {
         ...fixture.claims,
       })
         .setProtectedHeader({ alg: "ES256", kid: "test" })
-        .setIssuer("https://id.example.com")
+        .setIssuer(fixture.issuer)
         .setAudience("client")
         .setSubject("alice")
         .setIssuedAt()
@@ -99,6 +101,14 @@ const config = providerConfigSchema.parse({
   clientSecret: "secret",
   tokenEndpointAuthMethod: "client_secret_post",
 });
+// A made-up tenant: the tenant-bound v2.0 issuer form switches on the Entra ID claim rules.
+const entraTenantId = "0b5e7c3a-1d2f-4e6a-9b8c-7d6e5f4a3b2c";
+const entraConfig = providerConfigSchema.parse({
+  ...config,
+  name: "Entra test",
+  issuer: `https://login.microsoftonline.com/${entraTenantId}/v2.0`,
+});
+const entraGuestClaims = { tid: entraTenantId, acct: 1, xms_edov: true };
 let nextHandlers: typeof import("../src/app/api/auth/[...all]/route");
 let control: PrismaClient;
 let created = false;
@@ -203,16 +213,16 @@ async function snapshot() {
     audits: await fixture.prisma.auditEvent.findMany(),
   };
 }
-const setupBody = (mode: "setup" | "setup-test") => ({
+const setupBody = (mode: "setup" | "setup-test", providerConfig = config) => ({
   mode,
   ...(mode === "setup-test" ? { testId: randomUUID() } : {}),
   token: setupToken,
   adminEmail: "alice@example.com",
   acknowledgeAuthority: true,
-  config,
+  config: providerConfig,
 });
-async function beginSetup(mode: "setup" | "setup-test") {
-  const body = setupBody(mode);
+async function beginSetup(mode: "setup" | "setup-test", providerConfig = config) {
+  const body = setupBody(mode, providerConfig);
   const response = await request("/oidc/setup", body);
   const result = await response.json();
   expect(response.status, JSON.stringify(result)).toBe(200);
@@ -234,6 +244,7 @@ function expectTestResult(
   mode: "setup-test" | "provider-test",
   testId: string,
   passed: boolean,
+  reason?: string,
 ) {
   expect(response.status).toBe(302);
   expect(response.headers.getSetCookie()).toEqual([]);
@@ -243,6 +254,7 @@ function expectTestResult(
     mode,
     testId,
     passed: String(passed),
+    ...(reason ? { reason } : {}),
   });
 }
 async function freshInstallation(run: () => Promise<void>) {
@@ -261,6 +273,7 @@ async function freshInstallation(run: () => Promise<void>) {
     fixture.pauseDiscovery = null;
     fixture.pauseExchange = null;
     fixture.claims = {};
+    fixture.issuer = "https://id.example.com";
     vi.stubEnv("WELDALL_SETUP_TOKEN", setupToken);
     if (fixture.prisma !== original) await fixture.prisma.$disconnect();
     fixture.prisma = original;
@@ -470,6 +483,32 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       expect(await fixture.prisma.emailScopeGrant.count()).toBe(2);
       expect(await fixture.prisma.session.count()).toBe(1);
       expect(await fixture.prisma.auditEvent.count()).toBe(1);
+    });
+  });
+  it("an Entra ID rejection names its allowlisted reason in the setup test and the first administrator login", async () => {
+    await freshInstallation(async () => {
+      fixture.issuer = entraConfig.issuer;
+      const before = await snapshot();
+      const test = await beginSetup("setup-test", entraConfig);
+      fixture.nonce = test.nonce;
+      fixture.claims = entraGuestClaims;
+      expectTestResult(
+        await request(test.path),
+        "setup-test",
+        test.testId!,
+        false,
+        "entra_guest_denied",
+      );
+      expect(await snapshot()).toEqual(before);
+      // A real first administrator login lands on /login, which forwards the code to /setup.
+      const setup = await beginSetup("setup", entraConfig);
+      fixture.nonce = setup.nonce;
+      const rejected = await request(setup.path);
+      expect(rejected.status).toBe(302);
+      expect(rejected.headers.get("location")).toBe(
+        `${origin}/login?loginError=entra_guest_denied`,
+      );
+      expect(await snapshot()).toEqual(before);
     });
   });
   it("setup-test remains browser-bound, expiring, cancellable and unable to complete through the service", async () => {
@@ -1567,6 +1606,31 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       false,
     );
     expect(await snapshot()).toEqual(before);
+    fixture.issuer = entraConfig.issuer;
+    try {
+      const entraTestId = randomUUID();
+      const entra = await request("/oidc/admin-test", {
+        ...body,
+        config: { ...entraConfig, name: "Unsaved Entra test" },
+        testId: entraTestId,
+      });
+      expect(entra.status).toBe(200);
+      const entraUrl = new URL((await entra.json()).url);
+      fixture.nonce = entraUrl.searchParams.get("nonce")!;
+      fixture.claims = entraGuestClaims;
+      expectTestResult(
+        await request(
+          `/callback/${draft.providerId}?state=${entraUrl.searchParams.get("state")}&code=test`,
+        ),
+        "provider-test",
+        entraTestId,
+        false,
+        "entra_guest_denied",
+      );
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      fixture.issuer = "https://id.example.com";
+    }
     fixture.claims = {};
     const sessionBoundTestId = randomUUID();
     const sessionBound = new URL(

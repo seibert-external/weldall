@@ -133,7 +133,7 @@ export function SetupForm({ callbackUrl }: { callbackUrl: string }) {
       setStatus(
         passed
           ? "Test login passed for these values. Nothing was saved. Complete installation requires a separate verified login."
-          : "Test login failed or did not match the nominated email. You can retry or complete installation with a new verified login.",
+          : "Test login failed or did not match the nominated email. See the test tab for details. You can retry or complete installation with a new verified login.",
       );
     };
     window.addEventListener("message", receive);

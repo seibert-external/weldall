@@ -78,29 +78,3 @@ export function buttonForeground(color: string): string {
     ? "#000000"
     : "#ffffff";
 }
-export function verifiedIdentity(claims: Record<string, unknown>, config: ProviderConfig) {
-  const email = emailSchema.safeParse(claims.email);
-  if (
-    claims.email_verified !== true ||
-    !email.success ||
-    typeof claims.sub !== "string" ||
-    !claims.sub.trim() ||
-    claims.sub.length > 255
-  )
-    throw new LoginError("unverified_identity");
-  if (
-    config.allowedEmailDomains.length &&
-    !config.allowedEmailDomains.includes(email.data.split("@")[1]!)
-  )
-    throw new LoginError("email_domain_denied");
-  return {
-    issuer: config.issuer,
-    subject: claims.sub,
-    email: email.data,
-    name:
-      typeof claims.name === "string" && claims.name.trim()
-        ? claims.name.slice(0, 200)
-        : email.data,
-  };
-}
-export type VerifiedIdentity = ReturnType<typeof verifiedIdentity>;

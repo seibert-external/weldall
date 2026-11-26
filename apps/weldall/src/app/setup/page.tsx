@@ -4,12 +4,20 @@ import { Text } from "@astryxdesign/core/Text";
 import { redirect } from "next/navigation";
 import { callbackUrl, firstProviderId, installationCompleted } from "@/server/auth/login-service";
 import { setupConfigurationIssues } from "@/server/auth/oidc-credentials";
+import { explainedLoginError, loginErrorMessage } from "@/lib/login-error-messages";
 import { SetupForm } from "./setup-form";
 import { Link } from "@astryxdesign/core/Link";
 
 export const dynamic = "force-dynamic";
-export default async function Setup() {
+export default async function Setup({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   if (await installationCompleted()) redirect("/login");
+  const query = await searchParams;
+  // Only an allowlisted reason forwarded by /login after a failed first administrator login.
+  const failure = query.failed === "1" ? explainedLoginError(query.reason) : undefined;
   const issues = setupConfigurationIssues();
   return (
     <div className="login-shell">
@@ -39,6 +47,14 @@ export default async function Setup() {
             </>
           ) : (
             <>
+              {failure ? (
+                <Banner
+                  container="card"
+                  status="error"
+                  title="First administrator login failed"
+                  description={loginErrorMessage(failure)}
+                />
+              ) : null}
               <Text className="py-2">
                 To use Weldall you need to connect a central OIDC provider. This is probably your
                 companies SSO provider like Entra or Google. Please configure the service

@@ -4,7 +4,6 @@ import {
   emailSchema,
   discoveryUrl,
   providerConfigSchema,
-  verifiedIdentity,
 } from "../src/server/auth/oidc-config";
 import { requireSetupToken, seal, unseal } from "../src/server/auth/oidc-credentials";
 import {
@@ -56,28 +55,6 @@ describe("OIDC config", () => {
   ])("rejects invalid config %j", (patch) =>
     expect(providerConfigSchema.safeParse({ ...config, ...patch }).success).toBe(false),
   );
-  it("requires boolean verification and exact normalized domain every time", () => {
-    const provider = providerConfigSchema.parse({
-      ...config,
-      allowedEmailDomains: ["EXAMPLE.COM"],
-    });
-    expect(
-      verifiedIdentity(
-        { sub: "subject", email: "Alice@Example.com", email_verified: true },
-        provider,
-      ).email,
-    ).toBe("alice@example.com");
-    for (const verification of [false, "true", 1, undefined])
-      expect(() =>
-        verifiedIdentity(
-          { sub: "s", email: "alice@example.com", email_verified: verification },
-          provider,
-        ),
-      ).toThrow("unverified_identity");
-    expect(() =>
-      verifiedIdentity({ sub: "s", email: "a@sub.example.com", email_verified: true }, provider),
-    ).toThrow("email_domain_denied");
-  });
 });
 it("encrypts with purpose and identity binding and protects setup token", () => {
   vi.stubEnv("WELDALL_CREDENTIAL_ENCRYPTION_KEY", Buffer.alloc(32, 1).toString("base64"));

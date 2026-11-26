@@ -14,6 +14,7 @@ import { z } from "zod";
 import { WELDALL_ISSUER } from "../oauth/constants";
 import { LoginError, providerConfigSchema, emailSchema } from "./oidc-config";
 import { randomValue, setupConfigurationIssues } from "./oidc-credentials";
+import { testResultUrl } from "./login-test-result-url";
 import {
   callbackUrl,
   completeVerifiedAttempt,
@@ -49,17 +50,6 @@ async function adminSession(ctx: Parameters<typeof getSessionFromCtx>[0]) {
   if (!session) throw new LoginError("admin_required");
   await requireAdminUser(session.user.id);
   return session;
-}
-function testResultUrl(
-  mode: "setup-test" | "provider-test",
-  testId: string,
-  passed: boolean,
-): string {
-  const url = new URL("/login/test-result", WELDALL_ISSUER);
-  url.searchParams.set("mode", mode);
-  url.searchParams.set("testId", testId);
-  url.searchParams.set("passed", String(passed));
-  return url.toString();
 }
 export function trustedLoginMutation(request: Request): boolean {
   return (
@@ -298,12 +288,12 @@ export function oidcLoginPlugin(): BetterAuthPlugin {
             }
             result = await completeVerifiedAttempt(attempt, identity);
           } catch (error) {
+            const code = error instanceof LoginError ? error.code : "login_unavailable";
             if (
               (attempt?.mode === "provider-test" || attempt?.mode === "setup-test") &&
               attempt.payload.testId
             )
-              return ctx.redirect(testResultUrl(attempt.mode, attempt.payload.testId, false));
-            const code = error instanceof LoginError ? error.code : "login_unavailable";
+              return ctx.redirect(testResultUrl(attempt.mode, attempt.payload.testId, false, code));
             return ctx.redirect(`${WELDALL_ISSUER}/login?loginError=${encodeURIComponent(code)}`);
           }
           // Use Better Auth's own session creation and signed cookies, only after committed completion/linking.

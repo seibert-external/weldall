@@ -75,6 +75,11 @@ export default defineConfig({
               link: "/installer/",
             },
             {
+              label: "How to: Entra ID",
+              translations: { de: "How to: Entra ID" },
+              link: "/entra-id/",
+            },
+            {
               label: "How to: Develop locally",
               translations: { de: "How to: Lokal entwickeln" },
               link: "/local-development/",

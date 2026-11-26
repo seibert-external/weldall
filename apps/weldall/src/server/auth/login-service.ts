@@ -3,14 +3,9 @@ import { randomState, randomNonce, randomPKCECodeVerifier } from "openid-client"
 import { db, ensureSystemScopes, ADMIN_SCOPE_KEY, LOGIN_SCOPE_KEY, type Prisma } from "@weldall/db";
 import { z } from "zod";
 import { WELDALL_ISSUER } from "../oauth/constants";
-import {
-  emailSchema,
-  LoginError,
-  providerConfigSchema,
-  type ProviderConfig,
-  type VerifiedIdentity,
-} from "./oidc-config";
+import { emailSchema, LoginError, providerConfigSchema, type ProviderConfig } from "./oidc-config";
 import { digest, requireSetupToken, seal, unseal } from "./oidc-credentials";
+import type { VerifiedIdentity } from "./oidc-identity";
 import { authorizationUrl, verifyCallback } from "./oidc-runtime";
 
 /** Builds a provider callback from the configured Weldall origin, never the request Host. */

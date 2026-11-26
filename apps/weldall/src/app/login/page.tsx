@@ -1,6 +1,7 @@
 import { VStack } from "@astryxdesign/core/Stack";
 import { installationCompleted, publicLoginProviders } from "@/server/auth/login-service";
 import { redirect } from "next/navigation";
+import { explainedLoginError } from "@/lib/login-error-messages";
 import { AppearanceSequence } from "../_components/appearance-sequence";
 import { LoginOptions } from "./login-options";
 
@@ -12,7 +13,11 @@ export default async function Login({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const query = await searchParams;
-  if (!(await installationCompleted())) redirect(query.loginError ? "/setup?failed=1" : "/setup");
+  if (!(await installationCompleted())) {
+    // Only an allowlisted explained code travels on; setup shows its message to the installer.
+    const reason = explainedLoginError(query.loginError);
+    redirect(query.loginError ? `/setup?failed=1${reason ? `&reason=${reason}` : ""}` : "/setup");
+  }
   const loginProviders = await publicLoginProviders();
   return (
     <div className="login-shell">

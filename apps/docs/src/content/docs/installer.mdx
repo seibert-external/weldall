@@ -22,6 +22,7 @@ The first start is a web installer at `/setup`. It asks for the operator token, 
 - The instance answers on its public HTTPS URL. [How to: Set up Weldall](../weldall-setup/) covers the container.
 - `WELDALL_SETUP_TOKEN` and `WELDALL_CREDENTIAL_ENCRYPTION_KEY` are set on the server. Without them the installer stays closed.
 - Access to your IdP to create an OIDC client. Google calls it an OAuth client; the form asks for its client ID and secret.
+- For Microsoft Entra ID, prepare the app registration with [How to: Entra ID](../entra-id/) first. Entra ID needs optional claims and a tenant-bound issuer.
 
 ## 1. Open the installer
 

@@ -5,6 +5,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/Stack";
 import { authClient } from "@/lib/auth-client";
 import { buttonForeground } from "@/server/auth/oidc-config";
+import { loginErrorMessage } from "@/lib/login-error-messages";
 import { queueOperationSuccess } from "../_components/use-operation-toast";
 
 export function LoginOptions({
@@ -18,7 +19,7 @@ export function LoginOptions({
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     if (query.has("loginError")) {
-      setError("Login failed. Please retry or contact your administrator.");
+      setError(loginErrorMessage(query.get("loginError")));
       return;
     }
     if (session.isPending || !session.data) return;
