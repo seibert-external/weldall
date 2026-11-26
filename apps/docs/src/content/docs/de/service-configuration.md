@@ -50,6 +50,7 @@ Sobald der Service über HTTPS erreichbar ist, öffne die Administrationsoberfl�
 | Scopes               | `contracts:read`                    |
 | Enabled              | aktiviert                           |
 | Discover skills      | aktiviert                           |
+| Discover agents      | deaktiviert                         |
 
 Die Werte müssen zur Konfiguration im Service passen. Weldall gibt keine Zugangsdaten oder Request-Daten an URLs außerhalb der registrierten Präfixe weiter.
 

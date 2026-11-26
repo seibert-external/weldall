@@ -17,6 +17,8 @@ export interface AgentSummary {
   scopes: string[];
   config: { format: string; version: number; definition: unknown };
   revision: number;
+  /** Sent by servers since agents carry a creation date; absent from earlier ones. */
+  createdAt?: string;
   updatedAt: string;
   expiresAt: string;
   expired: boolean;
@@ -48,8 +50,13 @@ const isAgentSummary = (value: unknown): value is AgentSummary =>
   isRecord(value.config) &&
   typeof value.config.format === "string" &&
   typeof value.config.version === "number" &&
+  typeof value.revision === "number" &&
+  (value.createdAt === undefined || typeof value.createdAt === "string") &&
+  typeof value.updatedAt === "string" &&
+  typeof value.expiresAt === "string" &&
   typeof value.expired === "boolean" &&
   isRecord(value.source) &&
+  typeof value.source.type === "string" &&
   typeof value.source.key === "string" &&
   typeof value.source.name === "string";
 
@@ -68,17 +75,25 @@ export function parseAgentList(value: unknown): AgentList {
   return value as unknown as AgentList;
 }
 
+const AGENT_LIST_LABEL = "Weldall agent list request";
+
 export async function listAgents(config: WeldallConfig): Promise<AgentList> {
   try {
     const { value } = await authenticatedGet(
       config,
       `${config.issuer}/api/me/agents`,
       undefined,
-      "Weldall agent list request",
+      AGENT_LIST_LABEL,
     );
     return parseAgentList(value);
   } catch (error) {
-    if (error instanceof CliError && error.message.includes("HTTP 404"))
+    // The transfer layer carries the status only in the message, so match its exact prefix rather
+    // than any "HTTP 404" that a server's error detail might contain.
+    const notFound = `${AGENT_LIST_LABEL} failed with HTTP 404`;
+    if (
+      error instanceof CliError &&
+      (error.message === notFound || error.message.startsWith(`${notFound}:`))
+    )
       throw new CliError("This Weldall server does not offer shared agents.", {
         cause: error,
         hint: "Agent discovery needs a newer Weldall server.",

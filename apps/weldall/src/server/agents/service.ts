@@ -20,6 +20,8 @@ export interface VisibleAgent {
   scopes: string[];
   config: { format: string; version: number; definition: unknown };
   revision: number;
+  /** When the agent was created and last changed at the resource, as it reports them. */
+  createdAt: string;
   updatedAt: string;
   expiresAt: string;
   /** Past its re-verification date at the resource. Flagged only; the client decides what to do. */
@@ -27,10 +29,18 @@ export interface VisibleAgent {
   source: { type: "resource"; key: string; name: string };
 }
 
-export interface AgentWarning {
-  source: string;
-  code: "catalog_pending" | "catalog_temporarily_unavailable" | "catalog_expired";
-}
+/** Shown to administrators only. */
+export type AgentWarning =
+  | {
+      source: string;
+      code: "catalog_pending" | "catalog_temporarily_unavailable" | "catalog_expired";
+    }
+  | {
+      source: string;
+      /** The resource published agents that failed validation; they were left out. */
+      code: "agents_skipped";
+      count: number;
+    };
 
 /**
  * A resource that keeps agents for people: where a client stores and shares them. Listed for every
@@ -59,11 +69,104 @@ export interface VisibleAgentsEnvelope {
   shareableScopes: ShareableScope[];
 }
 
+/**
+ * The agent side of a resource's catalog (`DiscoveredSkillCatalog.agents*`), kept apart from the
+ * skill side so that agents that cannot be read never take the skills offline.
+ * - `fresh` / `stale`: the agents are shown; `stale` means a refresh is due.
+ * - `failed`: the last refresh could not read the agents (or failed as a whole); while the last copy
+ *   is younger than a day it is still shown, otherwise the state is `expired`.
+ * - `expired`: people do not see the agents: the copy is older than a day, or it was read before
+ *   the resource was last changed and is shown again after the next refresh.
+ * - `pending`: never read yet. `disabled`: the resource or its agent discovery is off.
+ */
+export type AgentCatalogState = "disabled" | "pending" | "fresh" | "stale" | "failed" | "expired";
+
+export interface AgentCatalogStatus {
+  state: AgentCatalogState;
+  lastSuccessfulRefreshAt: string | null;
+  /** Why the agent side of the last refresh failed; null when it did not. */
+  lastFailureCategory: string | null;
+  lastFailureAt: string | null;
+  /** Agents of the last stored copy that failed validation and were left out. */
+  skippedCount: number;
+}
+
+/** The catalog columns `agentCatalogStatus` reads. */
+export const agentCatalogStatusSelect = {
+  nextRefreshAt: true,
+  lastFailureCategory: true,
+  agentsSourceResourceVersion: true,
+  agentsLastSuccessfulRefreshAt: true,
+  agentsStaleAfter: true,
+  agentsLastFailureCategory: true,
+  agentsLastFailureAt: true,
+  agentsSkippedCount: true,
+} as const satisfies Prisma.DiscoveredSkillCatalogSelect;
+
+type AgentCatalogColumns = Prisma.DiscoveredSkillCatalogGetPayload<{
+  select: typeof agentCatalogStatusSelect;
+}>;
+
+export function agentCatalogStatus(
+  resource: { enabled: boolean; agentDiscoveryEnabled: boolean; version: number },
+  catalog: AgentCatalogColumns | null,
+  now: Date = new Date(),
+): AgentCatalogStatus {
+  // A refresh that failed as a whole did not read the agents either.
+  const failed = Boolean(catalog?.agentsLastFailureCategory ?? catalog?.lastFailureCategory);
+  const state: AgentCatalogState =
+    !resource.enabled || !resource.agentDiscoveryEnabled
+      ? "disabled"
+      : !catalog?.agentsLastSuccessfulRefreshAt
+        ? failed
+          ? "failed"
+          : "pending"
+        : !catalog.agentsStaleAfter ||
+            catalog.agentsStaleAfter <= now ||
+            catalog.agentsSourceResourceVersion !== resource.version
+          ? "expired"
+          : failed
+            ? "failed"
+            : catalog.nextRefreshAt <= now
+              ? "stale"
+              : "fresh";
+  return {
+    state,
+    lastSuccessfulRefreshAt: catalog?.agentsLastSuccessfulRefreshAt?.toISOString() ?? null,
+    lastFailureCategory: catalog?.agentsLastFailureCategory ?? null,
+    lastFailureAt: catalog?.agentsLastFailureAt?.toISOString() ?? null,
+    skippedCount: catalog?.agentsSkippedCount ?? 0,
+  };
+}
+
+/** People see the agents of a catalog in these states (`agentCatalogStatus`). */
+const SHOWN_STATES: ReadonlySet<AgentCatalogState> = new Set(["fresh", "stale", "failed"]);
+/** The warning an administrator gets for a catalog in this state; none for the others. */
+const stateWarnings: Partial<
+  Record<AgentCatalogState, Exclude<AgentWarning["code"], "agents_skipped">>
+> = {
+  pending: "catalog_pending",
+  failed: "catalog_temporarily_unavailable",
+  expired: "catalog_expired",
+};
+
+/** Display name and email of the people who shared agents, by user id. */
+async function ownersById(ownerIds: Iterable<string>) {
+  const ids = [...new Set(ownerIds)];
+  const owners = ids.length
+    ? await db.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  return new Map(owners.map((owner) => [owner.id, owner]));
+}
+
 export async function listVisibleAgents(user: {
   id: string;
   email: string;
 }): Promise<VisibleAgentsEnvelope> {
-  const grants = await effectiveScopesFor(user.email);
+  const grants = new Set<string>(await effectiveScopesFor(user.email));
   // An agent's scopes widen who sees it, and Weldall takes them from the resource as reported.
   // Weldall's own permissions (administration, login, ...) therefore never open an agent: no
   // resource can address administrators or simply everyone.
@@ -81,15 +184,14 @@ export async function listVisibleAgents(user: {
       key: true,
       name: true,
       version: true,
+      enabled: true,
+      agentDiscoveryEnabled: true,
       scopes: { select: { scope: { select: { key: true } } } },
       discoveredCatalog: {
         select: {
+          ...agentCatalogStatusSelect,
           agentApiEndpoint: true,
           agentApiScope: true,
-          lastSuccessfulRefreshAt: true,
-          staleAfter: true,
-          sourceResourceVersion: true,
-          lastFailureCategory: true,
           agents: {
             where: { OR: [{ ownerId: user.id }, { scopes: { hasSome: shareable } }] },
             orderBy: [{ name: "asc" }, { canonicalId: "asc" }],
@@ -98,36 +200,22 @@ export async function listVisibleAgents(user: {
       },
     },
   });
-  const canViewCatalogIssues = new Set<string>(grants).has(ADMIN_SCOPE_KEY);
+  const canViewCatalogIssues = grants.has(ADMIN_SCOPE_KEY);
   const warnings: AgentWarning[] = [];
   const registries: AgentRegistry[] = [];
   const visible: Array<{
     resource: (typeof resources)[number];
     agent: NonNullable<(typeof resources)[number]["discoveredCatalog"]>["agents"][number];
   }> = [];
-  // Same freshness rules as for discovered skills (`skills/service.ts`).
+  // The freshness rules of discovered skills (`skills/service.ts`), applied to the agent side.
   for (const resource of resources) {
     const catalog = resource.discoveredCatalog;
-    if (!catalog?.lastSuccessfulRefreshAt) {
-      if (canViewCatalogIssues)
-        warnings.push({
-          source: resource.key,
-          code: catalog?.lastFailureCategory
-            ? "catalog_temporarily_unavailable"
-            : "catalog_pending",
-        });
-      continue;
-    }
-    if (
-      !catalog.staleAfter ||
-      catalog.staleAfter <= now ||
-      catalog.sourceResourceVersion !== resource.version
-    ) {
-      if (canViewCatalogIssues) warnings.push({ source: resource.key, code: "catalog_expired" });
-      continue;
-    }
-    if (canViewCatalogIssues && catalog.lastFailureCategory)
-      warnings.push({ source: resource.key, code: "catalog_temporarily_unavailable" });
+    const status = agentCatalogStatus(resource, catalog, now);
+    const warning = stateWarnings[status.state];
+    if (canViewCatalogIssues && warning) warnings.push({ source: resource.key, code: warning });
+    if (!catalog || !SHOWN_STATES.has(status.state)) continue;
+    if (canViewCatalogIssues && status.skippedCount)
+      warnings.push({ source: resource.key, code: "agents_skipped", count: status.skippedCount });
     for (const agent of catalog.agents) visible.push({ resource, agent });
     // Only a permission of the resource itself: a resource cannot make clients ask for another's.
     if (
@@ -140,15 +228,11 @@ export async function listVisibleAgents(user: {
         name: resource.name,
         endpoint: catalog.agentApiEndpoint,
         scope: catalog.agentApiScope,
-        allowed: new Set<string>(grants).has(catalog.agentApiScope),
+        allowed: grants.has(catalog.agentApiScope),
       });
   }
 
-  const ownerIds = [...new Set(visible.map(({ agent }) => agent.ownerId))];
-  const owners = ownerIds.length
-    ? await db.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, name: true } })
-    : [];
-  const ownerNames = new Map(owners.map((owner) => [owner.id, owner.name]));
+  const owners = await ownersById(visible.map(({ agent }) => agent.ownerId));
 
   return {
     items: visible
@@ -158,7 +242,7 @@ export async function listVisibleAgents(user: {
         name: agent.name,
         description: agent.description,
         own: agent.ownerId === user.id,
-        ownerName: ownerNames.get(agent.ownerId) ?? null,
+        ownerName: owners.get(agent.ownerId)?.name ?? null,
         scopes: agent.scopes,
         config: {
           format: agent.configFormat,
@@ -166,6 +250,7 @@ export async function listVisibleAgents(user: {
           definition: agent.config,
         },
         revision: agent.revision,
+        createdAt: agent.sourceCreatedAt.toISOString(),
         updatedAt: agent.sourceUpdatedAt.toISOString(),
         expiresAt: agent.expiresAt.toISOString(),
         expired: agent.expiresAt <= now,
@@ -180,6 +265,10 @@ export async function listVisibleAgents(user: {
   };
 }
 
+/** How the directory names who shared an agent. */
+export const sharedByLabel = (agent: Pick<VisibleAgent, "own" | "ownerName">): string =>
+  agent.own ? "You" : (agent.ownerName ?? "Unknown");
+
 /** One agent the person may use, by its id (`<resource key>.<id at the resource>`). */
 export async function getVisibleAgent(
   user: { id: string; email: string },
@@ -189,9 +278,10 @@ export async function getVisibleAgent(
 }
 
 /**
- * What the directory shows of an agent's definition. Weldall passes a definition on without
- * reading it; this reads the one format it knows how to show (`weldall-agent`, version 1) and
- * answers null for any other, which the directory then lists without its content.
+ * What the directory shows of an agent's definition. Discovery and `GET /api/me/agents` pass a
+ * definition on without reading it; only the directory reads it, in the one format it knows how to
+ * show (`weldall-agent`, version 1), and answers null for any other, which it then lists without
+ * its content. Fields it does not understand are left out rather than refused.
  */
 export interface AgentContent {
   instructions: string;
@@ -204,24 +294,26 @@ export interface AgentContent {
   chosen: { skills: string[]; connections: string[] } | null;
 }
 
-const strings = (value: unknown): string[] =>
+/** The strings of a JSON array; anything else in it, or a value that is no array, is dropped. */
+const stringItems = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-const record = (value: unknown): Record<string, unknown> | null =>
+/** The value as a JSON object, or null when it is none (an array, a string, null, ...). */
+const asJsonObject = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 
 export function agentContent(config: VisibleAgent["config"]): AgentContent | null {
-  const definition = record(config.definition);
+  const definition = asJsonObject(config.definition);
   if (config.format !== "weldall-agent" || config.version !== 1 || !definition) return null;
-  const tools = record(definition.tools);
+  const tools = asJsonObject(definition.tools);
   if (typeof definition.instructions !== "string" || !tools) return null;
   return {
     instructions: definition.instructions,
     prompt: typeof definition.prompt === "string" && definition.prompt ? definition.prompt : null,
-    starters: strings(definition.starters),
+    starters: stringItems(definition.starters),
     inputs: (Array.isArray(definition.inputs) ? definition.inputs : []).flatMap((input) => {
-      const field = record(input);
+      const field = asJsonObject(input);
       return field && typeof field.key === "string"
         ? [
             {
@@ -233,7 +325,7 @@ export function agentContent(config: VisibleAgent["config"]): AgentContent | nul
     }),
     chosen:
       tools.mode === "selected"
-        ? { skills: strings(tools.skills), connections: strings(tools.connections) }
+        ? { skills: stringItems(tools.skills), connections: stringItems(tools.connections) }
         : null,
   };
 }
@@ -264,13 +356,24 @@ export interface AdminAgentDto {
   ownerEmail: string | null;
   scopes: string[];
   revision: number;
+  /** As the resource reports them. */
+  createdAt: string;
   updatedAt: string;
   expiresAt: string;
   expired: boolean;
   resource: { id: string; key: string; name: string };
+  /**
+   * The state of the copy the agent comes from (`agentCatalogStatus`); in `expired` (and
+   * `pending`) people do not see it, though it is still stored.
+   */
+  catalogState: AgentCatalogState;
 }
 
-/** Agents of resources whose agent discovery is on, by name. `source` is a resource id. */
+/**
+ * Agents of resources whose agent discovery is on, by name. `source` is a resource id. Like the
+ * admin skill list, it also lists agents people cannot see at the moment and says so per row
+ * (`catalogState`).
+ */
 export async function listDiscoveredAgents(input: {
   page: number;
   pageSize: number;
@@ -311,21 +414,29 @@ export async function listDiscoveredAgents(input: {
         ownerId: true,
         scopes: true,
         revision: true,
+        sourceCreatedAt: true,
         sourceUpdatedAt: true,
         expiresAt: true,
-        catalog: { select: { resource: { select: { id: true, key: true, name: true } } } },
+        catalog: {
+          select: {
+            ...agentCatalogStatusSelect,
+            resource: {
+              select: {
+                id: true,
+                key: true,
+                name: true,
+                enabled: true,
+                agentDiscoveryEnabled: true,
+                version: true,
+              },
+            },
+          },
+        },
       },
     }),
     db.discoveredAgent.count({ where }),
   ]);
-  const ownerIds = [...new Set(rows.map((row) => row.ownerId))];
-  const owners = ownerIds.length
-    ? await db.user.findMany({
-        where: { id: { in: ownerIds } },
-        select: { id: true, name: true, email: true },
-      })
-    : [];
-  const ownersById = new Map(owners.map((owner) => [owner.id, owner]));
+  const owners = await ownersById(rows.map((row) => row.ownerId));
   const now = new Date();
   return {
     total,
@@ -334,14 +445,20 @@ export async function listDiscoveredAgents(input: {
       name: row.name,
       description: row.description,
       ownerId: row.ownerId,
-      ownerName: ownersById.get(row.ownerId)?.name ?? null,
-      ownerEmail: ownersById.get(row.ownerId)?.email ?? null,
+      ownerName: owners.get(row.ownerId)?.name ?? null,
+      ownerEmail: owners.get(row.ownerId)?.email ?? null,
       scopes: [...row.scopes].sort(),
       revision: row.revision,
+      createdAt: row.sourceCreatedAt.toISOString(),
       updatedAt: row.sourceUpdatedAt.toISOString(),
       expiresAt: row.expiresAt.toISOString(),
       expired: row.expiresAt <= now,
-      resource: row.catalog.resource,
+      resource: {
+        id: row.catalog.resource.id,
+        key: row.catalog.resource.key,
+        name: row.catalog.resource.name,
+      },
+      catalogState: agentCatalogStatus(row.catalog.resource, row.catalog, now).state,
     })),
   };
 }

@@ -12,6 +12,7 @@ import {
   listVisibleAgents,
 } from "../src/server/agents/service.js";
 import { refreshResourceCatalog } from "../src/server/skills/catalogs.js";
+import { listVisibleSkills } from "../src/server/skills/service.js";
 
 const id = randomUUID().replaceAll("-", "");
 const key = `agenttest-${id}`;
@@ -42,6 +43,7 @@ const agent = (overrides: Record<string, unknown> = {}) => ({
   scopes: [intranetScope, salesScope],
   config: { format: "weldall-agent", version: 1, definition },
   revision: 3,
+  createdAt: "2026-10-01T08:00:00.000Z",
   updatedAt: "2026-11-20T10:00:00.000Z",
   expiresAt: "2100-01-01T00:00:00.000Z",
   ...overrides,
@@ -106,6 +108,17 @@ const storedAgents = () =>
     where: { catalog: { resourceId: resource.id } },
     orderBy: { localId: "asc" },
   });
+const storedCatalog = () =>
+  db.discoveredSkillCatalog.findUniqueOrThrow({ where: { resourceId: resource.id } });
+const switchSkills = (skillDiscoveryEnabled: boolean) =>
+  db.downstreamResource.update({
+    where: { id: resource.id },
+    data: { skillDiscoveryEnabled },
+  });
+const visibleSkillIds = async (email: string) =>
+  (await listVisibleSkills(email)).items
+    .map((skill) => skill.slug)
+    .filter((slug) => slug.startsWith(`${key}.`));
 
 const priorSigningEnv = {
   kid: process.env.WELDALL_SIGNING_KID,
@@ -210,6 +223,7 @@ describe("agent discovery", () => {
         configVersion: 1,
         config: definition,
         revision: 3,
+        sourceCreatedAt: new Date("2026-10-01T08:00:00.000Z"),
         sourceUpdatedAt: new Date("2026-11-20T10:00:00.000Z"),
         expiresAt: new Date("2100-01-01T00:00:00.000Z"),
       },
@@ -252,6 +266,7 @@ describe("agent discovery", () => {
           scopes: [intranetScope, salesScope],
           config: { format: "weldall-agent", version: 1, definition },
           revision: 3,
+          createdAt: "2026-10-01T08:00:00.000Z",
           updatedAt: "2026-11-20T10:00:00.000Z",
           expiresAt: "2100-01-01T00:00:00.000Z",
           expired: false,
@@ -313,11 +328,16 @@ describe("agent discovery", () => {
     served.agentApi = { ...api, scope: intranetScope };
     await expect(refresh()).resolves.toBe("succeeded");
     expect((await listVisibleAgents(colleague)).registries).toEqual([]);
-    // An address elsewhere, or half an entry, fails the refresh like other broken metadata.
+    // An address elsewhere, or half an entry, fails the agent side like other broken metadata.
     served.agentApi = { ...api, endpoint: "https://elsewhere.example.com/api/agents" };
-    await expect(refresh()).resolves.not.toBe("succeeded");
+    await expect(refresh()).resolves.toBe("agents_failed");
+    expect(await storedCatalog()).toMatchObject({
+      lastFailureCategory: null,
+      agentsLastFailureCategory: "agents_metadata_invalid",
+    });
     served.agentApi = { endpoint: api.endpoint };
-    await expect(refresh()).resolves.not.toBe("succeeded");
+    await expect(refresh()).resolves.toBe("agents_failed");
+    await db.resourceScope.deleteMany({ where: { resourceId: resource.id } });
   });
 
   it("opens one agent only for a person who may use it, and reads the format it knows", async () => {
@@ -412,6 +432,13 @@ describe("agent discovery", () => {
     expect(requested).toContain(skillsEndpoint);
     expect(requested).not.toContain(agentsEndpoint);
     expect(await storedAgents()).toEqual([]);
+    expect(await storedCatalog()).toMatchObject({
+      agentsLastSuccessfulRefreshAt: null,
+      agentsStaleAfter: null,
+      agentsLastFailureCategory: null,
+      agentsSkippedCount: 0,
+      agentApiEndpoint: null,
+    });
     expect((await listVisibleAgents(owner)).items).toEqual([]);
     const skills = () =>
       db.discoveredSkill.count({ where: { catalog: { resourceId: resource.id } } });
@@ -436,48 +463,175 @@ describe("agent discovery", () => {
     expect(await storedAgents()).toHaveLength(1);
   });
 
-  it("fails the refresh when agents are switched on and the resource names no endpoint", async () => {
+  it("keeps the skills online when the resource names no agent endpoint", async () => {
+    served.skillsEndpoint = true;
+    await switchSkills(true);
     await expect(refresh()).resolves.toBe("succeeded");
     served.agentPages = null;
-    await expect(refresh()).resolves.toBe("failed");
-    const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
-      where: { resourceId: resource.id },
+
+    await expect(refresh()).resolves.toBe("agents_failed");
+    const catalog = await storedCatalog();
+    const { version } = await db.downstreamResource.findUniqueOrThrow({
+      where: { id: resource.id },
     });
-    expect(catalog.lastFailureCategory).toBe("metadata_invalid");
-    expect(await storedAgents()).toHaveLength(1);
+    // The skill side succeeded as it would without agents.
+    expect(catalog).toMatchObject({
+      lastFailureCategory: null,
+      retryCount: 0,
+      sourceResourceVersion: version,
+      agentsLastFailureCategory: "agents_metadata_invalid",
+    });
+    expect(catalog.agentsLastFailureAt).toEqual(catalog.lastSuccessfulRefreshAt);
+    expect(await visibleSkillIds(colleague.email)).toEqual([`${key}.howto`]);
+    expect((await listVisibleSkills(admin.email)).warnings).not.toContainEqual(
+      expect.objectContaining({ source: key }),
+    );
+    // The agents keep their last copy and are still shown while it is younger than a day.
+    expect((await storedAgents()).map((stored) => stored.localId)).toEqual(["agt_intranet"]);
+    expect((await listVisibleAgents(colleague)).items).toHaveLength(1);
+    expect((await listVisibleAgents(admin)).warnings).toContainEqual({
+      source: key,
+      code: "catalog_temporarily_unavailable",
+    });
+
+    // Once the agents can be read again, the failure is cleared.
+    served.agentPages = [page([agent()])];
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await storedCatalog()).toMatchObject({
+      agentsLastFailureCategory: null,
+      agentsLastFailureAt: null,
+    });
+    expect((await listVisibleAgents(admin)).warnings).toEqual([]);
+  });
+
+  it("keeps showing skills but hides agents read before the resource was changed", async () => {
+    served.skillsEndpoint = true;
+    await switchSkills(true);
+    await expect(refresh()).resolves.toBe("succeeded");
+    const changed = await db.downstreamResource.update({
+      where: { id: resource.id },
+      data: { version: { increment: 1 } },
+    });
+    served.agentStatus = 503;
+
+    await expect(refresh()).resolves.toBe("agents_failed");
+    expect(await storedCatalog()).toMatchObject({
+      sourceResourceVersion: changed.version,
+      agentsSourceResourceVersion: changed.version - 1,
+      agentsLastFailureCategory: "agents_unavailable",
+    });
+    expect(await visibleSkillIds(colleague.email)).toEqual([`${key}.howto`]);
+    expect((await listVisibleAgents(colleague)).items).toEqual([]);
+    expect((await listVisibleAgents(admin)).warnings).toContainEqual({
+      source: key,
+      code: "catalog_expired",
+    });
+    expect(
+      (await listDiscoveredAgents({ page: 1, pageSize: 20, source: resource.id })).items,
+    ).toMatchObject([{ id: `${key}.agt_intranet`, catalogState: "expired" }]);
+
+    served.agentStatus = 200;
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect((await listVisibleAgents(colleague)).items).toHaveLength(1);
+  });
+
+  it("fails the skill side as it would without agents, and keeps the agents", async () => {
+    served.skillsEndpoint = true;
+    await switchSkills(true);
+    await expect(refresh()).resolves.toBe("succeeded");
+    // The resource stops naming its skill catalog: broken metadata for the skill side.
+    served.skillsEndpoint = false;
+
+    await expect(refresh()).resolves.toBe("failed");
+    expect(await storedCatalog()).toMatchObject({
+      lastFailureCategory: "metadata_invalid",
+      agentsLastFailureCategory: null,
+    });
+    expect((await storedAgents()).map((stored) => stored.localId)).toEqual(["agt_intranet"]);
+    // Neither side was read: administrators are told the agents are not current.
+    expect((await listVisibleAgents(admin)).warnings).toContainEqual({
+      source: key,
+      code: "catalog_temporarily_unavailable",
+    });
   });
 
   it.each([
     ["an unreachable endpoint", { agentStatus: 503 }, "agents_unavailable"],
     ["a refused assertion", { agentStatus: 401 }, "agents_unauthorized"],
     ["another resource's page", { pages: [{ ...page([]), resource: origin }] }, "agents_invalid"],
-    ["an unknown field", { pages: [page([agent({ command: "rm -rf" })])] }, "agents_invalid"],
-    ["an invalid scope", { pages: [page([agent({ scopes: ["Everyone"] })])] }, "agents_invalid"],
+    ["a page with an unknown field", { pages: [{ ...page([]), extra: 1 }] }, "agents_invalid"],
+    ["a page that is no JSON object", { pages: [[agent()]] }, "agents_invalid"],
     ["the same agent twice", { pages: [page([agent()], "1"), page([agent()])] }, "agents_invalid"],
     ["a cursor that repeats", { pages: [page([], "0")] }, "agents_invalid"],
-  ] as const)("keeps the last copy on %s", async (_name, change, category) => {
-    await expect(refresh()).resolves.toBe("succeeded");
-    if ("agentStatus" in change) served.agentStatus = change.agentStatus;
-    else served.agentPages = change.pages as unknown as Array<Record<string, unknown>>;
+  ] as const)(
+    "keeps the last copy of the agents and the skills on %s",
+    async (_name, change, category) => {
+      served.skillsEndpoint = true;
+      await switchSkills(true);
+      await expect(refresh()).resolves.toBe("succeeded");
+      if ("agentStatus" in change) served.agentStatus = change.agentStatus;
+      else served.agentPages = change.pages as unknown as Array<Record<string, unknown>>;
 
-    await expect(refresh()).resolves.toBe("failed");
-    const catalog = await db.discoveredSkillCatalog.findUniqueOrThrow({
-      where: { resourceId: resource.id },
+      await expect(refresh()).resolves.toBe("agents_failed");
+      expect(await storedCatalog()).toMatchObject({
+        lastFailureCategory: null,
+        agentsLastFailureCategory: category,
+      });
+      expect(await visibleSkillIds(colleague.email)).toEqual([`${key}.howto`]);
+      expect((await storedAgents()).map((stored) => stored.localId)).toEqual(["agt_intranet"]);
+      expect((await listVisibleAgents(admin)).warnings).toContainEqual({
+        source: key,
+        code: "catalog_temporarily_unavailable",
+      });
+      expect((await listVisibleAgents(colleague)).warnings).toEqual([]);
+    },
+  );
+
+  it("leaves out an agent that fails validation and stores the others", async () => {
+    served.agentPages = [
+      page(
+        [
+          agent({ id: "agt_long", description: "x".repeat(1_001) }),
+          agent({ id: "agt_unknown_field", command: "rm -rf" }),
+          agent({ id: "agt_bad_scope", scopes: ["Everyone"] }),
+          agent({
+            id: "agt_many_scopes",
+            scopes: Array.from({ length: 101 }, (_, index) => `agenttest${id}:s${index}`),
+          }),
+          agent({ id: "agt_ok_too", name: "Second" }),
+        ],
+        "1",
+      ),
+      page([agent(), (({ expiresAt: _, ...rest }) => rest)(agent({ id: "agt_no_expiry" }))]),
+    ];
+
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect((await storedAgents()).map((stored) => stored.localId)).toEqual([
+      "agt_intranet",
+      "agt_ok_too",
+    ]);
+    expect(await storedCatalog()).toMatchObject({
+      agentsSkippedCount: 5,
+      agentsLastFailureCategory: null,
     });
-    expect(catalog.lastFailureCategory).toBe(category);
-    expect((await storedAgents()).map((stored) => stored.localId)).toEqual(["agt_intranet"]);
-    expect((await listVisibleAgents(admin)).warnings).toContainEqual({
-      source: key,
-      code: "catalog_temporarily_unavailable",
-    });
+    expect((await listVisibleAgents(admin)).warnings).toEqual([
+      { source: key, code: "agents_skipped", count: 5 },
+    ]);
     expect((await listVisibleAgents(colleague)).warnings).toEqual([]);
+    expect((await listVisibleAgents(colleague)).items).toHaveLength(2);
+
+    // The count is the last refresh's.
+    served.agentPages = [page([agent()])];
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect((await storedCatalog()).agentsSkippedCount).toBe(0);
+    expect((await listVisibleAgents(admin)).warnings).toEqual([]);
   });
 
   it("hides agents of a stale catalog and of a resource with discovery switched off", async () => {
     await expect(refresh()).resolves.toBe("succeeded");
     await db.discoveredSkillCatalog.update({
       where: { resourceId: resource.id },
-      data: { staleAfter: new Date("2000-01-01T00:00:00.000Z") },
+      data: { agentsStaleAfter: new Date("2000-01-01T00:00:00.000Z") },
     });
     expect(await listVisibleAgents(owner)).toMatchObject({
       items: [],
@@ -526,10 +680,12 @@ describe("agent discovery", () => {
         ownerEmail: null,
         scopes: [salesScope],
         revision: 3,
+        createdAt: "2026-10-01T08:00:00.000Z",
         updatedAt: "2026-11-20T10:00:00.000Z",
         expiresAt: "2020-01-01T00:00:00.000Z",
         expired: true,
         resource: { id: resource.id, key, name: "Agent catalog test" },
+        catalogState: "fresh",
       },
       expect.objectContaining({
         id: `${key}.agt_intranet`,
@@ -553,6 +709,27 @@ describe("agent discovery", () => {
     const paged = await listDiscoveredAgents({ page: 2, pageSize: 1, source: resource.id });
     expect(paged).toMatchObject({ total: 2, items: [{ name: "Intranet helper" }] });
 
+    // A copy people no longer see is still listed, and says so per row.
+    await db.discoveredSkillCatalog.update({
+      where: { resourceId: resource.id },
+      data: { agentsStaleAfter: new Date("2000-01-01T00:00:00.000Z") },
+    });
+    expect(
+      (await listDiscoveredAgents({ page: 1, pageSize: 20, source: resource.id })).items.map(
+        (item) => item.catalogState,
+      ),
+    ).toEqual(["expired", "expired"]);
+    await db.discoveredSkillCatalog.update({
+      where: { resourceId: resource.id },
+      data: {
+        agentsStaleAfter: new Date("2100-01-01T00:00:00.000Z"),
+        agentsLastFailureCategory: "agents_unavailable",
+      },
+    });
+    expect(
+      (await listDiscoveredAgents({ page: 1, pageSize: 20, source: resource.id })).items[0],
+    ).toMatchObject({ catalogState: "failed" });
+
     // Switched off: nothing is listed, although the copy is still stored.
     await db.downstreamResource.update({
       where: { id: resource.id },
@@ -563,21 +740,38 @@ describe("agent discovery", () => {
     );
   });
 
-  it("parses a page strictly", () => {
-    expect(parseAgentCatalogPage(page([agent()]), resourceIdentifier).agents[0]).toMatchObject({
-      id: "agt_intranet",
-      updatedAt: new Date("2026-11-20T10:00:00.000Z"),
+  it("parses a page strictly and each agent on its own", () => {
+    expect(parseAgentCatalogPage(page([agent()]), resourceIdentifier)).toMatchObject({
+      skipped: 0,
+      agents: [
+        {
+          id: "agt_intranet",
+          createdAt: new Date("2026-10-01T08:00:00.000Z"),
+          updatedAt: new Date("2026-11-20T10:00:00.000Z"),
+        },
+      ],
     });
+    const { createdAt: _, ...withoutCreatedAt } = agent();
     for (const broken of [
-      page([agent({ id: "has space" })]),
-      page([agent({ owner: "" })]),
-      page([agent({ scopes: [intranetScope, intranetScope] })]),
-      page([agent({ config: { format: "weldall-agent", version: 1 } })]),
-      page([agent({ config: { format: "weldall-agent", version: 1, definition: [] } })]),
-      page([agent({ revision: 0 })]),
-      page([agent({ updatedAt: "yesterday" })]),
+      agent({ id: "has space" }),
+      agent({ owner: "" }),
+      agent({ scopes: [intranetScope, intranetScope] }),
+      agent({ config: { format: "weldall-agent", version: 1 } }),
+      agent({ config: { format: "weldall-agent", version: 1, definition: [] } }),
+      agent({ revision: 0 }),
+      agent({ updatedAt: "yesterday" }),
+      withoutCreatedAt,
+      "not an agent",
+    ])
+      expect(
+        parseAgentCatalogPage(page([agent({ id: "agt_ok" }), broken]), resourceIdentifier),
+      ).toMatchObject({ skipped: 1, agents: [{ id: "agt_ok" }] });
+    for (const broken of [
       { ...page([]), schemaVersion: 2 },
       { ...page([]), extra: true },
+      { ...page([]), agents: "none" },
+      { ...page([]), agents: Array.from({ length: 501 }, () => agent()) },
+      [],
     ])
       expect(() => parseAgentCatalogPage(broken, resourceIdentifier)).toThrow();
   });

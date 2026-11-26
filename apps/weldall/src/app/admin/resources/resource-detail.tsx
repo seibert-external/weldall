@@ -68,29 +68,48 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       },
     }),
   );
+  // What a reload reads: the saved switches of the resource.
+  const reloadLabel =
+    resourceQuery.data && !resourceQuery.data.agentDiscoveryEnabled
+      ? "Skills"
+      : resourceQuery.data && !resourceQuery.data.skillDiscoveryEnabled
+        ? "Agents"
+        : "Skills and agents";
   const refreshSkillsMutation = useMutation(
     trpc.admin.resources.refreshSkills.mutationOptions({
       onSuccess: async (outcome) => {
         await queryClient.invalidateQueries();
         if (outcome === "succeeded") {
-          operationToast.success("Skills and agents reloaded", "resource-skills-refresh");
+          operationToast.success(`${reloadLabel} reloaded`, "resource-skills-refresh");
+          return;
+        }
+        if (outcome === "agents_failed") {
+          operationToast.error(
+            "Could not reload agents",
+            new Error(
+              resourceQuery.data?.skillDiscoveryEnabled
+                ? "The skills were reloaded; the agents keep their last copy. See the agent discovery status for details"
+                : "The agents keep their last copy. See the agent discovery status for details",
+            ),
+            "resource-skills-refresh",
+          );
           return;
         }
         const detail =
           outcome === "already_running"
             ? "A refresh is already running"
             : outcome === "unavailable"
-              ? "Skill discovery is disabled for this resource"
+              ? "The resource is disabled, or discovers neither skills nor agents"
               : "The refresh failed; see the discovery status for details";
         operationToast.error(
-          "Could not reload skills and agents",
+          `Could not reload ${reloadLabel.toLowerCase()}`,
           new Error(detail),
           "resource-skills-refresh",
         );
       },
       onError: (error) =>
         operationToast.error(
-          "Could not reload skills and agents",
+          `Could not reload ${reloadLabel.toLowerCase()}`,
           error,
           "resource-skills-refresh",
         ),
@@ -173,6 +192,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   }
   const scopeOptions = scopeOptionsQuery.data ?? [];
   const current = resourceQuery.data;
+  const agentStatus = current?.catalogStatus?.agents ?? null;
 
   return (
     <>
@@ -200,7 +220,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
               deleteMutation.isPending
             }
             isLoading={refreshSkillsMutation.isPending}
-            label="Reload skills and agents"
+            label={`Reload ${reloadLabel.toLowerCase()}`}
             onClick={() => refreshSkillsMutation.mutate({ id: current.id })}
             type="button"
             variant="secondary"
@@ -274,6 +294,41 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                   : ""
               }`}
             </Text>
+            {current.agentDiscoveryEnabled && agentStatus ? (
+              <>
+                <HStack gap={2} vAlign="center">
+                  <Icon
+                    icon={catalogStatuses[agentStatus.state].icon}
+                    color={catalogStatuses[agentStatus.state].color}
+                    size="sm"
+                  />
+                  <Text type="body">
+                    Agent discovery: {catalogStatuses[agentStatus.state].label}
+                  </Text>
+                </HStack>
+                <Text color="secondary" type="body">
+                  {`Last successful agent refresh: ${
+                    agentStatus.lastSuccessfulRefreshAt
+                      ? new Date(agentStatus.lastSuccessfulRefreshAt).toLocaleString()
+                      : "never"
+                  }${
+                    agentStatus.lastFailureCategory
+                      ? ` · Last agent failure: ${agentStatus.lastFailureCategory} at ${
+                          agentStatus.lastFailureAt
+                            ? new Date(agentStatus.lastFailureAt).toLocaleString()
+                            : "unknown"
+                        }`
+                      : ""
+                  }${
+                    agentStatus.skippedCount
+                      ? ` · Left out as invalid: ${agentStatus.skippedCount} ${
+                          agentStatus.skippedCount === 1 ? "agent" : "agents"
+                        }`
+                      : ""
+                  }`}
+                </Text>
+              </>
+            ) : null}
           </div>
         ) : null}
         {scopeOptionsQuery.error ? (
@@ -467,7 +522,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
         actionLabel="Delete resource"
         description={
           current
-            ? `Delete ${current.name}? Its request prefixes and discovered skills will be removed immediately.`
+            ? `Delete ${current.name}? Its request prefixes and discovered skills and agents will be removed immediately.`
             : "Delete this resource?"
         }
         isActionLoading={deleteMutation.isPending}

@@ -6,6 +6,7 @@ import {
   normalizeResourceIdentifier,
 } from "@weldall/sdk";
 import { z } from "zod";
+import { agentCatalogStatus, type AgentCatalogStatus } from "../agents/service";
 import { parseCliLogoUrl } from "../branding";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
@@ -211,6 +212,8 @@ export interface ResourceDto {
     lastSuccessfulRefreshAt: string | null;
     lastFailureCategory: string | null;
     lastFailureAt: string | null;
+    /** The agent side of discovery, which is read and can fail on its own; null with the switch off. */
+    agents: AgentCatalogStatus | null;
   } | null;
   version: number;
   scopeIds: string[];
@@ -551,7 +554,7 @@ export async function createResource(
     downstreamClientId: string;
     enabled: boolean;
     skillDiscoveryEnabled: boolean;
-    agentDiscoveryEnabled?: boolean;
+    agentDiscoveryEnabled: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
   },
@@ -606,7 +609,7 @@ export async function updateResource(
     downstreamClientId: string;
     enabled: boolean;
     skillDiscoveryEnabled: boolean;
-    agentDiscoveryEnabled?: boolean;
+    agentDiscoveryEnabled: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
     expectedVersion: number;
@@ -1251,6 +1254,12 @@ function serializeResource(resource: {
     staleAfter: Date | null;
     lastFailureCategory: string | null;
     lastFailureAt: Date | null;
+    agentsSourceResourceVersion: number | null;
+    agentsLastSuccessfulRefreshAt: Date | null;
+    agentsStaleAfter: Date | null;
+    agentsLastFailureCategory: string | null;
+    agentsLastFailureAt: Date | null;
+    agentsSkippedCount: number;
     _count: { skills: number; agents: number };
   } | null;
   iacBinding?: {
@@ -1294,6 +1303,9 @@ function serializeResource(resource: {
           lastSuccessfulRefreshAt: catalog.lastSuccessfulRefreshAt?.toISOString() ?? null,
           lastFailureCategory: catalog.lastFailureCategory,
           lastFailureAt: catalog.lastFailureAt?.toISOString() ?? null,
+          agents: resource.agentDiscoveryEnabled
+            ? agentCatalogStatus(resource, catalog, now)
+            : null,
         }
       : null,
     version: resource.version,

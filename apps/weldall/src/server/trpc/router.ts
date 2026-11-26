@@ -501,7 +501,7 @@ export const appRouter = trpc.router({
               downstreamClientId: z.string().max(200),
               enabled: z.boolean(),
               skillDiscoveryEnabled: z.boolean(),
-              agentDiscoveryEnabled: z.boolean().default(false),
+              agentDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
             })
@@ -518,7 +518,7 @@ export const appRouter = trpc.router({
               downstreamClientId: z.string().max(200),
               enabled: z.boolean(),
               skillDiscoveryEnabled: z.boolean(),
-              agentDiscoveryEnabled: z.boolean().default(false),
+              agentDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
               expectedVersion: z.number().int().positive(),

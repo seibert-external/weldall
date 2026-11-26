@@ -198,37 +198,48 @@ model DownstreamResource {
 }
 
 model DiscoveredSkillCatalog {
-  id                      String             @id @default(cuid())
-  resourceId              String             @unique
-  sourceResourceVersion   Int?
-  schemaVersion           Int?
-  metadataUrl             String?
-  catalogEndpoint         String?
+  id                            String             @id @default(cuid())
+  resourceId                    String             @unique
+  sourceResourceVersion         Int?
+  schemaVersion                 Int?
+  metadataUrl                   String?
+  catalogEndpoint               String?
   /// Where people's clients keep and share agents at the resource, and the scope they ask for;
   /// from the resource's metadata (`weldall_agents_api`) while agent discovery is on.
-  agentApiEndpoint        String?
-  agentApiScope           String?
-  lastAttemptAt           DateTime?
-  lastSuccessfulRefreshAt DateTime?
-  nextRefreshAt           DateTime           @default(now())
-  staleAfter              DateTime?
-  refreshLeaseId          String?
-  refreshLeaseUntil       DateTime?
-  retryCount              Int                @default(0)
-  lastFailureCategory     String?
-  lastFailureAt           DateTime?
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
-  resource                DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  skills                  DiscoveredSkill[]
-  agents                  DiscoveredAgent[]
+  agentApiEndpoint              String?
+  agentApiScope                 String?
+  /// The agent side of the last refresh, kept apart from the skill side above so that agents that
+  /// cannot be read never take the skills offline: when the agents were last stored, for which
+  /// resource version, until when they may be shown, why the last attempt failed, and how many
+  /// agents the resource published that failed validation and were left out.
+  agentsSourceResourceVersion   Int?
+  agentsLastSuccessfulRefreshAt DateTime?
+  agentsStaleAfter              DateTime?
+  agentsLastFailureCategory     String?
+  agentsLastFailureAt           DateTime?
+  agentsSkippedCount            Int                @default(0)
+  lastAttemptAt                 DateTime?
+  lastSuccessfulRefreshAt       DateTime?
+  nextRefreshAt                 DateTime           @default(now())
+  staleAfter                    DateTime?
+  refreshLeaseId                String?
+  refreshLeaseUntil             DateTime?
+  retryCount                    Int                @default(0)
+  lastFailureCategory           String?
+  lastFailureAt                 DateTime?
+  createdAt                     DateTime           @default(now())
+  updatedAt                     DateTime           @updatedAt
+  resource                      DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  skills                        DiscoveredSkill[]
+  agents                        DiscoveredAgent[]
 
   @@index([nextRefreshAt, refreshLeaseUntil])
 }
 
 /// A shared agent a resource published through agent discovery (`agentDiscoveryEnabled`). Weldall
-/// keeps a copy, refreshed together with the resource's skill catalog. `ownerId` is the Weldall user id the resource
-/// reported; a person sees an agent they own or hold any one of `scopes` for.
+/// keeps a copy, refreshed together with the resource's skill catalog (with its own freshness, see
+/// `DiscoveredSkillCatalog.agents*`). `ownerId` is the Weldall user id the resource reported; a
+/// person sees an agent they own or hold any one of `scopes` for.
 model DiscoveredAgent {
   id              String                 @id @default(cuid())
   catalogId       String
@@ -242,6 +253,8 @@ model DiscoveredAgent {
   configVersion   Int
   config          Json
   revision        Int
+  /// When the agent was created and last changed at the resource, as it reports them.
+  sourceCreatedAt DateTime
   sourceUpdatedAt DateTime
   expiresAt       DateTime
   createdAt       DateTime               @default(now())
@@ -400,34 +413,34 @@ model IacWorkspace {
 }
 
 model IacObjectBinding {
-  id                String                @id @default(cuid())
-  workspaceId       String                @db.Uuid
-  address           String
-  kind              IacPrimitiveKind
-  naturalIdentity   String
-  scopeId           String?               @unique
-  resourceId        String?               @unique
-  machineClientId   String?               @unique
-  emailAssignmentId String?               @unique
-  groupAssignmentId String?               @unique
-  skillId           String?               @unique
-  connectorId       String?               @unique
-  sharedConnectionId String?              @unique
-  groupProviderId   String?               @unique
-  loginProviderId   String?               @unique
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  scope             Scope?                @relation(fields: [scopeId], references: [id], onDelete: SetNull)
-  resource          DownstreamResource?   @relation(fields: [resourceId], references: [id], onDelete: SetNull)
-  machineClient     MachineClient?        @relation(fields: [machineClientId], references: [id], onDelete: SetNull)
-  emailAssignment   EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
-  groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
-  skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
-  connector         Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
-  sharedConnection  Connection?           @relation(fields: [sharedConnectionId], references: [id], onDelete: SetNull)
-  groupProvider     GroupProvider?        @relation(fields: [groupProviderId], references: [id], onDelete: SetNull)
-  loginProvider     LoginProvider?        @relation(fields: [loginProviderId], references: [id], onDelete: SetNull)
+  id                 String                @id @default(cuid())
+  workspaceId        String                @db.Uuid
+  address            String
+  kind               IacPrimitiveKind
+  naturalIdentity    String
+  scopeId            String?               @unique
+  resourceId         String?               @unique
+  machineClientId    String?               @unique
+  emailAssignmentId  String?               @unique
+  groupAssignmentId  String?               @unique
+  skillId            String?               @unique
+  connectorId        String?               @unique
+  sharedConnectionId String?               @unique
+  groupProviderId    String?               @unique
+  loginProviderId    String?               @unique
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  workspace          IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scope              Scope?                @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+  resource           DownstreamResource?   @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  machineClient      MachineClient?        @relation(fields: [machineClientId], references: [id], onDelete: SetNull)
+  emailAssignment    EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
+  groupAssignment    GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
+  skill              Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  connector          Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  sharedConnection   Connection?           @relation(fields: [sharedConnectionId], references: [id], onDelete: SetNull)
+  groupProvider      GroupProvider?        @relation(fields: [groupProviderId], references: [id], onDelete: SetNull)
+  loginProvider      LoginProvider?        @relation(fields: [loginProviderId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])
@@ -638,24 +651,24 @@ model LoginInstallation {
 }
 
 model LoginProvider {
-  id                      String   @id
+  id                      String            @id
   name                    String
   buttonLabel             String
   buttonColor             String
-  sortOrder               Int      @default(0)
+  sortOrder               Int               @default(0)
   issuer                  String
   discoveryUrl            String?
   clientId                String
   encryptedClientSecret   String?
   tokenEndpointAuthMethod String
   scopes                  String[]
-  allowedEmailDomains     String[] @default([])
-  enabled                 Boolean  @default(false)
-  version                 Int      @default(1)
+  allowedEmailDomains     String[]          @default([])
+  enabled                 Boolean           @default(false)
+  version                 Int               @default(1)
   validatedAt             DateTime?
   iacBinding              IacObjectBinding?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
   createdBy               String
   updatedBy               String
 

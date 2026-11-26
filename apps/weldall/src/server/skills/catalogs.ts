@@ -22,14 +22,20 @@ const METADATA_LIMIT = 256_000;
 const CATALOG_LIMIT = 1_048_576;
 const MAX_REFRESHES_PER_SWEEP = 4;
 
+/** Why a refresh failed as a whole; the skills (if any) stay as they were. */
 export type CatalogFailureCategory =
   | "metadata_unavailable"
   | "metadata_invalid"
   | "catalog_unavailable"
   | "catalog_unauthorized"
   | "catalog_invalid"
-  | AgentCatalogFailureCategory
   | "refresh_internal_error";
+
+/**
+ * Why only the agent side of a refresh failed (`agentsLastFailureCategory`). The skill side is
+ * stored all the same, and the agents keep their last copy.
+ */
+export type AgentRefreshFailureCategory = AgentCatalogFailureCategory | "refresh_internal_error";
 
 export interface CatalogRefreshSource {
   id: string;
@@ -47,6 +53,14 @@ class CatalogRefreshError extends Error {
     super(category);
   }
 }
+
+/** What the log calls a refresh: it reads skills, agents or both. */
+const catalogLabel = (source: CatalogRefreshSource): string =>
+  source.skillDiscoveryEnabled && source.agentDiscoveryEnabled
+    ? "Skill and agent catalog"
+    : source.agentDiscoveryEnabled
+      ? "Agent catalog"
+      : "Skill catalog";
 
 const deriveMetadataUrl = (resourceIdentifier: string): string => {
   const resource = new URL(resourceIdentifier);
@@ -103,14 +117,22 @@ const safeEndpoint = (value: string, resourceIdentifier: string): string => {
   return endpoint.toString();
 };
 
+/**
+ * Where the agent side reads, from the metadata. Metadata that names no usable agent endpoint or
+ * API fails only the agent side, so it is answered as a failure rather than thrown.
+ */
+type AgentTarget =
+  | { endpoint: string; api: { endpoint: string; scope: string } | null }
+  | { failure: AgentRefreshFailureCategory };
+
 const fetchMetadata = async (
   source: CatalogRefreshSource,
   fetcher: typeof fetch,
 ): Promise<{
   metadataUrl: string;
   catalogEndpoint: string | null;
-  agentsEndpoint: string | null;
-  agentApi: { endpoint: string; scope: string } | null;
+  /** Null while agent discovery is off. */
+  agents: AgentTarget | null;
 }> => {
   const metadataUrl = deriveMetadataUrl(source.resourceIdentifier);
   let response: Response;
@@ -142,32 +164,35 @@ const fetchMetadata = async (
     metadata.resource !== source.resourceIdentifier ||
     !Array.isArray(authorizationServers) ||
     !authorizationServers.includes(source.authorizationServer) ||
-    (source.skillDiscoveryEnabled && typeof endpointValue !== "string") ||
-    (source.agentDiscoveryEnabled && typeof agentsEndpointValue !== "string")
+    (source.skillDiscoveryEnabled && typeof endpointValue !== "string")
   ) {
     throw new CatalogRefreshError("metadata_invalid");
   }
+  // An endpoint the administrator did not switch on is not read, whatever the resource names.
+  let catalogEndpoint: string | null = null;
   try {
-    return {
-      metadataUrl,
-      // An endpoint the administrator did not switch on is not read, whatever the resource names.
-      catalogEndpoint: source.skillDiscoveryEnabled
-        ? safeEndpoint(endpointValue as string, source.resourceIdentifier)
-        : null,
-      agentsEndpoint: source.agentDiscoveryEnabled
-        ? safeEndpoint(agentsEndpointValue as string, source.resourceIdentifier)
-        : null,
-      agentApi:
-        source.agentDiscoveryEnabled && agentApiValue !== undefined
-          ? (({ endpoint, scope }) => ({
-              endpoint: safeEndpoint(endpoint, source.resourceIdentifier),
-              scope,
-            }))(parseAgentApi(agentApiValue))
-          : null,
-    };
+    if (source.skillDiscoveryEnabled)
+      catalogEndpoint = safeEndpoint(endpointValue as string, source.resourceIdentifier);
   } catch {
     throw new CatalogRefreshError("metadata_invalid");
   }
+  let agents: AgentTarget | null = null;
+  if (source.agentDiscoveryEnabled) {
+    try {
+      if (typeof agentsEndpointValue !== "string") throw new TypeError("no agent endpoint");
+      const api = agentApiValue === undefined ? null : parseAgentApi(agentApiValue);
+      agents = {
+        endpoint: safeEndpoint(agentsEndpointValue, source.resourceIdentifier),
+        api: api && {
+          endpoint: safeEndpoint(api.endpoint, source.resourceIdentifier),
+          scope: api.scope,
+        },
+      };
+    } catch {
+      agents = { failure: "agents_metadata_invalid" };
+    }
+  }
+  return { metadataUrl, catalogEndpoint, agents };
 };
 
 const fetchCatalog = async (
@@ -217,23 +242,36 @@ const fetchCatalog = async (
   }
 };
 
-const fetchAgents = async (
+/** The agent side of a refresh; it never throws, so it cannot fail the skill side. */
+type AgentRead =
+  | {
+      ok: true;
+      agents: PublishedAgent[];
+      skipped: number;
+      api: { endpoint: string; scope: string } | null;
+    }
+  | { ok: false; category: AgentRefreshFailureCategory; error?: unknown };
+
+const readAgents = async (
   source: CatalogRefreshSource,
-  endpoint: string,
+  target: AgentTarget,
   fetcher: typeof fetch,
   now: Date,
-): Promise<PublishedAgent[]> => {
+): Promise<AgentRead> => {
+  if ("failure" in target) return { ok: false, category: target.failure };
   try {
-    return await fetchAgentCatalog({
+    const { agents, skipped } = await fetchAgentCatalog({
       resourceIdentifier: source.resourceIdentifier,
-      endpoint,
+      endpoint: target.endpoint,
       fetcher,
       now,
       readJson: readBoundedJson,
     });
+    return { ok: true, agents, skipped, api: target.api };
   } catch (error) {
-    if (error instanceof AgentCatalogError) throw new CatalogRefreshError(error.category);
-    throw error;
+    return error instanceof AgentCatalogError
+      ? { ok: false, category: error.category }
+      : { ok: false, category: "refresh_internal_error", error };
   }
 };
 
@@ -269,27 +307,35 @@ async function persistFailure(
   });
 }
 
+/**
+ * `agents_failed`: the skill side was stored, the agent side failed and kept its last copy.
+ * `failed`: nothing was stored (the refresh failed as a whole, or the resource changed meanwhile).
+ */
+export type CatalogRefreshResult = "succeeded" | "agents_failed" | "failed";
+
 export async function refreshCatalog(
   catalogId: string,
   leaseId: string,
   source: CatalogRefreshSource,
   options: { fetcher?: typeof fetch; now?: Date } = {},
-): Promise<boolean> {
+): Promise<CatalogRefreshResult> {
   const attemptedAt = options.now ?? new Date();
   const fetcher = options.fetcher ?? fetch;
   const started = performance.now();
   try {
-    const { metadataUrl, catalogEndpoint, agentsEndpoint, agentApi } = await fetchMetadata(
-      source,
-      fetcher,
-    );
+    const {
+      metadataUrl,
+      catalogEndpoint,
+      agents: agentTarget,
+    } = await fetchMetadata(source, fetcher);
     const catalog = catalogEndpoint
       ? await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt)
       : null;
-    // Skills and agents are replaced together: when either cannot be read, both copies stay.
-    const agents = agentsEndpoint
-      ? await fetchAgents(source, agentsEndpoint, fetcher, attemptedAt)
-      : [];
+    // The skill side above fails the refresh as it would without agents. The agent side has its
+    // own outcome: when it fails, the skills are stored all the same and the agents keep their copy.
+    const agentRead = agentTarget
+      ? await readAgents(source, agentTarget, fetcher, attemptedAt)
+      : null;
     const persisted = await db.$transaction(async (tx) => {
       const lease = await tx.discoveredSkillCatalog.updateMany({
         where: { id: catalogId, refreshLeaseId: leaseId },
@@ -340,7 +386,9 @@ export async function refreshCatalog(
           })),
         });
       }
-      await tx.discoveredAgent.deleteMany({ where: { catalogId } });
+      // Replaced when read, removed when agent discovery is off, kept when they could not be read.
+      if (agentRead?.ok !== false) await tx.discoveredAgent.deleteMany({ where: { catalogId } });
+      const agents = agentRead?.ok ? agentRead.agents : [];
       for (let start = 0; start < agents.length; start += AGENT_INSERT_BATCH) {
         await tx.discoveredAgent.createMany({
           data: agents.slice(start, start + AGENT_INSERT_BATCH).map((agent) => ({
@@ -355,6 +403,7 @@ export async function refreshCatalog(
             configVersion: agent.config.version,
             config: agent.config.definition as Prisma.InputJsonObject,
             revision: agent.revision,
+            sourceCreatedAt: agent.createdAt,
             sourceUpdatedAt: agent.updatedAt,
             expiresAt: agent.expiresAt,
           })),
@@ -367,8 +416,7 @@ export async function refreshCatalog(
           schemaVersion: catalog?.schemaVersion ?? null,
           metadataUrl,
           catalogEndpoint,
-          agentApiEndpoint: agentApi?.endpoint ?? null,
-          agentApiScope: agentApi?.scope ?? null,
+          ...agentSideUpdate(agentRead, source.version, attemptedAt),
           lastAttemptAt: attemptedAt,
           lastSuccessfulRefreshAt: attemptedAt,
           nextRefreshAt: new Date(attemptedAt.getTime() + REFRESH_INTERVAL_MS),
@@ -380,24 +428,41 @@ export async function refreshCatalog(
           lastFailureAt: null,
         },
       });
-      if (updated.count !== 1) throw new Error("Skill catalog refresh lease was lost");
+      if (updated.count !== 1) throw new Error(`${catalogLabel(source)} refresh lease was lost`);
       return true;
     }, PERSIST_TRANSACTION);
-    if (persisted) {
-      logger.info(
+    if (!persisted) return "failed";
+    logger.info(
+      {
+        event: "skill_catalog.refresh.succeeded",
+        publisherId: source.id,
+        publisherKey: source.key,
+        resourceVersion: source.version,
+        durationMs: Math.max(0, Math.round(performance.now() - started)),
+        skillCount: catalog?.skills.length ?? 0,
+        ...(agentRead?.ok
+          ? { agentCount: agentRead.agents.length, skippedAgentCount: agentRead.skipped }
+          : {}),
+      },
+      agentRead?.ok === false
+        ? `${catalogLabel(source)} refresh stored the skills; the agents could not be read`
+        : `${catalogLabel(source)} refresh succeeded`,
+    );
+    if (agentRead?.ok === false) {
+      logger.warn(
         {
-          event: "skill_catalog.refresh.succeeded",
+          event: "agent_catalog.refresh.failed",
           publisherId: source.id,
           publisherKey: source.key,
           resourceVersion: source.version,
-          durationMs: Math.max(0, Math.round(performance.now() - started)),
-          skillCount: catalog?.skills.length ?? 0,
-          agentCount: agents.length,
+          failureCategory: agentRead.category,
+          ...(agentRead.error === undefined ? {} : { error: errorForLog(agentRead.error) }),
         },
-        "Skill catalog refresh succeeded",
+        "Agent catalog refresh failed; the last copy of the agents stays",
       );
+      return "agents_failed";
     }
-    return persisted;
+    return "succeeded";
   } catch (error) {
     const category =
       error instanceof CatalogRefreshError ? error.category : "refresh_internal_error";
@@ -412,14 +477,45 @@ export async function refreshCatalog(
         durationMs: Math.max(0, Math.round(performance.now() - started)),
         error: errorForLog(error),
       },
-      "Skill catalog refresh failed",
+      `${catalogLabel(source)} refresh failed`,
     );
-    return false;
+    return "failed";
   }
 }
 
+/** The agent-side columns of the catalog row after a refresh whose skill side was stored. */
+function agentSideUpdate(
+  agentRead: AgentRead | null,
+  resourceVersion: number,
+  attemptedAt: Date,
+): Prisma.DiscoveredSkillCatalogUpdateManyMutationInput {
+  if (agentRead === null)
+    return {
+      agentApiEndpoint: null,
+      agentApiScope: null,
+      agentsSourceResourceVersion: null,
+      agentsLastSuccessfulRefreshAt: null,
+      agentsStaleAfter: null,
+      agentsLastFailureCategory: null,
+      agentsLastFailureAt: null,
+      agentsSkippedCount: 0,
+    };
+  if (!agentRead.ok)
+    return { agentsLastFailureCategory: agentRead.category, agentsLastFailureAt: attemptedAt };
+  return {
+    agentApiEndpoint: agentRead.api?.endpoint ?? null,
+    agentApiScope: agentRead.api?.scope ?? null,
+    agentsSourceResourceVersion: resourceVersion,
+    agentsLastSuccessfulRefreshAt: attemptedAt,
+    agentsStaleAfter: new Date(attemptedAt.getTime() + MAX_STALE_MS),
+    agentsLastFailureCategory: null,
+    agentsLastFailureAt: null,
+    agentsSkippedCount: agentRead.skipped,
+  };
+}
+
 export type ResourceCatalogRefreshOutcome =
-  "succeeded" | "failed" | "already_running" | "unavailable";
+  CatalogRefreshResult | "already_running" | "unavailable";
 
 export async function refreshResourceCatalog(
   resourceId: string,
@@ -461,11 +557,7 @@ export async function refreshResourceCatalog(
   });
   if (claimed.count !== 1) return "already_running";
 
-  const succeeded = await refreshCatalog(catalog.id, leaseId, resource, {
-    ...options,
-    now,
-  });
-  return succeeded ? "succeeded" : "failed";
+  return refreshCatalog(catalog.id, leaseId, resource, { ...options, now });
 }
 
 export async function refreshDueCatalogs(

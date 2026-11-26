@@ -8,7 +8,12 @@ import { DirectoryUserMenu } from "../../_components/directory-user-menu";
 import { SkillContent } from "../../_components/skill-content";
 import { SkillNoiseBadge } from "../../_components/skill-noise-badge";
 import { isAdminEmail } from "@/server/admin/service";
-import { agentContent, agentsOffered, getVisibleAgent } from "@/server/agents/service";
+import {
+  agentContent,
+  agentsOffered,
+  getVisibleAgent,
+  sharedByLabel,
+} from "@/server/agents/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { canViewStatistics } from "@/server/statistics/access";
@@ -62,9 +67,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         <header className="skill-detail-hero">
           <AnimatedSkillHeadline title={agent.name} />
           {agent.description && agent.description !== agent.name ? (
-            <p className="skill-detail-muted" style={{ marginTop: 12 }}>
-              {agent.description}
-            </p>
+            <p className="skill-detail-muted mt-4">{agent.description}</p>
           ) : null}
         </header>
 
@@ -119,15 +122,23 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
               <dl>
                 <div>
                   <dt>Shared by</dt>
-                  <dd>{agent.own ? "You" : (agent.ownerName ?? "Unknown")}</dd>
+                  <dd>{sharedByLabel(agent)}</dd>
                 </div>
                 <div>
                   <dt>Kept at</dt>
                   <dd>{agent.source.name}</dd>
                 </div>
                 <div>
+                  <dt>Created</dt>
+                  <dd>{agent.createdAt.slice(0, 10)}</dd>
+                </div>
+                <div>
                   <dt>Last changed</dt>
                   <dd>{agent.updatedAt.slice(0, 10)}</dd>
+                </div>
+                <div>
+                  <dt>{agent.expired ? "Expired" : "Expires"}</dt>
+                  <dd>{agent.expiresAt.slice(0, 10)}</dd>
                 </div>
                 <div>
                   <dt>Agent ID</dt>

@@ -429,7 +429,7 @@ export async function mutateResource(
         downstreamClientId: parsed.downstreamClientId,
         enabled: parsed.enabled,
         skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
-        agentDiscoveryEnabled: parsed.agentDiscoveryEnabled === true,
+        agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
         createdBy: actor.id,
         updatedBy: actor.id,
         scopes: { create: scopes.map((scope) => ({ scopeId: scope.id })) },
@@ -451,7 +451,7 @@ export async function mutateResource(
     current.downstreamClientId === parsed.downstreamClientId &&
     current.enabled === parsed.enabled &&
     current.skillDiscoveryEnabled === parsed.skillDiscoveryEnabled &&
-    current.agentDiscoveryEnabled === (parsed.agentDiscoveryEnabled === true) &&
+    current.agentDiscoveryEnabled === parsed.agentDiscoveryEnabled &&
     same(current.scopes.map(({ scope }) => scope.key).sort(), parsed.scopeKeys) &&
     same(current.requestPrefixes.map(({ urlPrefix }) => urlPrefix).sort(), parsed.requestPrefixes);
   if (unchanged) return current;
@@ -476,7 +476,7 @@ export async function mutateResource(
       downstreamClientId: parsed.downstreamClientId,
       enabled: parsed.enabled,
       skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
-      agentDiscoveryEnabled: parsed.agentDiscoveryEnabled === true,
+      agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
       version: { increment: 1 },
       updatedBy: actor.id,
     },
@@ -514,8 +514,7 @@ type ResourceMutableInput = {
   downstreamClientId: string;
   enabled: boolean;
   skillDiscoveryEnabled: boolean;
-  /** Absent means off: callers that predate agent discovery do not send it. */
-  agentDiscoveryEnabled?: boolean;
+  agentDiscoveryEnabled: boolean;
   scopeKeys: string[];
   requestPrefixes: string[];
 };

@@ -56,7 +56,7 @@ import {
   resourceRequest,
   type ResourceGrant,
 } from "./services/resources.js";
-import { listAgents } from "./services/agents.js";
+import { listAgents, type AgentSummary } from "./services/agents.js";
 import {
   listSkills,
   listSkillsWithSubject,
@@ -1267,6 +1267,20 @@ export const connectionsCommand = define({
     printConnections({ asJson: context.values.json, asAgentic: context.values.agentic }),
 });
 
+/** One shared agent for the terminal: who owns it, what it is for, and when it was made and expires. */
+export const formatAgentEntry = (agent: AgentSummary) => {
+  const summary = [
+    agent.id,
+    agent.name,
+    agent.own ? "yours" : `by ${agent.ownerName ?? "unknown"}`,
+    `shared with ${agent.scopes.join(", ") || "nobody"}`,
+    ...(agent.createdAt === undefined ? [] : [`created ${formatShortTimestamp(agent.createdAt)}`]),
+    `${agent.expired ? "expired" : "expires"} ${formatShortTimestamp(agent.expiresAt)}`,
+  ].join("  ·  ");
+  const purpose = agent.description.replace(/\s+/g, " ").trim();
+  return purpose ? `${summary}\n  ${purpose}` : summary;
+};
+
 export const agentsCommand = define({
   name: "agents",
   description: "List shared agents you own or that are shared with a permission you hold",
@@ -1284,16 +1298,7 @@ export const agentsCommand = define({
       info("No shared agents are visible to this account.");
       return;
     }
-    for (const agent of result.items)
-      console.log(
-        [
-          agent.id,
-          agent.name,
-          agent.own ? "yours" : `by ${agent.ownerName ?? "unknown"}`,
-          `shared with ${agent.scopes.join(", ") || "nobody"}`,
-          ...(agent.expired ? ["expired"] : []),
-        ].join("  ·  "),
-      );
+    for (const agent of result.items) console.log(formatAgentEntry(agent));
   },
 });
 

@@ -64,6 +64,7 @@ const resourceInput = (
     downstreamClientId: `client-${suffix}`,
     enabled: true,
     skillDiscoveryEnabled: false,
+    agentDiscoveryEnabled: false,
     scopeIds: [scopeId],
     requestPrefixes: [`${origin}/api`],
     ...overrides,

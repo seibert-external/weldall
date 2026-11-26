@@ -10,8 +10,12 @@ import { signWeldallJwt } from "../oauth/jwt";
  * skill catalog the answer is paged (`?cursor=<nextCursor>`), because agents are made by people
  * and have no natural upper bound.
  *
- * Weldall does not interpret an agent's `config.definition`; it carries `format` and `version`
- * so a client can refuse what it does not know.
+ * Discovery does not read an agent's `config.definition`: it checks only that it is an object and
+ * passes it on with `format` and `version`, so a client can refuse what it does not know. (The
+ * directory reads one format to show it, see `agentContent` in `service.ts`.)
+ *
+ * An agent that fails validation is left out and counted (`skipped`), so one broken agent does not
+ * hold back the others; a page that is broken as a whole fails the agent side of the refresh.
  */
 export const AGENT_CATALOG_SCHEMA_VERSION = 1 as const;
 export const AGENT_CATALOG_METADATA_KEY = "weldall_agents_endpoint" as const;
@@ -36,7 +40,8 @@ const MAX_TOTAL_BYTES = 67_108_864;
 const TOTAL_TIMEOUT_MS = 15_000;
 
 export type AgentCatalogFailureCategory =
-  "agents_unavailable" | "agents_unauthorized" | "agents_invalid";
+  /** Agent discovery is on, but the resource metadata names no (usable) agent endpoint or API. */
+  "agents_metadata_invalid" | "agents_unavailable" | "agents_unauthorized" | "agents_invalid";
 
 export class AgentCatalogError extends Error {
   constructor(readonly category: AgentCatalogFailureCategory) {
@@ -64,15 +69,17 @@ const publishedAgentSchema = z.strictObject({
     definition: z.record(z.string(), z.unknown()),
   }),
   revision: z.number().int().min(1),
+  createdAt: dateTime,
   updatedAt: dateTime,
   expiresAt: dateTime,
 });
 export type PublishedAgent = z.output<typeof publishedAgentSchema>;
 
+/** The envelope is checked strictly; each agent in it on its own (`parseAgentCatalogPage`). */
 const agentCatalogPageSchema = z.strictObject({
   schemaVersion: z.literal(AGENT_CATALOG_SCHEMA_VERSION),
   resource: z.string(),
-  agents: z.array(publishedAgentSchema).max(500),
+  agents: z.array(z.unknown()).max(500),
   nextCursor: z.string().min(1).max(200).optional(),
 });
 
@@ -83,13 +90,30 @@ const agentApiSchema = z.strictObject({
 /** The agents API a resource names in its metadata; throws when it is malformed. */
 export const parseAgentApi = (value: unknown) => agentApiSchema.parse(value);
 
-export function parseAgentCatalogPage(value: unknown, expectedResource: string) {
+/**
+ * One page: throws when the page as a whole is malformed; an agent that fails validation is left
+ * out and counted in `skipped`.
+ */
+export function parseAgentCatalogPage(
+  value: unknown,
+  expectedResource: string,
+): { agents: PublishedAgent[]; skipped: number; nextCursor: string | undefined } {
   const page = agentCatalogPageSchema.parse(value);
   if (page.resource !== expectedResource) throw new TypeError("agent catalog resource mismatch");
-  return page;
+  const agents: PublishedAgent[] = [];
+  let skipped = 0;
+  for (const candidate of page.agents) {
+    const parsed = publishedAgentSchema.safeParse(candidate);
+    if (parsed.success) agents.push(parsed.data);
+    else skipped += 1;
+  }
+  return { agents, skipped, nextCursor: page.nextCursor };
 }
 
-/** Reads every page of a resource's agent catalog; any failure discards all of them. */
+/**
+ * Reads every page of a resource's agent catalog. A failure of a request or of a page as a whole
+ * discards all pages; agents that fail validation are only counted.
+ */
 export async function fetchAgentCatalog(input: {
   resourceIdentifier: string;
   endpoint: string;
@@ -97,7 +121,7 @@ export async function fetchAgentCatalog(input: {
   now: Date;
   /** Reads a JSON body of at most `limit` bytes (shared with the skill catalog refresh). */
   readJson: (response: Response, limit: number) => Promise<unknown>;
-}): Promise<PublishedAgent[]> {
+}): Promise<{ agents: PublishedAgent[]; skipped: number }> {
   const { resourceIdentifier, endpoint, fetcher, readJson } = input;
   const deadline = AbortSignal.timeout(TOTAL_TIMEOUT_MS);
   const issuedAt = Math.floor(input.now.getTime() / 1_000);
@@ -105,6 +129,7 @@ export async function fetchAgentCatalog(input: {
   const cursors = new Set<string>();
   let cursor: string | undefined;
   let bytes = 0;
+  let skipped = 0;
   for (let pageNumber = 0; pageNumber < MAX_PAGES; pageNumber += 1) {
     // One assertion per page: the resource accepts each only once.
     const assertion = await signWeldallJwt(
@@ -143,13 +168,14 @@ export async function fetchAgentCatalog(input: {
     } catch {
       throw new AgentCatalogError("agents_invalid");
     }
+    skipped += page.skipped;
     for (const agent of page.agents) {
       if (agents.has(agent.id)) throw new AgentCatalogError("agents_invalid");
       agents.set(agent.id, agent);
     }
     if (agents.size > MAX_AGENTS || bytes > MAX_TOTAL_BYTES)
       throw new AgentCatalogError("agents_invalid");
-    if (page.nextCursor === undefined) return [...agents.values()];
+    if (page.nextCursor === undefined) return { agents: [...agents.values()], skipped };
     // A cursor that repeats would loop until the page limit.
     if (cursors.has(page.nextCursor)) throw new AgentCatalogError("agents_invalid");
     cursors.add(page.nextCursor);

@@ -1,8 +1,15 @@
 -- Agent discovery: a resource an administrator allowed to (agentDiscoveryEnabled) publishes the
--- agents people shared through it; Weldall copies them with the resource's skill catalog.
+-- agents people shared through it; Weldall copies them with the resource's skill catalog. The agent
+-- side of a refresh keeps its own freshness and failure, so it never takes the skills offline.
 ALTER TABLE "DownstreamResource" ADD COLUMN "agentDiscoveryEnabled" BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentApiEndpoint" TEXT;
 ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentApiScope" TEXT;
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentsSourceResourceVersion" INTEGER;
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentsLastSuccessfulRefreshAt" TIMESTAMP(3);
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentsStaleAfter" TIMESTAMP(3);
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentsLastFailureCategory" TEXT;
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentsLastFailureAt" TIMESTAMP(3);
+ALTER TABLE "DiscoveredSkillCatalog" ADD COLUMN "agentsSkippedCount" INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE "DiscoveredAgent" (
     "id" TEXT NOT NULL,
@@ -17,6 +24,7 @@ CREATE TABLE "DiscoveredAgent" (
     "configVersion" INTEGER NOT NULL,
     "config" JSONB NOT NULL,
     "revision" INTEGER NOT NULL,
+    "sourceCreatedAt" TIMESTAMP(3) NOT NULL,
     "sourceUpdatedAt" TIMESTAMP(3) NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

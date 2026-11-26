@@ -5,6 +5,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
 import { HStack } from "@astryxdesign/core/Layout";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { TableBody, TableCell, TableContext, TableRow } from "@astryxdesign/core/Table";
@@ -13,7 +14,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
-import type { AdminAgentDto } from "@/server/agents/service";
+import type { AdminAgentDto, AgentCatalogState } from "@/server/agents/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { OverflowFade, ResizableTableHeader } from "../resizable-table";
@@ -24,6 +25,37 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 const emptyAgents: AdminAgentDto[] = [];
+/** The same states and labels as the catalog status of discovered skills (`skills-table.tsx`). */
+const catalogStatuses: Record<
+  AgentCatalogState,
+  {
+    icon: "success" | "warning" | "error" | "info";
+    color: "success" | "warning" | "error" | "accent";
+    label: string;
+  }
+> = {
+  fresh: { icon: "success", color: "success", label: "Fresh" },
+  stale: { icon: "warning", color: "warning", label: "Stale" },
+  failed: { icon: "error", color: "error", label: "Failed" },
+  expired: { icon: "error", color: "error", label: "Expired" },
+  pending: { icon: "info", color: "accent", label: "Pending" },
+  disabled: { icon: "info", color: "accent", label: "Disabled" },
+};
+
+const dateColumn = (
+  key: "createdAt" | "updatedAt" | "expiresAt",
+  header: string,
+): ColumnDef<AdminAgentDto> => ({
+  accessorKey: key,
+  header,
+  size: 190,
+  minSize: 150,
+  maxSize: 300,
+  enableSorting: false,
+  cell: ({ getValue }) => (
+    <time className="whitespace-nowrap">{dateFormatter.format(new Date(getValue<string>()))}</time>
+  ),
+});
 
 /**
  * The agents Weldall discovered from resources: who shared what with whom. Read-only, and without
@@ -53,52 +85,79 @@ export function AgentsTable() {
       {
         accessorKey: "name",
         header: "Agent",
-        size: 360,
-        minSize: 200,
+        size: 240,
+        minSize: 160,
+        maxSize: 420,
+        enableSorting: false,
+        cell: ({ getValue }) => (
+          <OverflowFade title={getValue<string>()}>{getValue<string>()}</OverflowFade>
+        ),
+      },
+      {
+        accessorKey: "description",
+        header: "Purpose",
+        size: 320,
+        minSize: 180,
         maxSize: 560,
         enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex min-w-0 flex-col">
-            <OverflowFade title={row.original.name}>{row.original.name}</OverflowFade>
-            <Text color="secondary" type="supporting">
-              {row.original.description}
-            </Text>
-          </div>
+        cell: ({ getValue }) => (
+          <Text color="secondary" type="supporting">
+            {getValue<string>()}
+          </Text>
         ),
       },
       {
         id: "owner",
         header: "Shared by",
-        size: 300,
-        minSize: 180,
-        maxSize: 460,
+        size: 200,
+        minSize: 140,
+        maxSize: 360,
         enableSorting: false,
         cell: ({ row }) => {
-          const label = row.original.ownerName
-            ? `${row.original.ownerName} (${row.original.ownerEmail})`
-            : `Unknown person (${row.original.ownerId})`;
+          // An owner Weldall does not know is named by the id the resource reported.
+          const label = row.original.ownerName ?? `Unknown person (${row.original.ownerId})`;
           return <OverflowFade title={label}>{label}</OverflowFade>;
+        },
+      },
+      {
+        accessorKey: "ownerEmail",
+        header: "Email",
+        size: 240,
+        minSize: 160,
+        maxSize: 420,
+        enableSorting: false,
+        cell: ({ getValue }) => {
+          const email = getValue<string | null>();
+          return email ? (
+            <OverflowFade title={email}>{email}</OverflowFade>
+          ) : (
+            <Text color="secondary">Not known</Text>
+          );
         },
       },
       {
         accessorKey: "scopes",
         header: "Shared with holders of any of",
-        size: 340,
+        size: 300,
         minSize: 200,
         maxSize: 560,
         enableSorting: false,
-        cell: ({ getValue }) => (
-          <div className="flex flex-wrap gap-1">
-            {getValue<string[]>().map((scope) => (
-              <Badge key={scope} label={scope} variant="neutral" />
-            ))}
-          </div>
-        ),
+        cell: ({ getValue }) => {
+          const scopes = getValue<string[]>();
+          if (!scopes.length) return <Text color="secondary">Only its owner</Text>;
+          return (
+            <div className="flex flex-wrap gap-1">
+              {scopes.map((scope) => (
+                <Badge key={scope} label={scope} variant="neutral" />
+              ))}
+            </div>
+          );
+        },
       },
       {
         id: "resource",
         header: "Resource",
-        size: 220,
+        size: 200,
         minSize: 140,
         maxSize: 320,
         enableSorting: false,
@@ -109,20 +168,38 @@ export function AgentsTable() {
         ),
       },
       {
-        accessorKey: "updatedAt",
-        header: "Last changed",
-        size: 260,
-        minSize: 180,
-        maxSize: 340,
+        accessorKey: "catalogState",
+        header: "Catalog status",
+        size: 170,
+        minSize: 150,
+        maxSize: 280,
         enableSorting: false,
-        cell: ({ row, getValue }) => (
-          <HStack gap={2} vAlign="center">
-            <time className="whitespace-nowrap">
-              {dateFormatter.format(new Date(getValue<string>()))}
-            </time>
-            {row.original.expired ? <Badge label="Expired" variant="warning" /> : null}
-          </HStack>
-        ),
+        cell: ({ getValue }) => {
+          const status = catalogStatuses[getValue<AgentCatalogState>()];
+          return (
+            <HStack gap={2} vAlign="center">
+              <Text type="body">{status.label}</Text>
+              <Icon icon={status.icon} color={status.color} size="sm" />
+            </HStack>
+          );
+        },
+      },
+      dateColumn("createdAt", "Created"),
+      dateColumn("updatedAt", "Last changed"),
+      dateColumn("expiresAt", "Expires"),
+      {
+        accessorKey: "expired",
+        header: "Confirmation",
+        size: 150,
+        minSize: 120,
+        maxSize: 240,
+        enableSorting: false,
+        cell: ({ getValue }) =>
+          getValue<boolean>() ? (
+            <Badge label="Expired" variant="warning" />
+          ) : (
+            <Text color="secondary">Current</Text>
+          ),
       },
     ],
     [],

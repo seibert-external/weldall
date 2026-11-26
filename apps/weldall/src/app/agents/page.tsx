@@ -2,7 +2,12 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { isAdminEmail } from "@/server/admin/service";
-import { agentContent, agentsOffered, listVisibleAgents } from "@/server/agents/service";
+import {
+  agentContent,
+  agentsOffered,
+  listVisibleAgents,
+  sharedByLabel,
+} from "@/server/agents/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
@@ -50,7 +55,7 @@ export default async function AgentsPage() {
             name: agent.name,
             description: agent.description,
             own: agent.own,
-            sharedBy: agent.own ? "You" : (agent.ownerName ?? "Unknown"),
+            sharedBy: sharedByLabel(agent),
             scopes: agent.scopes,
             resource: { key: agent.source.key, name: agent.source.name },
             updatedAt: agent.updatedAt,
