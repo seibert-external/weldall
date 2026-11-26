@@ -456,7 +456,7 @@ skills: {
 }
 ```
 
-A skill has a resource-local ID, a title, required scopes, visibility, and Markdown instructions. Optional `meta.tags`, `meta.owner`, `meta.appearance`, and `lastUpdatedAt` values supply directory metadata; tags are limited to 20 non-empty strings of at most 40 characters each. Appearance accepts extensible string metadata; Weldall recognizes canonical kebab-case [Lucide icon names](https://lucide.dev/icons/) plus `gradientFrom`, `gradientTo`, `darkGradientFrom`, and `darkGradientTo` six-digit hex colors. Missing or invalid visual values use deterministic fallbacks.
+A skill has a resource-local ID, a title, required scopes, visibility, and Markdown instructions. Optional `meta.tags`, `meta.owner`, `meta.appearance`, and `lastUpdatedAt` values supply directory metadata; tags are limited to 20 non-empty strings of at most 40 characters each. Appearance accepts extensible string metadata; Weldall recognizes canonical kebab-case [Lucide icon names](https://lucide.dev/icons/) plus `gradientFrom`, `gradientTo`, `darkGradientFrom`, and `darkGradientTo` six-digit hex colors, and an optional `brandIcon` [Simple Icons](https://simpleicons.org/) slug that is shown instead of `icon`. Missing or invalid visual values use deterministic fallbacks.
 
 ```ts
 {

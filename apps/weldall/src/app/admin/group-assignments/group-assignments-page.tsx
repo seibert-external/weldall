@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
+import { Card } from "@astryxdesign/core/Card";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -172,62 +173,68 @@ export function GroupAssignmentsPage() {
             verticalAlign: "middle",
           }}
         >
-          <div className="w-full overflow-x-auto" role="group" aria-label="Group assignments table">
-            <table
-              className="admin-resizable-table table-fixed border-collapse text-left"
-              style={{ minWidth: "100%", width: table.getTotalSize() }}
+          <Card>
+            <div
+              className="w-full overflow-x-auto"
+              role="group"
+              aria-label="Group assignments table"
             >
-              <ResizableTableHeader table={table} />
-              <TableBody>
-                {table.getRowModel().rows.map((row) => {
-                  const href = `/admin/group-assignments/${row.original.id}`;
-                  return (
-                    <TableRow
-                      key={row.id}
-                      aria-label={`Edit ${row.original.groupId}`}
-                      data-clickable="true"
-                      onClick={(event) => {
-                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
-                        router.push(href);
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell, index) => (
-                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                          {index === 0 ? (
-                            <TableRowAction href={href} label={`Edit ${row.original.groupId}`}>
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </TableRowAction>
-                          ) : (
-                            flexRender(cell.column.columnDef.cell, cell.getContext())
-                          )}
-                        </TableCell>
-                      ))}
+              <table
+                className="admin-resizable-table table-fixed border-collapse text-left"
+                style={{ minWidth: "100%", width: table.getTotalSize() }}
+              >
+                <ResizableTableHeader table={table} />
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => {
+                    const href = `/admin/group-assignments/${row.original.id}`;
+                    return (
+                      <TableRow
+                        key={row.id}
+                        aria-label={`Edit ${row.original.groupId}`}
+                        data-clickable="true"
+                        onClick={(event) => {
+                          if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                          router.push(href);
+                        }}
+                      >
+                        {row.getVisibleCells().map((cell, index) => (
+                          <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                            {index === 0 ? (
+                              <TableRowAction href={href} label={`Edit ${row.original.groupId}`}>
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              </TableRowAction>
+                            ) : (
+                              flexRender(cell.column.columnDef.cell, cell.getContext())
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
+                  {!assignmentsQuery.isPending &&
+                  !assignmentsQuery.error &&
+                  table.getRowModel().rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">
+                          {q
+                            ? "No group assignments match this search."
+                            : "No group assignments have been created."}
+                        </Text>
+                      </TableCell>
                     </TableRow>
-                  );
-                })}
-                {!assignmentsQuery.isPending &&
-                !assignmentsQuery.error &&
-                table.getRowModel().rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">
-                        {q
-                          ? "No group assignments match this search."
-                          : "No group assignments have been created."}
-                      </Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-                {assignmentsQuery.isPending ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">Loading group assignments…</Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </table>
-          </div>
+                  ) : null}
+                  {assignmentsQuery.isPending ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">Loading group assignments…</Text>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </table>
+            </div>
+          </Card>
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Card } from "@astryxdesign/core/Card";
 import { Badge, type BadgeVariant } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -108,7 +109,7 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
       {
         accessorKey: "occurredAt",
         header: "Occurred",
-        size: 300,
+        size: 260,
         minSize: 240,
         maxSize: 420,
         cell: ({ getValue }) => (
@@ -130,7 +131,7 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
         id: "actor",
         accessorFn: (event) => event.actorEmail ?? event.actorId,
         header: "User / actor",
-        size: 340,
+        size: 300,
         minSize: 200,
         maxSize: 560,
         enableSorting: false,
@@ -142,7 +143,7 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
       {
         accessorKey: "outcome",
         header: "Outcome",
-        size: 220,
+        size: 180,
         minSize: 160,
         maxSize: 320,
         enableSorting: false,
@@ -261,60 +262,62 @@ export function AuditEventsTable({ userId }: { userId?: string } = {}) {
             verticalAlign: "middle",
           }}
         >
-          <div className="w-full overflow-x-auto" role="group" aria-label="Audit events table">
-            <table
-              className="admin-resizable-table table-fixed border-collapse text-left"
-              style={{ minWidth: "100%", width: table.getTotalSize() }}
-            >
-              <ResizableTableHeader table={table} />
-              <TableBody>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    aria-label={`Show ${row.original.eventType} details`}
-                    data-clickable="true"
-                    onClick={(event) => {
-                      if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
-                      setSelectedEvent(row.original);
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell, index) => (
-                      <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                        {index === 0 ? (
-                          <TableRowAction
-                            label={`Show ${row.original.eventType} details`}
-                            onActivate={() => setSelectedEvent(row.original)}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableRowAction>
-                        ) : (
-                          flexRender(cell.column.columnDef.cell, cell.getContext())
-                        )}
+          <Card>
+            <div className="w-full overflow-x-auto" role="group" aria-label="Audit events table">
+              <table
+                className="admin-resizable-table table-fixed border-collapse text-left"
+                style={{ minWidth: "100%", width: table.getTotalSize() }}
+              >
+                <ResizableTableHeader table={table} />
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      aria-label={`Show ${row.original.eventType} details`}
+                      data-clickable="true"
+                      onClick={(event) => {
+                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                        setSelectedEvent(row.original);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, index) => (
+                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                          {index === 0 ? (
+                            <TableRowAction
+                              label={`Show ${row.original.eventType} details`}
+                              onActivate={() => setSelectedEvent(row.original)}
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableRowAction>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                  {!auditQuery.isPending && table.getRowModel().rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">
+                          {userId
+                            ? "No audit events for this user match these filters."
+                            : "No audit events match these filters."}
+                        </Text>
                       </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-                {!auditQuery.isPending && table.getRowModel().rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">
-                        {userId
-                          ? "No audit events for this user match these filters."
-                          : "No audit events match these filters."}
-                      </Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-                {auditQuery.isPending ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">Loading audit events…</Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </table>
-          </div>
+                    </TableRow>
+                  ) : null}
+                  {auditQuery.isPending ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">Loading audit events…</Text>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </table>
+            </div>
+          </Card>
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination

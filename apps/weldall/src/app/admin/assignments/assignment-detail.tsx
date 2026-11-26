@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Card } from "@astryxdesign/core/Card";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -147,77 +148,79 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string | null
           />
         ) : null}
 
-        <form
-          className="admin-dialog-form"
-          id={formId}
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <FormLayout>
-            <form.Field
-              name="email"
-              validators={{
-                onBlur: ({ value }) => validateEmail(value),
-                onChange: ({ value }) => validateEmail(value),
-                onSubmit: ({ value }) => validateEmail(value),
-              }}
-            >
-              {(field) => (
-                <TextInput
-                  isDisabled={!isNew}
-                  isRequired
-                  label="Email address"
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder="person@example.com"
-                  {...fieldStatusProps(field)}
-                  type="email"
-                  value={String(field.state.value)}
-                  width="100%"
-                />
-              )}
-            </form.Field>
-
-            <form.Field
-              name="scopeKeys"
-              validators={{
-                onSubmit: ({ value }) =>
-                  isNew && value.length === 0 ? "Choose at least one scope." : undefined,
-              }}
-            >
-              {(field) => {
-                const error = fieldError(field);
-                return (
-                  <ScopeChecklist
-                    error={error}
-                    isLoading={scopesQuery.isPending}
+        <Card padding={6}>
+          <form
+            className="admin-dialog-form"
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void form.handleSubmit();
+            }}
+          >
+            <FormLayout>
+              <form.Field
+                name="email"
+                validators={{
+                  onBlur: ({ value }) => validateEmail(value),
+                  onChange: ({ value }) => validateEmail(value),
+                  onSubmit: ({ value }) => validateEmail(value),
+                }}
+              >
+                {(field) => (
+                  <TextInput
+                    isDisabled={!isNew}
+                    isRequired
+                    label="Email address"
+                    onBlur={field.handleBlur}
                     onChange={field.handleChange}
-                    scopes={scopes}
-                    value={field.state.value}
+                    placeholder="person@example.com"
+                    {...fieldStatusProps(field)}
+                    type="email"
+                    value={String(field.state.value)}
+                    width="100%"
                   />
-                );
-              }}
-            </form.Field>
+                )}
+              </form.Field>
 
-            {assignment?.scopes.includes("weldall:administer") ? (
-              <form.Subscribe selector={(state) => state.values.scopeKeys}>
-                {(scopeKeys) =>
-                  scopeKeys.includes("weldall:administer") ? null : (
-                    <Banner
-                      container="card"
-                      description="The server rejects this change if it would remove the final administrator."
-                      status="warning"
-                      title="Administrator access will be removed"
+              <form.Field
+                name="scopeKeys"
+                validators={{
+                  onSubmit: ({ value }) =>
+                    isNew && value.length === 0 ? "Choose at least one scope." : undefined,
+                }}
+              >
+                {(field) => {
+                  const error = fieldError(field);
+                  return (
+                    <ScopeChecklist
+                      error={error}
+                      isLoading={scopesQuery.isPending}
+                      onChange={field.handleChange}
+                      scopes={scopes}
+                      value={field.state.value}
                     />
-                  )
-                }
-              </form.Subscribe>
-            ) : null}
-          </FormLayout>
-        </form>
+                  );
+                }}
+              </form.Field>
+
+              {assignment?.scopes.includes("weldall:administer") ? (
+                <form.Subscribe selector={(state) => state.values.scopeKeys}>
+                  {(scopeKeys) =>
+                    scopeKeys.includes("weldall:administer") ? null : (
+                      <Banner
+                        container="card"
+                        description="The server rejects this change if it would remove the final administrator."
+                        status="warning"
+                        title="Administrator access will be removed"
+                      />
+                    )
+                  }
+                </form.Subscribe>
+              ) : null}
+            </FormLayout>
+          </form>
+        </Card>
       </div>
       <AlertDialog
         actionLabel="Delete assignment"

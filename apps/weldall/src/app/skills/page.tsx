@@ -5,6 +5,7 @@ import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { resolveLucideIconNode } from "@/server/skills/appearance-icons";
+import { resolveBrandIcon } from "@/server/skills/brand-icons";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { listVisibleSkills } from "@/server/skills/service";
 import { getSkillRetrievalCountsBySlugs } from "@/server/skills/retrieval-metrics";
@@ -33,7 +34,12 @@ export default async function SkillsPage() {
   const directorySkills = await Promise.all(
     skills.map(async (skill) => {
       const iconNode = await resolveLucideIconNode(skill.meta?.appearance?.icon);
-      return iconNode ? { ...skill, appearanceIconNode: iconNode } : skill;
+      const brand = resolveBrandIcon(skill.meta?.appearance?.brandIcon);
+      return {
+        ...skill,
+        ...(iconNode ? { appearanceIconNode: iconNode } : {}),
+        ...(brand ? { appearanceBrand: { hex: brand.hex, path: brand.path } } : {}),
+      };
     }),
   );
 

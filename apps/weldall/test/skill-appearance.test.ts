@@ -1,6 +1,54 @@
 import { describe, expect, it } from "vitest";
 import { resolveSkillAppearance } from "../src/app/_components/skill-appearance";
-import { lucideIconNames, resolveLucideIconNode } from "../src/server/skills/appearance-icons";
+import { appearanceValuesFrom, skillMetaFromForm } from "../src/app/admin/skills/skill-meta";
+import {
+  lucideIconNames,
+  lucideIconTags,
+  resolveLucideIconNode,
+} from "../src/server/skills/appearance-icons";
+import { brandIconOptions, resolveBrandIcon } from "../src/server/skills/brand-icons";
+
+describe("skill appearance form", () => {
+  it("saves an opened skill with unchanged appearance values exactly as stored", () => {
+    const stored = {
+      icon: "file-text",
+      gradientFrom: "#ABCDEF",
+      gradientTo: "#123456",
+      darkGradientFrom: "#0F0F0F",
+      darkGradientTo: "not-a-color",
+      futureKey: "kept",
+    };
+
+    const meta = skillMetaFromForm("finance", "", appearanceValuesFrom(stored), stored);
+
+    expect(meta).toEqual({ tags: ["finance"], appearance: stored });
+  });
+
+  it("stores a brand next to the existing icon and drops it when cleared", () => {
+    const stored = { icon: "file-text", brandIcon: "hubspot" };
+    const values = appearanceValuesFrom(stored);
+
+    expect(skillMetaFromForm("", "", values, stored)?.appearance).toEqual(stored);
+    expect(skillMetaFromForm("", "", { ...values, brandIcon: "" }, stored)?.appearance).toEqual({
+      icon: "file-text",
+    });
+  });
+});
+
+describe("brand and icon catalogs", () => {
+  it("resolves Simple Icons brands with their colour and path", () => {
+    expect(brandIconOptions.length).toBeGreaterThan(3_000);
+    expect(resolveBrandIcon("hubspot")).toMatchObject({ title: "HubSpot", hex: "#ff7a59" });
+    expect(resolveBrandIcon("hubspot")?.path).toMatch(/^M/u);
+    expect(resolveBrandIcon("not-a-brand")).toBeUndefined();
+    expect(resolveBrandIcon(undefined)).toBeUndefined();
+  });
+
+  it("has search tags for Lucide icons from the same Lucide version", () => {
+    expect(lucideIconTags["mail"]).toContain("email");
+    expect(Object.keys(lucideIconTags).every((name) => lucideIconNames.includes(name))).toBe(true);
+  });
+});
 
 describe("skill appearance", () => {
   it("uses complete light and dark gradients", () => {

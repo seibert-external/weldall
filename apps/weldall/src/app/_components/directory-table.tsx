@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Card } from "@astryxdesign/core/Card";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { parseAsString, useQueryStates } from "nuqs";
 import {
@@ -162,6 +163,7 @@ function DirectoryTable<T extends { key: string }>({
             label={`Search ${title.toLocaleLowerCase()}`}
             onChange={(value) => void setDirectoryQuery({ q: value || null })}
             placeholder={searchPlaceholder}
+            size="lg"
             startIcon="search"
             value={query}
             width="100%"
@@ -179,71 +181,73 @@ function DirectoryTable<T extends { key: string }>({
           verticalAlign: "middle",
         }}
       >
-        <div
-          className="directory-table-viewport"
-          role="region"
-          aria-label={`${title} table`}
-          tabIndex={0}
-        >
-          <table className="directory-table">
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} isHeaderRow>
-                  {headerGroup.headers.map((header) => {
-                    const sorted = header.column.getIsSorted();
-                    return (
-                      <TableHeaderCell
-                        aria-sort={
-                          sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
-                        }
-                        key={header.id}
-                        scope="col"
-                      >
-                        {header.isPlaceholder ? null : (
-                          <button
-                            className="directory-table-sort"
-                            onClick={header.column.getToggleSortingHandler()}
-                            type="button"
-                          >
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                            <span aria-hidden="true">
-                              {sorted === "asc" ? "↑" : sorted === "desc" ? "↓" : "↕"}
-                            </span>
-                          </button>
-                        )}
-                      </TableHeaderCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow
-                  aria-current={row.original.key === selectedKey ? "true" : undefined}
-                  data-selected={row.original.key === selectedKey || undefined}
-                  id={`directory-row-${encodeURIComponent(row.original.key)}`}
-                  key={row.id}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        <Card>
+          <div
+            className="directory-table-viewport"
+            role="region"
+            aria-label={`${title} table`}
+            tabIndex={0}
+          >
+            <table className="directory-table">
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id} isHeaderRow>
+                    {headerGroup.headers.map((header) => {
+                      const sorted = header.column.getIsSorted();
+                      return (
+                        <TableHeaderCell
+                          aria-sort={
+                            sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined
+                          }
+                          key={header.id}
+                          scope="col"
+                        >
+                          {header.isPlaceholder ? null : (
+                            <button
+                              className="directory-table-sort"
+                              onClick={header.column.getToggleSortingHandler()}
+                              type="button"
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                              <span aria-hidden="true">
+                                {sorted === "asc" ? "↑" : sorted === "desc" ? "↓" : "↕"}
+                              </span>
+                            </button>
+                          )}
+                        </TableHeaderCell>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow
+                    aria-current={row.original.key === selectedKey ? "true" : undefined}
+                    data-selected={row.original.key === selectedKey || undefined}
+                    id={`directory-row-${encodeURIComponent(row.original.key)}`}
+                    key={row.id}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+                {rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <span className="directory-table-empty">
+                        {query ? `No ${itemLabel}s match this search.` : emptyLabel}
+                      </span>
                     </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length}>
-                    <span className="directory-table-empty">
-                      {query ? `No ${itemLabel}s match this search.` : emptyLabel}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </table>
-        </div>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </table>
+          </div>
+        </Card>
       </TableContext.Provider>
     </section>
   );

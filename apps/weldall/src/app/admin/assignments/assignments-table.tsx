@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef, SortingState, Updater } from "@tanstack/react-table";
+import { Card } from "@astryxdesign/core/Card";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Pagination } from "@astryxdesign/core/Pagination";
@@ -160,60 +161,66 @@ export function AssignmentsTable() {
             verticalAlign: "middle",
           }}
         >
-          <div className="w-full overflow-x-auto" role="group" aria-label="Email assignments table">
-            <table
-              className="admin-resizable-table table-fixed border-collapse text-left"
-              style={{ minWidth: "100%", width: table.getTotalSize() }}
+          <Card>
+            <div
+              className="w-full overflow-x-auto"
+              role="group"
+              aria-label="Email assignments table"
             >
-              <ResizableTableHeader table={table} />
-              <TableBody>
-                {table.getRowModel().rows.map((row) => {
-                  const href = `/admin/assignments/${row.original.id}`;
-                  return (
-                    <TableRow
-                      key={row.id}
-                      aria-label={`Edit ${row.original.email}`}
-                      data-clickable="true"
-                      onClick={(event) => {
-                        if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
-                        router.push(href);
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell, index) => (
-                        <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                          {index === 0 ? (
-                            <TableRowAction href={href} label={`Edit ${row.original.email}`}>
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </TableRowAction>
-                          ) : (
-                            flexRender(cell.column.columnDef.cell, cell.getContext())
-                          )}
-                        </TableCell>
-                      ))}
+              <table
+                className="admin-resizable-table table-fixed border-collapse text-left"
+                style={{ minWidth: "100%", width: table.getTotalSize() }}
+              >
+                <ResizableTableHeader table={table} />
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => {
+                    const href = `/admin/assignments/${row.original.id}`;
+                    return (
+                      <TableRow
+                        key={row.id}
+                        aria-label={`Edit ${row.original.email}`}
+                        data-clickable="true"
+                        onClick={(event) => {
+                          if (isInteractiveTableTarget(event.target, event.currentTarget)) return;
+                          router.push(href);
+                        }}
+                      >
+                        {row.getVisibleCells().map((cell, index) => (
+                          <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                            {index === 0 ? (
+                              <TableRowAction href={href} label={`Edit ${row.original.email}`}>
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              </TableRowAction>
+                            ) : (
+                              flexRender(cell.column.columnDef.cell, cell.getContext())
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
+                  {!assignmentsQuery.isPending && table.getRowModel().rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">
+                          {q
+                            ? "No email assignments match this search."
+                            : "No email assignments have been created."}
+                        </Text>
+                      </TableCell>
                     </TableRow>
-                  );
-                })}
-                {!assignmentsQuery.isPending && table.getRowModel().rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">
-                        {q
-                          ? "No email assignments match this search."
-                          : "No email assignments have been created."}
-                      </Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-                {assignmentsQuery.isPending ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      <Text color="secondary">Loading assignments…</Text>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </table>
-          </div>
+                  ) : null}
+                  {assignmentsQuery.isPending ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        <Text color="secondary">Loading assignments…</Text>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </table>
+            </div>
+          </Card>
         </TableContext.Provider>
         <div className="admin-table-footer">
           <Pagination
