@@ -141,6 +141,8 @@ machines:
       - expenses:read
 ```
 
+`agentDiscoveryEnabled: true` lets Weldall read the agents that people shared through the resource on every catalog refresh, from the `weldall_agents_endpoint` named in the resource metadata. Without the field the switch is off, independent of `skillDiscoveryEnabled`. Weldall takes the owner and the scopes of each agent as the resource reports them, so switch it on only for a resource you trust with that; Weldall's system scopes never open an agent. A Weldall server that predates agent discovery refuses a manifest that switches it on.
+
 Only public machine keys belong in the manifest.
 
 Managed connectors can also be declared in YAML. The manifest carries only public policy; OAuth client secrets are entered in the administration UI and are never accepted by the CLI. `envelopeProvider` is immutable after creation. Google connectors list exact Google OAuth scopes. Atlassian Cloud connectors must use resource-level grants, at least one allowed Jira or Confluence product scope, and at least one allowed site `cloudId`.

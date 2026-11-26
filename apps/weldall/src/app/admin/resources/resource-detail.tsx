@@ -20,6 +20,7 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
+import { agentReloadFailureDetail } from "./agent-reload";
 
 const catalogStatuses = {
   fresh: { icon: "success", color: "success", label: "Fresh" },
@@ -29,6 +30,9 @@ const catalogStatuses = {
   pending: { icon: "info", color: "accent", label: "Pending" },
   disabled: { icon: "info", color: "accent", label: "Disabled" },
 } as const;
+
+const formatTime = (value: string | null, missing = "never") =>
+  value ? new Date(value).toLocaleString() : missing;
 
 export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   const trpc = useTRPC();
@@ -68,28 +72,51 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       },
     }),
   );
+  // What a reload reads: the saved switches of the resource.
+  const reloadLabel =
+    resourceQuery.data && !resourceQuery.data.agentDiscoveryEnabled
+      ? "Skills"
+      : resourceQuery.data && !resourceQuery.data.skillDiscoveryEnabled
+        ? "Agents"
+        : "Skills and agents";
   const refreshSkillsMutation = useMutation(
     trpc.admin.resources.refreshSkills.mutationOptions({
       onSuccess: async (outcome) => {
         await queryClient.invalidateQueries();
         if (outcome === "succeeded") {
-          operationToast.success("Skills reloaded", "resource-skills-refresh");
+          operationToast.success(`${reloadLabel} reloaded`, "resource-skills-refresh");
+          return;
+        }
+        if (outcome === "agents_failed") {
+          // Read after the refetch above: what the refresh left people with.
+          const refreshed = queryClient.getQueryData(
+            trpc.admin.resources.get.queryKey({ id: resourceId ?? "new" }),
+          );
+          operationToast.error(
+            "Could not reload agents",
+            new Error(agentReloadFailureDetail(refreshed ?? resourceQuery.data)),
+            "resource-skills-refresh",
+          );
           return;
         }
         const detail =
           outcome === "already_running"
             ? "A refresh is already running"
             : outcome === "unavailable"
-              ? "Skill discovery is disabled for this resource"
+              ? "The resource is disabled, or discovers neither skills nor agents"
               : "The refresh failed; see the discovery status for details";
         operationToast.error(
-          "Could not reload skills",
+          `Could not reload ${reloadLabel.toLowerCase()}`,
           new Error(detail),
           "resource-skills-refresh",
         );
       },
       onError: (error) =>
-        operationToast.error("Could not reload skills", error, "resource-skills-refresh"),
+        operationToast.error(
+          `Could not reload ${reloadLabel.toLowerCase()}`,
+          error,
+          "resource-skills-refresh",
+        ),
     }),
   );
   const mutation = isNew ? createMutation : updateMutation;
@@ -104,6 +131,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       scopeIds: [] as string[],
       enabled: true,
       skillDiscoveryEnabled: false,
+      agentDiscoveryEnabled: false,
     },
     onSubmit: async ({ value }) => {
       const requestPrefixes = parsePrefixLines(value.requestPrefixes);
@@ -117,6 +145,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           scopeIds: value.scopeIds,
           enabled: value.enabled,
           skillDiscoveryEnabled: value.skillDiscoveryEnabled,
+          agentDiscoveryEnabled: value.agentDiscoveryEnabled,
           expectedVersion: resourceQuery.data.version,
         });
       } else {
@@ -130,6 +159,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           scopeIds: value.scopeIds,
           enabled: value.enabled,
           skillDiscoveryEnabled: value.skillDiscoveryEnabled,
+          agentDiscoveryEnabled: value.agentDiscoveryEnabled,
         });
       }
       await queryClient.invalidateQueries();
@@ -149,6 +179,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       scopeIds: resourceQuery.data.scopeIds,
       enabled: resourceQuery.data.enabled,
       skillDiscoveryEnabled: resourceQuery.data.skillDiscoveryEnabled,
+      agentDiscoveryEnabled: resourceQuery.data.agentDiscoveryEnabled,
     });
   }, [form, resourceQuery.data]);
 
@@ -165,6 +196,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   }
   const scopeOptions = scopeOptionsQuery.data ?? [];
   const current = resourceQuery.data;
+  const agentStatus = current?.catalogStatus?.agents ?? null;
 
   return (
     <>
@@ -176,18 +208,23 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
               label={`View skills (${current.catalogStatus?.skillCount ?? 0})`}
               variant="secondary"
             />
+            <Button
+              href={`/admin/agents?source=${encodeURIComponent(current.id)}`}
+              label={`View agents (${current.catalogStatus?.agentCount ?? 0})`}
+              variant="secondary"
+            />
           </HStack>
         ) : null}
         {current ? (
           <Button
             isDisabled={
               !current.enabled ||
-              !current.skillDiscoveryEnabled ||
+              !(current.skillDiscoveryEnabled || current.agentDiscoveryEnabled) ||
               mutation.isPending ||
               deleteMutation.isPending
             }
             isLoading={refreshSkillsMutation.isPending}
-            label="Reload skills"
+            label={`Reload ${reloadLabel.toLowerCase()}`}
             onClick={() => refreshSkillsMutation.mutate({ id: current.id })}
             type="button"
             variant="secondary"
@@ -230,35 +267,70 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
         </div>
         {current?.catalogStatus ? (
           <div className="grid gap-1">
-            <HStack gap={2} vAlign="center">
-              <Icon
-                icon={catalogStatuses[current.catalogStatus.state].icon}
-                color={catalogStatuses[current.catalogStatus.state].color}
-                size="sm"
-              />
-              <Text type="body">
-                Skill discovery: {catalogStatuses[current.catalogStatus.state].label}
-              </Text>
-            </HStack>
-            <Text color="secondary" type="body">
-              {`Discovered skills: ${current.catalogStatus.skillCount} · Last attempt: ${
-                current.catalogStatus.lastAttemptAt
-                  ? new Date(current.catalogStatus.lastAttemptAt).toLocaleString()
-                  : "never"
-              } · Last successful refresh: ${
-                current.catalogStatus.lastSuccessfulRefreshAt
-                  ? new Date(current.catalogStatus.lastSuccessfulRefreshAt).toLocaleString()
-                  : "never"
-              }${
-                current.catalogStatus.lastFailureCategory
-                  ? ` · Last failure: ${current.catalogStatus.lastFailureCategory} at ${
-                      current.catalogStatus.lastFailureAt
-                        ? new Date(current.catalogStatus.lastFailureAt).toLocaleString()
-                        : "unknown"
-                    }`
-                  : ""
-              }`}
-            </Text>
+            {current.skillDiscoveryEnabled || !current.agentDiscoveryEnabled ? (
+              <>
+                <HStack gap={2} vAlign="center">
+                  <Icon
+                    icon={catalogStatuses[current.catalogStatus.state].icon}
+                    color={catalogStatuses[current.catalogStatus.state].color}
+                    size="sm"
+                  />
+                  <Text type="body">
+                    Skill discovery: {catalogStatuses[current.catalogStatus.state].label}
+                  </Text>
+                </HStack>
+                <Text color="secondary" type="body">
+                  {`Discovered skills: ${current.catalogStatus.skillCount} · Last attempt: ${formatTime(
+                    current.catalogStatus.lastAttemptAt,
+                  )} · Last successful refresh: ${formatTime(
+                    current.catalogStatus.lastSuccessfulRefreshAt,
+                  )}${
+                    current.catalogStatus.lastFailureCategory
+                      ? ` · Last failure: ${current.catalogStatus.lastFailureCategory} at ${formatTime(
+                          current.catalogStatus.lastFailureAt,
+                          "unknown",
+                        )}`
+                      : ""
+                  }`}
+                </Text>
+              </>
+            ) : null}
+            {current.agentDiscoveryEnabled && agentStatus ? (
+              <>
+                <HStack gap={2} vAlign="center">
+                  <Icon
+                    icon={catalogStatuses[agentStatus.state].icon}
+                    color={catalogStatuses[agentStatus.state].color}
+                    size="sm"
+                  />
+                  <Text type="body">
+                    Agent discovery: {catalogStatuses[agentStatus.state].label}
+                  </Text>
+                </HStack>
+                <Text color="secondary" type="body">
+                  {`Discovered agents: ${current.catalogStatus.agentCount}${
+                    current.skillDiscoveryEnabled
+                      ? ""
+                      : ` · Last attempt: ${formatTime(current.catalogStatus.lastAttemptAt)}`
+                  } · Last successful agent refresh: ${formatTime(
+                    agentStatus.lastSuccessfulRefreshAt,
+                  )}${
+                    agentStatus.lastFailureCategory
+                      ? ` · Last agent failure: ${agentStatus.lastFailureCategory} at ${formatTime(
+                          agentStatus.lastFailureAt,
+                          "unknown",
+                        )}`
+                      : ""
+                  }${
+                    agentStatus.skippedCount
+                      ? ` · Left out as invalid: ${agentStatus.skippedCount} ${
+                          agentStatus.skippedCount === 1 ? "agent" : "agents"
+                        }`
+                      : ""
+                  }`}
+                </Text>
+              </>
+            ) : null}
           </div>
         ) : null}
         {scopeOptionsQuery.error ? (
@@ -432,6 +504,19 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 />
               )}
             </form.Field>
+            <form.Field name="agentDiscoveryEnabled">
+              {(field) => (
+                <Switch
+                  description="Trust this resource to publish agents that people shared through it, and to say who owns each agent and which permissions open it. A person sees an agent they own or hold one of its permissions for."
+                  label="Discover agents from this resource"
+                  labelPosition="start"
+                  labelSpacing="spread"
+                  onChange={field.handleChange}
+                  value={field.state.value}
+                  width="100%"
+                />
+              )}
+            </form.Field>
           </FormLayout>
         </form>
       </div>
@@ -439,7 +524,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
         actionLabel="Delete resource"
         description={
           current
-            ? `Delete ${current.name}? Its request prefixes and discovered skills will be removed immediately.`
+            ? `Delete ${current.name}? Its request prefixes and discovered skills and agents will be removed immediately.`
             : "Delete this resource?"
         }
         isActionLoading={deleteMutation.isPending}

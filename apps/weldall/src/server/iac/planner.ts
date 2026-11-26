@@ -442,6 +442,8 @@ export async function loadPlanningState({
         downstreamClientId: item.downstreamClientId,
         enabled: item.enabled,
         skillDiscoveryEnabled: item.skillDiscoveryEnabled,
+        // Only when on, as in the canonical manifest (`contracts.ts`).
+        ...(item.agentDiscoveryEnabled ? { agentDiscoveryEnabled: true as const } : {}),
         requestPrefixes: item.requestPrefixes.map((entry) => entry.urlPrefix).sort(),
         scopes: item.scopes.map((entry) => entry.scope.key).sort(),
       },

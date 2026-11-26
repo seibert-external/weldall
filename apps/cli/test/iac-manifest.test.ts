@@ -494,6 +494,14 @@ describe("native YAML workspaces", () => {
       groupAssignments: {},
     };
     expect(canonicalManifestDigest(omittedAndUnsorted)).toBe(canonicalManifestDigest(canonical));
+    // Agent discovery is part of the canonical form only when it is on, so the digest of every
+    // manifest without it stays what clients and servers that predate it compute.
+    const withAgents = (agentDiscoveryEnabled: boolean) => ({
+      ...canonical,
+      resources: { api: { ...canonical.resources.api, agentDiscoveryEnabled } },
+    });
+    expect(canonicalManifestDigest(withAgents(false))).toBe(canonicalManifestDigest(canonical));
+    expect(canonicalManifestDigest(withAgents(true))).not.toBe(canonicalManifestDigest(canonical));
     // Preserve the pre-connector wire format and digest, even for an explicitly empty section.
     expect(canonicalManifestDigest({ ...canonical, connectors: {} })).toBe(
       canonicalManifestDigest(canonical),

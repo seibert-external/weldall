@@ -32,6 +32,10 @@ const publicSectionDesigns = {
     light: toPair(corporateGradients.lavender.light),
     dark: toPair(corporateGradients.lavender.dark),
   },
+  agents: {
+    light: toPair(corporateGradients.teal.light),
+    dark: toPair(corporateGradients.teal.dark),
+  },
   statistics: {
     light: toPair(corporateGradients.lake.light),
     dark: toPair(corporateGradients.lake.dark),
@@ -52,10 +56,13 @@ export function DirectoryUserMenu({
   email,
   isAdmin,
   canViewStatistics,
+  showAgents = false,
 }: {
   email: string;
   isAdmin: boolean;
   canViewStatistics: boolean;
+  /** A resource publishes shared agents (`agentsOffered`): the Agents tab is shown. */
+  showAgents?: boolean;
 }) {
   const pathname = usePathname();
   const { mode } = useThemeMode();
@@ -177,6 +184,19 @@ export function DirectoryUserMenu({
           onPreview={setHoveredSection}
           setItemRef={setItemRef}
         />
+        {showAgents ? (
+          <DirectoryNavLink
+            href="/agents"
+            label="Agents"
+            icon={<AgentIcon />}
+            section="agents"
+            isActive={activeSection === "agents"}
+            isHighlighted={highlightedSection === "agents"}
+            gradient={publicSectionDesigns.agents[mode]}
+            onPreview={setHoveredSection}
+            setItemRef={setItemRef}
+          />
+        ) : null}
         <DirectoryNavLink
           href="/resources"
           label="Resources"
@@ -258,6 +278,8 @@ function getActiveSection(pathname: string): SectionKey | null {
   if (pathname === "/skills" || pathname.startsWith("/skills/") || pathname.startsWith("/skill/")) {
     return "skills";
   }
+  if (pathname === "/agents" || pathname.startsWith("/agents/") || pathname.startsWith("/agent/"))
+    return "agents";
   if (pathname === "/resources" || pathname.startsWith("/resources/")) return "resources";
   if (pathname === "/scopes" || pathname.startsWith("/scopes/")) return "scopes";
   if (pathname === "/statistics" || pathname.startsWith("/statistics/")) return "statistics";
@@ -352,6 +374,17 @@ function ScopeIcon(props: IconProps) {
       <path d="M5 5h14v5H5z" />
       <path d="M5 14h14v5H5z" />
       <path d="M8 7.5h.01M8 16.5h.01" />
+    </IconBase>
+  );
+}
+
+function AgentIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 3v3" />
+      <path d="M6 6h12v9H6z" />
+      <path d="M9.5 10h.01M14.5 10h.01" />
+      <path d="M4 19c1.5-2 4.5-3 8-3s6.5 1 8 3" />
     </IconBase>
   );
 }

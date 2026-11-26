@@ -701,6 +701,7 @@ async function upsertObject({
       downstreamClientId: state.downstreamClientId,
       enabled: state.enabled,
       skillDiscoveryEnabled: state.skillDiscoveryEnabled,
+      agentDiscoveryEnabled: state.agentDiscoveryEnabled === true,
       scopeKeys: state.scopes,
       requestPrefixes: state.requestPrefixes,
     };
@@ -1640,6 +1641,7 @@ async function findNatural({
                     downstreamClientId: row.downstreamClientId,
                     enabled: row.enabled,
                     skillDiscoveryEnabled: row.skillDiscoveryEnabled,
+                    ...(row.agentDiscoveryEnabled ? { agentDiscoveryEnabled: true } : {}),
                     requestPrefixes: row.requestPrefixes.map((item: any) => item.urlPrefix).sort(),
                     scopes: row.scopes.map((item: any) => item.scope.key).sort(),
                   }

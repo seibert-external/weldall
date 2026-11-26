@@ -125,6 +125,7 @@ weldall scopes
 weldall skills
 weldall skills find expense
 weldall skills expenses.review # alias for `skills show`
+weldall agents
 weldall request --scope expenses:read https://expenses.example.com/api/expenses
 weldall request -X PUT --scope files:write --upload-file ./report.pdf \
   -H 'Content-Type: application/pdf' https://files.example.com/api/report.pdf
@@ -160,6 +161,8 @@ ambiguous targets receive neither a token nor request data. Weldall then obtains
 token; before forwarding its ID-JAG, the CLI verifies the bound subject and verified email alongside
 the audience, resource, scopes, and device key. It then adds the DPoP authorization headers.
 `weldall skills list` refreshes a searchable local catalog. `weldall skills find <keywords>` searches cached slugs, titles, catalog previews, tags, owners, and resource names without networking after initialization. Multi-word queries rank skills matching more terms first; on no match, try fewer or broader system, resource, or action words, or browse with `weldall skills list`. `weldall skills <skill-id>` is an alias for `weldall skills show <skill-id>`.
+
+`weldall agents` lists the shared agents the signed-in account owns or that are shared with a permission it holds: one line per agent with its ID, name, owner, the scopes it is shared with, its creation date, and its expiry date, followed by its description on a second line. Control characters in this server-supplied text are replaced before it reaches the terminal. `weldall agents --json` prints the full server answer unchanged, including each agent's configuration, the agent registries, and the scopes the account can share with. A server without agent discovery is reported as such instead of as a failed request.
 
 `weldall status --json` includes `organizationInstructions` alongside `identity`, `assignedScopes`, and `grants`. This is the current organization-instructions text loaded from Weldall, not the cached help header: an empty string means no instructions are configured; `null` means the settings could not be loaded (including older servers without that endpoint). Existing identity/permission failures still fail the command. Clients that require organizational context should distinguish these states rather than silently substituting cached text or assuming an empty configuration.
 

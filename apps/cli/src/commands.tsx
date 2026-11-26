@@ -56,6 +56,7 @@ import {
   resourceRequest,
   type ResourceGrant,
 } from "./services/resources.js";
+import { listAgents, type AgentSummary, type AgentWarning } from "./services/agents.js";
 import {
   listSkills,
   listSkillsWithSubject,
@@ -1264,6 +1265,48 @@ export const connectionsCommand = define({
   },
   run: (context) =>
     printConnections({ asJson: context.values.json, asAgentic: context.values.agentic }),
+});
+
+/** One shared agent for the terminal: who owns it, what it is for, and when it was made and expires. */
+export const formatAgentEntry = (agent: AgentSummary) => {
+  const summary = [
+    agent.id,
+    agent.name,
+    agent.own ? "yours" : `by ${agent.ownerName ?? "unknown"}`,
+    `shared with ${agent.scopes.join(", ") || "nobody"}`,
+    `created ${formatShortTimestamp(agent.createdAt)}`,
+    `${agent.expired ? "expired" : "expires"} ${formatShortTimestamp(agent.expiresAt)}`,
+  ]
+    // Every part carries server text (an unparsable timestamp is shown as sent).
+    .map(terminalText)
+    .join("  ·  ");
+  // Whitespace runs, line breaks included, become one space; any other control character, such as
+  // the ESC that starts an ANSI or OSC sequence, is neutralized rather than sent to the terminal.
+  const purpose = terminalText(agent.description.replace(/\s+/g, " ").trim());
+  return purpose ? `${summary}\n  ${purpose}` : summary;
+};
+
+export const formatAgentWarning = (warning: AgentWarning) =>
+  `Agents from ${terminalText(warning.source)}: ${terminalText(warning.code)}`;
+
+export const agentsCommand = define({
+  name: "agents",
+  description: "List shared agents you own or that are shared with a permission you hold",
+  args: { json: jsonArgument },
+  examples: "weldall agents\nweldall agents --json",
+  run: async (context) => {
+    const result = await listAgents(await resolveWeldallConfig());
+    if (context.values.json) {
+      jsonOutput(result);
+      return;
+    }
+    for (const warning of result.warnings) printWarning({ message: formatAgentWarning(warning) });
+    if (result.items.length === 0) {
+      info("No shared agents are visible to this account.");
+      return;
+    }
+    for (const agent of result.items) console.log(formatAgentEntry(agent));
+  },
 });
 
 export const skillsCommand = define({

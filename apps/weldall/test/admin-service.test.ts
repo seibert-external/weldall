@@ -64,6 +64,7 @@ const resourceInput = (
     downstreamClientId: `client-${suffix}`,
     enabled: true,
     skillDiscoveryEnabled: false,
+    agentDiscoveryEnabled: false,
     scopeIds: [scopeId],
     requestPrefixes: [`${origin}/api`],
     ...overrides,
@@ -370,9 +371,51 @@ describe("admin scope service", () => {
     expect(resource).toMatchObject({
       enabled: true,
       version: 1,
+      // Off unless an administrator switches it on.
+      skillDiscoveryEnabled: false,
+      agentDiscoveryEnabled: false,
+      catalogStatus: null,
       scopeKeys: [sharedScope.key],
       requestPrefixes: [`${origin}/api`, `${origin}/api/events`],
     });
+    const agentOrigin = `https://${namespace}-agents.example`;
+    const agentResource = await createResource(
+      {
+        key: `${namespace}-agents`,
+        name: "Agent resource",
+        resourceIdentifier: `${agentOrigin}/resource`,
+        authorizationServer: agentOrigin,
+        downstreamClientId: "agent-client",
+        enabled: true,
+        agentDiscoveryEnabled: true,
+        scopeIds: [sharedScope.id],
+        requestPrefixes: [`${agentOrigin}/api`],
+      },
+      primaryActor,
+    );
+    expect(agentResource).toMatchObject({
+      skillDiscoveryEnabled: false,
+      agentDiscoveryEnabled: true,
+      catalogStatus: {
+        state: "pending",
+        skillCount: 0,
+        agentCount: 0,
+        // The agent side has its own status; without skills it is the resource's state.
+        agents: {
+          state: "pending",
+          lastSuccessfulRefreshAt: null,
+          lastFailureCategory: null,
+          lastFailureAt: null,
+          skippedCount: 0,
+        },
+      },
+    });
+    const skillResource = await createResource(
+      { ...resourceInput("skills-only", sharedScope.id), skillDiscoveryEnabled: true },
+      primaryActor,
+    );
+    // Agent discovery off: no agent status.
+    expect(skillResource.catalogStatus).toMatchObject({ state: "pending", agents: null });
     await expect(db.emailScopeGrant.count()).resolves.toBe(grantCountBefore);
 
     await expect(

@@ -147,6 +147,29 @@ export function ResourcesTable() {
           );
         },
       },
+      {
+        // The agent side is read with the skills but fails on its own, so it has its own state.
+        accessorKey: "agentDiscoveryEnabled",
+        header: "Agent discovery",
+        size: 240,
+        minSize: 140,
+        maxSize: 240,
+        enableSorting: false,
+        cell: ({ row, getValue }) => {
+          const state = getValue<boolean>()
+            ? (row.original.catalogStatus?.agents?.state ?? "pending")
+            : "disabled";
+          const status = discoveryStatuses[state];
+          return (
+            <HStack gap={2} vAlign="center">
+              <Text type="body">
+                {status.label} ({row.original.catalogStatus?.agentCount ?? 0})
+              </Text>
+              <Icon icon={status.icon} color={status.color} size="sm" />
+            </HStack>
+          );
+        },
+      },
     ],
     [],
   );

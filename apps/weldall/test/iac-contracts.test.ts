@@ -611,6 +611,18 @@ describe("native YAML IaC contracts", () => {
     expect(digest(canonicalDefaults)).toBe(
       "3eebe93e22e7fc279c0b7267f99381a553b55e0caaa894735bf6e6c79d0a3874",
     );
+    // Agent discovery switched off is the same manifest; only switched on it is part of it.
+    const withAgents = (agentDiscoveryEnabled: boolean) =>
+      parseDesiredState({
+        apiVersion: "weldall.dev/v1",
+        workspace: desired.workspace,
+        resources: {
+          api: { ...canonicalDefaults.resources.api!, agentDiscoveryEnabled },
+        },
+      });
+    expect(digest(withAgents(false))).toBe(digest(canonicalDefaults));
+    expect(withAgents(false).resources.api).not.toHaveProperty("agentDiscoveryEnabled");
+    expect(withAgents(true).resources.api).toMatchObject({ agentDiscoveryEnabled: true });
     expect(() =>
       unmanageRequestSchema.parse({
         workspaceId: desired.workspace.id,

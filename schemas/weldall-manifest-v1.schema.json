@@ -1306,6 +1306,10 @@
             "type": "boolean",
             "default": false
           },
+          "agentDiscoveryEnabled": {
+            "type": "boolean",
+            "default": false
+          },
           "requestPrefixes": {
             "type": "array",
             "minItems": 1,

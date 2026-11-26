@@ -68,6 +68,7 @@ import {
   testGroupProvider,
   updateGroupProvider,
 } from "../group-providers/service";
+import { listDiscoveredAgents } from "../agents/service";
 import { refreshResourceCatalog } from "../skills/catalogs";
 import { errorForLog, logger } from "../observability/logger";
 import {
@@ -305,6 +306,11 @@ export const appRouter = trpc.router({
       authenticated: true as const,
       email: ctx.adminActor.email ?? null,
     })),
+    agents: trpc.router({
+      list: adminProcedure
+        .input(z.object({ ...pageInput, source: z.string().min(1).max(191).optional() }).strict())
+        .query(({ input }) => listDiscoveredAgents(input)),
+    }),
     users: trpc.router({
       list: adminProcedure
         .input(
@@ -495,6 +501,7 @@ export const appRouter = trpc.router({
               downstreamClientId: z.string().max(200),
               enabled: z.boolean(),
               skillDiscoveryEnabled: z.boolean(),
+              agentDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
             })
@@ -511,6 +518,7 @@ export const appRouter = trpc.router({
               downstreamClientId: z.string().max(200),
               enabled: z.boolean(),
               skillDiscoveryEnabled: z.boolean(),
+              agentDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
               expectedVersion: z.number().int().positive(),

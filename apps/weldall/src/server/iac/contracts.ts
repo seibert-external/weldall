@@ -137,6 +137,7 @@ export const desiredStateSchema = z
             downstreamClientId: z.string().trim().min(1).max(200),
             enabled: z.boolean(),
             skillDiscoveryEnabled: z.boolean().default(false),
+            agentDiscoveryEnabled: z.boolean().optional(),
             requestPrefixes: z
               .array(canonicalUrl(normalizeRequestPrefix))
               .min(1)
@@ -144,7 +145,15 @@ export const desiredStateSchema = z
               .transform(canonicalSet),
             scopes: stringSet,
           })
-          .strict(),
+          .strict()
+          // The canonical form carries the field only when it is on. A default would change the
+          // digest of every manifest without it, and clients that predate agent discovery compute
+          // that digest themselves.
+          .transform(({ agentDiscoveryEnabled, ...resource }) =>
+            agentDiscoveryEnabled
+              ? { ...resource, agentDiscoveryEnabled: true as const }
+              : resource,
+          ),
       )
       .default({}),
     skills: z
