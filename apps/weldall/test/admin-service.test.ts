@@ -396,8 +396,26 @@ describe("admin scope service", () => {
     expect(agentResource).toMatchObject({
       skillDiscoveryEnabled: false,
       agentDiscoveryEnabled: true,
-      catalogStatus: { state: "pending", skillCount: 0, agentCount: 0 },
+      catalogStatus: {
+        state: "pending",
+        skillCount: 0,
+        agentCount: 0,
+        // The agent side has its own status; without skills it is the resource's state.
+        agents: {
+          state: "pending",
+          lastSuccessfulRefreshAt: null,
+          lastFailureCategory: null,
+          lastFailureAt: null,
+          skippedCount: 0,
+        },
+      },
     });
+    const skillResource = await createResource(
+      { ...resourceInput("skills-only", sharedScope.id), skillDiscoveryEnabled: true },
+      primaryActor,
+    );
+    // Agent discovery off: no agent status.
+    expect(skillResource.catalogStatus).toMatchObject({ state: "pending", agents: null });
     await expect(db.emailScopeGrant.count()).resolves.toBe(grantCountBefore);
 
     await expect(

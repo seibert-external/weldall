@@ -20,6 +20,7 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
+import { agentReloadFailureDetail } from "./agent-reload";
 
 const catalogStatuses = {
   fresh: { icon: "success", color: "success", label: "Fresh" },
@@ -29,6 +30,9 @@ const catalogStatuses = {
   pending: { icon: "info", color: "accent", label: "Pending" },
   disabled: { icon: "info", color: "accent", label: "Disabled" },
 } as const;
+
+const formatTime = (value: string | null, missing = "never") =>
+  value ? new Date(value).toLocaleString() : missing;
 
 export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   const trpc = useTRPC();
@@ -84,13 +88,13 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           return;
         }
         if (outcome === "agents_failed") {
+          // Read after the refetch above: what the refresh left people with.
+          const refreshed = queryClient.getQueryData(
+            trpc.admin.resources.get.queryKey({ id: resourceId ?? "new" }),
+          );
           operationToast.error(
             "Could not reload agents",
-            new Error(
-              resourceQuery.data?.skillDiscoveryEnabled
-                ? "The skills were reloaded; the agents keep their last copy. See the agent discovery status for details"
-                : "The agents keep their last copy. See the agent discovery status for details",
-            ),
+            new Error(agentReloadFailureDetail(refreshed ?? resourceQuery.data)),
             "resource-skills-refresh",
           );
           return;
@@ -263,37 +267,34 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
         </div>
         {current?.catalogStatus ? (
           <div className="grid gap-1">
-            <HStack gap={2} vAlign="center">
-              <Icon
-                icon={catalogStatuses[current.catalogStatus.state].icon}
-                color={catalogStatuses[current.catalogStatus.state].color}
-                size="sm"
-              />
-              <Text type="body">
-                Discovery: {catalogStatuses[current.catalogStatus.state].label}
-              </Text>
-            </HStack>
-            <Text color="secondary" type="body">
-              {`Discovered skills: ${current.catalogStatus.skillCount} · Discovered agents: ${
-                current.catalogStatus.agentCount
-              } · Last attempt: ${
-                current.catalogStatus.lastAttemptAt
-                  ? new Date(current.catalogStatus.lastAttemptAt).toLocaleString()
-                  : "never"
-              } · Last successful refresh: ${
-                current.catalogStatus.lastSuccessfulRefreshAt
-                  ? new Date(current.catalogStatus.lastSuccessfulRefreshAt).toLocaleString()
-                  : "never"
-              }${
-                current.catalogStatus.lastFailureCategory
-                  ? ` · Last failure: ${current.catalogStatus.lastFailureCategory} at ${
-                      current.catalogStatus.lastFailureAt
-                        ? new Date(current.catalogStatus.lastFailureAt).toLocaleString()
-                        : "unknown"
-                    }`
-                  : ""
-              }`}
-            </Text>
+            {current.skillDiscoveryEnabled || !current.agentDiscoveryEnabled ? (
+              <>
+                <HStack gap={2} vAlign="center">
+                  <Icon
+                    icon={catalogStatuses[current.catalogStatus.state].icon}
+                    color={catalogStatuses[current.catalogStatus.state].color}
+                    size="sm"
+                  />
+                  <Text type="body">
+                    Skill discovery: {catalogStatuses[current.catalogStatus.state].label}
+                  </Text>
+                </HStack>
+                <Text color="secondary" type="body">
+                  {`Discovered skills: ${current.catalogStatus.skillCount} · Last attempt: ${formatTime(
+                    current.catalogStatus.lastAttemptAt,
+                  )} · Last successful refresh: ${formatTime(
+                    current.catalogStatus.lastSuccessfulRefreshAt,
+                  )}${
+                    current.catalogStatus.lastFailureCategory
+                      ? ` · Last failure: ${current.catalogStatus.lastFailureCategory} at ${formatTime(
+                          current.catalogStatus.lastFailureAt,
+                          "unknown",
+                        )}`
+                      : ""
+                  }`}
+                </Text>
+              </>
+            ) : null}
             {current.agentDiscoveryEnabled && agentStatus ? (
               <>
                 <HStack gap={2} vAlign="center">
@@ -307,17 +308,18 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                   </Text>
                 </HStack>
                 <Text color="secondary" type="body">
-                  {`Last successful agent refresh: ${
-                    agentStatus.lastSuccessfulRefreshAt
-                      ? new Date(agentStatus.lastSuccessfulRefreshAt).toLocaleString()
-                      : "never"
-                  }${
+                  {`Discovered agents: ${current.catalogStatus.agentCount}${
+                    current.skillDiscoveryEnabled
+                      ? ""
+                      : ` · Last attempt: ${formatTime(current.catalogStatus.lastAttemptAt)}`
+                  } · Last successful agent refresh: ${formatTime(
+                    agentStatus.lastSuccessfulRefreshAt,
+                  )}${
                     agentStatus.lastFailureCategory
-                      ? ` · Last agent failure: ${agentStatus.lastFailureCategory} at ${
-                          agentStatus.lastFailureAt
-                            ? new Date(agentStatus.lastFailureAt).toLocaleString()
-                            : "unknown"
-                        }`
+                      ? ` · Last agent failure: ${agentStatus.lastFailureCategory} at ${formatTime(
+                          agentStatus.lastFailureAt,
+                          "unknown",
+                        )}`
                       : ""
                   }${
                     agentStatus.skippedCount

@@ -15,7 +15,8 @@ import { signWeldallJwt } from "../oauth/jwt";
  * directory reads one format to show it, see `agentContent` in `service.ts`.)
  *
  * An agent that fails validation is left out and counted (`skipped`), so one broken agent does not
- * hold back the others; a page that is broken as a whole fails the agent side of the refresh.
+ * hold back the others; a page that is broken as a whole fails the agent side of the refresh, and
+ * so does a catalog in which every agent failed validation (`agents_all_invalid`).
  */
 export const AGENT_CATALOG_SCHEMA_VERSION = 1 as const;
 export const AGENT_CATALOG_METADATA_KEY = "weldall_agents_endpoint" as const;
@@ -41,7 +42,16 @@ const TOTAL_TIMEOUT_MS = 15_000;
 
 export type AgentCatalogFailureCategory =
   /** Agent discovery is on, but the resource metadata names no (usable) agent endpoint or API. */
-  "agents_metadata_invalid" | "agents_unavailable" | "agents_unauthorized" | "agents_invalid";
+  | "agents_metadata_invalid"
+  | "agents_unavailable"
+  | "agents_unauthorized"
+  /** A request answered with a page that is malformed as a whole, or the catalog broke a bound. */
+  | "agents_invalid"
+  /**
+   * The resource published agents, and every one failed validation. That points at a mismatch
+   * between the resource and Weldall rather than at broken agents, so the last copy stays.
+   */
+  | "agents_all_invalid";
 
 export class AgentCatalogError extends Error {
   constructor(readonly category: AgentCatalogFailureCategory) {
@@ -51,24 +61,58 @@ export class AgentCatalogError extends Error {
 
 const GLOBAL_SCOPE = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
 const dateTime = z.iso.datetime().transform((value) => new Date(value));
+/** The largest value of an `INTEGER` column (`revision`, `configVersion`). */
+const INT4_MAX = 2_147_483_647;
+/** Deeper `config.definition` values are refused before they reach the JSON column. */
+const MAX_DEFINITION_DEPTH = 64;
 
-const publishedAgentSchema = z.strictObject({
+/**
+ * Text PostgreSQL can store: no NUL character (refused in `TEXT` and in `JSONB`) and no lone
+ * surrogate (not valid UTF-8; with the `u` flag `\p{Cs}` matches only unpaired ones). An agent with such a value is left out like any invalid agent,
+ * rather than failing the write of the whole catalog.
+ */
+const UNSTORABLE_TEXT = /\u0000|\p{Cs}/u;
+const storableText = (value: string): boolean => !UNSTORABLE_TEXT.test(value);
+const text = () => z.string().refine(storableText, "contains text that cannot be stored");
+
+/** Every key and string in a JSON value is storable text, and it is at most `depth` levels deep. */
+function storableJson(value: unknown, depth: number): boolean {
+  if (typeof value === "string") return storableText(value);
+  if (value === null || typeof value !== "object") return true;
+  if (depth === 0) return false;
+  if (Array.isArray(value)) return value.every((item) => storableJson(item, depth - 1));
+  return Object.entries(value).every(
+    ([entryKey, entry]) => storableText(entryKey) && storableJson(entry, depth - 1),
+  );
+}
+
+/**
+ * Fields Weldall does not know are ignored and not stored, so a resource can add fields without
+ * its agents being left out; the known fields are checked strictly.
+ */
+const publishedAgentSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-  name: z.string().min(1).max(200),
-  description: z.string().max(1_000),
+  name: text().min(1).max(200),
+  description: text().max(1_000),
   /** Weldall user id of the person who shared the agent. */
-  owner: z.string().min(1).max(200),
+  owner: text().min(1).max(200),
   /** Holding any one of these is enough to use the agent. */
   scopes: z
-    .array(z.string().regex(GLOBAL_SCOPE))
+    .array(z.string().max(200).regex(GLOBAL_SCOPE))
     .max(100)
     .refine((scopes) => new Set(scopes).size === scopes.length),
-  config: z.strictObject({
+  config: z.object({
     format: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/),
-    version: z.number().int().min(1),
-    definition: z.record(z.string(), z.unknown()),
+    version: z.number().int().min(1).max(INT4_MAX),
+    /** Passed on as it is; only checked to be an object PostgreSQL can store. */
+    definition: z
+      .record(z.string(), z.unknown())
+      .refine(
+        (definition) => storableJson(definition, MAX_DEFINITION_DEPTH),
+        "contains a value that cannot be stored",
+      ),
   }),
-  revision: z.number().int().min(1),
+  revision: z.number().int().min(1).max(INT4_MAX),
   createdAt: dateTime,
   updatedAt: dateTime,
   expiresAt: dateTime,
@@ -112,7 +156,7 @@ export function parseAgentCatalogPage(
 
 /**
  * Reads every page of a resource's agent catalog. A failure of a request or of a page as a whole
- * discards all pages; agents that fail validation are only counted.
+ * discards all pages; agents that fail validation are only counted, unless none passed.
  */
 export async function fetchAgentCatalog(input: {
   resourceIdentifier: string;
@@ -175,7 +219,10 @@ export async function fetchAgentCatalog(input: {
     }
     if (agents.size > MAX_AGENTS || bytes > MAX_TOTAL_BYTES)
       throw new AgentCatalogError("agents_invalid");
-    if (page.nextCursor === undefined) return { agents: [...agents.values()], skipped };
+    if (page.nextCursor === undefined) {
+      if (agents.size === 0 && skipped > 0) throw new AgentCatalogError("agents_all_invalid");
+      return { agents: [...agents.values()], skipped };
+    }
     // A cursor that repeats would loop until the page limit.
     if (cursors.has(page.nextCursor)) throw new AgentCatalogError("agents_invalid");
     cursors.add(page.nextCursor);

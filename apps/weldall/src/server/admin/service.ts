@@ -212,7 +212,10 @@ export interface ResourceDto {
     lastSuccessfulRefreshAt: string | null;
     lastFailureCategory: string | null;
     lastFailureAt: string | null;
-    /** The agent side of discovery, which is read and can fail on its own; null with the switch off. */
+    /**
+     * The agent side of discovery, which is read and can fail on its own; null with the switch off.
+     * `state` above is the skill side's, or this state for a resource that discovers only agents.
+     */
     agents: AgentCatalogStatus | null;
   } | null;
   version: number;
@@ -1269,20 +1272,25 @@ function serializeResource(resource: {
 }): ResourceDto {
   const now = new Date();
   const catalog = resource.discoveredCatalog;
+  const agentStatus =
+    catalog && resource.agentDiscoveryEnabled ? agentCatalogStatus(resource, catalog, now) : null;
+  // Without a skill side the agent side is the whole of discovery, so its state is the resource's.
   const catalogState =
-    !resource.enabled || !(resource.skillDiscoveryEnabled || resource.agentDiscoveryEnabled)
-      ? "disabled"
-      : !catalog?.lastSuccessfulRefreshAt
-        ? catalog?.lastFailureCategory
-          ? "failed"
-          : "pending"
-        : catalog.staleAfter && catalog.staleAfter <= now
-          ? "expired"
-          : catalog.lastFailureCategory
+    resource.enabled && !resource.skillDiscoveryEnabled && agentStatus
+      ? agentStatus.state
+      : !resource.enabled || !(resource.skillDiscoveryEnabled || resource.agentDiscoveryEnabled)
+        ? "disabled"
+        : !catalog?.lastSuccessfulRefreshAt
+          ? catalog?.lastFailureCategory
             ? "failed"
-            : catalog.nextRefreshAt <= now
-              ? "stale"
-              : "fresh";
+            : "pending"
+          : catalog.staleAfter && catalog.staleAfter <= now
+            ? "expired"
+            : catalog.lastFailureCategory
+              ? "failed"
+              : catalog.nextRefreshAt <= now
+                ? "stale"
+                : "fresh";
   return {
     id: resource.id,
     key: resource.key,
@@ -1303,9 +1311,7 @@ function serializeResource(resource: {
           lastSuccessfulRefreshAt: catalog.lastSuccessfulRefreshAt?.toISOString() ?? null,
           lastFailureCategory: catalog.lastFailureCategory,
           lastFailureAt: catalog.lastFailureAt?.toISOString() ?? null,
-          agents: resource.agentDiscoveryEnabled
-            ? agentCatalogStatus(resource, catalog, now)
-            : null,
+          agents: agentStatus,
         }
       : null,
     version: resource.version,

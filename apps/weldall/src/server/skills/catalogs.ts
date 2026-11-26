@@ -33,7 +33,8 @@ export type CatalogFailureCategory =
 
 /**
  * Why only the agent side of a refresh failed (`agentsLastFailureCategory`). The skill side is
- * stored all the same, and the agents keep their last copy.
+ * stored all the same, and the agents are left as they were. `refresh_internal_error`: the agents
+ * were read but could not be stored.
  */
 export type AgentRefreshFailureCategory = AgentCatalogFailureCategory | "refresh_internal_error";
 
@@ -308,7 +309,81 @@ async function persistFailure(
 }
 
 /**
- * `agents_failed`: the skill side was stored, the agent side failed and kept its last copy.
+ * Stores the agents that were read, replacing the last copy. It runs in a savepoint of the refresh
+ * transaction: when the write fails (a value the database refuses that validation let through, a
+ * constraint), only the agent part is rolled back, and the refresh records an agent-side failure
+ * with the skills stored and the last copy of the agents kept.
+ */
+async function replaceAgents(
+  tx: Prisma.TransactionClient,
+  catalogId: string,
+  source: CatalogRefreshSource,
+  agentRead: Extract<AgentRead, { ok: true }>,
+): Promise<AgentRead> {
+  await tx.$executeRaw`SAVEPOINT agent_catalog`;
+  try {
+    await tx.discoveredAgent.deleteMany({ where: { catalogId } });
+    for (let start = 0; start < agentRead.agents.length; start += AGENT_INSERT_BATCH) {
+      await tx.discoveredAgent.createMany({
+        data: agentRead.agents.slice(start, start + AGENT_INSERT_BATCH).map((agent) => ({
+          catalogId,
+          localId: agent.id,
+          canonicalId: `${source.key}.${agent.id}`,
+          name: agent.name,
+          description: agent.description,
+          ownerId: agent.owner,
+          scopes: agent.scopes,
+          configFormat: agent.config.format,
+          configVersion: agent.config.version,
+          config: agent.config.definition as Prisma.InputJsonObject,
+          revision: agent.revision,
+          sourceCreatedAt: agent.createdAt,
+          sourceUpdatedAt: agent.updatedAt,
+          expiresAt: agent.expiresAt,
+        })),
+      });
+    }
+  } catch (error) {
+    await tx.$executeRaw`ROLLBACK TO SAVEPOINT agent_catalog`;
+    return { ok: false, category: "refresh_internal_error", error };
+  }
+  await tx.$executeRaw`RELEASE SAVEPOINT agent_catalog`;
+  return agentRead;
+}
+
+/**
+ * What people see of the agents after a refresh whose agent side failed: the last copy (`kept`),
+ * nothing because the copy is too old or from before the resource was changed (`hidden`), or
+ * nothing because no agents were read yet (`none`). Mirrors `agentCatalogStatus`.
+ */
+export type AgentCopyState = "kept" | "hidden" | "none";
+
+function agentCopyState(
+  catalog: {
+    agentsSourceResourceVersion: number | null;
+    agentsLastSuccessfulRefreshAt: Date | null;
+    agentsStaleAfter: Date | null;
+  },
+  resourceVersion: number,
+  now: Date,
+): AgentCopyState {
+  if (!catalog.agentsLastSuccessfulRefreshAt) return "none";
+  return !catalog.agentsStaleAfter ||
+    catalog.agentsStaleAfter <= now ||
+    catalog.agentsSourceResourceVersion !== resourceVersion
+    ? "hidden"
+    : "kept";
+}
+
+const agentCopyMessages: Record<AgentCopyState, string> = {
+  kept: "the agents keep their last copy",
+  hidden: "the last copy of the agents stays hidden until they are read again",
+  none: "no agents have been read yet",
+};
+
+/**
+ * `agents_failed`: the agent side failed and the agents were left as they were; the skill side (if
+ * the resource has one) was stored.
  * `failed`: nothing was stored (the refresh failed as a whole, or the resource changed meanwhile).
  */
 export type CatalogRefreshResult = "succeeded" | "agents_failed" | "failed";
@@ -341,7 +416,7 @@ export async function refreshCatalog(
         where: { id: catalogId, refreshLeaseId: leaseId },
         data: { refreshLeaseUntil: new Date(Date.now() + LEASE_MS) },
       });
-      if (lease.count !== 1) return false;
+      if (lease.count !== 1) return null;
       const currentResource = await tx.downstreamResource.findUnique({
         where: { id: source.id },
         select: {
@@ -367,8 +442,17 @@ export async function refreshCatalog(
             nextRefreshAt: attemptedAt,
           },
         });
-        return false;
+        return null;
       }
+      const previous = await tx.discoveredSkillCatalog.findUniqueOrThrow({
+        where: { id: catalogId },
+        select: {
+          retryCount: true,
+          agentsSourceResourceVersion: true,
+          agentsLastSuccessfulRefreshAt: true,
+          agentsStaleAfter: true,
+        },
+      });
       await tx.discoveredSkill.deleteMany({ where: { catalogId } });
       if (catalog?.skills.length) {
         await tx.discoveredSkill.createMany({
@@ -386,29 +470,14 @@ export async function refreshCatalog(
           })),
         });
       }
-      // Replaced when read, removed when agent discovery is off, kept when they could not be read.
-      if (agentRead?.ok !== false) await tx.discoveredAgent.deleteMany({ where: { catalogId } });
-      const agents = agentRead?.ok ? agentRead.agents : [];
-      for (let start = 0; start < agents.length; start += AGENT_INSERT_BATCH) {
-        await tx.discoveredAgent.createMany({
-          data: agents.slice(start, start + AGENT_INSERT_BATCH).map((agent) => ({
-            catalogId,
-            localId: agent.id,
-            canonicalId: `${source.key}.${agent.id}`,
-            name: agent.name,
-            description: agent.description,
-            ownerId: agent.owner,
-            scopes: agent.scopes,
-            configFormat: agent.config.format,
-            configVersion: agent.config.version,
-            config: agent.config.definition as Prisma.InputJsonObject,
-            revision: agent.revision,
-            sourceCreatedAt: agent.createdAt,
-            sourceUpdatedAt: agent.updatedAt,
-            expiresAt: agent.expiresAt,
-          })),
-        });
-      }
+      // Removed when agent discovery is off, replaced when read, kept when they could not be read.
+      let agentOutcome = agentRead;
+      if (agentRead === null) await tx.discoveredAgent.deleteMany({ where: { catalogId } });
+      else if (agentRead.ok) agentOutcome = await replaceAgents(tx, catalogId, source, agentRead);
+      const agentsFailed = agentOutcome?.ok === false;
+      // Without a skill side the agent side is the whole refresh: its failure is retried as a
+      // failed refresh is. With skills, the skill side decides when the next refresh is due.
+      const failedAsWhole = agentsFailed && !source.skillDiscoveryEnabled;
       const updated = await tx.discoveredSkillCatalog.updateMany({
         where: { id: catalogId, refreshLeaseId: leaseId },
         data: {
@@ -416,49 +485,62 @@ export async function refreshCatalog(
           schemaVersion: catalog?.schemaVersion ?? null,
           metadataUrl,
           catalogEndpoint,
-          ...agentSideUpdate(agentRead, source.version, attemptedAt),
+          ...agentSideUpdate(agentOutcome, source.version, attemptedAt),
           lastAttemptAt: attemptedAt,
-          lastSuccessfulRefreshAt: attemptedAt,
-          nextRefreshAt: new Date(attemptedAt.getTime() + REFRESH_INTERVAL_MS),
-          staleAfter: new Date(attemptedAt.getTime() + MAX_STALE_MS),
+          ...(failedAsWhole
+            ? {
+                retryCount: { increment: 1 },
+                nextRefreshAt: new Date(
+                  attemptedAt.getTime() + failureBackoffMs(previous.retryCount),
+                ),
+              }
+            : {
+                lastSuccessfulRefreshAt: attemptedAt,
+                staleAfter: new Date(attemptedAt.getTime() + MAX_STALE_MS),
+                retryCount: 0,
+                nextRefreshAt: new Date(attemptedAt.getTime() + REFRESH_INTERVAL_MS),
+              }),
           refreshLeaseId: null,
           refreshLeaseUntil: null,
-          retryCount: 0,
           lastFailureCategory: null,
           lastFailureAt: null,
         },
       });
       if (updated.count !== 1) throw new Error(`${catalogLabel(source)} refresh lease was lost`);
-      return true;
+      return { agentOutcome, agentCopy: agentCopyState(previous, source.version, attemptedAt) };
     }, PERSIST_TRANSACTION);
     if (!persisted) return "failed";
-    logger.info(
-      {
-        event: "skill_catalog.refresh.succeeded",
-        publisherId: source.id,
-        publisherKey: source.key,
-        resourceVersion: source.version,
-        durationMs: Math.max(0, Math.round(performance.now() - started)),
-        skillCount: catalog?.skills.length ?? 0,
-        ...(agentRead?.ok
-          ? { agentCount: agentRead.agents.length, skippedAgentCount: agentRead.skipped }
-          : {}),
-      },
-      agentRead?.ok === false
-        ? `${catalogLabel(source)} refresh stored the skills; the agents could not be read`
-        : `${catalogLabel(source)} refresh succeeded`,
-    );
-    if (agentRead?.ok === false) {
+    const { agentOutcome, agentCopy } = persisted;
+    if (agentOutcome?.ok !== false || source.skillDiscoveryEnabled)
+      logger.info(
+        {
+          event: "skill_catalog.refresh.succeeded",
+          publisherId: source.id,
+          publisherKey: source.key,
+          resourceVersion: source.version,
+          durationMs: Math.max(0, Math.round(performance.now() - started)),
+          skillCount: catalog?.skills.length ?? 0,
+          ...(agentOutcome?.ok
+            ? { agentCount: agentOutcome.agents.length, skippedAgentCount: agentOutcome.skipped }
+            : {}),
+        },
+        agentOutcome?.ok === false
+          ? `${catalogLabel(source)} refresh stored the skills; the agents could not be read`
+          : `${catalogLabel(source)} refresh succeeded`,
+      );
+    if (agentOutcome?.ok === false) {
       logger.warn(
         {
           event: "agent_catalog.refresh.failed",
           publisherId: source.id,
           publisherKey: source.key,
           resourceVersion: source.version,
-          failureCategory: agentRead.category,
-          ...(agentRead.error === undefined ? {} : { error: errorForLog(agentRead.error) }),
+          failureCategory: agentOutcome.category,
+          agentCopy,
+          durationMs: Math.max(0, Math.round(performance.now() - started)),
+          ...(agentOutcome.error === undefined ? {} : { error: errorForLog(agentOutcome.error) }),
         },
-        "Agent catalog refresh failed; the last copy of the agents stays",
+        `Agent catalog refresh failed; ${agentCopyMessages[agentCopy]}`,
       );
       return "agents_failed";
     }
@@ -483,7 +565,7 @@ export async function refreshCatalog(
   }
 }
 
-/** The agent-side columns of the catalog row after a refresh whose skill side was stored. */
+/** The agent-side columns of the catalog row after a refresh whose skill side (if any) was stored. */
 function agentSideUpdate(
   agentRead: AgentRead | null,
   resourceVersion: number,

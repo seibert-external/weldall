@@ -84,7 +84,10 @@ export type AgentCatalogState = "disabled" | "pending" | "fresh" | "stale" | "fa
 export interface AgentCatalogStatus {
   state: AgentCatalogState;
   lastSuccessfulRefreshAt: string | null;
-  /** Why the agent side of the last refresh failed; null when it did not. */
+  /**
+   * Why the last refresh did not read the agents: the refresh failed as a whole (its category), or
+   * only the agent side failed (`agentsLastFailureCategory`); null when it did not fail.
+   */
   lastFailureCategory: string | null;
   lastFailureAt: string | null;
   /** Agents of the last stored copy that failed validation and were left out. */
@@ -95,6 +98,7 @@ export interface AgentCatalogStatus {
 export const agentCatalogStatusSelect = {
   nextRefreshAt: true,
   lastFailureCategory: true,
+  lastFailureAt: true,
   agentsSourceResourceVersion: true,
   agentsLastSuccessfulRefreshAt: true,
   agentsStaleAfter: true,
@@ -112,8 +116,14 @@ export function agentCatalogStatus(
   catalog: AgentCatalogColumns | null,
   now: Date = new Date(),
 ): AgentCatalogStatus {
-  // A refresh that failed as a whole did not read the agents either.
-  const failed = Boolean(catalog?.agentsLastFailureCategory ?? catalog?.lastFailureCategory);
+  // A refresh that failed as a whole did not read the agents either. It is the more recent failure:
+  // a refresh whose skill side is stored clears it.
+  const failure = catalog?.lastFailureCategory
+    ? { category: catalog.lastFailureCategory, at: catalog.lastFailureAt }
+    : catalog?.agentsLastFailureCategory
+      ? { category: catalog.agentsLastFailureCategory, at: catalog.agentsLastFailureAt }
+      : null;
+  const failed = failure !== null;
   const state: AgentCatalogState =
     !resource.enabled || !resource.agentDiscoveryEnabled
       ? "disabled"
@@ -133,8 +143,8 @@ export function agentCatalogStatus(
   return {
     state,
     lastSuccessfulRefreshAt: catalog?.agentsLastSuccessfulRefreshAt?.toISOString() ?? null,
-    lastFailureCategory: catalog?.agentsLastFailureCategory ?? null,
-    lastFailureAt: catalog?.agentsLastFailureAt?.toISOString() ?? null,
+    lastFailureCategory: failure?.category ?? null,
+    lastFailureAt: failure?.at?.toISOString() ?? null,
     skippedCount: catalog?.agentsSkippedCount ?? 0,
   };
 }

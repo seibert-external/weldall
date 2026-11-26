@@ -126,31 +126,44 @@ export function ResourcesTable() {
         ),
       },
       {
-        id: "discovery",
-        accessorFn: (resource) => resource.skillDiscoveryEnabled || resource.agentDiscoveryEnabled,
-        header: "Discovery",
-        size: 300,
-        minSize: 160,
-        maxSize: 320,
+        accessorKey: "skillDiscoveryEnabled",
+        header: "Skill discovery",
+        size: 240,
+        minSize: 140,
+        maxSize: 240,
         enableSorting: false,
         cell: ({ row, getValue }) => {
           const state = getValue<boolean>()
             ? (row.original.catalogStatus?.state ?? "pending")
             : "disabled";
           const status = discoveryStatuses[state];
-          const counts = [
-            ...(row.original.skillDiscoveryEnabled
-              ? [`${row.original.catalogStatus?.skillCount ?? 0} skills`]
-              : []),
-            ...(row.original.agentDiscoveryEnabled
-              ? [`${row.original.catalogStatus?.agentCount ?? 0} agents`]
-              : []),
-          ];
           return (
             <HStack gap={2} vAlign="center">
               <Text type="body">
-                {status.label}
-                {counts.length ? ` (${counts.join(", ")})` : ""}
+                {status.label} ({row.original.catalogStatus?.skillCount ?? 0})
+              </Text>
+              <Icon icon={status.icon} color={status.color} size="sm" />
+            </HStack>
+          );
+        },
+      },
+      {
+        // The agent side is read with the skills but fails on its own, so it has its own state.
+        accessorKey: "agentDiscoveryEnabled",
+        header: "Agent discovery",
+        size: 240,
+        minSize: 140,
+        maxSize: 240,
+        enableSorting: false,
+        cell: ({ row, getValue }) => {
+          const state = getValue<boolean>()
+            ? (row.original.catalogStatus?.agents?.state ?? "pending")
+            : "disabled";
+          const status = discoveryStatuses[state];
+          return (
+            <HStack gap={2} vAlign="center">
+              <Text type="body">
+                {status.label} ({row.original.catalogStatus?.agentCount ?? 0})
               </Text>
               <Icon icon={status.icon} color={status.color} size="sm" />
             </HStack>

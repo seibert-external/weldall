@@ -413,34 +413,34 @@ model IacWorkspace {
 }
 
 model IacObjectBinding {
-  id                 String                @id @default(cuid())
-  workspaceId        String                @db.Uuid
-  address            String
-  kind               IacPrimitiveKind
-  naturalIdentity    String
-  scopeId            String?               @unique
-  resourceId         String?               @unique
-  machineClientId    String?               @unique
-  emailAssignmentId  String?               @unique
-  groupAssignmentId  String?               @unique
-  skillId            String?               @unique
-  connectorId        String?               @unique
-  sharedConnectionId String?               @unique
-  groupProviderId    String?               @unique
-  loginProviderId    String?               @unique
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  workspace          IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  scope              Scope?                @relation(fields: [scopeId], references: [id], onDelete: SetNull)
-  resource           DownstreamResource?   @relation(fields: [resourceId], references: [id], onDelete: SetNull)
-  machineClient      MachineClient?        @relation(fields: [machineClientId], references: [id], onDelete: SetNull)
-  emailAssignment    EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
-  groupAssignment    GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
-  skill              Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
-  connector          Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
-  sharedConnection   Connection?           @relation(fields: [sharedConnectionId], references: [id], onDelete: SetNull)
-  groupProvider      GroupProvider?        @relation(fields: [groupProviderId], references: [id], onDelete: SetNull)
-  loginProvider      LoginProvider?        @relation(fields: [loginProviderId], references: [id], onDelete: SetNull)
+  id                String                @id @default(cuid())
+  workspaceId       String                @db.Uuid
+  address           String
+  kind              IacPrimitiveKind
+  naturalIdentity   String
+  scopeId           String?               @unique
+  resourceId        String?               @unique
+  machineClientId   String?               @unique
+  emailAssignmentId String?               @unique
+  groupAssignmentId String?               @unique
+  skillId           String?               @unique
+  connectorId       String?               @unique
+  sharedConnectionId String?              @unique
+  groupProviderId   String?               @unique
+  loginProviderId   String?               @unique
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  workspace         IacWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scope             Scope?                @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+  resource          DownstreamResource?   @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  machineClient     MachineClient?        @relation(fields: [machineClientId], references: [id], onDelete: SetNull)
+  emailAssignment   EmailScopeAssignment? @relation(fields: [emailAssignmentId], references: [id], onDelete: SetNull)
+  groupAssignment   GroupScopeAssignment? @relation(fields: [groupAssignmentId], references: [id], onDelete: SetNull)
+  skill             Skill?                @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  connector         Connector?            @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  sharedConnection  Connection?           @relation(fields: [sharedConnectionId], references: [id], onDelete: SetNull)
+  groupProvider     GroupProvider?        @relation(fields: [groupProviderId], references: [id], onDelete: SetNull)
+  loginProvider     LoginProvider?        @relation(fields: [loginProviderId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, address])
   @@index([workspaceId, kind])
@@ -651,24 +651,24 @@ model LoginInstallation {
 }
 
 model LoginProvider {
-  id                      String            @id
+  id                      String   @id
   name                    String
   buttonLabel             String
   buttonColor             String
-  sortOrder               Int               @default(0)
+  sortOrder               Int      @default(0)
   issuer                  String
   discoveryUrl            String?
   clientId                String
   encryptedClientSecret   String?
   tokenEndpointAuthMethod String
   scopes                  String[]
-  allowedEmailDomains     String[]          @default([])
-  enabled                 Boolean           @default(false)
-  version                 Int               @default(1)
+  allowedEmailDomains     String[] @default([])
+  enabled                 Boolean  @default(false)
+  version                 Int      @default(1)
   validatedAt             DateTime?
   iacBinding              IacObjectBinding?
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
   createdBy               String
   updatedBy               String
 

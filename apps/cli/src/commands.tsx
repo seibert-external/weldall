@@ -56,7 +56,7 @@ import {
   resourceRequest,
   type ResourceGrant,
 } from "./services/resources.js";
-import { listAgents, type AgentSummary } from "./services/agents.js";
+import { listAgents, type AgentSummary, type AgentWarning } from "./services/agents.js";
 import {
   listSkills,
   listSkillsWithSubject,
@@ -1274,12 +1274,20 @@ export const formatAgentEntry = (agent: AgentSummary) => {
     agent.name,
     agent.own ? "yours" : `by ${agent.ownerName ?? "unknown"}`,
     `shared with ${agent.scopes.join(", ") || "nobody"}`,
-    ...(agent.createdAt === undefined ? [] : [`created ${formatShortTimestamp(agent.createdAt)}`]),
+    `created ${formatShortTimestamp(agent.createdAt)}`,
     `${agent.expired ? "expired" : "expires"} ${formatShortTimestamp(agent.expiresAt)}`,
-  ].join("  ·  ");
-  const purpose = agent.description.replace(/\s+/g, " ").trim();
+  ]
+    // Every part carries server text (an unparsable timestamp is shown as sent).
+    .map(terminalText)
+    .join("  ·  ");
+  // Whitespace runs, line breaks included, become one space; any other control character, such as
+  // the ESC that starts an ANSI or OSC sequence, is neutralized rather than sent to the terminal.
+  const purpose = terminalText(agent.description.replace(/\s+/g, " ").trim());
   return purpose ? `${summary}\n  ${purpose}` : summary;
 };
+
+export const formatAgentWarning = (warning: AgentWarning) =>
+  `Agents from ${terminalText(warning.source)}: ${terminalText(warning.code)}`;
 
 export const agentsCommand = define({
   name: "agents",
@@ -1292,8 +1300,7 @@ export const agentsCommand = define({
       jsonOutput(result);
       return;
     }
-    for (const warning of result.warnings)
-      printWarning({ message: `Agents from ${warning.source}: ${warning.code}` });
+    for (const warning of result.warnings) printWarning({ message: formatAgentWarning(warning) });
     if (result.items.length === 0) {
       info("No shared agents are visible to this account.");
       return;

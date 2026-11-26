@@ -3,6 +3,8 @@ import { decodeJwt, decodeProtectedHeader } from "jose";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
+import { agentReloadFailureDetail } from "../src/app/admin/resources/agent-reload.js";
+import { getResource, updateResource } from "../src/server/admin/service.js";
 import { parseAgentCatalogPage } from "../src/server/agents/discovery.js";
 import {
   agentContent,
@@ -96,6 +98,12 @@ const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) 
   return new Response(null, { status: 404 });
 }) as unknown as typeof fetch;
 
+/** An object `depth` levels deep, counted as `config.definition` is (the object itself is 1). */
+const nested = (depth: number): Record<string, unknown> => {
+  let value: Record<string, unknown> = { leaf: true };
+  for (let level = 1; level < depth; level += 1) value = { next: value };
+  return value;
+};
 const page = (agents: unknown[], nextCursor?: string) => ({
   schemaVersion: 1,
   resource: resourceIdentifier,
@@ -592,7 +600,13 @@ describe("agent discovery", () => {
       page(
         [
           agent({ id: "agt_long", description: "x".repeat(1_001) }),
-          agent({ id: "agt_unknown_field", command: "rm -rf" }),
+          // Values the columns cannot hold are left out, not passed on to fail the write.
+          agent({ id: "agt_big_revision", revision: 2_147_483_648 }),
+          agent({
+            id: "agt_big_version",
+            config: { format: "weldall-agent", version: 3_000_000_000, definition },
+          }),
+          agent({ id: "agt_nul", name: "a\u0000b" }),
           agent({ id: "agt_bad_scope", scopes: ["Everyone"] }),
           agent({
             id: "agt_many_scopes",
@@ -611,11 +625,11 @@ describe("agent discovery", () => {
       "agt_ok_too",
     ]);
     expect(await storedCatalog()).toMatchObject({
-      agentsSkippedCount: 5,
+      agentsSkippedCount: 7,
       agentsLastFailureCategory: null,
     });
     expect((await listVisibleAgents(admin)).warnings).toEqual([
-      { source: key, code: "agents_skipped", count: 5 },
+      { source: key, code: "agents_skipped", count: 7 },
     ]);
     expect((await listVisibleAgents(colleague)).warnings).toEqual([]);
     expect((await listVisibleAgents(colleague)).items).toHaveLength(2);
@@ -625,6 +639,221 @@ describe("agent discovery", () => {
     await expect(refresh()).resolves.toBe("succeeded");
     expect((await storedCatalog()).agentsSkippedCount).toBe(0);
     expect((await listVisibleAgents(admin)).warnings).toEqual([]);
+  });
+
+  it("stores the skills and keeps the last copy of the agents when they cannot be stored", async () => {
+    served.skillsEndpoint = true;
+    await switchSkills(true);
+    // The largest values the columns hold are stored.
+    served.agentPages = [
+      page([
+        agent({
+          revision: 2_147_483_647,
+          config: { format: "weldall-agent", version: 2_147_483_647, definition: nested(64) },
+        }),
+      ]),
+    ];
+    await expect(refresh()).resolves.toBe("succeeded");
+    const before = await storedCatalog();
+    const skillsBefore = await db.discoveredSkill.findMany({ where: { catalogId: before.id } });
+    // The database refuses an agent that validation let through: an unexpected write error.
+    const refuse = `agent_test_refuse_${id}`;
+    await db.$executeRawUnsafe(
+      `CREATE FUNCTION "${refuse}"() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'refused by the test'; END $$ LANGUAGE plpgsql`,
+    );
+    await db.$executeRawUnsafe(
+      `CREATE TRIGGER "${refuse}" BEFORE INSERT ON "DiscoveredAgent" FOR EACH ROW WHEN (NEW."name" = 'Refused') EXECUTE FUNCTION "${refuse}"()`,
+    );
+    try {
+      served.agentPages = [
+        page([agent({ id: "agt_new" }), agent({ id: "agt_refused", name: "Refused" })]),
+      ];
+      await expect(refresh()).resolves.toBe("agents_failed");
+    } finally {
+      await db.$executeRawUnsafe(`DROP TRIGGER "${refuse}" ON "DiscoveredAgent"`);
+      await db.$executeRawUnsafe(`DROP FUNCTION "${refuse}"()`);
+    }
+
+    const after = await storedCatalog();
+    // The skill side was written as on any successful refresh ...
+    expect(after).toMatchObject({
+      lastFailureCategory: null,
+      retryCount: 0,
+      agentsLastFailureCategory: "refresh_internal_error",
+      agentsLastSuccessfulRefreshAt: before.agentsLastSuccessfulRefreshAt,
+    });
+    expect(after.lastSuccessfulRefreshAt!.getTime()).toBeGreaterThan(
+      before.lastSuccessfulRefreshAt!.getTime(),
+    );
+    const skillsAfter = await db.discoveredSkill.findMany({ where: { catalogId: before.id } });
+    expect(skillsAfter.map((skill) => skill.localId)).toEqual(["howto"]);
+    expect(skillsAfter[0]!.id).not.toBe(skillsBefore[0]!.id);
+    expect(await visibleSkillIds(colleague.email)).toEqual([`${key}.howto`]);
+    // ... and the agent part was rolled back as a whole: the last copy stays and is shown.
+    expect(await storedAgents()).toMatchObject([
+      { localId: "agt_intranet", revision: 2_147_483_647 },
+    ]);
+    expect((await listVisibleAgents(colleague)).items).toHaveLength(1);
+    expect((await listVisibleAgents(admin)).warnings).toContainEqual({
+      source: key,
+      code: "catalog_temporarily_unavailable",
+    });
+  });
+
+  it("fails the agent side when every published agent is invalid, and keeps the last copy", async () => {
+    await expect(refresh()).resolves.toBe("succeeded");
+    const before = await storedCatalog();
+    // A systematic mismatch: the resource does not send a field Weldall requires.
+    const { createdAt: _, ...withoutCreatedAt } = agent();
+    served.agentPages = [page([withoutCreatedAt, { ...withoutCreatedAt, id: "agt_second" }])];
+
+    await expect(refresh()).resolves.toBe("agents_failed");
+    const after = await storedCatalog();
+    expect(after).toMatchObject({
+      agentsLastFailureCategory: "agents_all_invalid",
+      agentsLastSuccessfulRefreshAt: before.agentsLastSuccessfulRefreshAt,
+      agentsSkippedCount: 0,
+      // Agents only: the agent side is the whole refresh and is retried like a failed one.
+      lastFailureCategory: null,
+      lastSuccessfulRefreshAt: before.lastSuccessfulRefreshAt,
+      retryCount: 1,
+    });
+    expect(after.nextRefreshAt.getTime() - after.lastAttemptAt!.getTime()).toBe(30_000);
+    expect((await storedAgents()).map((stored) => stored.localId)).toEqual(["agt_intranet"]);
+    expect((await listVisibleAgents(colleague)).items).toHaveLength(1);
+    const dto = await getResource(resource.id);
+    expect(dto.catalogStatus).toMatchObject({
+      state: "failed",
+      agentCount: 1,
+      agents: { state: "failed", lastFailureCategory: "agents_all_invalid" },
+    });
+    expect(agentReloadFailureDetail(dto)).toBe(
+      "People keep seeing the last copy of the agents. See the agent discovery status for details",
+    );
+
+    // A resource that publishes no agents at all is not a failure.
+    served.agentPages = [page([])];
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await storedAgents()).toEqual([]);
+    expect(await storedCatalog()).toMatchObject({ retryCount: 0, agentsLastFailureCategory: null });
+    expect((await getResource(resource.id)).catalogStatus).toMatchObject({
+      state: "fresh",
+      agents: { state: "fresh" },
+    });
+  });
+
+  it("shows a first refresh whose agent side fails as failed, with nothing to show", async () => {
+    await db.discoveredSkillCatalog.delete({ where: { resourceId: resource.id } });
+    await db.resourceScope.create({
+      data: { resourceId: resource.id, scopeId: scopeIds[salesScope]! },
+    });
+    served.agentApi = { endpoint: `${origin}/api/agents`, scope: salesScope };
+    served.agentStatus = 503;
+    try {
+      await expect(refresh()).resolves.toBe("agents_failed");
+      expect(await storedAgents()).toEqual([]);
+      expect(await storedCatalog()).toMatchObject({
+        lastSuccessfulRefreshAt: null,
+        agentsLastSuccessfulRefreshAt: null,
+        agentsLastFailureCategory: "agents_unavailable",
+        agentApiEndpoint: null,
+      });
+      const dto = await getResource(resource.id);
+      expect(dto.catalogStatus).toMatchObject({
+        state: "failed",
+        agentCount: 0,
+        lastSuccessfulRefreshAt: null,
+        agents: {
+          state: "failed",
+          lastSuccessfulRefreshAt: null,
+          lastFailureCategory: "agents_unavailable",
+        },
+      });
+      expect(agentReloadFailureDetail(dto)).toBe(
+        "No agents have been read from this resource yet. See the agent discovery status for details",
+      );
+      expect(await listVisibleAgents(colleague)).toMatchObject({ items: [], registries: [] });
+      expect((await listVisibleAgents(admin)).warnings).toContainEqual({
+        source: key,
+        code: "catalog_temporarily_unavailable",
+      });
+
+      // With skills as well, the skills are stored and the agent side alone is failed.
+      served.skillsEndpoint = true;
+      await switchSkills(true);
+      await expect(refresh()).resolves.toBe("agents_failed");
+      const both = await getResource(resource.id);
+      expect(both.catalogStatus).toMatchObject({
+        state: "fresh",
+        skillCount: 1,
+        agents: { state: "failed", lastSuccessfulRefreshAt: null },
+      });
+      expect(agentReloadFailureDetail(both)).toBe(
+        "The skills were reloaded. No agents have been read from this resource yet. See the agent discovery status for details",
+      );
+      expect(await visibleSkillIds(colleague.email)).toEqual([`${key}.howto`]);
+    } finally {
+      await db.resourceScope.deleteMany({ where: { resourceId: resource.id } });
+    }
+  });
+
+  it("hides the agents after the switch was off until they are read again", async () => {
+    await expect(refresh()).resolves.toBe("succeeded");
+    const actor = { id: admin.id, email: admin.email, requestId: `agent-test-${id}` };
+    const save = (
+      current: Awaited<ReturnType<typeof getResource>>,
+      agentDiscoveryEnabled: boolean,
+    ) =>
+      updateResource(
+        {
+          id: current.id,
+          name: current.name,
+          authorizationServer: current.authorizationServer,
+          downstreamClientId: current.downstreamClientId,
+          enabled: true,
+          skillDiscoveryEnabled: false,
+          agentDiscoveryEnabled,
+          scopeIds: current.scopeIds,
+          requestPrefixes: [`${origin}/api`],
+          expectedVersion: current.version,
+        },
+        actor,
+      );
+    const fresh = await getResource(resource.id);
+    expect(fresh.catalogStatus).toMatchObject({ state: "fresh", agents: { state: "fresh" } });
+
+    const off = await save(fresh, false);
+    expect(off).toMatchObject({
+      version: fresh.version + 1,
+      catalogStatus: { state: "disabled", agentCount: 0, agents: null },
+    });
+    expect((await listVisibleAgents(owner)).items).toEqual([]);
+    // Switched on again before any refresh: the copy is from before the change and stays hidden.
+    const on = await save(off, true);
+    expect(on).toMatchObject({
+      version: fresh.version + 2,
+      catalogStatus: { state: "expired", agents: { state: "expired" } },
+    });
+    expect((await listVisibleAgents(owner)).items).toEqual([]);
+    expect((await listVisibleAgents(admin)).warnings).toContainEqual({
+      source: key,
+      code: "catalog_expired",
+    });
+
+    // A failed read does not bring it back ...
+    served.agentStatus = 503;
+    await expect(refresh()).resolves.toBe("agents_failed");
+    const failed = await getResource(resource.id);
+    expect(failed.catalogStatus).toMatchObject({ state: "expired", agents: { state: "expired" } });
+    expect(agentReloadFailureDetail(failed)).toBe(
+      "The last copy of the agents stays hidden until they can be read again. See the agent discovery status for details",
+    );
+    expect((await listVisibleAgents(owner)).items).toEqual([]);
+    // ... a successful one does.
+    served.agentStatus = 200;
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect((await getResource(resource.id)).catalogStatus).toMatchObject({ state: "fresh" });
+    expect((await listVisibleAgents(owner)).items).toHaveLength(1);
   });
 
   it("hides agents of a stale catalog and of a resource with discovery switched off", async () => {
@@ -741,6 +970,31 @@ describe("agent discovery", () => {
   });
 
   it("parses a page strictly and each agent on its own", () => {
+    // Fields Weldall does not know are ignored and not passed on, at both levels of an agent.
+    const extended = parseAgentCatalogPage(
+      page([
+        agent({
+          labels: ["new"],
+          config: { format: "weldall-agent", version: 1, definition, checksum: "abc" },
+        }),
+      ]),
+      resourceIdentifier,
+    );
+    expect(extended.skipped).toBe(0);
+    expect(extended.agents[0]).not.toHaveProperty("labels");
+    expect(extended.agents[0]!.config).toEqual({ format: "weldall-agent", version: 1, definition });
+    // The largest values the columns hold, and a definition as deep as allowed, pass.
+    expect(
+      parseAgentCatalogPage(
+        page([
+          agent({
+            revision: 2_147_483_647,
+            config: { format: "weldall-agent", version: 2_147_483_647, definition: nested(64) },
+          }),
+        ]),
+        resourceIdentifier,
+      ).skipped,
+    ).toBe(0);
     expect(parseAgentCatalogPage(page([agent()]), resourceIdentifier)).toMatchObject({
       skipped: 0,
       agents: [
@@ -761,6 +1015,14 @@ describe("agent discovery", () => {
       agent({ revision: 0 }),
       agent({ updatedAt: "yesterday" }),
       withoutCreatedAt,
+      agent({ revision: 2_147_483_648 }),
+      agent({ config: { format: "weldall-agent", version: 2_147_483_648, definition } }),
+      agent({ description: "line\u0000break" }),
+      agent({ owner: "\ud800" }),
+      agent({ scopes: [`agenttest${id}:${"s".repeat(200)}`] }),
+      agent({ config: { format: "weldall-agent", version: 1, definition: { a: ["x\u0000"] } } }),
+      agent({ config: { format: "weldall-agent", version: 1, definition: { "k\u0000": 1 } } }),
+      agent({ config: { format: "weldall-agent", version: 1, definition: nested(65) } }),
       "not an agent",
     ])
       expect(
