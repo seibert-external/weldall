@@ -62,7 +62,9 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         <header className="skill-detail-hero">
           <AnimatedSkillHeadline title={agent.name} />
           {agent.description && agent.description !== agent.name ? (
-            <p className="skill-detail-muted">{agent.description}</p>
+            <p className="skill-detail-muted" style={{ marginTop: 12 }}>
+              {agent.description}
+            </p>
           ) : null}
         </header>
 
@@ -83,21 +85,26 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
                 <SkillContent
                   content={content.instructions || "_This agent has no instructions._"}
                 />
-                {content.prompt ? (
-                  <>
-                    <h2>First message</h2>
-                    <SkillContent content={content.prompt} />
-                  </>
-                ) : null}
-                {content.starters.length ? (
-                  <>
-                    <h2>Starter questions</h2>
-                    <ul>
-                      {content.starters.map((starter, index) => (
-                        <li key={`${index}:${starter}`}>{starter}</li>
-                      ))}
-                    </ul>
-                  </>
+                {content.prompt || content.starters.length ? (
+                  // The same text styles as the instructions above.
+                  <div className="skill-markdown">
+                    {content.prompt ? (
+                      <>
+                        <h2>First message</h2>
+                        <p>{content.prompt}</p>
+                      </>
+                    ) : null}
+                    {content.starters.length ? (
+                      <>
+                        <h2>Starter questions</h2>
+                        <ul>
+                          {content.starters.map((starter, index) => (
+                            <li key={`${index}:${starter}`}>{starter}</li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                  </div>
                 ) : null}
               </>
             ) : (
