@@ -24,6 +24,7 @@ export const AUDIT_EVENT_TYPES = [
   "resource_scopes.replaced",
   "resource_scopes.deleted",
   "cli_settings.updated",
+  "client_policy.updated",
   "skill.created",
   "skill.updated",
   "skill.deleted",

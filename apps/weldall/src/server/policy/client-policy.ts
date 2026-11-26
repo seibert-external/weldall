@@ -4,6 +4,7 @@ import {
   type ClientPolicy,
   type ClientPolicyApprovalMode,
   type ClientPolicyWithoutInstructions,
+  type DefaultClientPolicy,
 } from "@weldall/sdk";
 import { logger } from "../observability/logger";
 
@@ -12,7 +13,11 @@ export {
   defaultClientPolicySchema,
   type ClientPolicy,
   type ClientPolicyWithoutInstructions,
+  type DefaultClientPolicy,
 } from "@weldall/sdk";
+
+/** A merged policy: group fields, group instructions and the default's `modelKey`. */
+export type MergedClientPolicy = ClientPolicy & Pick<DefaultClientPolicy, "modelKey">;
 
 const permissiveness = (mode: ClientPolicyApprovalMode) =>
   CLIENT_POLICY_APPROVAL_MODES.indexOf(mode);
@@ -20,17 +25,18 @@ const permissiveness = (mode: ClientPolicyApprovalMode) =>
 /**
  * Merges the default policy with the caller's group policies (already in stable order). A field
  * set by any group replaces the default's value; where groups disagree the most permissive wins.
+ * Home skills are combined instead: every group's pins, then the default's.
  * The default's instructions are not merged: the organization appendix is added by the route.
  */
 export function mergeClientPolicies(
-  defaultPolicy: ClientPolicy | null,
+  defaultPolicy: DefaultClientPolicy | null,
   groupPolicies: ClientPolicy[],
-): ClientPolicy {
+): MergedClientPolicy {
   const set = <K extends keyof ClientPolicy>(key: K) =>
     groupPolicies
       .map((policy) => policy[key])
       .filter((value): value is NonNullable<ClientPolicy[K]> => value !== undefined);
-  const merged: ClientPolicy = { version: 1 };
+  const merged: MergedClientPolicy = { version: 1 };
   const modes = set("approvalMode");
   const approvalMode = modes.length
     ? modes.reduce((left, right) => (permissiveness(right) > permissiveness(left) ? right : left))
@@ -48,6 +54,10 @@ export function mergeClientPolicies(
   const shells = set("shell");
   const shell = shells.length ? shells.some(Boolean) : defaultPolicy?.shell;
   if (shell !== undefined) merged.shell = shell;
+
+  const sandboxes = set("sandbox");
+  const sandbox = sandboxes.length ? sandboxes.every(Boolean) : defaultPolicy?.sandbox;
+  if (sandbox !== undefined) merged.sandbox = sandbox;
 
   const modelSets = set("models");
   if (modelSets.length) {
@@ -68,15 +78,45 @@ export function mergeClientPolicies(
     merged.models = { provider, allowed };
   } else if (defaultPolicy?.models) merged.models = defaultPolicy.models;
 
+  // Groups' pins come first because they are more specific than the default's.
+  const homeSkills = [
+    ...set("homeSkills"),
+    ...(defaultPolicy?.homeSkills ? [defaultPolicy.homeSkills] : []),
+  ];
+  if (homeSkills.length) merged.homeSkills = [...new Set(homeSkills.flat())].slice(0, 50);
+
+  // Organization-wide: a group cannot set it.
+  if (defaultPolicy?.modelKey) merged.modelKey = defaultPolicy.modelKey;
+
   const instructions = set("instructions").filter(Boolean);
   if (instructions.length) merged.instructions = instructions.join("\n\n");
   return merged;
 }
 
-export function withoutInstructions(policy: ClientPolicy): ClientPolicyWithoutInstructions {
+export function withoutInstructions(policy: MergedClientPolicy): ClientPolicyWithoutInstructions {
   const { instructions: _instructions, ...rest } = policy;
   return rest;
 }
+
+type ClientPolicyField = Exclude<keyof MergedClientPolicy, "version">;
+
+/** Every policy field except `version`, sorted. Shared by the audit helper and its schema. */
+export const CLIENT_POLICY_FIELDS = [
+  "approvalMode",
+  "extensions",
+  "homeSkills",
+  "instructions",
+  "modelKey",
+  "models",
+  "sandbox",
+  "shell",
+] as const satisfies readonly ClientPolicyField[];
+
+// Fails to compile when the SDK schema gains a field that is missing above.
+const _everyClientPolicyField: Record<
+  Exclude<ClientPolicyField, (typeof CLIENT_POLICY_FIELDS)[number]>,
+  never
+> = {};
 
 /** Sorted-key JSON; `null` and `undefined` both serialise as `null`. */
 export function canonicalPolicyJson(value: unknown): string {

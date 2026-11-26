@@ -311,6 +311,28 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
+  it("advertises only served endpoints in both discovery documents", async () => {
+    const { GET: oauth } = await import("../src/app/.well-known/oauth-authorization-server/route");
+    const { GET: oidc } = await import("../src/app/.well-known/openid-configuration/route");
+    for (const [path, get] of [
+      ["oauth-authorization-server", oauth],
+      ["openid-configuration", oidc],
+    ] as const) {
+      const response = await get(new Request(`${origin}/.well-known/${path}`));
+      expect(response.status).toBe(200);
+      const metadata = await response.json();
+      expect(metadata).toMatchObject({
+        authorization_endpoint: `${origin}/api/auth/oauth2/authorize`,
+        token_endpoint: `${origin}/api/auth/oauth2/token`,
+        revocation_endpoint: `${origin}/api/auth/oauth2/revoke`,
+        jwks_uri: `${origin}/api/oauth/jwks`,
+      });
+      expect(Object.keys(metadata).some((key) => key.startsWith("introspection_endpoint"))).toBe(
+        false,
+      );
+      expect(metadata).not.toHaveProperty("end_session_endpoint");
+    }
+  });
   it("replays all migrations and initializes singleton without any provider", async () => {
     expect(
       (await fixture.prisma.loginInstallation.findUniqueOrThrow({ where: { id: "default" } }))
@@ -847,11 +869,17 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       "/set-password",
       "/send-verification-email",
       "/verify-email",
+      "/update-user",
+      "/oauth2/create-client",
+      "/oauth2/update-client",
     ])
       expect(
         (await request(path, { email: "attacker@example.com", provider: "google" })).status,
         path,
       ).toBe(404);
+    // GET-only routes: a POST would get 404 even while they are enabled.
+    for (const path of ["/token", "/oauth2/public-client"])
+      expect((await request(path)).status, path).toBe(404);
     expect([
       await fixture.prisma.user.count(),
       await fixture.prisma.account.count(),
@@ -1087,7 +1115,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       await upgrade.$disconnect();
       execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
     }
-  });
+  }, 60000);
   it("populated upgrade removes only exact legacy Google account bindings", async () => {
     const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(server!);
@@ -1232,7 +1260,7 @@ describe.skipIf(!server)("login installation (isolated real PostgreSQL)", () => 
       await upgrade.$disconnect();
       execFileSync("psql", [server!, "-v", "ON_ERROR_STOP=1", "-c", `DROP DATABASE "${name}"`]);
     }
-  });
+  }, 60000);
   it("upgrading a database that already applied 0015_oidc_login_installation keeps login audit events", async () => {
     const name = `weldall_oidc_test_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(server!);

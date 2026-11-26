@@ -1,6 +1,17 @@
 import { IAC_SCOPE_KEY, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
 import { WELDALL_ISSUER } from "./constants";
 
+// The provider advertises these even though Weldall does not expose the endpoints.
+export function publicDiscoveryMetadata(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(metadata).filter(
+      ([key]) => key !== "end_session_endpoint" && !key.startsWith("introspection_endpoint"),
+    ),
+  );
+}
+
 export function extendOAuthMetadata(
   metadata: Record<string, unknown>,
   installationId?: string,
@@ -14,7 +25,7 @@ export function extendOAuthMetadata(
     ]),
   ];
   return {
-    ...metadata,
+    ...publicDiscoveryMetadata(metadata),
     grant_types_supported: append(metadata.grant_types_supported, ["client_credentials"]),
     token_endpoint_auth_methods_supported: append(metadata.token_endpoint_auth_methods_supported, [
       "private_key_jwt",
