@@ -5,7 +5,9 @@ import { db } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
 import { parseAgentCatalogPage } from "../src/server/agents/discovery.js";
 import {
+  agentContent,
   agentsOffered,
+  getVisibleAgent,
   listDiscoveredAgents,
   listVisibleAgents,
 } from "../src/server/agents/service.js";
@@ -316,6 +318,44 @@ describe("agent discovery", () => {
     await expect(refresh()).resolves.not.toBe("succeeded");
     served.agentApi = { endpoint: api.endpoint };
     await expect(refresh()).resolves.not.toBe("succeeded");
+  });
+
+  it("opens one agent only for a person who may use it, and reads the format it knows", async () => {
+    await expect(refresh()).resolves.toBe("succeeded");
+    const agentId = `${key}.agt_intranet`;
+    expect(await getVisibleAgent(colleague, agentId)).toMatchObject({ id: agentId, own: false });
+    expect(await getVisibleAgent(stranger, agentId)).toBeNull();
+    expect(await getVisibleAgent(owner, `${key}.agt_missing`)).toBeNull();
+
+    expect(agentContent({ format: "weldall-agent", version: 1, definition })).toEqual({
+      instructions: "Read the intranet pages before you answer.",
+      prompt: null,
+      starters: ["What is new this week?"],
+      inputs: [],
+      chosen: null,
+    });
+    expect(
+      agentContent({
+        format: "weldall-agent",
+        version: 1,
+        definition: {
+          instructions: "",
+          prompt: "Go.",
+          inputs: [{ key: "topic", description: "Topic", type: "string" }, "broken"],
+          tools: { mode: "selected", skills: ["intranet.search", 3], connections: [] },
+        },
+      }),
+    ).toEqual({
+      instructions: "",
+      prompt: "Go.",
+      starters: [],
+      inputs: [{ key: "topic", description: "Topic" }],
+      chosen: { skills: ["intranet.search"], connections: [] },
+    });
+    // Another format or version is listed without its content.
+    expect(agentContent({ format: "other", version: 1, definition })).toBeNull();
+    expect(agentContent({ format: "weldall-agent", version: 2, definition })).toBeNull();
+    expect(agentContent({ format: "weldall-agent", version: 1, definition: "text" })).toBeNull();
   });
 
   it("offers the Agents tab while a resource has agent discovery switched on", async () => {

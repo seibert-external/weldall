@@ -180,6 +180,64 @@ export async function listVisibleAgents(user: {
   };
 }
 
+/** One agent the person may use, by its id (`<resource key>.<id at the resource>`). */
+export async function getVisibleAgent(
+  user: { id: string; email: string },
+  id: string,
+): Promise<VisibleAgent | null> {
+  return (await listVisibleAgents(user)).items.find((agent) => agent.id === id) ?? null;
+}
+
+/**
+ * What the directory shows of an agent's definition. Weldall passes a definition on without
+ * reading it; this reads the one format it knows how to show (`weldall-agent`, version 1) and
+ * answers null for any other, which the directory then lists without its content.
+ */
+export interface AgentContent {
+  instructions: string;
+  /** The first message, sent when the chat opens. */
+  prompt: string | null;
+  starters: string[];
+  /** The fields the agent asks for at its start. */
+  inputs: Array<{ key: string; description: string }>;
+  /** Null: every skill and connection of the person using it. */
+  chosen: { skills: string[]; connections: string[] } | null;
+}
+
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+const record = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+export function agentContent(config: VisibleAgent["config"]): AgentContent | null {
+  const definition = record(config.definition);
+  if (config.format !== "weldall-agent" || config.version !== 1 || !definition) return null;
+  const tools = record(definition.tools);
+  if (typeof definition.instructions !== "string" || !tools) return null;
+  return {
+    instructions: definition.instructions,
+    prompt: typeof definition.prompt === "string" && definition.prompt ? definition.prompt : null,
+    starters: strings(definition.starters),
+    inputs: (Array.isArray(definition.inputs) ? definition.inputs : []).flatMap((input) => {
+      const field = record(input);
+      return field && typeof field.key === "string"
+        ? [
+            {
+              key: field.key,
+              description: typeof field.description === "string" ? field.description : "",
+            },
+          ]
+        : [];
+    }),
+    chosen:
+      tools.mode === "selected"
+        ? { skills: strings(tools.skills), connections: strings(tools.connections) }
+        : null,
+  };
+}
+
 /**
  * True when an enabled resource has agent discovery switched on: only then do people have a place
  * agents can come from, and the directory shows its Agents tab.

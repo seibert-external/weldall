@@ -278,7 +278,8 @@ function getActiveSection(pathname: string): SectionKey | null {
   if (pathname === "/skills" || pathname.startsWith("/skills/") || pathname.startsWith("/skill/")) {
     return "skills";
   }
-  if (pathname === "/agents" || pathname.startsWith("/agents/")) return "agents";
+  if (pathname === "/agents" || pathname.startsWith("/agents/") || pathname.startsWith("/agent/"))
+    return "agents";
   if (pathname === "/resources" || pathname.startsWith("/resources/")) return "resources";
   if (pathname === "/scopes" || pathname.startsWith("/scopes/")) return "scopes";
   if (pathname === "/statistics" || pathname.startsWith("/statistics/")) return "statistics";
