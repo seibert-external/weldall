@@ -14,6 +14,7 @@ import {
   getVisibleAgent,
   sharedByLabel,
 } from "@/server/agents/service";
+import { appsOffered } from "@/server/apps/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { canViewStatistics } from "@/server/statistics/access";
@@ -33,11 +34,12 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
   const session = await auth.api.getSession({ headers: requestHeaders });
   if (!session?.user.email) redirect("/login");
 
-  const [agent, isAdmin, canSeeStatistics, showAgents] = await Promise.all([
+  const [agent, isAdmin, canSeeStatistics, showAgents, showApps] = await Promise.all([
     getVisibleAgent({ id: session.user.id, email: session.user.email }, decodeURIComponent(id)),
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
     agentsOffered(),
+    appsOffered(),
   ]);
   if (!agent) notFound();
   const content = agentContent(agent.config);
@@ -59,6 +61,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
           showAgents={showAgents}
+          showApps={showApps}
         />
       </DirectoryHeader>
       <main className="skill-detail-main">

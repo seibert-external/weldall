@@ -7,6 +7,8 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { agentCatalogStatus, type AgentCatalogStatus } from "../agents/service";
+import { appCatalogStatus, type AppCatalogStatus } from "../apps/service";
+import { leastHealthy } from "../discovery/catalog-sides";
 import { parseCliLogoUrl } from "../branding";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
@@ -41,7 +43,9 @@ const emailSchema = z.string().email().max(320);
 const resourceInclude = {
   scopes: { include: { scope: { select: { id: true, key: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
-  discoveredCatalog: { include: { _count: { select: { skills: true, agents: true } } } },
+  discoveredCatalog: {
+    include: { _count: { select: { skills: true, agents: true, apps: true } } },
+  },
   iacBinding: managementBindingInclude,
 } as const;
 const scopeInclude = {
@@ -204,19 +208,23 @@ export interface ResourceDto {
   enabled: boolean;
   skillDiscoveryEnabled: boolean;
   agentDiscoveryEnabled: boolean;
+  appDiscoveryEnabled: boolean;
   catalogStatus: {
     state: "disabled" | "pending" | "fresh" | "stale" | "expired" | "failed";
     skillCount: number;
     agentCount: number;
+    appCount: number;
     lastAttemptAt: string | null;
     lastSuccessfulRefreshAt: string | null;
     lastFailureCategory: string | null;
     lastFailureAt: string | null;
     /**
-     * The agent side of discovery, which is read and can fail on its own; null with the switch off.
-     * `state` above is the skill side's, or this state for a resource that discovers only agents.
+     * The agent and app sides of discovery, each read and failing on its own; null with its switch
+     * off. `state` above is the skill side's; for a resource that discovers no skills it is the
+     * state of its one other side, or the less healthy of both.
      */
     agents: AgentCatalogStatus | null;
+    apps: AppCatalogStatus | null;
   } | null;
   version: number;
   scopeIds: string[];
@@ -558,6 +566,7 @@ export async function createResource(
     enabled: boolean;
     skillDiscoveryEnabled: boolean;
     agentDiscoveryEnabled: boolean;
+    appDiscoveryEnabled: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
   },
@@ -582,6 +591,7 @@ export async function createResource(
                 enabled: parsed.enabled,
                 skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
                 agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
+                appDiscoveryEnabled: parsed.appDiscoveryEnabled,
                 scopeKeys: (await validateResourceScopes(tx, parsed.scopeIds)).map(
                   ({ key }) => key,
                 ),
@@ -613,6 +623,7 @@ export async function updateResource(
     enabled: boolean;
     skillDiscoveryEnabled: boolean;
     agentDiscoveryEnabled: boolean;
+    appDiscoveryEnabled: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
     expectedVersion: number;
@@ -651,6 +662,7 @@ export async function updateResource(
                 enabled: parsed.enabled,
                 skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
                 agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
+                appDiscoveryEnabled: parsed.appDiscoveryEnabled,
                 scopeKeys: (await validateResourceScopes(tx, parsed.scopeIds)).map(
                   ({ key }) => key,
                 ),
@@ -1149,6 +1161,7 @@ function parseResourceInput(
     enabled: boolean;
     skillDiscoveryEnabled?: boolean;
     agentDiscoveryEnabled?: boolean;
+    appDiscoveryEnabled?: boolean;
     scopeIds: string[];
     requestPrefixes: string[];
   },
@@ -1209,6 +1222,7 @@ function parseResourceInput(
     enabled: input.enabled,
     skillDiscoveryEnabled: input.skillDiscoveryEnabled === true,
     agentDiscoveryEnabled: input.agentDiscoveryEnabled === true,
+    appDiscoveryEnabled: input.appDiscoveryEnabled === true,
     scopeIds: sortedUnique(input.scopeIds),
     requestPrefixes,
   };
@@ -1244,6 +1258,7 @@ function serializeResource(resource: {
   enabled: boolean;
   skillDiscoveryEnabled: boolean;
   agentDiscoveryEnabled: boolean;
+  appDiscoveryEnabled: boolean;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -1263,7 +1278,13 @@ function serializeResource(resource: {
     agentsLastFailureCategory: string | null;
     agentsLastFailureAt: Date | null;
     agentsSkippedCount: number;
-    _count: { skills: number; agents: number };
+    appsSourceResourceVersion: number | null;
+    appsLastSuccessfulRefreshAt: Date | null;
+    appsStaleAfter: Date | null;
+    appsLastFailureCategory: string | null;
+    appsLastFailureAt: Date | null;
+    appsSkippedCount: number;
+    _count: { skills: number; agents: number; apps: number };
   } | null;
   iacBinding?: {
     address: string;
@@ -1274,11 +1295,20 @@ function serializeResource(resource: {
   const catalog = resource.discoveredCatalog;
   const agentStatus =
     catalog && resource.agentDiscoveryEnabled ? agentCatalogStatus(resource, catalog, now) : null;
-  // Without a skill side the agent side is the whole of discovery, so its state is the resource's.
+  const appStatus =
+    catalog && resource.appDiscoveryEnabled ? appCatalogStatus(resource, catalog, now) : null;
+  const sideStates = [agentStatus, appStatus].flatMap((status) => (status ? [status.state] : []));
+  // Without a skill side the other sides are the whole of discovery, so their state is the
+  // resource's: that of the one side, or the less healthy of both.
   const catalogState =
-    resource.enabled && !resource.skillDiscoveryEnabled && agentStatus
-      ? agentStatus.state
-      : !resource.enabled || !(resource.skillDiscoveryEnabled || resource.agentDiscoveryEnabled)
+    resource.enabled && !resource.skillDiscoveryEnabled && sideStates.length
+      ? leastHealthy(sideStates)
+      : !resource.enabled ||
+          !(
+            resource.skillDiscoveryEnabled ||
+            resource.agentDiscoveryEnabled ||
+            resource.appDiscoveryEnabled
+          )
         ? "disabled"
         : !catalog?.lastSuccessfulRefreshAt
           ? catalog?.lastFailureCategory
@@ -1301,17 +1331,20 @@ function serializeResource(resource: {
     enabled: resource.enabled,
     skillDiscoveryEnabled: resource.skillDiscoveryEnabled,
     agentDiscoveryEnabled: resource.agentDiscoveryEnabled,
+    appDiscoveryEnabled: resource.appDiscoveryEnabled,
     catalogStatus: catalog
       ? {
           state: catalogState,
           // Rows of a kind that was switched off stay until the next refresh; they are not shown.
           skillCount: resource.skillDiscoveryEnabled ? catalog._count.skills : 0,
           agentCount: resource.agentDiscoveryEnabled ? catalog._count.agents : 0,
+          appCount: resource.appDiscoveryEnabled ? catalog._count.apps : 0,
           lastAttemptAt: catalog.lastAttemptAt?.toISOString() ?? null,
           lastSuccessfulRefreshAt: catalog.lastSuccessfulRefreshAt?.toISOString() ?? null,
           lastFailureCategory: catalog.lastFailureCategory,
           lastFailureAt: catalog.lastFailureAt?.toISOString() ?? null,
           agents: agentStatus,
+          apps: appStatus,
         }
       : null,
     version: resource.version,

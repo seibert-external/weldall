@@ -15,6 +15,7 @@ import {
   scopesCommand,
   skillsCommand,
   agentsCommand,
+  appsCommand,
   statusCommand,
   whoamiCommand,
 } from "./commands.js";
@@ -106,6 +107,7 @@ export async function runCli(argv = process.argv.slice(2)) {
         scopes: scopesCommand,
         skills: skillsCommand,
         agents: agentsCommand,
+        apps: appsCommand,
         request: requestCommand,
         config: configCommand,
         connections: connectionsCommand,

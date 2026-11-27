@@ -57,6 +57,7 @@ import {
   type ResourceGrant,
 } from "./services/resources.js";
 import { listAgents, type AgentSummary, type AgentWarning } from "./services/agents.js";
+import { listApps, type AppSummary, type AppWarning } from "./services/apps.js";
 import {
   listSkills,
   listSkillsWithSubject,
@@ -1306,6 +1307,53 @@ export const agentsCommand = define({
       return;
     }
     for (const agent of result.items) console.log(formatAgentEntry(agent));
+  },
+});
+
+/**
+ * One app for the terminal: its link, owner, repository, the scopes it is shared with, and when it
+ * was made and expires, followed by its purpose.
+ */
+export const formatAppEntry = (app: AppSummary) => {
+  const summary = [
+    app.id,
+    app.name,
+    app.url ?? "no link",
+    app.own ? "yours" : app.hasOwner ? `owner ${app.ownerName ?? "unknown"}` : "no owner",
+    app.repository ? `repository ${app.repository.name}` : "no repository",
+    `shared with ${app.scopes.join(", ") || "nobody"}`,
+    `created ${formatShortTimestamp(app.createdAt)}`,
+    // A flag only: an app past its review date is listed and reachable as before.
+    `${app.expired ? "review due since" : "review by"} ${formatShortTimestamp(app.expiresAt)}`,
+  ]
+    // Every part carries server text (an unparsable timestamp is shown as sent).
+    .map(terminalText)
+    .join("  ·  ");
+  // As for agents: whitespace runs become one space, other control characters are neutralized.
+  const purpose = terminalText(app.description.replace(/\s+/g, " ").trim());
+  return purpose ? `${summary}\n  ${purpose}` : summary;
+};
+
+export const formatAppWarning = (warning: AppWarning) =>
+  `Apps from ${terminalText(warning.source)}: ${terminalText(warning.code)}`;
+
+export const appsCommand = define({
+  name: "apps",
+  description: "List apps you own or that are shared with a permission you hold",
+  args: { json: jsonArgument },
+  examples: "weldall apps\nweldall apps --json",
+  run: async (context) => {
+    const result = await listApps(await resolveWeldallConfig());
+    if (context.values.json) {
+      jsonOutput(result);
+      return;
+    }
+    for (const warning of result.warnings) printWarning({ message: formatAppWarning(warning) });
+    if (result.items.length === 0) {
+      info("No apps are visible to this account.");
+      return;
+    }
+    for (const app of result.items) console.log(formatAppEntry(app));
   },
 });
 

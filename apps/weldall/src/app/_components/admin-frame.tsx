@@ -148,6 +148,13 @@ export function AdminFrame({ children }: { children: ReactNode }) {
                 isSelected={selected("/admin/agents")}
               />
               <SectionNavItem
+                route="apps"
+                label="Apps"
+                href="/admin/apps"
+                icon={AppIcon}
+                isSelected={selected("/admin/apps")}
+              />
+              <SectionNavItem
                 route="audit"
                 label="Audit logs"
                 href="/admin/audit"
@@ -374,6 +381,15 @@ function AgentIcon(props: IconProps) {
     <IconBase {...props}>
       <path d="M12 3v3M6 6h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
       <path d="M9 12h.01M15 12h.01M9 16h6" />
+    </IconBase>
+  );
+}
+
+function AppIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+      <path d="M4 9h16M8 6.5h.01M11 6.5h.01" />
     </IconBase>
   );
 }

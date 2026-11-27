@@ -65,6 +65,7 @@ const resourceInput = (
     enabled: true,
     skillDiscoveryEnabled: false,
     agentDiscoveryEnabled: false,
+    appDiscoveryEnabled: false,
     scopeIds: [scopeId],
     requestPrefixes: [`${origin}/api`],
     ...overrides,
@@ -374,6 +375,7 @@ describe("admin scope service", () => {
       // Off unless an administrator switches it on.
       skillDiscoveryEnabled: false,
       agentDiscoveryEnabled: false,
+      appDiscoveryEnabled: false,
       catalogStatus: null,
       scopeKeys: [sharedScope.key],
       requestPrefixes: [`${origin}/api`, `${origin}/api/events`],
@@ -416,6 +418,42 @@ describe("admin scope service", () => {
     );
     // Agent discovery off: no agent status.
     expect(skillResource.catalogStatus).toMatchObject({ state: "pending", agents: null });
+    const appOrigin = `https://${namespace}-apps.example`;
+    const appResource = await createResource(
+      {
+        key: `${namespace}-apps`,
+        name: "App resource",
+        resourceIdentifier: `${appOrigin}/resource`,
+        authorizationServer: appOrigin,
+        downstreamClientId: "app-client",
+        enabled: true,
+        appDiscoveryEnabled: true,
+        scopeIds: [sharedScope.id],
+        requestPrefixes: [`${appOrigin}/api`],
+      },
+      primaryActor,
+    );
+    expect(appResource).toMatchObject({
+      skillDiscoveryEnabled: false,
+      agentDiscoveryEnabled: false,
+      appDiscoveryEnabled: true,
+      catalogStatus: {
+        // The app side has its own status; without skills it is the resource's state.
+        state: "pending",
+        skillCount: 0,
+        agentCount: 0,
+        appCount: 0,
+        agents: null,
+        apps: {
+          state: "pending",
+          lastSuccessfulRefreshAt: null,
+          lastFailureCategory: null,
+          lastFailureAt: null,
+          skippedCount: 0,
+        },
+      },
+    });
+    expect(agentResource.catalogStatus).toMatchObject({ apps: null, appCount: 0 });
     await expect(db.emailScopeGrant.count()).resolves.toBe(grantCountBefore);
 
     await expect(

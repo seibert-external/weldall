@@ -1310,6 +1310,10 @@
             "type": "boolean",
             "default": false
           },
+          "appDiscoveryEnabled": {
+            "type": "boolean",
+            "default": false
+          },
           "requestPrefixes": {
             "type": "array",
             "minItems": 1,

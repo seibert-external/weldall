@@ -51,6 +51,7 @@ Open **Resources**, select **Create resource**, and use these values:
 | Enabled              | on                                  |
 | Discover skills      | on                                  |
 | Discover agents      | off                                 |
+| Discover apps        | off                                 |
 
 The values must match the service configuration. Weldall does not send credentials or request data to URLs outside the registered prefixes.
 

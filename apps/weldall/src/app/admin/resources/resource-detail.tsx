@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
@@ -20,7 +20,8 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
-import { agentReloadFailureDetail } from "./agent-reload";
+import { listing } from "@/lib/listing";
+import { failedSides, reloadedKinds, sideReloadFailureDetail } from "./catalog-reload";
 
 const catalogStatuses = {
   fresh: { icon: "success", color: "success", label: "Fresh" },
@@ -73,12 +74,9 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
     }),
   );
   // What a reload reads: the saved switches of the resource.
-  const reloadLabel =
-    resourceQuery.data && !resourceQuery.data.agentDiscoveryEnabled
-      ? "Skills"
-      : resourceQuery.data && !resourceQuery.data.skillDiscoveryEnabled
-        ? "Agents"
-        : "Skills and agents";
+  const reloadWords =
+    listing(resourceQuery.data ? reloadedKinds(resourceQuery.data) : []) || "skills";
+  const reloadLabel = `${reloadWords.charAt(0).toUpperCase()}${reloadWords.slice(1)}`;
   const refreshSkillsMutation = useMutation(
     trpc.admin.resources.refreshSkills.mutationOptions({
       onSuccess: async (outcome) => {
@@ -87,14 +85,15 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           operationToast.success(`${reloadLabel} reloaded`, "resource-skills-refresh");
           return;
         }
-        if (outcome === "agents_failed") {
+        const failed = failedSides(outcome);
+        if (failed.length) {
           // Read after the refetch above: what the refresh left people with.
           const refreshed = queryClient.getQueryData(
             trpc.admin.resources.get.queryKey({ id: resourceId ?? "new" }),
           );
           operationToast.error(
-            "Could not reload agents",
-            new Error(agentReloadFailureDetail(refreshed ?? resourceQuery.data)),
+            `Could not reload ${listing(failed)}`,
+            new Error(sideReloadFailureDetail(refreshed ?? resourceQuery.data, failed)),
             "resource-skills-refresh",
           );
           return;
@@ -103,7 +102,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           outcome === "already_running"
             ? "A refresh is already running"
             : outcome === "unavailable"
-              ? "The resource is disabled, or discovers neither skills nor agents"
+              ? "The resource is disabled, or discovers no skills, agents or apps"
               : "The refresh failed; see the discovery status for details";
         operationToast.error(
           `Could not reload ${reloadLabel.toLowerCase()}`,
@@ -132,6 +131,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       enabled: true,
       skillDiscoveryEnabled: false,
       agentDiscoveryEnabled: false,
+      appDiscoveryEnabled: false,
     },
     onSubmit: async ({ value }) => {
       const requestPrefixes = parsePrefixLines(value.requestPrefixes);
@@ -146,6 +146,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           enabled: value.enabled,
           skillDiscoveryEnabled: value.skillDiscoveryEnabled,
           agentDiscoveryEnabled: value.agentDiscoveryEnabled,
+          appDiscoveryEnabled: value.appDiscoveryEnabled,
           expectedVersion: resourceQuery.data.version,
         });
       } else {
@@ -160,6 +161,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
           enabled: value.enabled,
           skillDiscoveryEnabled: value.skillDiscoveryEnabled,
           agentDiscoveryEnabled: value.agentDiscoveryEnabled,
+          appDiscoveryEnabled: value.appDiscoveryEnabled,
         });
       }
       await queryClient.invalidateQueries();
@@ -180,6 +182,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
       enabled: resourceQuery.data.enabled,
       skillDiscoveryEnabled: resourceQuery.data.skillDiscoveryEnabled,
       agentDiscoveryEnabled: resourceQuery.data.agentDiscoveryEnabled,
+      appDiscoveryEnabled: resourceQuery.data.appDiscoveryEnabled,
     });
   }, [form, resourceQuery.data]);
 
@@ -196,7 +199,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
   }
   const scopeOptions = scopeOptionsQuery.data ?? [];
   const current = resourceQuery.data;
-  const agentStatus = current?.catalogStatus?.agents ?? null;
+  const discoversSides = Boolean(current?.agentDiscoveryEnabled || current?.appDiscoveryEnabled);
 
   return (
     <>
@@ -213,13 +216,22 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
               label={`View agents (${current.catalogStatus?.agentCount ?? 0})`}
               variant="secondary"
             />
+            <Button
+              href={`/admin/apps?source=${encodeURIComponent(current.id)}`}
+              label={`View apps (${current.catalogStatus?.appCount ?? 0})`}
+              variant="secondary"
+            />
           </HStack>
         ) : null}
         {current ? (
           <Button
             isDisabled={
               !current.enabled ||
-              !(current.skillDiscoveryEnabled || current.agentDiscoveryEnabled) ||
+              !(
+                current.skillDiscoveryEnabled ||
+                current.agentDiscoveryEnabled ||
+                current.appDiscoveryEnabled
+              ) ||
               mutation.isPending ||
               deleteMutation.isPending
             }
@@ -267,7 +279,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
         </div>
         {current?.catalogStatus ? (
           <div className="grid gap-1">
-            {current.skillDiscoveryEnabled || !current.agentDiscoveryEnabled ? (
+            {current.skillDiscoveryEnabled || !discoversSides ? (
               <>
                 <HStack gap={2} vAlign="center">
                   <Icon
@@ -295,42 +307,52 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 </Text>
               </>
             ) : null}
-            {current.agentDiscoveryEnabled && agentStatus ? (
-              <>
-                <HStack gap={2} vAlign="center">
-                  <Icon
-                    icon={catalogStatuses[agentStatus.state].icon}
-                    color={catalogStatuses[agentStatus.state].color}
-                    size="sm"
-                  />
-                  <Text type="body">
-                    Agent discovery: {catalogStatuses[agentStatus.state].label}
+            {(["agents", "apps"] as const).map((kind) => {
+              const side = current.catalogStatus?.[kind];
+              if (!side) return null;
+              const item = kind === "agents" ? "agent" : "app";
+              const count =
+                kind === "agents"
+                  ? current.catalogStatus?.agentCount
+                  : current.catalogStatus?.appCount;
+              return (
+                <Fragment key={kind}>
+                  <HStack gap={2} vAlign="center">
+                    <Icon
+                      icon={catalogStatuses[side.state].icon}
+                      color={catalogStatuses[side.state].color}
+                      size="sm"
+                    />
+                    <Text type="body">
+                      {item === "agent" ? "Agent" : "App"} discovery:{" "}
+                      {catalogStatuses[side.state].label}
+                    </Text>
+                  </HStack>
+                  <Text color="secondary" type="body">
+                    {`Discovered ${kind}: ${count ?? 0}${
+                      current.skillDiscoveryEnabled
+                        ? ""
+                        : ` · Last attempt: ${formatTime(current.catalogStatus?.lastAttemptAt ?? null)}`
+                    } · Last successful ${item} refresh: ${formatTime(
+                      side.lastSuccessfulRefreshAt,
+                    )}${
+                      side.lastFailureCategory
+                        ? ` · Last ${item} failure: ${side.lastFailureCategory} at ${formatTime(
+                            side.lastFailureAt,
+                            "unknown",
+                          )}`
+                        : ""
+                    }${
+                      side.skippedCount
+                        ? ` · Left out as invalid: ${side.skippedCount} ${
+                            side.skippedCount === 1 ? item : kind
+                          }`
+                        : ""
+                    }`}
                   </Text>
-                </HStack>
-                <Text color="secondary" type="body">
-                  {`Discovered agents: ${current.catalogStatus.agentCount}${
-                    current.skillDiscoveryEnabled
-                      ? ""
-                      : ` · Last attempt: ${formatTime(current.catalogStatus.lastAttemptAt)}`
-                  } · Last successful agent refresh: ${formatTime(
-                    agentStatus.lastSuccessfulRefreshAt,
-                  )}${
-                    agentStatus.lastFailureCategory
-                      ? ` · Last agent failure: ${agentStatus.lastFailureCategory} at ${formatTime(
-                          agentStatus.lastFailureAt,
-                          "unknown",
-                        )}`
-                      : ""
-                  }${
-                    agentStatus.skippedCount
-                      ? ` · Left out as invalid: ${agentStatus.skippedCount} ${
-                          agentStatus.skippedCount === 1 ? "agent" : "agents"
-                        }`
-                      : ""
-                  }`}
-                </Text>
-              </>
-            ) : null}
+                </Fragment>
+              );
+            })}
           </div>
         ) : null}
         {scopeOptionsQuery.error ? (
@@ -517,6 +539,19 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 />
               )}
             </form.Field>
+            <form.Field name="appDiscoveryEnabled">
+              {(field) => (
+                <Switch
+                  description="Trust this resource to publish the apps it knows of, such as repositories in your Git host, and to say who owns each app and which permissions open it. A person sees an app they own or hold one of its permissions for; administrators see every app under Apps. Weldall only reads apps and changes nothing at the resource."
+                  label="Discover apps from this resource"
+                  labelPosition="start"
+                  labelSpacing="spread"
+                  onChange={field.handleChange}
+                  value={field.state.value}
+                  width="100%"
+                />
+              )}
+            </form.Field>
           </FormLayout>
         </form>
       </div>
@@ -524,7 +559,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
         actionLabel="Delete resource"
         description={
           current
-            ? `Delete ${current.name}? Its request prefixes and discovered skills and agents will be removed immediately.`
+            ? `Delete ${current.name}? Its request prefixes and discovered skills, agents and apps will be removed immediately.`
             : "Delete this resource?"
         }
         isActionLoading={deleteMutation.isPending}

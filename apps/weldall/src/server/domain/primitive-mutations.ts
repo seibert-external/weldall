@@ -57,7 +57,9 @@ export class PrimitiveMutationError extends Error {
 const resourceInclude = {
   scopes: { include: { scope: { select: { id: true, key: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
-  discoveredCatalog: { include: { _count: { select: { skills: true, agents: true } } } },
+  discoveredCatalog: {
+    include: { _count: { select: { skills: true, agents: true, apps: true } } },
+  },
   iacBinding: { include: { workspace: { select: { id: true, name: true } } } },
 } as const;
 const scopeInclude = {
@@ -430,13 +432,16 @@ export async function mutateResource(
         enabled: parsed.enabled,
         skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
         agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
+        appDiscoveryEnabled: parsed.appDiscoveryEnabled,
         createdBy: actor.id,
         updatedBy: actor.id,
         scopes: { create: scopes.map((scope) => ({ scopeId: scope.id })) },
         requestPrefixes: {
           create: parsed.requestPrefixes.map((urlPrefix) => ({ urlPrefix, createdBy: actor.id })),
         },
-        ...(parsed.skillDiscoveryEnabled || parsed.agentDiscoveryEnabled
+        ...(parsed.skillDiscoveryEnabled ||
+        parsed.agentDiscoveryEnabled ||
+        parsed.appDiscoveryEnabled
           ? { discoveredCatalog: { create: { nextRefreshAt: new Date() } } }
           : {}),
       },
@@ -452,6 +457,7 @@ export async function mutateResource(
     current.enabled === parsed.enabled &&
     current.skillDiscoveryEnabled === parsed.skillDiscoveryEnabled &&
     current.agentDiscoveryEnabled === parsed.agentDiscoveryEnabled &&
+    current.appDiscoveryEnabled === parsed.appDiscoveryEnabled &&
     same(current.scopes.map(({ scope }) => scope.key).sort(), parsed.scopeKeys) &&
     same(current.requestPrefixes.map(({ urlPrefix }) => urlPrefix).sort(), parsed.requestPrefixes);
   if (unchanged) return current;
@@ -477,12 +483,13 @@ export async function mutateResource(
       enabled: parsed.enabled,
       skillDiscoveryEnabled: parsed.skillDiscoveryEnabled,
       agentDiscoveryEnabled: parsed.agentDiscoveryEnabled,
+      appDiscoveryEnabled: parsed.appDiscoveryEnabled,
       version: { increment: 1 },
       updatedBy: actor.id,
     },
   });
   if (write.count !== 1) conflict("resource");
-  if (parsed.skillDiscoveryEnabled || parsed.agentDiscoveryEnabled)
+  if (parsed.skillDiscoveryEnabled || parsed.agentDiscoveryEnabled || parsed.appDiscoveryEnabled)
     await tx.discoveredSkillCatalog.upsert({
       where: { resourceId: current.id },
       create: { resourceId: current.id, nextRefreshAt: new Date() },
@@ -515,6 +522,7 @@ type ResourceMutableInput = {
   enabled: boolean;
   skillDiscoveryEnabled: boolean;
   agentDiscoveryEnabled: boolean;
+  appDiscoveryEnabled: boolean;
   scopeKeys: string[];
   requestPrefixes: string[];
 };
@@ -1299,6 +1307,7 @@ async function resourceAudit(
     enabled: item.enabled,
     skillDiscoveryEnabled: item.skillDiscoveryEnabled,
     agentDiscoveryEnabled: item.agentDiscoveryEnabled,
+    appDiscoveryEnabled: item.appDiscoveryEnabled,
     ownerId: item.createdBy,
     version: item.version,
   });

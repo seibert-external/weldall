@@ -9,6 +9,7 @@ import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { listVisibleSkills } from "@/server/skills/service";
 import { getSkillRetrievalCountsBySlugs } from "@/server/skills/retrieval-metrics";
 import { agentsOffered } from "@/server/agents/service";
+import { appsOffered } from "@/server/apps/service";
 import { canViewStatistics } from "@/server/statistics/access";
 import { DirectoryHeader } from "../_components/directory-header";
 import { DirectoryUserMenu } from "../_components/directory-user-menu";
@@ -24,11 +25,12 @@ export default async function SkillsPage() {
   if (!session?.user.email) redirect("/login");
 
   after(() => refreshDueCatalogs());
-  const [{ items: skills }, isAdmin, canSeeStatistics, showAgents] = await Promise.all([
+  const [{ items: skills }, isAdmin, canSeeStatistics, showAgents, showApps] = await Promise.all([
     listVisibleSkills(session.user.email),
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
     agentsOffered(),
+    appsOffered(),
   ]);
   const retrievalCounts = await getSkillRetrievalCountsBySlugs(skills.map(({ slug }) => slug));
 
@@ -47,6 +49,7 @@ export default async function SkillsPage() {
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
           showAgents={showAgents}
+          showApps={showApps}
         />
       </DirectoryHeader>
       <main className="skill-directory-main">

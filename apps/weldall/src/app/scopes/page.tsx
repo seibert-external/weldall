@@ -5,6 +5,7 @@ import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { listDirectoryScopes } from "@/server/directory/search";
 import { agentsOffered } from "@/server/agents/service";
+import { appsOffered } from "@/server/apps/service";
 import { canViewStatistics } from "@/server/statistics/access";
 import { DirectoryHeader } from "../_components/directory-header";
 import { ScopeDirectoryTable } from "../_components/directory-table";
@@ -23,11 +24,12 @@ export default async function ScopesPage({
   ]);
   if (!session?.user.email) redirect("/login");
 
-  const [scopes, isAdmin, canSeeStatistics, showAgents, params] = await Promise.all([
+  const [scopes, isAdmin, canSeeStatistics, showAgents, showApps, params] = await Promise.all([
     listDirectoryScopes(session.user.email),
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
     agentsOffered(),
+    appsOffered(),
     searchParams,
   ]);
   const selectedKey = typeof params.scope === "string" ? params.scope : undefined;
@@ -40,6 +42,7 @@ export default async function ScopesPage({
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
           showAgents={showAgents}
+          showApps={showApps}
         />
       </DirectoryHeader>
       <main className="public-page-main">

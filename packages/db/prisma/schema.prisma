@@ -181,6 +181,7 @@ model DownstreamResource {
   enabled               Boolean                  @default(true)
   skillDiscoveryEnabled Boolean                  @default(false)
   agentDiscoveryEnabled Boolean                  @default(false)
+  appDiscoveryEnabled   Boolean                  @default(false)
   version               Int                      @default(1)
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
@@ -218,6 +219,14 @@ model DiscoveredSkillCatalog {
   agentsLastFailureCategory     String?
   agentsLastFailureAt           DateTime?
   agentsSkippedCount            Int                @default(0)
+  /// The app side of the last refresh, with the same meaning as the agent side above and kept
+  /// apart from both other sides: apps that cannot be read never take skills or agents offline.
+  appsSourceResourceVersion     Int?
+  appsLastSuccessfulRefreshAt   DateTime?
+  appsStaleAfter                DateTime?
+  appsLastFailureCategory       String?
+  appsLastFailureAt             DateTime?
+  appsSkippedCount              Int                @default(0)
   lastAttemptAt                 DateTime?
   lastSuccessfulRefreshAt       DateTime?
   nextRefreshAt                 DateTime           @default(now())
@@ -232,6 +241,7 @@ model DiscoveredSkillCatalog {
   resource                      DownstreamResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   skills                        DiscoveredSkill[]
   agents                        DiscoveredAgent[]
+  apps                          DiscoveredApp[]
 
   @@index([nextRefreshAt, refreshLeaseUntil])
 }
@@ -254,6 +264,39 @@ model DiscoveredAgent {
   config          Json
   revision        Int
   /// When the agent was created and last changed at the resource, as it reports them.
+  sourceCreatedAt DateTime
+  sourceUpdatedAt DateTime
+  expiresAt       DateTime
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  catalog         DiscoveredSkillCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@unique([catalogId, localId])
+  @@index([catalogId])
+  @@index([ownerId])
+}
+
+/// An app a resource published through app discovery (`appDiscoveryEnabled`), typically found in a
+/// Git host by the resource. Read-only in Weldall: a copy, refreshed together with the resource's
+/// skill catalog (with its own freshness, see `DiscoveredSkillCatalog.apps*`). `ownerId` is the
+/// Weldall user id the resource reported, if any; a person sees an app they own or hold any one of
+/// `scopes` for. `url` and `repositoryUrl` are https URLs without credentials.
+model DiscoveredApp {
+  id              String                 @id @default(cuid())
+  catalogId       String
+  localId         String
+  canonicalId     String                 @unique
+  name            String
+  description     String
+  ownerId         String?
+  scopes          String[]               @default([])
+  /// The app's Git repository; both null for an app without one.
+  repositoryName  String?
+  repositoryUrl   String?
+  /// Where the app runs; null when the resource reports none.
+  url             String?
+  revision        Int
+  /// When the app was created and last changed at the resource, as it reports them.
   sourceCreatedAt DateTime
   sourceUpdatedAt DateTime
   expiresAt       DateTime

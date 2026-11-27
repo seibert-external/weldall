@@ -8,6 +8,7 @@ import {
   listVisibleAgents,
   sharedByLabel,
 } from "@/server/agents/service";
+import { appsOffered } from "@/server/apps/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { refreshDueCatalogs } from "@/server/skills/catalogs";
@@ -31,11 +32,12 @@ export default async function AgentsPage() {
   if (!session?.user.email) redirect("/login");
 
   after(() => refreshDueCatalogs());
-  const [{ items }, isAdmin, canSeeStatistics, showAgents] = await Promise.all([
+  const [{ items }, isAdmin, canSeeStatistics, showAgents, showApps] = await Promise.all([
     listVisibleAgents({ id: session.user.id, email: session.user.email }),
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
     agentsOffered(),
+    appsOffered(),
   ]);
 
   return (
@@ -46,6 +48,7 @@ export default async function AgentsPage() {
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
           showAgents={showAgents}
+          showApps={showApps}
         />
       </DirectoryHeader>
       <main className="public-page-main">

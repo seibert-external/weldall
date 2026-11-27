@@ -623,6 +623,25 @@ describe("native YAML IaC contracts", () => {
     expect(digest(withAgents(false))).toBe(digest(canonicalDefaults));
     expect(withAgents(false).resources.api).not.toHaveProperty("agentDiscoveryEnabled");
     expect(withAgents(true).resources.api).toMatchObject({ agentDiscoveryEnabled: true });
+    // The same for app discovery, on its own and next to agent discovery.
+    const withApps = (appDiscoveryEnabled: boolean, agentDiscoveryEnabled = false) =>
+      parseDesiredState({
+        apiVersion: "weldall.dev/v1",
+        workspace: desired.workspace,
+        resources: {
+          api: { ...canonicalDefaults.resources.api!, appDiscoveryEnabled, agentDiscoveryEnabled },
+        },
+      });
+    expect(digest(withApps(false))).toBe(digest(canonicalDefaults));
+    expect(digest(withApps(false))).toBe(
+      "3eebe93e22e7fc279c0b7267f99381a553b55e0caaa894735bf6e6c79d0a3874",
+    );
+    expect(withApps(false).resources.api).not.toHaveProperty("appDiscoveryEnabled");
+    expect(withApps(true).resources.api).toMatchObject({ appDiscoveryEnabled: true });
+    expect(withApps(true).resources.api).not.toHaveProperty("agentDiscoveryEnabled");
+    expect(digest(withApps(true))).not.toBe(digest(canonicalDefaults));
+    expect(digest(withApps(true))).not.toBe(digest(withAgents(true)));
+    expect(digest(withApps(true, true))).not.toBe(digest(withApps(true)));
     expect(() =>
       unmanageRequestSchema.parse({
         workspaceId: desired.workspace.id,

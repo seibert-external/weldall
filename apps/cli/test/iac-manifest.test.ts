@@ -502,6 +502,16 @@ describe("native YAML workspaces", () => {
     });
     expect(canonicalManifestDigest(withAgents(false))).toBe(canonicalManifestDigest(canonical));
     expect(canonicalManifestDigest(withAgents(true))).not.toBe(canonicalManifestDigest(canonical));
+    // App discovery the same way.
+    const withApps = (appDiscoveryEnabled: boolean) => ({
+      ...canonical,
+      resources: { api: { ...canonical.resources.api, appDiscoveryEnabled } },
+    });
+    expect(canonicalManifestDigest(withApps(false))).toBe(canonicalManifestDigest(canonical));
+    expect(canonicalManifestDigest(withApps(true))).not.toBe(canonicalManifestDigest(canonical));
+    expect(canonicalManifestDigest(withApps(true))).not.toBe(
+      canonicalManifestDigest(withAgents(true)),
+    );
     // Preserve the pre-connector wire format and digest, even for an explicitly empty section.
     expect(canonicalManifestDigest({ ...canonical, connectors: {} })).toBe(
       canonicalManifestDigest(canonical),

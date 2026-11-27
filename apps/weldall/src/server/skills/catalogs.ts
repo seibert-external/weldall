@@ -1,23 +1,44 @@
 import { randomUUID } from "node:crypto";
 import { db, type Prisma } from "@weldall/db";
 import { parseSkillCatalog, SKILL_ASSERTION_TYPE, type SkillCatalog } from "@weldall/sdk";
+import { agentSide } from "../agents/discovery";
+import { appSide } from "../apps/discovery";
 import {
-  AGENT_API_METADATA_KEY,
-  AGENT_CATALOG_METADATA_KEY,
-  AgentCatalogError,
-  fetchAgentCatalog,
-  type AgentCatalogFailureCategory,
-  type PublishedAgent,
-  parseAgentApi,
-} from "../agents/discovery";
+  CATALOG_SIDE_KINDS,
+  SIDE_ITEM,
+  SIDE_SWITCH,
+  sideColumns,
+  sideColumnsSelect,
+  sideState,
+  type CatalogSide,
+  type CatalogSideKind,
+  type SideState,
+} from "../discovery/catalog-sides";
+import { PagedCatalogError, type PagedCatalogFailureCategory } from "../discovery/paged-catalog";
 import { WELDALL_ISSUER } from "../oauth/constants";
+import { listing } from "../../lib/listing";
 import { signWeldallJwt } from "../oauth/jwt";
 import { errorForLog, logger } from "../observability/logger";
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1_000;
 const MAX_STALE_MS = 24 * 60 * 60 * 1_000;
 const LEASE_MS = 30_000;
+/** Each of the metadata and skill catalog requests. */
 const FETCH_TIMEOUT_MS = 5_000;
+/**
+ * Prisma's wait for a connection before the refresh transaction starts; the transaction renews the
+ * lease as its first statement, so this wait still counts against the lease of the reads.
+ */
+const TRANSACTION_MAX_WAIT_MS = 2_000;
+/** What is left of the lease when the transaction renews it at the latest. */
+const LEASE_MARGIN_MS = 5_000;
+/**
+ * Everything a refresh reads, from its start until every side is read: the metadata and the skill
+ * catalog have their own timeouts within it, and the sides share whatever remains of it (one
+ * deadline for all of them, read at the same time). So the reads end before the lease does however
+ * many sides there are, and the transaction that stores them renews it before it runs out.
+ */
+const READ_BUDGET_MS = LEASE_MS - TRANSACTION_MAX_WAIT_MS - LEASE_MARGIN_MS;
 const METADATA_LIMIT = 256_000;
 const CATALOG_LIMIT = 1_048_576;
 const MAX_REFRESHES_PER_SWEEP = 4;
@@ -32,11 +53,12 @@ export type CatalogFailureCategory =
   | "refresh_internal_error";
 
 /**
- * Why only the agent side of a refresh failed (`agentsLastFailureCategory`). The skill side is
- * stored all the same, and the agents are left as they were. `refresh_internal_error`: the agents
- * were read but could not be stored.
+ * Why only one side of a refresh failed (`<kind>LastFailureCategory`). The skill side is stored all
+ * the same, and the side is left as it was. `refresh_internal_error`: the items were read but could
+ * not be stored.
  */
-export type AgentRefreshFailureCategory = AgentCatalogFailureCategory | "refresh_internal_error";
+export type SideRefreshFailureCategory =
+  PagedCatalogFailureCategory<CatalogSideKind> | "refresh_internal_error";
 
 export interface CatalogRefreshSource {
   id: string;
@@ -47,7 +69,14 @@ export interface CatalogRefreshSource {
   /** What the administrator allowed this resource to publish; at least one of them is on. */
   skillDiscoveryEnabled: boolean;
   agentDiscoveryEnabled: boolean;
+  appDiscoveryEnabled: boolean;
 }
+
+/** Every side besides the skills, in `CATALOG_SIDE_KINDS` order. */
+const SIDES: ReadonlyArray<CatalogSide<CatalogSideKind, unknown>> = [agentSide, appSide];
+
+const sideOn = (source: CatalogRefreshSource, kind: CatalogSideKind): boolean =>
+  source[SIDE_SWITCH[kind]];
 
 class CatalogRefreshError extends Error {
   constructor(readonly category: CatalogFailureCategory) {
@@ -55,13 +84,15 @@ class CatalogRefreshError extends Error {
   }
 }
 
-/** What the log calls a refresh: it reads skills, agents or both. */
-const catalogLabel = (source: CatalogRefreshSource): string =>
-  source.skillDiscoveryEnabled && source.agentDiscoveryEnabled
-    ? "Skill and agent catalog"
-    : source.agentDiscoveryEnabled
-      ? "Agent catalog"
-      : "Skill catalog";
+/** What the log calls a refresh: by what it reads (skills, agents, apps, or several of them). */
+const catalogLabel = (source: CatalogRefreshSource): string => {
+  const label =
+    listing([
+      ...(source.skillDiscoveryEnabled ? ["skill"] : []),
+      ...CATALOG_SIDE_KINDS.filter((kind) => sideOn(source, kind)).map((kind) => SIDE_ITEM[kind]),
+    ]) || "skill";
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)} catalog`;
+};
 
 const deriveMetadataUrl = (resourceIdentifier: string): string => {
   const resource = new URL(resourceIdentifier);
@@ -119,12 +150,30 @@ const safeEndpoint = (value: string, resourceIdentifier: string): string => {
 };
 
 /**
- * Where the agent side reads, from the metadata. Metadata that names no usable agent endpoint or
- * API fails only the agent side, so it is answered as a failure rather than thrown.
+ * Where a side reads, from the metadata, and what else it stores from it. Metadata that names no
+ * usable endpoint for a side fails only that side, so it is answered as a failure rather than thrown.
  */
-type AgentTarget =
-  | { endpoint: string; api: { endpoint: string; scope: string } | null }
-  | { failure: AgentRefreshFailureCategory };
+type SideTarget =
+  | { endpoint: string; metadata: Prisma.DiscoveredSkillCatalogUpdateManyMutationInput }
+  | { failure: SideRefreshFailureCategory };
+
+const sideTarget = (
+  side: CatalogSide<CatalogSideKind, unknown>,
+  metadata: Record<string, unknown>,
+  resourceIdentifier: string,
+): SideTarget => {
+  try {
+    const value = metadata[side.catalog.metadataKey];
+    if (typeof value !== "string") throw new TypeError(`no ${SIDE_ITEM[side.kind]} endpoint`);
+    const endpoint = (url: string) => safeEndpoint(url, resourceIdentifier);
+    return {
+      endpoint: endpoint(value),
+      metadata: side.metadata?.(metadata, endpoint) ?? {},
+    };
+  } catch {
+    return { failure: `${side.kind}_metadata_invalid` };
+  }
+};
 
 const fetchMetadata = async (
   source: CatalogRefreshSource,
@@ -132,8 +181,8 @@ const fetchMetadata = async (
 ): Promise<{
   metadataUrl: string;
   catalogEndpoint: string | null;
-  /** Null while agent discovery is off. */
-  agents: AgentTarget | null;
+  /** By side; a side that is switched off has none. */
+  targets: Partial<Record<CatalogSideKind, SideTarget>>;
 }> => {
   const metadataUrl = deriveMetadataUrl(source.resourceIdentifier);
   let response: Response;
@@ -159,8 +208,6 @@ const fetchMetadata = async (
   const metadata = value as Record<string, unknown>;
   const authorizationServers = metadata.authorization_servers;
   const endpointValue = metadata.weldall_skills_endpoint;
-  const agentsEndpointValue = metadata[AGENT_CATALOG_METADATA_KEY];
-  const agentApiValue = metadata[AGENT_API_METADATA_KEY];
   if (
     metadata.resource !== source.resourceIdentifier ||
     !Array.isArray(authorizationServers) ||
@@ -177,23 +224,11 @@ const fetchMetadata = async (
   } catch {
     throw new CatalogRefreshError("metadata_invalid");
   }
-  let agents: AgentTarget | null = null;
-  if (source.agentDiscoveryEnabled) {
-    try {
-      if (typeof agentsEndpointValue !== "string") throw new TypeError("no agent endpoint");
-      const api = agentApiValue === undefined ? null : parseAgentApi(agentApiValue);
-      agents = {
-        endpoint: safeEndpoint(agentsEndpointValue, source.resourceIdentifier),
-        api: api && {
-          endpoint: safeEndpoint(api.endpoint, source.resourceIdentifier),
-          scope: api.scope,
-        },
-      };
-    } catch {
-      agents = { failure: "agents_metadata_invalid" };
-    }
-  }
-  return { metadataUrl, catalogEndpoint, agents };
+  const targets: Partial<Record<CatalogSideKind, SideTarget>> = {};
+  for (const side of SIDES)
+    if (sideOn(source, side.kind))
+      targets[side.kind] = sideTarget(side, metadata, source.resourceIdentifier);
+  return { metadataUrl, catalogEndpoint, targets };
 };
 
 const fetchCatalog = async (
@@ -243,42 +278,108 @@ const fetchCatalog = async (
   }
 };
 
-/** The agent side of a refresh; it never throws, so it cannot fail the skill side. */
-type AgentRead =
+/** One side of a refresh; reading it never throws, so it cannot fail the skill side or another. */
+type SideRead =
   | {
       ok: true;
-      agents: PublishedAgent[];
+      items: unknown[];
       skipped: number;
-      api: { endpoint: string; scope: string } | null;
+      metadata: Prisma.DiscoveredSkillCatalogUpdateManyMutationInput;
     }
-  | { ok: false; category: AgentRefreshFailureCategory; error?: unknown };
+  | { ok: false; category: SideRefreshFailureCategory; error?: unknown };
 
-const readAgents = async (
+const readSide = async (
+  side: CatalogSide<CatalogSideKind, unknown>,
   source: CatalogRefreshSource,
-  target: AgentTarget,
+  target: SideTarget,
   fetcher: typeof fetch,
   now: Date,
-): Promise<AgentRead> => {
+  deadline: AbortSignal,
+): Promise<SideRead> => {
   if ("failure" in target) return { ok: false, category: target.failure };
-  try {
-    const { agents, skipped } = await fetchAgentCatalog({
+  const unavailable: SideRead = { ok: false, category: `${side.kind}_unavailable` };
+  // The deadline ends the read even when a request does not heed its signal.
+  let stop = () => {};
+  const timedOut = new Promise<SideRead>((resolve) => {
+    stop = () => resolve(unavailable);
+    if (deadline.aborted) stop();
+    else deadline.addEventListener("abort", stop, { once: true });
+  });
+  const reading = side.catalog
+    .fetch({
       resourceIdentifier: source.resourceIdentifier,
       endpoint: target.endpoint,
       fetcher,
       now,
       readJson: readBoundedJson,
-    });
-    return { ok: true, agents, skipped, api: target.api };
-  } catch (error) {
-    return error instanceof AgentCatalogError
-      ? { ok: false, category: error.category }
-      : { ok: false, category: "refresh_internal_error", error };
+      signal: deadline,
+    })
+    .then(
+      ({ items, skipped }): SideRead => ({ ok: true, items, skipped, metadata: target.metadata }),
+      (error: unknown): SideRead =>
+        // A body cut off by the deadline is not a malformed page.
+        deadline.aborted
+          ? unavailable
+          : error instanceof PagedCatalogError
+            ? { ok: false, category: (error as PagedCatalogError<CatalogSideKind>).category }
+            : { ok: false, category: "refresh_internal_error", error },
+    );
+  try {
+    return await Promise.race([reading, timedOut]);
+  } finally {
+    deadline.removeEventListener("abort", stop);
   }
 };
 
-const AGENT_INSERT_BATCH = 200;
-/** Room for a large agent catalog; the lease is renewed at the start of the transaction. */
-const PERSIST_TRANSACTION = { timeout: 15_000 } as const;
+/**
+ * Reads every side that is switched on at the same time, under one deadline: what is left of the
+ * read budget after the metadata and the skill catalog. Each side has its own outcome; one that
+ * fails or runs into the deadline does not end or fail another.
+ */
+async function readSides(
+  source: CatalogRefreshSource,
+  targets: Partial<Record<CatalogSideKind, SideTarget>>,
+  fetcher: typeof fetch,
+  now: Date,
+  remainingMs: number,
+): Promise<Map<CatalogSideKind, SideRead>> {
+  const sides = SIDES.filter((side) => targets[side.kind] !== undefined);
+  if (!sides.length) return new Map();
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), Math.max(0, remainingMs));
+  try {
+    const reads = await Promise.all(
+      sides.map(
+        async (side) =>
+          [
+            side.kind,
+            await readSide(side, source, targets[side.kind]!, fetcher, now, deadline.signal),
+          ] as const,
+      ),
+    );
+    return new Map(reads);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const SIDE_INSERT_BATCH = 200;
+/**
+ * Room for large agent and app catalogs. The transaction renews the lease as its first statement
+ * and holds the row from then on, so once it has started it cannot lose the lease: another refresh
+ * that tries to claim it waits for the row and then finds the renewed lease. What can run out is
+ * only the time before that statement, which `READ_BUDGET_MS` bounds.
+ */
+const PERSIST_TRANSACTION = { maxWait: TRANSACTION_MAX_WAIT_MS, timeout: 15_000 } as const;
+
+/** The timing a refresh relies on to keep its lease (pinned in tests). */
+export const REFRESH_TIMING = {
+  leaseMs: LEASE_MS,
+  fetchTimeoutMs: FETCH_TIMEOUT_MS,
+  readBudgetMs: READ_BUDGET_MS,
+  transactionMaxWaitMs: TRANSACTION_MAX_WAIT_MS,
+  transactionTimeoutMs: PERSIST_TRANSACTION.timeout,
+} as const;
 
 const failureBackoffMs = (retryCount: number): number =>
   Math.min(REFRESH_INTERVAL_MS, 30_000 * 2 ** Math.min(retryCount, 5));
@@ -309,120 +410,120 @@ async function persistFailure(
 }
 
 /**
- * Stores the agents that were read, replacing the last copy. It runs in a savepoint of the refresh
- * transaction: when the write fails (a value the database refuses that validation let through, a
- * constraint), only the agent part is rolled back, and the refresh records an agent-side failure
- * with the skills stored and the last copy of the agents kept.
+ * Stores the items of a side that were read, replacing its last copy. It runs in a savepoint of the
+ * refresh transaction: when the write fails (a value the database refuses that validation let
+ * through, a constraint), only this side is rolled back, and the refresh records a failure of this
+ * side with the skills and the other sides stored and the last copy of this side kept.
  */
-async function replaceAgents(
+async function replaceSide(
   tx: Prisma.TransactionClient,
+  side: CatalogSide<CatalogSideKind, unknown>,
   catalogId: string,
   source: CatalogRefreshSource,
-  agentRead: Extract<AgentRead, { ok: true }>,
-): Promise<AgentRead> {
-  await tx.$executeRaw`SAVEPOINT agent_catalog`;
+  read: Extract<SideRead, { ok: true }>,
+): Promise<SideRead> {
+  // The sides are written one after another, so they can share the savepoint's name.
+  await tx.$executeRaw`SAVEPOINT catalog_side`;
   try {
-    await tx.discoveredAgent.deleteMany({ where: { catalogId } });
-    for (let start = 0; start < agentRead.agents.length; start += AGENT_INSERT_BATCH) {
-      await tx.discoveredAgent.createMany({
-        data: agentRead.agents.slice(start, start + AGENT_INSERT_BATCH).map((agent) => ({
-          catalogId,
-          localId: agent.id,
-          canonicalId: `${source.key}.${agent.id}`,
-          name: agent.name,
-          description: agent.description,
-          ownerId: agent.owner,
-          scopes: agent.scopes,
-          configFormat: agent.config.format,
-          configVersion: agent.config.version,
-          config: agent.config.definition as Prisma.InputJsonObject,
-          revision: agent.revision,
-          sourceCreatedAt: agent.createdAt,
-          sourceUpdatedAt: agent.updatedAt,
-          expiresAt: agent.expiresAt,
-        })),
-      });
-    }
+    await side.remove(tx, catalogId);
+    for (let start = 0; start < read.items.length; start += SIDE_INSERT_BATCH)
+      await side.insert(
+        tx,
+        catalogId,
+        source.key,
+        read.items.slice(start, start + SIDE_INSERT_BATCH),
+      );
   } catch (error) {
-    await tx.$executeRaw`ROLLBACK TO SAVEPOINT agent_catalog`;
+    await tx.$executeRaw`ROLLBACK TO SAVEPOINT catalog_side`;
+    await tx.$executeRaw`RELEASE SAVEPOINT catalog_side`;
     return { ok: false, category: "refresh_internal_error", error };
   }
-  await tx.$executeRaw`RELEASE SAVEPOINT agent_catalog`;
-  return agentRead;
+  await tx.$executeRaw`RELEASE SAVEPOINT catalog_side`;
+  return read;
 }
 
 /**
- * What people see of the agents after a refresh whose agent side failed: the last copy (`kept`),
- * nothing because the copy is too old or from before the resource was changed (`hidden`), or
- * nothing because no agents were read yet (`none`). Mirrors `agentCatalogStatus`.
+ * What people see of a side after a refresh in which it failed: the last copy (`kept`), nothing
+ * because the copy is too old or from before the resource was changed (`hidden`), or nothing
+ * because nothing was read yet (`none`). Mirrors `catalogSideStatus`.
  */
-export type AgentCopyState = "kept" | "hidden" | "none";
+export type SideCopyState = "kept" | "hidden" | "none";
 
-function agentCopyState(
-  catalog: {
-    agentsSourceResourceVersion: number | null;
-    agentsLastSuccessfulRefreshAt: Date | null;
-    agentsStaleAfter: Date | null;
-  },
-  resourceVersion: number,
-  now: Date,
-): AgentCopyState {
-  if (!catalog.agentsLastSuccessfulRefreshAt) return "none";
-  return !catalog.agentsStaleAfter ||
-    catalog.agentsStaleAfter <= now ||
-    catalog.agentsSourceResourceVersion !== resourceVersion
+function sideCopyState(side: SideState, resourceVersion: number, now: Date): SideCopyState {
+  if (!side.lastSuccessfulRefreshAt) return "none";
+  return !side.staleAfter ||
+    side.staleAfter <= now ||
+    side.sourceResourceVersion !== resourceVersion
     ? "hidden"
     : "kept";
 }
 
-const agentCopyMessages: Record<AgentCopyState, string> = {
-  kept: "the agents keep their last copy",
-  hidden: "the last copy of the agents stays hidden until they are read again",
-  none: "no agents have been read yet",
-};
+const sideCopyMessage = (kind: CatalogSideKind, copy: SideCopyState): string =>
+  copy === "kept"
+    ? `the ${kind} keep their last copy`
+    : copy === "hidden"
+      ? `the last copy of the ${kind} stays hidden until they are read again`
+      : `no ${kind} have been read yet`;
 
 /**
- * `agents_failed`: the agent side failed and the agents were left as they were; the skill side (if
- * the resource has one) was stored.
+ * `<kinds>_failed`: these sides failed and were left as they were; the skill side (if the resource
+ * has one) and every other side were stored.
  * `failed`: nothing was stored (the refresh failed as a whole, or the resource changed meanwhile).
  */
-export type CatalogRefreshResult = "succeeded" | "agents_failed" | "failed";
+export type CatalogSideFailure = "agents_failed" | "apps_failed" | "agents_and_apps_failed";
+export type CatalogRefreshResult = "succeeded" | CatalogSideFailure | "failed";
+
+const capitalized = (value: string) => `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+
+export interface CatalogRefreshOptions {
+  fetcher?: typeof fetch;
+  now?: Date;
+  /** Shortens the read budget (`READ_BUDGET_MS`), for tests; it is never lengthened. */
+  readBudgetMs?: number;
+}
+
+/** The transaction found the lease held by another refresh: nothing was stored. */
+const LEASE_LOST = Symbol("lease lost");
 
 export async function refreshCatalog(
   catalogId: string,
   leaseId: string,
   source: CatalogRefreshSource,
-  options: { fetcher?: typeof fetch; now?: Date } = {},
+  options: CatalogRefreshOptions = {},
 ): Promise<CatalogRefreshResult> {
   const attemptedAt = options.now ?? new Date();
   const fetcher = options.fetcher ?? fetch;
   const started = performance.now();
+  const elapsedMs = () => Math.max(0, Math.round(performance.now() - started));
+  const readBudgetMs = Math.min(options.readBudgetMs ?? READ_BUDGET_MS, READ_BUDGET_MS);
   try {
-    const {
-      metadataUrl,
-      catalogEndpoint,
-      agents: agentTarget,
-    } = await fetchMetadata(source, fetcher);
+    const { metadataUrl, catalogEndpoint, targets } = await fetchMetadata(source, fetcher);
     const catalog = catalogEndpoint
       ? await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt)
       : null;
-    // The skill side above fails the refresh as it would without agents. The agent side has its
-    // own outcome: when it fails, the skills are stored all the same and the agents keep their copy.
-    const agentRead = agentTarget
-      ? await readAgents(source, agentTarget, fetcher, attemptedAt)
-      : null;
+    // The skill side above fails the refresh as it would without the other sides. Every other side
+    // has its own outcome: when it fails, the rest is stored all the same and it keeps its copy.
+    const reads = await readSides(
+      source,
+      targets,
+      fetcher,
+      attemptedAt,
+      readBudgetMs - (performance.now() - started),
+    );
+    const readMs = elapsedMs();
     const persisted = await db.$transaction(async (tx) => {
       const lease = await tx.discoveredSkillCatalog.updateMany({
         where: { id: catalogId, refreshLeaseId: leaseId },
         data: { refreshLeaseUntil: new Date(Date.now() + LEASE_MS) },
       });
-      if (lease.count !== 1) return null;
+      if (lease.count !== 1) return LEASE_LOST;
       const currentResource = await tx.downstreamResource.findUnique({
         where: { id: source.id },
         select: {
           enabled: true,
           skillDiscoveryEnabled: true,
           agentDiscoveryEnabled: true,
+          appDiscoveryEnabled: true,
           version: true,
           key: true,
         },
@@ -430,7 +531,9 @@ export async function refreshCatalog(
       if (
         !currentResource?.enabled ||
         currentResource.skillDiscoveryEnabled !== source.skillDiscoveryEnabled ||
-        currentResource.agentDiscoveryEnabled !== source.agentDiscoveryEnabled ||
+        CATALOG_SIDE_KINDS.some(
+          (kind) => currentResource[SIDE_SWITCH[kind]] !== sideOn(source, kind),
+        ) ||
         currentResource.version !== source.version ||
         currentResource.key !== source.key
       ) {
@@ -448,9 +551,8 @@ export async function refreshCatalog(
         where: { id: catalogId },
         select: {
           retryCount: true,
-          agentsSourceResourceVersion: true,
-          agentsLastSuccessfulRefreshAt: true,
-          agentsStaleAfter: true,
+          ...sideColumnsSelect("agents"),
+          ...sideColumnsSelect("apps"),
         },
       });
       await tx.discoveredSkill.deleteMany({ where: { catalogId } });
@@ -470,14 +572,28 @@ export async function refreshCatalog(
           })),
         });
       }
-      // Removed when agent discovery is off, replaced when read, kept when they could not be read.
-      let agentOutcome = agentRead;
-      if (agentRead === null) await tx.discoveredAgent.deleteMany({ where: { catalogId } });
-      else if (agentRead.ok) agentOutcome = await replaceAgents(tx, catalogId, source, agentRead);
-      const agentsFailed = agentOutcome?.ok === false;
-      // Without a skill side the agent side is the whole refresh: its failure is retried as a
-      // failed refresh is. With skills, the skill side decides when the next refresh is due.
-      const failedAsWhole = agentsFailed && !source.skillDiscoveryEnabled;
+      // A side is removed when it is switched off, replaced when read, kept when it could not be.
+      const outcomes: Array<{
+        side: CatalogSide<CatalogSideKind, unknown>;
+        outcome: SideRead | null;
+        copy: SideCopyState;
+      }> = [];
+      for (const side of SIDES) {
+        const read = reads.get(side.kind) ?? null;
+        let outcome = read;
+        if (read === null) await side.remove(tx, catalogId);
+        else if (read.ok) outcome = await replaceSide(tx, side, catalogId, source, read);
+        outcomes.push({
+          side,
+          outcome,
+          copy: sideCopyState(sideState(side.kind, previous), source.version, attemptedAt),
+        });
+      }
+      const on = outcomes.filter(({ outcome }) => outcome !== null);
+      // Without a skill side the other sides are the whole refresh: when every one of them failed,
+      // it is retried as a failed refresh is. Otherwise the stored part decides when the next is due.
+      const failedAsWhole =
+        !source.skillDiscoveryEnabled && on.every(({ outcome }) => outcome?.ok === false);
       const updated = await tx.discoveredSkillCatalog.updateMany({
         where: { id: catalogId, refreshLeaseId: leaseId },
         data: {
@@ -485,7 +601,12 @@ export async function refreshCatalog(
           schemaVersion: catalog?.schemaVersion ?? null,
           metadataUrl,
           catalogEndpoint,
-          ...agentSideUpdate(agentOutcome, source.version, attemptedAt),
+          ...Object.assign(
+            {},
+            ...outcomes.map(({ side, outcome }) =>
+              sideUpdate(side, outcome, source.version, attemptedAt),
+            ),
+          ),
           lastAttemptAt: attemptedAt,
           ...(failedAsWhole
             ? {
@@ -507,44 +628,78 @@ export async function refreshCatalog(
         },
       });
       if (updated.count !== 1) throw new Error(`${catalogLabel(source)} refresh lease was lost`);
-      return { agentOutcome, agentCopy: agentCopyState(previous, source.version, attemptedAt) };
+      return on;
     }, PERSIST_TRANSACTION);
+    if (persisted === LEASE_LOST) {
+      // The lease ran out and another refresh claimed it (or the catalog is gone). That refresh
+      // records its own outcome; this one is not a failure of the resource, so it is only logged.
+      logger.warn(
+        {
+          event: "skill_catalog.refresh.lease_lost",
+          publisherId: source.id,
+          publisherKey: source.key,
+          resourceVersion: source.version,
+          readDurationMs: readMs,
+          durationMs: elapsedMs(),
+          leaseMs: LEASE_MS,
+        },
+        `${catalogLabel(source)} refresh lost its lease before it could store what it read; nothing was stored`,
+      );
+      return "failed";
+    }
     if (!persisted) return "failed";
-    const { agentOutcome, agentCopy } = persisted;
-    if (agentOutcome?.ok !== false || source.skillDiscoveryEnabled)
+    const stored = persisted.filter(({ outcome }) => outcome?.ok);
+    const failed = persisted.filter(({ outcome }) => outcome?.ok === false);
+    const storedNames = [
+      ...(source.skillDiscoveryEnabled ? ["skills"] : []),
+      ...stored.map(({ side }) => side.kind),
+    ];
+    if (storedNames.length)
       logger.info(
         {
           event: "skill_catalog.refresh.succeeded",
           publisherId: source.id,
           publisherKey: source.key,
           resourceVersion: source.version,
-          durationMs: Math.max(0, Math.round(performance.now() - started)),
+          durationMs: elapsedMs(),
           skillCount: catalog?.skills.length ?? 0,
-          ...(agentOutcome?.ok
-            ? { agentCount: agentOutcome.agents.length, skippedAgentCount: agentOutcome.skipped }
-            : {}),
+          ...Object.assign(
+            {},
+            ...stored.map(({ side, outcome }) => {
+              const item = capitalized(SIDE_ITEM[side.kind]);
+              const read = outcome as Extract<SideRead, { ok: true }>;
+              return {
+                [`${SIDE_ITEM[side.kind]}Count`]: read.items.length,
+                [`skipped${item}Count`]: read.skipped,
+              };
+            }),
+          ),
         },
-        agentOutcome?.ok === false
-          ? `${catalogLabel(source)} refresh stored the skills; the agents could not be read`
+        failed.length
+          ? `${catalogLabel(source)} refresh stored the ${listing(storedNames)}; the ${listing(
+              failed.map(({ side }) => side.kind),
+            )} could not be read`
           : `${catalogLabel(source)} refresh succeeded`,
       );
-    if (agentOutcome?.ok === false) {
+    for (const { side, outcome, copy } of failed) {
+      if (outcome?.ok !== false) continue;
       logger.warn(
         {
-          event: "agent_catalog.refresh.failed",
+          event: `${SIDE_ITEM[side.kind]}_catalog.refresh.failed`,
           publisherId: source.id,
           publisherKey: source.key,
           resourceVersion: source.version,
-          failureCategory: agentOutcome.category,
-          agentCopy,
-          durationMs: Math.max(0, Math.round(performance.now() - started)),
-          ...(agentOutcome.error === undefined ? {} : { error: errorForLog(agentOutcome.error) }),
+          failureCategory: outcome.category,
+          [`${SIDE_ITEM[side.kind]}Copy`]: copy,
+          durationMs: elapsedMs(),
+          ...(outcome.error === undefined ? {} : { error: errorForLog(outcome.error) }),
         },
-        `Agent catalog refresh failed; ${agentCopyMessages[agentCopy]}`,
+        `${capitalized(SIDE_ITEM[side.kind])} catalog refresh failed; ${sideCopyMessage(side.kind, copy)}`,
       );
-      return "agents_failed";
     }
-    return "succeeded";
+    return failed.length
+      ? (`${failed.map(({ side }) => side.kind).join("_and_")}_failed` as CatalogSideFailure)
+      : "succeeded";
   } catch (error) {
     const category =
       error instanceof CatalogRefreshError ? error.category : "refresh_internal_error";
@@ -556,7 +711,7 @@ export async function refreshCatalog(
         publisherKey: source.key,
         resourceVersion: source.version,
         failureCategory: category,
-        durationMs: Math.max(0, Math.round(performance.now() - started)),
+        durationMs: elapsedMs(),
         error: errorForLog(error),
       },
       `${catalogLabel(source)} refresh failed`,
@@ -565,34 +720,40 @@ export async function refreshCatalog(
   }
 }
 
-/** The agent-side columns of the catalog row after a refresh whose skill side (if any) was stored. */
-function agentSideUpdate(
-  agentRead: AgentRead | null,
+/** A side's columns of the catalog row after a refresh whose skill side (if any) was stored. */
+function sideUpdate(
+  side: CatalogSide<CatalogSideKind, unknown>,
+  read: SideRead | null,
   resourceVersion: number,
   attemptedAt: Date,
 ): Prisma.DiscoveredSkillCatalogUpdateManyMutationInput {
-  if (agentRead === null)
+  if (read === null)
     return {
-      agentApiEndpoint: null,
-      agentApiScope: null,
-      agentsSourceResourceVersion: null,
-      agentsLastSuccessfulRefreshAt: null,
-      agentsStaleAfter: null,
-      agentsLastFailureCategory: null,
-      agentsLastFailureAt: null,
-      agentsSkippedCount: 0,
+      ...side.clearedMetadata,
+      ...sideColumns(side.kind, {
+        sourceResourceVersion: null,
+        lastSuccessfulRefreshAt: null,
+        staleAfter: null,
+        lastFailureCategory: null,
+        lastFailureAt: null,
+        skippedCount: 0,
+      }),
     };
-  if (!agentRead.ok)
-    return { agentsLastFailureCategory: agentRead.category, agentsLastFailureAt: attemptedAt };
+  if (!read.ok)
+    return sideColumns(side.kind, {
+      lastFailureCategory: read.category,
+      lastFailureAt: attemptedAt,
+    });
   return {
-    agentApiEndpoint: agentRead.api?.endpoint ?? null,
-    agentApiScope: agentRead.api?.scope ?? null,
-    agentsSourceResourceVersion: resourceVersion,
-    agentsLastSuccessfulRefreshAt: attemptedAt,
-    agentsStaleAfter: new Date(attemptedAt.getTime() + MAX_STALE_MS),
-    agentsLastFailureCategory: null,
-    agentsLastFailureAt: null,
-    agentsSkippedCount: agentRead.skipped,
+    ...read.metadata,
+    ...sideColumns(side.kind, {
+      sourceResourceVersion: resourceVersion,
+      lastSuccessfulRefreshAt: attemptedAt,
+      staleAfter: new Date(attemptedAt.getTime() + MAX_STALE_MS),
+      lastFailureCategory: null,
+      lastFailureAt: null,
+      skippedCount: read.skipped,
+    }),
   };
 }
 
@@ -601,23 +762,17 @@ export type ResourceCatalogRefreshOutcome =
 
 export async function refreshResourceCatalog(
   resourceId: string,
-  options: { fetcher?: typeof fetch; now?: Date } = {},
+  options: CatalogRefreshOptions = {},
 ): Promise<ResourceCatalogRefreshOutcome> {
   const now = options.now ?? new Date();
   const resource = await db.downstreamResource.findUnique({
     where: { id: resourceId },
-    select: {
-      id: true,
-      key: true,
-      resourceIdentifier: true,
-      authorizationServer: true,
-      version: true,
-      enabled: true,
-      skillDiscoveryEnabled: true,
-      agentDiscoveryEnabled: true,
-    },
+    select: refreshSourceSelect,
   });
-  if (!resource?.enabled || !(resource.skillDiscoveryEnabled || resource.agentDiscoveryEnabled))
+  if (
+    !resource?.enabled ||
+    !(resource.skillDiscoveryEnabled || CATALOG_SIDE_KINDS.some((kind) => sideOn(resource, kind)))
+  )
     return "unavailable";
 
   const catalog = await db.discoveredSkillCatalog.upsert({
@@ -642,8 +797,20 @@ export async function refreshResourceCatalog(
   return refreshCatalog(catalog.id, leaseId, resource, { ...options, now });
 }
 
+const refreshSourceSelect = {
+  id: true,
+  key: true,
+  resourceIdentifier: true,
+  authorizationServer: true,
+  version: true,
+  enabled: true,
+  skillDiscoveryEnabled: true,
+  agentDiscoveryEnabled: true,
+  appDiscoveryEnabled: true,
+} as const satisfies Prisma.DownstreamResourceSelect;
+
 export async function refreshDueCatalogs(
-  options: { fetcher?: typeof fetch; now?: Date; limit?: number } = {},
+  options: CatalogRefreshOptions & { limit?: number } = {},
 ): Promise<void> {
   const now = options.now ?? new Date();
   const limit = Math.min(Math.max(options.limit ?? MAX_REFRESHES_PER_SWEEP, 1), 20);
@@ -653,24 +820,16 @@ export async function refreshDueCatalogs(
       OR: [{ refreshLeaseUntil: null }, { refreshLeaseUntil: { lt: now } }],
       resource: {
         enabled: true,
-        OR: [{ skillDiscoveryEnabled: true }, { agentDiscoveryEnabled: true }],
+        OR: [
+          { skillDiscoveryEnabled: true },
+          { agentDiscoveryEnabled: true },
+          { appDiscoveryEnabled: true },
+        ],
       },
     },
     orderBy: { nextRefreshAt: "asc" },
     take: limit,
-    include: {
-      resource: {
-        select: {
-          id: true,
-          key: true,
-          resourceIdentifier: true,
-          authorizationServer: true,
-          version: true,
-          skillDiscoveryEnabled: true,
-          agentDiscoveryEnabled: true,
-        },
-      },
-    },
+    include: { resource: { select: refreshSourceSelect } },
   });
   await Promise.all(
     due.map(async ({ id, resource }) => {

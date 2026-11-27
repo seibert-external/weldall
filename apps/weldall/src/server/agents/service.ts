@@ -1,5 +1,17 @@
 import { ADMIN_SCOPE_KEY, db, type Prisma } from "@weldall/db";
-import { effectiveScopesFor } from "../policy/resources";
+import {
+  catalogSideStatus,
+  openingScopes,
+  pageWindow,
+  sideOffered,
+  sideStatusSelect,
+  sideVisibility,
+  usersById,
+  type CatalogSideState,
+  type CatalogSideStatus,
+  type CatalogSideWarning,
+  type SideStatusColumns,
+} from "../discovery/catalog-sides";
 
 /**
  * The agents a person may use: discovered agents (`discovery.ts`) they own, or for which they hold
@@ -30,17 +42,7 @@ export interface VisibleAgent {
 }
 
 /** Shown to administrators only. */
-export type AgentWarning =
-  | {
-      source: string;
-      code: "catalog_pending" | "catalog_temporarily_unavailable" | "catalog_expired";
-    }
-  | {
-      source: string;
-      /** The resource published agents that failed validation; they were left out. */
-      code: "agents_skipped";
-      count: number;
-    };
+export type AgentWarning = CatalogSideWarning<"agents">;
 
 /**
  * A resource that keeps agents for people: where a client stores and shares them. Listed for every
@@ -56,7 +58,10 @@ export interface AgentRegistry {
   allowed: boolean;
 }
 
-/** A permission the person holds and can therefore share an agent with. */
+/**
+ * A permission the person holds and can therefore share an agent with. A registry's own
+ * permission (`AgentRegistry.scope`) is left out.
+ */
 export interface ShareableScope {
   key: string;
   description: string;
@@ -71,120 +76,27 @@ export interface VisibleAgentsEnvelope {
 
 /**
  * The agent side of a resource's catalog (`DiscoveredSkillCatalog.agents*`), kept apart from the
- * skill side so that agents that cannot be read never take the skills offline.
- * - `fresh` / `stale`: the agents are shown; `stale` means a refresh is due.
- * - `failed`: the last refresh could not read the agents (or failed as a whole); while the last copy
- *   is younger than a day it is still shown, otherwise the state is `expired`.
- * - `expired`: people do not see the agents: the copy is older than a day, or it was read before
- *   the resource was last changed and is shown again after the next refresh.
- * - `pending`: never read yet. `disabled`: the resource or its agent discovery is off.
+ * skill side so that agents that cannot be read never take the skills offline; see
+ * `CatalogSideState` for the states.
  */
-export type AgentCatalogState = "disabled" | "pending" | "fresh" | "stale" | "failed" | "expired";
-
-export interface AgentCatalogStatus {
-  state: AgentCatalogState;
-  lastSuccessfulRefreshAt: string | null;
-  /**
-   * Why the last refresh did not read the agents: the refresh failed as a whole (its category), or
-   * only the agent side failed (`agentsLastFailureCategory`); null when it did not fail.
-   */
-  lastFailureCategory: string | null;
-  lastFailureAt: string | null;
-  /** Agents of the last stored copy that failed validation and were left out. */
-  skippedCount: number;
-}
+export type AgentCatalogState = CatalogSideState;
+export type AgentCatalogStatus = CatalogSideStatus;
 
 /** The catalog columns `agentCatalogStatus` reads. */
-export const agentCatalogStatusSelect = {
-  nextRefreshAt: true,
-  lastFailureCategory: true,
-  lastFailureAt: true,
-  agentsSourceResourceVersion: true,
-  agentsLastSuccessfulRefreshAt: true,
-  agentsStaleAfter: true,
-  agentsLastFailureCategory: true,
-  agentsLastFailureAt: true,
-  agentsSkippedCount: true,
-} as const satisfies Prisma.DiscoveredSkillCatalogSelect;
+export const agentCatalogStatusSelect = sideStatusSelect("agents");
 
-type AgentCatalogColumns = Prisma.DiscoveredSkillCatalogGetPayload<{
-  select: typeof agentCatalogStatusSelect;
-}>;
-
-export function agentCatalogStatus(
+export const agentCatalogStatus = (
   resource: { enabled: boolean; agentDiscoveryEnabled: boolean; version: number },
-  catalog: AgentCatalogColumns | null,
+  catalog: SideStatusColumns<"agents"> | null,
   now: Date = new Date(),
-): AgentCatalogStatus {
-  // A refresh that failed as a whole did not read the agents either. It is the more recent failure:
-  // a refresh whose skill side is stored clears it.
-  const failure = catalog?.lastFailureCategory
-    ? { category: catalog.lastFailureCategory, at: catalog.lastFailureAt }
-    : catalog?.agentsLastFailureCategory
-      ? { category: catalog.agentsLastFailureCategory, at: catalog.agentsLastFailureAt }
-      : null;
-  const failed = failure !== null;
-  const state: AgentCatalogState =
-    !resource.enabled || !resource.agentDiscoveryEnabled
-      ? "disabled"
-      : !catalog?.agentsLastSuccessfulRefreshAt
-        ? failed
-          ? "failed"
-          : "pending"
-        : !catalog.agentsStaleAfter ||
-            catalog.agentsStaleAfter <= now ||
-            catalog.agentsSourceResourceVersion !== resource.version
-          ? "expired"
-          : failed
-            ? "failed"
-            : catalog.nextRefreshAt <= now
-              ? "stale"
-              : "fresh";
-  return {
-    state,
-    lastSuccessfulRefreshAt: catalog?.agentsLastSuccessfulRefreshAt?.toISOString() ?? null,
-    lastFailureCategory: failure?.category ?? null,
-    lastFailureAt: failure?.at?.toISOString() ?? null,
-    skippedCount: catalog?.agentsSkippedCount ?? 0,
-  };
-}
-
-/** People see the agents of a catalog in these states (`agentCatalogStatus`). */
-const SHOWN_STATES: ReadonlySet<AgentCatalogState> = new Set(["fresh", "stale", "failed"]);
-/** The warning an administrator gets for a catalog in this state; none for the others. */
-const stateWarnings: Partial<
-  Record<AgentCatalogState, Exclude<AgentWarning["code"], "agents_skipped">>
-> = {
-  pending: "catalog_pending",
-  failed: "catalog_temporarily_unavailable",
-  expired: "catalog_expired",
-};
-
-/** Display name and email of the people who shared agents, by user id. */
-async function ownersById(ownerIds: Iterable<string>) {
-  const ids = [...new Set(ownerIds)];
-  const owners = ids.length
-    ? await db.user.findMany({
-        where: { id: { in: ids } },
-        select: { id: true, name: true, email: true },
-      })
-    : [];
-  return new Map(owners.map((owner) => [owner.id, owner]));
-}
+): AgentCatalogStatus => catalogSideStatus("agents", resource, catalog, now);
 
 export async function listVisibleAgents(user: {
   id: string;
   email: string;
 }): Promise<VisibleAgentsEnvelope> {
-  const grants = new Set<string>(await effectiveScopesFor(user.email));
-  // An agent's scopes widen who sees it, and Weldall takes them from the resource as reported.
-  // Weldall's own permissions (administration, login, ...) therefore never open an agent: no
-  // resource can address administrators or simply everyone.
-  const shareableScopes = await db.scope.findMany({
-    where: { key: { in: [...grants] }, isSystem: false },
-    orderBy: { key: "asc" },
-    select: { key: true, description: true },
-  });
+  // Weldall's own permissions never open an agent, nor can one be shared with them.
+  const { grants, scopes: shareableScopes } = await openingScopes(user.email);
   const shareable = shareableScopes.map((scope) => scope.key);
   const now = new Date();
   const resources = await db.downstreamResource.findMany({
@@ -217,15 +129,17 @@ export async function listVisibleAgents(user: {
     resource: (typeof resources)[number];
     agent: NonNullable<(typeof resources)[number]["discoveredCatalog"]>["agents"][number];
   }> = [];
-  // The freshness rules of discovered skills (`skills/service.ts`), applied to the agent side.
   for (const resource of resources) {
     const catalog = resource.discoveredCatalog;
     const status = agentCatalogStatus(resource, catalog, now);
-    const warning = stateWarnings[status.state];
-    if (canViewCatalogIssues && warning) warnings.push({ source: resource.key, code: warning });
-    if (!catalog || !SHOWN_STATES.has(status.state)) continue;
-    if (canViewCatalogIssues && status.skippedCount)
-      warnings.push({ source: resource.key, code: "agents_skipped", count: status.skippedCount });
+    const { shown, warnings: issues } = sideVisibility(
+      "agents",
+      resource.key,
+      status,
+      canViewCatalogIssues,
+    );
+    warnings.push(...issues);
+    if (!catalog || !shown) continue;
     for (const agent of catalog.agents) visible.push({ resource, agent });
     // Only a permission of the resource itself: a resource cannot make clients ask for another's.
     if (
@@ -242,7 +156,7 @@ export async function listVisibleAgents(user: {
       });
   }
 
-  const owners = await ownersById(visible.map(({ agent }) => agent.ownerId));
+  const owners = await usersById(visible.map(({ agent }) => agent.ownerId));
 
   return {
     items: visible
@@ -271,7 +185,11 @@ export async function listVisibleAgents(user: {
       ),
     warnings,
     registries,
-    shareableScopes,
+    // The permission to keep agents at a registry says who may use the registry, not a group of
+    // colleagues: it is not offered for sharing.
+    shareableScopes: shareableScopes.filter(
+      ({ key }) => !registries.some((registry) => registry.scope === key),
+    ),
   };
 }
 
@@ -344,12 +262,7 @@ export function agentContent(config: VisibleAgent["config"]): AgentContent | nul
  * True when an enabled resource has agent discovery switched on: only then do people have a place
  * agents can come from, and the directory shows its Agents tab.
  */
-export async function agentsOffered(): Promise<boolean> {
-  return (
-    (await db.downstreamResource.count({ where: { enabled: true, agentDiscoveryEnabled: true } })) >
-    0
-  );
-}
+export const agentsOffered = (): Promise<boolean> => sideOffered("agents");
 
 /**
  * A discovered agent as an administrator sees it: who shared it with whom, from which resource.
@@ -390,8 +303,6 @@ export async function listDiscoveredAgents(input: {
   q?: string | undefined;
   source?: string | undefined;
 }): Promise<{ items: AdminAgentDto[]; total: number }> {
-  const page = Math.max(1, Math.trunc(input.page) || 1);
-  const pageSize = Math.min(Math.max(1, Math.trunc(input.pageSize) || 20), 200);
   const q = input.q?.trim();
   const where: Prisma.DiscoveredAgentWhereInput = {
     catalog: {
@@ -415,8 +326,7 @@ export async function listDiscoveredAgents(input: {
     db.discoveredAgent.findMany({
       where,
       orderBy: [{ name: "asc" }, { canonicalId: "asc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      ...pageWindow(input),
       select: {
         canonicalId: true,
         name: true,
@@ -446,7 +356,7 @@ export async function listDiscoveredAgents(input: {
     }),
     db.discoveredAgent.count({ where }),
   ]);
-  const owners = await ownersById(rows.map((row) => row.ownerId));
+  const owners = await usersById(rows.map((row) => row.ownerId));
   const now = new Date();
   return {
     total,
