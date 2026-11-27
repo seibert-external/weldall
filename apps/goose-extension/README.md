@@ -105,6 +105,24 @@ documented to return textual bytes with another content type, such as Gmail's `m
 batch response, set `responseMode` to `text`. The response is returned inline under the extension's
 existing output limits. Binary downloads and saving responses to local files remain unsupported.
 
+## File uploads
+
+`send` takes at most one body: `json`, `text`, `file` or `form`.
+
+- `file`: absolute path of a file sent as the whole body (`--upload-file`). Without a
+  `Content-Type` header the CLI sends `application/octet-stream`.
+- `form`: multipart parts (`--form`), each `{ name, value }` for a text field or
+  `{ name, file, type? }` for a file. `type` defaults to `application/octet-stream`. A name
+  must not contain `=`, a text value must not start with `@`, and no `Content-Type` header is
+  allowed.
+
+Only files the user attached to the chat can be uploaded. The host sets
+`WELDALL_GOOSE_ATTACHED_LIST` to the path of a file it writes, with one absolute path per line.
+The extension reads that list on every call. A path to upload must resolve, links included, to
+a regular file of at most 100 MB whose resolved path equals a resolved entry of the list; the
+CLI receives the resolved path. Otherwise `send` refuses before the CLI runs. Without the
+variable, as in stock Goose, every upload is refused.
+
 ## Request retries and managed connections
 
 The `get` tool may retry a read after HTTP 429, 502, 503 or 504 with bounded backoff. The `send`
