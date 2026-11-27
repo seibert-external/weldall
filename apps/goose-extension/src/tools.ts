@@ -383,7 +383,11 @@ export function attachedFile(value: string): string {
   if (!list) throw new ExtensionError("upload_unavailable");
   let entries: string[];
   try {
-    entries = fs.readFileSync(list, "utf8").split(/\r?\n/);
+    // A Windows host may write a byte order mark.
+    entries = fs
+      .readFileSync(list, "utf8")
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/);
   } catch {
     throw new ExtensionError("upload_not_attached");
   }
@@ -395,7 +399,8 @@ export function attachedFile(value: string): string {
   );
   const real = resolved(value);
   if (real === undefined || !attached.has(real)) throw new ExtensionError("upload_not_attached");
-  const stat = fs.statSync(real);
+  const stat = fs.statSync(real, { throwIfNoEntry: false });
+  if (stat === undefined) throw new ExtensionError("upload_not_attached");
   if (!stat.isFile()) throw new ExtensionError("upload_not_file");
   if (stat.size > MAX_UPLOAD_BYTES) throw new ExtensionError("upload_too_large");
   return real;
@@ -456,12 +461,13 @@ export async function callTool(
     }
     if (name === "send") {
       const args = sendSchema.parse(input);
-      if (args.connection !== undefined && args.requiredScopes === undefined)
+      const { connection, requiredScopes } = args;
+      if (connection !== undefined && requiredScopes === undefined)
         throw new ExtensionError("required_scopes_missing");
       // Refuse an upload before any CLI call, the connection preflight included.
       const argv = requestArguments(args);
-      if (args.connection !== undefined && args.requiredScopes !== undefined)
-        await preflightConnection(cli, args.connection, args.requiredScopes, signal);
+      if (connection !== undefined)
+        await preflightConnection(cli, connection, requiredScopes ?? [], signal);
       const body = await cli.run(argv, signal, REQUEST_TIMEOUT);
       return result({ body }, body);
     }

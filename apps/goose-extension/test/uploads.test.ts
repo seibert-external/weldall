@@ -86,6 +86,15 @@ describe("uploads of attached files", () => {
     expect(result.isError).not.toBe(true);
   });
 
+  it("reads a Windows-written list and resolves links among its entries", async () => {
+    const link = path.join(dir, "attached-link.pdf");
+    fs.symlinkSync(attached, link);
+    fs.writeFileSync(list, `\uFEFF${link}\r\n\r\nrelative.pdf\r\n`);
+    const { result, cli } = await send({ file: attached });
+    expect(result.isError).not.toBe(true);
+    expect(cli.run.mock.calls[0]?.[0]).toContain(`--upload-file=${attached}`);
+  });
+
   it("refuses uploads when the host names no attached list", async () => {
     vi.stubEnv(ATTACHED_LIST_ENV, "");
     await refused({ file: attached }, "upload_unavailable");
@@ -152,7 +161,7 @@ describe("uploads of attached files", () => {
     { label: "an empty form", body: { form: [] } },
     {
       label: "form with a Content-Type header",
-      body: { form: [{ name: "f", value: "x" }], headers: ["content-type: multipart/form-data"] },
+      body: { form: [{ name: "f", value: "x" }], headers: ["Content-Type: multipart/form-data"] },
     },
     { label: "file and form", body: { file: "/x", form: [{ name: "f", value: "x" }] } },
     { label: "file and json", body: { file: "/x", json: {} } },
