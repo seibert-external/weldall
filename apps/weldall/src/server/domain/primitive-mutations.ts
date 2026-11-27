@@ -12,6 +12,7 @@ import {
 } from "@weldall/sdk";
 import { calculateJwkThumbprint, type JWK } from "jose";
 import { z } from "zod";
+import { clearedAppApi } from "../apps/app-api-columns";
 import { prismaAuditWriter, type AuditEventType } from "../audit/service";
 import {
   CLIENT_POLICY_FIELDS,
@@ -489,6 +490,14 @@ export async function mutateResource(
     },
   });
   if (write.count !== 1) conflict("resource");
+  // Off is off at once: a resource switched on again is listed as a registry only once its metadata
+  // was read again, not with the apps API a refresh stored before. No refresh may run in between
+  // (with apps as the only switch none does) to clear it.
+  if (!(parsed.enabled && parsed.appDiscoveryEnabled))
+    await tx.discoveredSkillCatalog.updateMany({
+      where: { resourceId: current.id },
+      data: clearedAppApi,
+    });
   if (parsed.skillDiscoveryEnabled || parsed.agentDiscoveryEnabled || parsed.appDiscoveryEnabled)
     await tx.discoveredSkillCatalog.upsert({
       where: { resourceId: current.id },

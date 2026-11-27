@@ -1,8 +1,9 @@
-import { constants } from "node:fs";
-import { mkdir, open, readFile, rm, stat } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { constants, type Stats } from "node:fs";
+import { link, open, rename, rm, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { atomicWriteFile } from "../storage/atomic-write.js";
+import { atomicWriteFile, isEpermError } from "../storage/atomic-write.js";
 import type { Folder } from "./folder.js";
 import { PublishError } from "./errors.js";
 import { printable } from "../git/printable.js";
@@ -95,6 +96,9 @@ const STATE_VALUES: Record<(typeof CONFIG)[keyof typeof CONFIG], (value: string)
 
 export type StateKey = keyof typeof STATE_VALUES;
 
+/** Whether `value` is one Weldall would write as `key` (and so read back). */
+export const isStateValue = (key: StateKey, value: string) => STATE_VALUES[key](value);
+
 /** Reads a `weldall.*` value of the folder's config; refuses one Weldall would never write. */
 export async function readState(git: GitRepository, key: StateKey): Promise<string | null> {
   const value = await git.config(key);
@@ -160,15 +164,12 @@ export const REFS = {
  * A path as merge-tree reports it: relative, without empty, `.` or `..` segments or NUL. Paths
  * reach git only after `--` or inside `--cacheinfo`, never where they could be read as an option.
  */
-const treePath = z
-  .string()
-  .min(1)
-  .max(4_096)
-  .refine(
-    (path) =>
-      !path.includes("\0") &&
-      path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".."),
-  );
+export const isTreePath = (path: string) =>
+  path.length >= 1 &&
+  path.length <= 4_096 &&
+  !path.includes("\0") &&
+  path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+const treePath = z.string().refine(isTreePath);
 const objectId = z.string().regex(OBJECT_ID);
 
 const conflictFile = z.object({
@@ -204,38 +205,62 @@ export const pendingConflictSchema = z
   .strict();
 export type PendingConflict = z.output<typeof pendingConflictSchema>;
 
-const conflictPath = (folder: Folder) => join(folder.stateDirectory, "conflict.json");
+const CONFLICT_FILE = "conflict.json";
+const conflictPath = (folder: Folder) => join(folder.stateDirectoryPath, CONFLICT_FILE);
 /** A stored resolution is small (paths and short descriptions); a larger file is not one of ours. */
 const MAX_CONFLICT_FILE_BYTES = 16 * 1024 * 1024;
 
-export async function readPendingConflict(folder: Folder): Promise<PendingConflict | null> {
-  let text = "";
+/** A state file as read: its text and stats, `missing`, or `unusable` (not a regular file). */
+export type StateFile = { text: string; stats: Stats } | "missing" | "unusable";
+
+/**
+ * Reads one of publish's own files below the git directory without ever blocking or following a
+ * link: opened with `O_NOFOLLOW | O_NONBLOCK` (where the system has them; a FIFO would block a
+ * plain open forever), then only a regular file of at most `maximumBytes` is read, and no more
+ * than that. A link, FIFO, directory or larger file is `unusable`.
+ */
+export async function readStateFile(path: string, maximumBytes: number): Promise<StateFile> {
   let handle;
   try {
-    // Never follows a link an agent placed there (O_NOFOLLOW where the system has it).
     handle = await open(
-      conflictPath(folder),
-      // A FIFO would block a plain open; O_NONBLOCK lets the type check below refuse it.
+      path,
       constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
     );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unusable";
   }
-  if (handle)
-    try {
-      const stats = await handle.stat();
-      // Not a regular file of a size Weldall writes: refused like unreadable content.
-      text =
-        stats.isFile() && stats.size <= MAX_CONFLICT_FILE_BYTES
-          ? await handle.readFile("utf8")
-          : "";
-    } finally {
-      await handle.close();
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile() || stats.size > maximumBytes) return "unusable";
+    // Bounded even when the file grows after the check.
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      const buffer = Buffer.alloc(Math.min(64 * 1024, maximumBytes + 1 - total));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      total += bytesRead;
+      if (total > maximumBytes) return "unusable";
+      chunks.push(buffer.subarray(0, bytesRead));
     }
+    return { text: Buffer.concat(chunks).toString("utf8"), stats };
+  } catch {
+    return "unusable";
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function readPendingConflict(folder: Folder): Promise<PendingConflict | null> {
+  const directory = await folder.stateDirectory(false);
+  if (directory === null) return null;
+  const file = await readStateFile(join(directory, CONFLICT_FILE), MAX_CONFLICT_FILE_BYTES);
+  if (file === "missing") return null;
   const parsed = pendingConflictSchema.safeParse(
     (() => {
       try {
-        return JSON.parse(text) as unknown;
+        // Not a regular file of a size Weldall writes: refused like unreadable content.
+        return typeof file === "string" ? null : (JSON.parse(file.text) as unknown);
       } catch {
         return null;
       }
@@ -264,57 +289,200 @@ export async function writePendingConflict(folder: Folder, conflict: PendingConf
     REFS.conflictMerge,
     await folder.commitTree(conflict.merge, [], "weldall conflict: merge result"),
   );
-  await mkdir(folder.stateDirectory, { recursive: true });
-  await atomicWriteFile(conflictPath(folder), `${JSON.stringify(conflict, null, 2)}\n`);
+  await atomicWriteFile(
+    join(await folder.stateDirectory(true), CONFLICT_FILE),
+    `${JSON.stringify(conflict, null, 2)}\n`,
+  );
 }
 
 export async function clearPendingConflict(folder: Folder) {
-  await rm(conflictPath(folder), { force: true });
+  const directory = await folder.stateDirectory(false);
+  if (directory !== null) await rm(join(directory, CONFLICT_FILE), { force: true });
   for (const ref of [REFS.conflictRepo, REFS.conflictLocal, REFS.conflictInput, REFS.conflictMerge])
     await folder.repository.deleteRef(ref);
 }
 
-/** A lock older than this is left over from a run that was killed (a publish takes minutes). */
+/**
+ * A lock whose timestamp is older than this is left over from a run that was killed. A running
+ * publish refreshes its lock's timestamp every {@link LOCK_REFRESH_MS}, so a long run keeps it.
+ */
 export const STALE_LOCK_MS = 60 * 60_000;
+export const LOCK_REFRESH_MS = 5 * 60_000;
+const LOCK_FILE = "publish.lock";
+/** `<pid> <token>\n`; anything longer is not a lock Weldall wrote. */
+const MAX_LOCK_BYTES = 1_024;
 
-/** Whether a lock file belongs to a run that no longer exists. */
-async function isStale(path: string): Promise<boolean> {
+/** Whether the lock read as `file` belongs to a run that no longer exists. */
+function isStale(file: { text: string; stats: Stats }): boolean {
+  if (Date.now() - file.stats.mtimeMs > STALE_LOCK_MS) return true;
+  // Empty: a lock written by hand or a run killed while writing it; stale only by its age.
+  if (!file.text.trim()) return false;
+  const pid = Number.parseInt(file.text, 10);
+  if (!Number.isInteger(pid) || pid <= 0) return true;
   try {
-    const [text, stats] = await Promise.all([readFile(path, "utf8"), stat(path)]);
-    if (Date.now() - stats.mtimeMs > STALE_LOCK_MS) return true;
-    const pid = Number.parseInt(text, 10);
-    if (!Number.isInteger(pid) || pid <= 0) return true;
-    try {
-      process.kill(pid, 0);
-      return false;
-    } catch (error) {
-      return (error as NodeJS.ErrnoException).code === "ESRCH";
-    }
-  } catch {
+    process.kill(pid, 0);
     return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
   }
 }
 
-/** One publish per folder at a time; git operations inside run one after another. */
-export async function acquirePublishLock(folder: Folder): Promise<() => Promise<void>> {
-  await mkdir(folder.stateDirectory, { recursive: true });
-  const path = join(folder.stateDirectory, "publish.lock");
-  for (let attempt = 0; ; attempt += 1) {
+const busy = (path: string, extra = "") =>
+  new PublishError(
+    "busy",
+    `Another publish or sync is running in this folder${extra}. If none is running, delete ${path} and try again.`,
+  );
+
+/** A rename that, like `atomicWriteFile`, tolerates Windows' momentary EPERM from an open reader. */
+async function renameWithRetry(from: string, to: string) {
+  for (let attempt = 1; ; attempt += 1) {
     try {
-      const handle = await open(path, "wx", 0o600);
-      await handle.writeFile(`${process.pid}\n`);
-      await handle.close();
-      return () => rm(path, { force: true });
+      return await rename(from, to);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (attempt === 0 && (await isStale(path))) {
-        await rm(path, { force: true });
-        continue;
-      }
-      throw new PublishError(
-        "busy",
-        `Another publish or sync is running in this folder. If none is running, delete ${path} and try again.`,
-      );
+      if (!isEpermError(error) || attempt >= 5) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** (attempt - 1)));
     }
   }
+}
+
+const sameLock = (
+  a: { text: string; stats: Stats } | StateFile,
+  b: { text: string; stats: Stats },
+) =>
+  typeof a !== "string" &&
+  a.stats.dev === b.stats.dev &&
+  a.stats.ino === b.stats.ino &&
+  a.text === b.text;
+
+/**
+ * Creates the lock with its full content in one step: written to a private name first, then
+ * hard-linked to `path`, which fails when a lock exists (so no other run ever reads a half-written
+ * lock). Returns an open handle on the lock (for refreshing its timestamp), or null when a lock
+ * exists. Where hard links are not available, the lock is created with `wx` directly.
+ */
+async function createLock(path: string, content: string, token: string) {
+  const temporary = `${path}.${token}.new`;
+  const flags =
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(temporary, flags, 0o600);
+  try {
+    await handle.writeFile(content);
+    try {
+      await link(temporary, path);
+      return handle;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EEXIST") {
+        await handle.close();
+        return null;
+      }
+      if (code !== "EPERM" && code !== "ENOTSUP" && code !== "ENOSYS" && code !== "EXDEV")
+        throw error;
+    }
+    await handle.close();
+    try {
+      const direct = await open(path, flags, 0o600);
+      await direct.writeFile(content);
+      return direct;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return null;
+      throw error;
+    }
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+/**
+ * One publish per folder at a time; git operations inside run one after another.
+ *
+ * The lock (`publish.lock` in the state directory) holds `<pid> <token>`. It is created
+ * atomically (see {@link createLock}); a running publish refreshes its timestamp, and releasing
+ * removes it only while it still holds this run's token. A stale lock (its process is gone, or
+ * its timestamp was not refreshed for {@link STALE_LOCK_MS}) is taken over by exactly one run:
+ * the run that creates `publish.lock.break-<id>` (exclusively; the id names the stale lock's
+ * inode and content) moves the lock aside only after checking it is still that stale lock, and
+ * creates its own before giving up the break file. Every run that saw the same stale lock but did
+ * not win reports `busy`.
+ */
+export async function acquirePublishLock(folder: Folder): Promise<() => Promise<void>> {
+  const directory = await folder.stateDirectory(true);
+  const path = join(directory, LOCK_FILE);
+  const token = randomBytes(16).toString("hex");
+  const content = `${process.pid} ${token}\n`;
+
+  const held = (handle: FileHandle) => {
+    const refresh = setInterval(() => {
+      const now = new Date();
+      // The handle names this run's own lock: a lock that replaced it is never touched.
+      handle.utimes(now, now).catch(() => undefined);
+    }, LOCK_REFRESH_MS);
+    refresh.unref();
+    return async () => {
+      clearInterval(refresh);
+      await handle.close().catch(() => undefined);
+      const current = await readStateFile(path, MAX_LOCK_BYTES);
+      if (typeof current !== "string" && current.text === content) await rm(path, { force: true });
+    };
+  };
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const handle = await createLock(path, content, token);
+    if (handle) return held(handle);
+    const observed = await readStateFile(path, MAX_LOCK_BYTES);
+    if (observed === "missing") continue;
+    if (observed === "unusable")
+      throw new PublishError(
+        "state_file_unsafe",
+        `${path} is not a lock Weldall wrote (it is a link, a pipe, a folder or too large), so Weldall stops here. Nothing was published and nothing in the folder changed. If you did not create it yourself, something working in this folder (for example an AI agent) did.`,
+        { hint: `Delete ${path}, then try again.`, details: { path } },
+      );
+    if (!isStale(observed)) throw busy(path);
+
+    const id = createHash("sha256")
+      .update(`${observed.stats.dev}:${observed.stats.ino}:${observed.text}`)
+      .digest("hex")
+      .slice(0, 32);
+    const breaker = join(directory, `${LOCK_FILE}.break-${id}`);
+    let breaking;
+    try {
+      breaking = await open(
+        breaker,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+        0o600,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      throw busy(path, " (it is taking over a stale lock)");
+    }
+    await breaking.close();
+    try {
+      // Still the lock judged stale? Otherwise another run took it over already.
+      if (!sameLock(await readStateFile(path, MAX_LOCK_BYTES), observed)) throw busy(path);
+      const aside = `${path}.${token}.stale`;
+      try {
+        await renameWithRetry(path, aside);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      const moved = await readStateFile(aside, MAX_LOCK_BYTES);
+      if (!sameLock(moved, observed)) {
+        // Not the stale lock after all: put it back, never over another one.
+        await link(aside, path).catch(() => undefined);
+        await rm(aside, { force: true });
+        throw busy(path);
+      }
+      await rm(aside, { force: true });
+      // Created while still holding the break file, so no other run sees an empty place.
+      const taken = await createLock(path, content, token);
+      if (taken) return held(taken);
+    } finally {
+      await rm(breaker, { force: true });
+    }
+  }
+  throw busy(path);
 }

@@ -1,9 +1,15 @@
 import {
   allowedFor,
   ambiguousRegistries,
+  describeRegistry,
+  fitsNeed,
+  listedCount,
+  permissionMissingEverywhere,
+  registryChoiceRequired,
   selectRegistry,
   type FoundRegistries,
   type OpenRegistry,
+  type Registry,
   type RegistryNeed,
 } from "../git/registries.js";
 import { printable } from "../git/printable.js";
@@ -63,27 +69,50 @@ const withRegistry = <T extends object>(api: RegistryApi, app: T) => ({
   registry: api.registry.key,
 });
 
+/** The registries opened for a command that looks through all the person may use. */
+interface OpenedRegistries {
+  apis: RegistryApi[];
+  /** Every registry Weldall listed when the first was opened (refused ones included). */
+  listed: Array<Pick<Registry, "key" | "name">>;
+}
+
 /**
  * Opens the registry `key` names, or else every registry that fits `need` and grants its
- * permission to this person. Without any, the selection explains why.
+ * permission to this person, each to be labelled with its key (it chooses none of them). When
+ * Weldall lists a single registry, the selection checks it; without any the person may use, the
+ * error names every listed registry and the permission it takes.
  */
 export async function openRegistries(
   open: OpenRegistry,
   need: RegistryNeed,
   key?: string,
   options: RegistryApiOptions = {},
-): Promise<RegistryApi[]> {
-  if (key !== undefined)
-    return [
-      await openRegistryApi(open, (found) => selectRegistry(found, { key, need }), need, options),
-    ];
+): Promise<OpenedRegistries> {
+  if (key !== undefined) {
+    const api = await openRegistryApi(
+      open,
+      (found) => selectRegistry(found, { key, need }),
+      need,
+      options,
+    );
+    return { apis: [api], listed: [api.registry] };
+  }
   let others: string[] = [];
+  let listed: OpenedRegistries["listed"] = [];
   const first = await openRegistryApi(
     open,
     (found: FoundRegistries) => {
-      const granted = found.registries.filter((registry) => allowedFor(registry, need));
-      // None granted: let the selection name the reason.
-      if (!granted.length) return selectRegistry(found, { need });
+      listed = [
+        ...found.registries,
+        ...found.rejected.map(({ key: name }) => ({ key: name, name })),
+      ];
+      if (listedCount(found) <= 1) return selectRegistry(found, { need });
+      const fitting = found.registries.filter((registry) => fitsNeed(registry, need));
+      const granted = fitting.filter((registry) => allowedFor(registry, need));
+      if (!granted.length)
+        throw fitting.length
+          ? permissionMissingEverywhere(fitting, need)
+          : registryChoiceRequired(found, need);
       others = granted.slice(1).map((registry) => registry.key);
       return granted[0]!;
     },
@@ -100,7 +129,7 @@ export async function openRegistries(
         options,
       ),
     );
-  return [first, ...rest];
+  return { apis: [first, ...rest], listed };
 }
 
 export interface ListOptions extends RegistryApiOptions {
@@ -111,7 +140,7 @@ export interface ListOptions extends RegistryApiOptions {
 
 /** The person's apps from every registry they may use, the earliest review date first. */
 export async function listMyApps(options: ListOptions): Promise<AppListReport> {
-  const apis = await openRegistries(options.registries, "apps", options.registry, options);
+  const { apis } = await openRegistries(options.registries, "apps", options.registry, options);
   const lists = [];
   for (const api of apis) lists.push({ api, list: await api.listApps() });
   const apps = lists
@@ -122,9 +151,12 @@ export async function listMyApps(options: ListOptions): Promise<AppListReport> {
 }
 
 /**
- * The registry that keeps `appId`: the one `key` names, the only one the person may use, or
- * the one that has the app among the person's (registries that cannot answer are skipped; when
- * no other has the app, the first failure is reported).
+ * The registry that keeps `appId`: the one `key` names, the only one Weldall lists, or else the
+ * one registry among those the person may use that answers it has the app. Every registry the
+ * person may use is asked; any answer other than "not found" stops the command with that error,
+ * naming the registry, so a registry that cannot answer never lets another one that claims the id
+ * take its place. Found in none or in several: the error names the registries and asks for
+ * `--registry`.
  */
 export async function registryOfApp(
   open: OpenRegistry,
@@ -133,21 +165,31 @@ export async function registryOfApp(
   key?: string,
   options: RegistryApiOptions = {},
 ): Promise<RegistryApi> {
-  const apis = await openRegistries(open, need, key, options);
-  if (apis.length === 1) return apis[0]!;
+  const { apis, listed } = await openRegistries(open, need, key, options);
+  if (key !== undefined || listed.length <= 1) return apis[0]!;
   const keeping = [];
-  // A registry that cannot answer now does not keep the others from being asked.
-  const failures: unknown[] = [];
   for (const api of apis)
     try {
       await api.readApp(appId);
       keeping.push(api);
     } catch (error) {
-      if (!(error instanceof PublishError && error.code === "not_found")) failures.push(error);
+      if (error instanceof PublishError && error.code === "not_found") continue;
+      if (!(error instanceof PublishError)) throw error;
+      throw new PublishError(
+        error.code,
+        `Looking for app ${printable(appId)} at ${describeRegistry(api.registry)} failed, so Weldall stops instead of using another registry: ${error.message}`,
+        {
+          cause: error,
+          hint: `${error.hint ? `${error.hint} ` : ""}Or name the registry that keeps the app: \`--registry <key>\`.`,
+          details: { ...error.details, registry: api.registry.key },
+        },
+      );
     }
   if (keeping.length === 1) return keeping[0]!;
-  if (!keeping.length && failures.length) throw failures[0];
-  const keys = apis.map(({ registry }) => registry.key).join(", ");
+  const asked = apis.map(({ registry }) => describeRegistry(registry)).join(", ");
+  const notAsked = listed.filter(
+    (registry) => !apis.some((api) => api.registry.key === registry.key),
+  );
   throw keeping.length
     ? ambiguousRegistries(
         `Several registries have an app ${printable(appId)} of yours`,
@@ -155,8 +197,15 @@ export async function registryOfApp(
       )
     : new PublishError(
         "not_found",
-        `None of the registries you can use (${printable(keys)}) has an app ${printable(appId)} of yours.`,
-        { hint: "`weldall app list` shows your apps and their ids." },
+        `None of the registries you can use (${asked}) has an app ${printable(appId)} of yours.${
+          notAsked.length
+            ? ` Weldall also lists ${notAsked.map(describeRegistry).join(", ")}, which you cannot use for this.`
+            : ""
+        }`,
+        {
+          hint: "`weldall app list` shows your apps and their ids; name the registry with `--registry <key>`.",
+          details: { registries: listed.map(({ key: name }) => name).join(", ") },
+        },
       );
 }
 

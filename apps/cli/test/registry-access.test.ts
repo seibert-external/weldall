@@ -386,14 +386,49 @@ describe("choosing a registry", () => {
   const second = "https://second.example.com";
   const resources = [registryResource(), registryResource("second", second)];
 
-  it("picks the named one, else the only one allowed, and never one of several", () => {
-    const one = found([listingOf(), listingOf("second", second, { allowed: false })], resources);
-    expect(selectRegistry(one, { need: "changes" }).key).toBe("registry");
+  it("picks the named one, else the only one listed, and never one of several", () => {
+    expect(selectRegistry(found([listingOf()]), { need: "changes" }).key).toBe("registry");
     const both = found([listingOf(), listingOf("second", second)], resources);
     expect(selectRegistry(both, { key: "second", need: "changes" }).origin).toBe(second);
     expect(fails(both, { need: "changes" })).toMatchObject({
       code: "registry_ambiguous",
-      message: expect.stringContaining("Registry second (second)"),
+      message: expect.stringContaining("second: Registry second at https://second.example.com"),
+      details: { registries: "registry, second" },
+    });
+  });
+
+  it("does not pick the only allowed one of several: names each with its key, origin and permission", () => {
+    // `second` could be any resource with app discovery on and a permission many people hold.
+    const one = found(
+      [listingOf("registry", ORIGIN, { allowed: false }), listingOf("second", second)],
+      resources,
+    );
+    const error = fails(one, { need: "changes" });
+    expect(error).toMatchObject({
+      code: "registry_ambiguous",
+      hint: expect.stringContaining("--registry"),
+    });
+    expect(error.message).toContain(
+      `registry: Registry registry at ${ORIGIN} (you lack its permission registry:publish)`,
+    );
+    expect(error.message).toContain(
+      `second: Registry second at ${second} (you may use it for publishing apps)`,
+    );
+    // A listed entry the CLI refuses still counts: it may be the organisation's real registry.
+    const withRejected = found(
+      [listingOf(), listingOf("second", second, { git: "https://evil.example/git/" })],
+      resources,
+    );
+    expect(fails(withRejected, { need: "changes" })).toMatchObject({
+      code: "registry_ambiguous",
+      message: expect.stringContaining("second: not used, it does not match its registration"),
+      details: { registries: "registry" },
+    });
+    expect(selectRegistry(withRejected, { key: "registry", need: "changes" }).key).toBe("registry");
+    // Named, the existing checks apply.
+    expect(fails(one, { key: "registry", need: "changes" })).toMatchObject({
+      code: "scope_missing",
+      message: expect.stringContaining("registry:publish"),
     });
   });
 
@@ -469,7 +504,10 @@ describe("choosing a registry", () => {
       ],
       resources,
     );
-    expect(fails(none, { need: "apps" })).toMatchObject({ code: "scope_missing" });
+    expect(fails(none, { need: "apps" })).toMatchObject({
+      code: "registry_ambiguous",
+      message: expect.stringContaining("(you lack its permission registry:publish)"),
+    });
   });
 });
 

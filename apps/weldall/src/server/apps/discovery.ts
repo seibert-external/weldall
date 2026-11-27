@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { CatalogSide, SideRegistration } from "../discovery/catalog-sides";
 import { itemFields, pagedCatalog, text } from "../discovery/paged-catalog";
+import { logger } from "../observability/logger";
+import { clearedAppApi } from "./app-api-columns";
 
 /**
  * App discovery: a resource an administrator switched it on for (`appDiscoveryEnabled`) publishes
@@ -195,17 +197,6 @@ export function checkAppApi(
   };
 }
 
-/** The catalog columns that store a registry's apps API (`DiscoveredSkillCatalog.appApi*`). */
-const clearedAppApi = {
-  appApiEndpoint: null,
-  appApiScope: null,
-  appApiAdminScope: null,
-  appApiGit: null,
-  appApiGitCredentials: null,
-  appApiRefusal: null,
-  appApiCheckedAt: null,
-} as const;
-
 /** The stored apps API as `checkAppApi` reads it again. */
 export const storedAppApi = (catalog: {
   appApiEndpoint: string | null;
@@ -226,10 +217,64 @@ export const storedAppApi = (catalog: {
           : { gitCredentials: catalog.appApiGitCredentials }),
       };
 
+const API_FIELDS = ["endpoint", "scope", "adminScope", "git", "gitCredentials"] as const;
+const apiColumn = (field: (typeof API_FIELDS)[number]) =>
+  `appApi${field[0]!.toUpperCase()}${field.slice(1)}`;
+
+/** The accepted apps API in catalog columns (as stored, or as an update stores them); else null. */
+function acceptedApi(columns: Record<string, unknown>): Record<string, string | null> | null {
+  const values = Object.fromEntries(
+    API_FIELDS.map((field) => {
+      const value = columns[apiColumn(field)];
+      return [field, typeof value === "string" ? value : null];
+    }),
+  );
+  return values.endpoint && values.scope ? values : null;
+}
+
+/**
+ * Logs the moment a resource becomes a registry clients are told of, or names another API, or stops
+ * naming one: the administrator's switch allows it, but the resource decides when, so this is
+ * where it can be traced. Stored values only; `appApiStatus` checks them again on every read.
+ */
+function logAppApiChange(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  resource: { id: string; key: string; version: number },
+): void {
+  const previous = acceptedApi(before);
+  const next = acceptedApi(after);
+  const fields = {
+    publisherId: resource.id,
+    publisherKey: resource.key,
+    resourceVersion: resource.version,
+  };
+  if (next && !previous)
+    logger.warn(
+      { event: "app_registry.accepted", ...fields, ...next },
+      `Resource ${resource.key} is now listed for clients as an app registry`,
+    );
+  else if (next && previous && API_FIELDS.some((field) => next[field] !== previous[field]))
+    logger.warn(
+      { event: "app_registry.changed", ...fields, ...next, previous },
+      `Resource ${resource.key} changed the apps API it is listed for clients with`,
+    );
+  else if (previous && !next)
+    logger.info(
+      {
+        event: "app_registry.withdrawn",
+        ...fields,
+        previous,
+        refusal: typeof after.appApiRefusal === "string" ? after.appApiRefusal : null,
+      },
+      `Resource ${resource.key} is no longer listed for clients as an app registry`,
+    );
+}
+
 /**
  * The app side of a refresh. Besides its endpoint it takes the apps API from the metadata
  * (`settings`): checked and stored on its own, so an apps API that is refused or missing never
- * fails the apps, and apps that cannot be read do not drop the apps API.
+ * fails the apps, and apps, skills or agents that cannot be read do not keep it from being stored.
  */
 export const appSide: CatalogSide<"apps", PublishedApp> = {
   kind: "apps",
@@ -252,6 +297,9 @@ export const appSide: CatalogSide<"apps", PublishedApp> = {
       appApiCheckedAt: now,
     };
   },
+  settingsSelect: Object.fromEntries(Object.keys(clearedAppApi).map((column) => [column, true])),
+  settingsChanged: (before, after, resource) =>
+    logAppApiChange(before, after as Record<string, unknown>, resource),
   clearedMetadata: clearedAppApi,
   remove: (tx, catalogId) => tx.discoveredApp.deleteMany({ where: { catalogId } }),
   insert: (tx, catalogId, resourceKey, apps) =>

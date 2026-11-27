@@ -14,6 +14,7 @@ import {
 } from "../git/registries.js";
 import { isRecord } from "../http.js";
 import { PublishError } from "./errors.js";
+import { CONFIG, isStateValue, isTreePath } from "./state.js";
 
 /**
  * Creating an app waits on the registry until the Git host copied the template (up to 30 s) and
@@ -33,6 +34,17 @@ const MAX_ATTEMPTS = 3;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const warning = z.object({ code: z.string(), message: z.string() });
 const identity = z.object({ name: z.string().min(1).max(200), email: z.string().min(3).max(320) });
+
+/**
+ * A pull request as the folder records it (`weldall.prNumber`, `weldall.prUrl`): checked when the
+ * answer is read, so a registry's bad value is reported as its answer, never after the push as a
+ * value the folder refuses to record.
+ */
+const pullRequestNumber = z
+  .number()
+  .int()
+  .refine((value) => isStateValue(CONFIG.prNumber, String(value)));
+const pullRequestUrl = z.string().refine((value) => isStateValue(CONFIG.prUrl, value));
 
 export const APP_STATES = ["active", "expiring_soon", "expired"] as const;
 export type AppState = (typeof APP_STATES)[number];
@@ -88,8 +100,8 @@ const appStatus = z.object({
   app: z.object({ id: z.string(), name: z.string() }),
   pullRequest: z
     .object({
-      number: z.number().int(),
-      webUrl: z.string(),
+      number: pullRequestNumber,
+      webUrl: pullRequestUrl,
       state: z.enum(["open", "merged", "closed"]),
       headBranch: z.string(),
       headCommit: z.string().regex(OBJECT_ID),
@@ -113,7 +125,8 @@ const appStatus = z.object({
     .nullable(),
   links: z.object({ preview: z.string().nullable(), live: z.string().nullable() }),
   publish: z.object({
-    protectedPaths: z.array(z.string().min(1).max(500)).max(50),
+    // Replaced by the repository's version before the merge: `.` or `..` would replace everything.
+    protectedPaths: z.array(z.string().max(500).refine(isTreePath)).max(50),
     commitIdentity: identity.nullable(),
   }),
   warnings: z.array(warning).default([]),
@@ -122,7 +135,11 @@ export type AppStatus = z.output<typeof appStatus>;
 
 const openedPullRequest = z.object({
   created: z.boolean(),
-  pullRequest: z.object({ number: z.number().int(), webUrl: z.string(), headBranch: z.string() }),
+  pullRequest: z.object({
+    number: pullRequestNumber,
+    webUrl: pullRequestUrl,
+    headBranch: z.string(),
+  }),
   warnings: z.array(warning).default([]),
 });
 export type OpenedPullRequest = z.output<typeof openedPullRequest>;
@@ -419,12 +436,14 @@ export function registryFailure(label: string, answer: RegistryAnswer): PublishE
 export function parseAnswer<T>(schema: z.ZodType<T>, label: string, answer: RegistryAnswer): T {
   if (answer.status < 200 || answer.status > 299) throw registryFailure(label, answer);
   const parsed = schema.safeParse(answer.body);
-  if (!parsed.success)
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path.map(String).join(".");
     throw new PublishError(
       "registry_unsupported",
-      `${label}: the registry returned an unexpected answer.`,
-      { hint: "Ask your Weldall administrator to update the registry." },
+      `${label}: the registry returned an unexpected answer${field ? ` (${printable(field, 200)})` : ""}.`,
+      { hint: "Ask your Weldall administrator to update or check the registry." },
     );
+  }
   return parsed.data;
 }
 

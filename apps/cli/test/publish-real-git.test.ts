@@ -562,6 +562,90 @@ describe.skipIf(reason !== null)(
       expect(fake.pushes).toHaveLength(pushes);
     });
 
+    it.each([
+      ["a pull request number of 0", { number: 0 }, "pullRequest.number"],
+      [
+        "a link that is not https",
+        { webUrl: "http://github.example/x/pull/1" },
+        "pullRequest.webUrl",
+      ],
+    ])(
+      "reports %s from the registry after the push as its answer, and a rerun records the pull request",
+      async (_, wrong, field) => {
+        counter += 1;
+        const name = `app${counter}`;
+        const folder = await fake.createFolder(name, "react", TEMPLATE);
+        await writeTree(folder, { "src/app.ts": "export const app = 6;\n" });
+        // The registry opens the pull request, but its answer is one the folder cannot record.
+        fake.queueAnswer({
+          method: "POST",
+          path: /\/pull-requests$/,
+          status: 200,
+          afterHandling: true,
+          body: {
+            created: true,
+            pullRequest: {
+              number: 1,
+              webUrl: "https://github.example/x/pull/1",
+              headBranch: "x",
+              ...wrong,
+            },
+            warnings: [],
+          },
+        });
+        const failure = await publish(folder, { app: { name, description: "Tests" } }).catch(
+          (error: unknown) => error,
+        );
+        const branch = await inFolder(folder, ["config", "weldall.prBranch"]);
+        expect(failure).toMatchObject({
+          code: "pull_request_not_opened",
+          message: expect.stringContaining(`was pushed to branch ${branch}`),
+          details: { branch, cause: "registry_unsupported" },
+        });
+        expect((failure as Error).message).toContain(`unexpected answer (${field})`);
+        expect((failure as Error).message).not.toContain("Nothing was recorded");
+        await expect(inFolder(folder, ["config", "weldall.prNumber"])).rejects.toThrow();
+        const pushes = fake.pushes.length;
+
+        const retry = await publish(folder);
+
+        expect(retry).toMatchObject({ commit: null, pullRequest: { branch } });
+        expect(await inFolder(folder, ["config", "weldall.prNumber"])).toBe(
+          String(retry.pullRequest!.number),
+        );
+        expect(fake.pushes).toHaveLength(pushes);
+      },
+    );
+
+    it("refuses protected paths that would replace the whole folder, before anything is sent", async () => {
+      const { folder, first } = await published();
+      await writeTree(folder, { "src/app.ts": "export const app = 'mine';\n" });
+      const pushes = fake.pushes.length;
+      fake.queueAnswer({
+        method: "GET",
+        path: /\/status$/,
+        status: 200,
+        body: {
+          app: { id: first.app!.id, name: first.app!.name },
+          pullRequest: null,
+          links: { preview: null, live: null },
+          publish: {
+            protectedPaths: ["."],
+            commitIdentity: { name: "bot", email: "bot@example.com" },
+          },
+          warnings: [],
+        },
+      });
+      await expect(publish(folder)).rejects.toMatchObject({
+        code: "registry_unsupported",
+        message: expect.stringContaining("publish.protectedPaths.0"),
+      });
+      expect(fake.pushes).toHaveLength(pushes);
+      expect(await readFile(join(folder, "src/app.ts"), "utf8")).toBe(
+        "export const app = 'mine';\n",
+      );
+    });
+
     it("offers the changes of a pull request closed without merging again", async () => {
       const { folder, bare, first } = await published({ "src/app.ts": "export const app = 5;\n" });
       fake.close(first.pullRequest!.number);
@@ -972,36 +1056,45 @@ describe.skipIf(reason !== null)(
         await expect(inFolder(folder, ["config", "weldall.appId"])).rejects.toThrow();
       });
 
-      it("chooses the only registry the person may publish to, and asks to name one of several", async () => {
+      it("asks to name the registry when Weldall lists several, even if only one is allowed", async () => {
         counter += 1;
         const name = `app${counter}`;
         const folder = await fake.createFolder(name, "react", TEMPLATE);
         await writeTree(folder, { "src/app.ts": "export const app = 2;\n" });
+        // Only one of two may be published to: still not chosen silently.
         fake.setResources([fake.registryResource(), otherRegistry([])]);
-        expect((await publish(folder, { app: { name, description: "Tests" } })).outcome).toBe(
-          "published",
+        const refused = publish(folder, { app: { name, description: "Tests" } });
+        await expect(refused).rejects.toMatchObject({
+          code: "registry_ambiguous",
+          details: { registries: `${REGISTRY_KEY}, registry-other` },
+        });
+        const { message } = (await refused.catch((error: Error) => error)) as Error;
+        expect(message).toContain(`${REGISTRY_KEY}: `);
+        expect(message).toContain(`at ${fake.origin} (you may use it for publishing apps)`);
+        expect(message).toContain(
+          `registry-other: Registry (registry-other) at ${otherOrigin} (you lack its permission registry:publish)`,
         );
+        await expect(inFolder(folder, ["config", "weldall.registry"])).rejects.toThrow();
+        expect(
+          (await publish(folder, { app: { name, description: "Tests", registry: REGISTRY_KEY } }))
+            .outcome,
+        ).toBe("published");
 
+        // A published folder keeps its recorded registry, whatever else Weldall lists.
         fake.setResources([fake.registryResource(), otherRegistry()]);
+        await writeTree(folder, { "src/app.ts": "export const app = 3;\n" });
+        expect((await publish(folder)).outcome).toBe("published");
+
         const second = await fake.createFolder(`${name}b`, "react", TEMPLATE);
         await writeTree(second, { "src/app.ts": "export const app = 2;\n" });
         await expect(
           publish(second, { app: { name: `${name}b`, description: "Tests" } }),
-        ).rejects.toMatchObject({
-          code: "registry_ambiguous",
-          details: { registries: `${REGISTRY_KEY}, registry-other` },
-        });
+        ).rejects.toMatchObject({ code: "registry_ambiguous" });
         await expect(
           publish(second, { app: { name: `${name}b`, description: "Tests", registry: "nope" } }),
         ).rejects.toMatchObject({ code: "registry_unknown" });
-        expect(
-          (
-            await publish(second, {
-              app: { name: `${name}b`, description: "Tests", registry: REGISTRY_KEY },
-            })
-          ).outcome,
-        ).toBe("published");
 
+        // The only one listed, without the permission: the missing permission is named.
         fake.setResources([fake.registryResource(REGISTRY_KEY, fake.origin, [])]);
         const third = await fake.createFolder(`${name}c`, "react", TEMPLATE);
         await expect(
@@ -1012,18 +1105,27 @@ describe.skipIf(reason !== null)(
         });
       });
 
-      it("reads the status of an app id while another registry cannot be reached", async () => {
+      it("stops reading an app id's status when another registry cannot be asked", async () => {
         const { first } = await published();
-        // Listed by Weldall, but unreachable: asked, and not in the way.
+        // Listed by Weldall, but unreachable: it might be the one that keeps the app.
         fake.setResources([
           fake.registryResource(),
           fake.registryResource("registry-other", otherOrigin),
         ]);
-        const status = await readAppStatus({
-          registries: fake.registries,
-          directory: "/nonexistent",
-          appId: first.app!.id,
+        const read = (registry?: string) =>
+          readAppStatus({
+            registries: fake.registries,
+            directory: "/nonexistent",
+            appId: first.app!.id,
+            ...(registry === undefined ? {} : { registry }),
+          });
+        await expect(read()).rejects.toMatchObject({
+          code: "network",
+          message: expect.stringContaining("at Registry (registry-other) (registry-other) failed"),
+          details: { registry: "registry-other" },
         });
+        expect(fake.apiRequests.at(-1)?.path).not.toMatch(/\/status$/);
+        const status = await read(REGISTRY_KEY);
         expect(status.app.id).toBe(first.app!.id);
         expect(fake.apiRequests.at(-1)).toMatchObject({
           origin: fake.origin,

@@ -177,17 +177,27 @@ const sideTarget = (
   }
 };
 
+/** What the sides switched on take from the metadata apart from their items (`settings`). */
+type SideSettings = Partial<Record<CatalogSideKind, CatalogUpdate>>;
+type CatalogUpdate = Prisma.DiscoveredSkillCatalogUpdateManyMutationInput;
+
+/**
+ * Reads the resource's metadata document: throws only when it cannot be read or is not this
+ * resource's (another resource, another authorization server). What the sides take from it is
+ * worked out here, before the skill side looks at it, so a skill side that fails (no skill
+ * endpoint, a skill catalog that cannot be read) does not keep the sides' `settings` from being
+ * stored (`persistFailure`).
+ */
 const fetchMetadata = async (
   source: CatalogRefreshSource,
   fetcher: typeof fetch,
   now: Date,
 ): Promise<{
   metadataUrl: string;
-  catalogEndpoint: string | null;
+  metadata: Record<string, unknown>;
   /** By side; a side that is switched off has none. */
   targets: Partial<Record<CatalogSideKind, SideTarget>>;
-  /** What a side switched on takes from the metadata apart from its items (`settings`). */
-  settings: Partial<Record<CatalogSideKind, Prisma.DiscoveredSkillCatalogUpdateManyMutationInput>>;
+  settings: SideSettings;
 }> => {
   const metadataUrl = deriveMetadataUrl(source.resourceIdentifier);
   let response: Response;
@@ -212,27 +222,15 @@ const fetchMetadata = async (
   }
   const metadata = value as Record<string, unknown>;
   const authorizationServers = metadata.authorization_servers;
-  const endpointValue = metadata.weldall_skills_endpoint;
   if (
     metadata.resource !== source.resourceIdentifier ||
     !Array.isArray(authorizationServers) ||
-    !authorizationServers.includes(source.authorizationServer) ||
-    (source.skillDiscoveryEnabled && typeof endpointValue !== "string")
+    !authorizationServers.includes(source.authorizationServer)
   ) {
     throw new CatalogRefreshError("metadata_invalid");
   }
-  // An endpoint the administrator did not switch on is not read, whatever the resource names.
-  let catalogEndpoint: string | null = null;
-  try {
-    if (source.skillDiscoveryEnabled)
-      catalogEndpoint = safeEndpoint(endpointValue as string, source.resourceIdentifier);
-  } catch {
-    throw new CatalogRefreshError("metadata_invalid");
-  }
   const targets: Partial<Record<CatalogSideKind, SideTarget>> = {};
-  const settings: Partial<
-    Record<CatalogSideKind, Prisma.DiscoveredSkillCatalogUpdateManyMutationInput>
-  > = {};
+  const settings: SideSettings = {};
   const registration = {
     resourceIdentifier: source.resourceIdentifier,
     scopes: source.scopes.map(({ scope }) => scope),
@@ -242,7 +240,26 @@ const fetchMetadata = async (
       targets[side.kind] = sideTarget(side, metadata, source.resourceIdentifier);
       if (side.settings) settings[side.kind] = side.settings(metadata, registration, now);
     }
-  return { metadataUrl, catalogEndpoint, targets, settings };
+  return { metadataUrl, metadata, targets, settings };
+};
+
+/**
+ * The skill catalog endpoint the metadata names, or null without skill discovery. Metadata that
+ * names no usable one fails the refresh as a whole (`metadata_invalid`), as it always has.
+ */
+const skillCatalogEndpoint = (
+  source: CatalogRefreshSource,
+  metadata: Record<string, unknown>,
+): string | null => {
+  // An endpoint the administrator did not switch on is not read, whatever the resource names.
+  if (!source.skillDiscoveryEnabled) return null;
+  const endpointValue = metadata.weldall_skills_endpoint;
+  if (typeof endpointValue !== "string") throw new CatalogRefreshError("metadata_invalid");
+  try {
+    return safeEndpoint(endpointValue, source.resourceIdentifier);
+  } catch {
+    throw new CatalogRefreshError("metadata_invalid");
+  }
 };
 
 const fetchCatalog = async (
@@ -398,29 +415,96 @@ export const REFRESH_TIMING = {
 const failureBackoffMs = (retryCount: number): number =>
   Math.min(REFRESH_INTERVAL_MS, 30_000 * 2 ** Math.min(retryCount, 5));
 
+/**
+ * True while the resource is as the refresh read it: enabled, with the same switches, version and
+ * key. Otherwise what was read belongs to a configuration that no longer exists and is not stored.
+ */
+async function resourceUnchanged(
+  tx: Prisma.TransactionClient,
+  source: CatalogRefreshSource,
+): Promise<boolean> {
+  const current = await tx.downstreamResource.findUnique({
+    where: { id: source.id },
+    select: {
+      enabled: true,
+      skillDiscoveryEnabled: true,
+      agentDiscoveryEnabled: true,
+      appDiscoveryEnabled: true,
+      version: true,
+      key: true,
+    },
+  });
+  return Boolean(
+    current?.enabled &&
+    current.skillDiscoveryEnabled === source.skillDiscoveryEnabled &&
+    CATALOG_SIDE_KINDS.every((kind) => current[SIDE_SWITCH[kind]] === sideOn(source, kind)) &&
+    current.version === source.version &&
+    current.key === source.key,
+  );
+}
+
+/** The catalog columns every side's `settingsChanged` compares. */
+const settingsSelect = (): Record<string, true> =>
+  Object.assign({}, ...SIDES.map((side) => side.settingsSelect ?? {}));
+
+/** Tells each side whose `settings` were stored what they replaced (`settingsChanged`). */
+function reportSettings(
+  source: CatalogRefreshSource,
+  previous: Record<string, unknown>,
+  stored: SideSettings,
+): void {
+  for (const side of SIDES) {
+    const after = stored[side.kind];
+    if (after) side.settingsChanged?.(previous, after, source);
+  }
+}
+
+/**
+ * Records a refresh that failed as a whole; the skills and the items of every side stay as they
+ * were. When the metadata was read (`settings`, by side), the sides' settings are stored all the
+ * same, unless the resource changed meanwhile: they say what the resource names now, which a skill
+ * side that failed does not change.
+ */
 async function persistFailure(
   catalogId: string,
   leaseId: string,
+  source: CatalogRefreshSource,
   category: CatalogFailureCategory,
   attemptedAt: Date,
+  settings: SideSettings | null,
 ): Promise<void> {
-  const current = await db.discoveredSkillCatalog.findFirst({
-    where: { id: catalogId, refreshLeaseId: leaseId },
-    select: { retryCount: true },
+  const result = await db.$transaction(async (tx) => {
+    // Holds the row from here on, as the transaction of a successful refresh does: a change of the
+    // resource that clears a side's settings waits for it, or is seen by `resourceUnchanged`.
+    const lease = await tx.discoveredSkillCatalog.updateMany({
+      where: { id: catalogId, refreshLeaseId: leaseId },
+      data: { lastAttemptAt: attemptedAt },
+    });
+    if (lease.count !== 1) return null;
+    const current = await tx.discoveredSkillCatalog.findUniqueOrThrow({
+      where: { id: catalogId },
+      select: { retryCount: true, ...settingsSelect() },
+    });
+    const stored =
+      settings && Object.keys(settings).length && (await resourceUnchanged(tx, source))
+        ? settings
+        : {};
+    await tx.discoveredSkillCatalog.updateMany({
+      where: { id: catalogId, refreshLeaseId: leaseId },
+      data: {
+        ...Object.assign({}, ...Object.values(stored)),
+        lastAttemptAt: attemptedAt,
+        lastFailureCategory: category,
+        lastFailureAt: attemptedAt,
+        retryCount: { increment: 1 },
+        nextRefreshAt: new Date(attemptedAt.getTime() + failureBackoffMs(current.retryCount)),
+        refreshLeaseId: null,
+        refreshLeaseUntil: null,
+      },
+    });
+    return { previous: current as Record<string, unknown>, stored };
   });
-  if (!current) return;
-  await db.discoveredSkillCatalog.updateMany({
-    where: { id: catalogId, refreshLeaseId: leaseId },
-    data: {
-      lastAttemptAt: attemptedAt,
-      lastFailureCategory: category,
-      lastFailureAt: attemptedAt,
-      retryCount: { increment: 1 },
-      nextRefreshAt: new Date(attemptedAt.getTime() + failureBackoffMs(current.retryCount)),
-      refreshLeaseId: null,
-      refreshLeaseUntil: null,
-    },
-  });
+  if (result) reportSettings(source, result.previous, result.stored);
 }
 
 /**
@@ -510,12 +594,16 @@ export async function refreshCatalog(
   const started = performance.now();
   const elapsedMs = () => Math.max(0, Math.round(performance.now() - started));
   const readBudgetMs = Math.min(options.readBudgetMs ?? READ_BUDGET_MS, READ_BUDGET_MS);
+  // Set once the metadata was read: stored even when the refresh then fails as a whole.
+  let readSettings: SideSettings | null = null;
   try {
-    const { metadataUrl, catalogEndpoint, targets, settings } = await fetchMetadata(
+    const { metadataUrl, metadata, targets, settings } = await fetchMetadata(
       source,
       fetcher,
       attemptedAt,
     );
+    readSettings = settings;
+    const catalogEndpoint = skillCatalogEndpoint(source, metadata);
     const catalog = catalogEndpoint
       ? await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt)
       : null;
@@ -535,26 +623,7 @@ export async function refreshCatalog(
         data: { refreshLeaseUntil: new Date(Date.now() + LEASE_MS) },
       });
       if (lease.count !== 1) return LEASE_LOST;
-      const currentResource = await tx.downstreamResource.findUnique({
-        where: { id: source.id },
-        select: {
-          enabled: true,
-          skillDiscoveryEnabled: true,
-          agentDiscoveryEnabled: true,
-          appDiscoveryEnabled: true,
-          version: true,
-          key: true,
-        },
-      });
-      if (
-        !currentResource?.enabled ||
-        currentResource.skillDiscoveryEnabled !== source.skillDiscoveryEnabled ||
-        CATALOG_SIDE_KINDS.some(
-          (kind) => currentResource[SIDE_SWITCH[kind]] !== sideOn(source, kind),
-        ) ||
-        currentResource.version !== source.version ||
-        currentResource.key !== source.key
-      ) {
+      if (!(await resourceUnchanged(tx, source))) {
         await tx.discoveredSkillCatalog.updateMany({
           where: { id: catalogId, refreshLeaseId: leaseId },
           data: {
@@ -571,6 +640,7 @@ export async function refreshCatalog(
           retryCount: true,
           ...sideColumnsSelect("agents"),
           ...sideColumnsSelect("apps"),
+          ...settingsSelect(),
         },
       });
       await tx.discoveredSkill.deleteMany({ where: { catalogId } });
@@ -648,7 +718,12 @@ export async function refreshCatalog(
         },
       });
       if (updated.count !== 1) throw new Error(`${catalogLabel(source)} refresh lease was lost`);
-      return on;
+      const stored: SideSettings = {};
+      for (const { side } of on) {
+        const sideSettings = settings[side.kind];
+        if (sideSettings) stored[side.kind] = sideSettings;
+      }
+      return { on, previous: previous as Record<string, unknown>, stored };
     }, PERSIST_TRANSACTION);
     if (persisted === LEASE_LOST) {
       // The lease ran out and another refresh claimed it (or the catalog is gone). That refresh
@@ -668,8 +743,9 @@ export async function refreshCatalog(
       return "failed";
     }
     if (!persisted) return "failed";
-    const stored = persisted.filter(({ outcome }) => outcome?.ok);
-    const failed = persisted.filter(({ outcome }) => outcome?.ok === false);
+    reportSettings(source, persisted.previous, persisted.stored);
+    const stored = persisted.on.filter(({ outcome }) => outcome?.ok);
+    const failed = persisted.on.filter(({ outcome }) => outcome?.ok === false);
     const storedNames = [
       ...(source.skillDiscoveryEnabled ? ["skills"] : []),
       ...stored.map(({ side }) => side.kind),
@@ -723,7 +799,7 @@ export async function refreshCatalog(
   } catch (error) {
     const category =
       error instanceof CatalogRefreshError ? error.category : "refresh_internal_error";
-    await persistFailure(catalogId, leaseId, category, attemptedAt);
+    await persistFailure(catalogId, leaseId, source, category, attemptedAt, readSettings);
     logger.warn(
       {
         event: "skill_catalog.refresh.failed",

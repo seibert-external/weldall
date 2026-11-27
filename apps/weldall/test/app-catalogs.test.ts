@@ -3,9 +3,9 @@ import { decodeJwt, decodeProtectedHeader } from "jose";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
-import { appApiSummary } from "../src/app/admin/resources/app-api-summary.js";
+import { appApiListLabel, appApiSummary } from "../src/app/admin/resources/app-api-summary.js";
 import { failedSides, sideReloadFailureDetail } from "../src/app/admin/resources/catalog-reload.js";
-import { getResource } from "../src/server/admin/service.js";
+import { getResource, listResources, updateResource } from "../src/server/admin/service.js";
 import { listVisibleAgents } from "../src/server/agents/service.js";
 import { checkAppApi, parseAppCatalogPage } from "../src/server/apps/discovery.js";
 import { httpsHref } from "../src/server/apps/href.js";
@@ -16,6 +16,7 @@ import {
   listVisibleApps,
   ownerLabel,
 } from "../src/server/apps/service.js";
+import { mutateResource } from "../src/server/domain/primitive-mutations.js";
 import { logger } from "../src/server/observability/logger.js";
 import { REFRESH_TIMING, refreshResourceCatalog } from "../src/server/skills/catalogs.js";
 import { listVisibleSkills } from "../src/server/skills/service.js";
@@ -995,6 +996,13 @@ describe("app registries", () => {
     });
     expect(appApiSummary(status!).detail).toContain(`Endpoint: ${api.endpoint}`);
     expect(appApiSummary(status!).detail).toContain(`Git: ${api.git}`);
+    // The resource list says so in a cell of its own.
+    const listed = (await listResources({ page: 1, pageSize: 20, q: key })).items;
+    expect(listed).toHaveLength(1);
+    expect(appApiListLabel(listed[0]!.catalogStatus!.appApi, true)).toEqual({
+      tone: "success",
+      label: "Listed for clients",
+    });
   });
 
   it("passes on a registry without administration scope or Git route", async () => {
@@ -1196,5 +1204,292 @@ describe("app registries", () => {
     await db.downstreamResource.update({ where: { id: resource.id }, data: { enabled: false } });
     expect(await registries(colleague)).toEqual([]);
     await db.downstreamResource.update({ where: { id: resource.id }, data: { enabled: true } });
+  });
+  const hours = (count: number) => count * 60 * 60 * 1_000;
+  /** Answers the skill catalog with 503: skill discovery fails the refresh as a whole. */
+  const skillsDown = intercepting({
+    [skillsEndpoint]: async () => new Response(null, { status: 503 }),
+  });
+
+  it("stores the apps API whenever the metadata was read, however the skill side fails", async () => {
+    served.appApi = api;
+    await switches({ skillDiscoveryEnabled: true });
+    // No skill endpoint: the refresh fails as a whole, as it did before, but the apps API is
+    // stored all the same.
+    await expect(refresh()).resolves.toBe("failed");
+    const failed = await storedCatalog();
+    expect(failed).toMatchObject({
+      lastFailureCategory: "metadata_invalid",
+      retryCount: 1,
+      appApiEndpoint: api.endpoint,
+      appApiScope: salesScope,
+      appApiRefusal: null,
+    });
+    expect(failed.appApiCheckedAt).toEqual(failed.lastAttemptAt);
+    expect(await registries(colleague)).toMatchObject([{ key, allowed: true }]);
+
+    // As long as the metadata can be read, every failing refresh renews it, beyond a day.
+    const start = Date.now() - hours(60);
+    for (const at of [0, 20, 40, 60].map((offset) => new Date(start + hours(offset)))) {
+      await expect(refreshResourceCatalog(resource.id, { fetcher, now: at })).resolves.toBe(
+        "failed",
+      );
+      expect((await storedCatalog()).appApiCheckedAt).toEqual(at);
+    }
+    expect((await storedCatalog()).retryCount).toBe(5);
+    expect(await registries(colleague)).toMatchObject([{ key }]);
+
+    // A skill catalog that cannot be read is the same.
+    served.skillsEndpoint = true;
+    await db.discoveredSkillCatalog.update({
+      where: { resourceId: resource.id },
+      data: { appApiCheckedAt: new Date(Date.now() - hours(25)) },
+    });
+    expect(await registries(colleague)).toEqual([]);
+    await expect(refreshResourceCatalog(resource.id, { fetcher: skillsDown })).resolves.toBe(
+      "failed",
+    );
+    expect(await storedCatalog()).toMatchObject({
+      lastFailureCategory: "catalog_unavailable",
+      retryCount: 6,
+    });
+    expect(await registries(colleague)).toMatchObject([{ key }]);
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await storedCatalog()).toMatchObject({ lastFailureCategory: null, retryCount: 0 });
+  });
+
+  it("drops or replaces the apps API at the next refresh while the skills fail", async () => {
+    served.skillsEndpoint = true;
+    served.appApi = api;
+    await switches({ skillDiscoveryEnabled: true });
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await registries(colleague)).toHaveLength(1);
+
+    // Another scope while the skill catalog is down: listed with the new scope.
+    served.appApi = { ...api, scope: intranetScope, adminScope: null };
+    await expect(refreshResourceCatalog(resource.id, { fetcher: skillsDown })).resolves.toBe(
+      "failed",
+    );
+    expect(await registries(colleague)).toMatchObject([
+      { key, scope: intranetScope, adminScope: null, allowed: false },
+    ]);
+    // Skills keep their last copy, as before.
+    expect(await visibleSkillIds(colleague.email)).toEqual([`${key}.howto`]);
+
+    // One that is refused now: not listed, and administrators are told why.
+    served.appApi = { ...api, endpoint: "https://elsewhere.example.com/api/apps" };
+    await expect(refreshResourceCatalog(resource.id, { fetcher: skillsDown })).resolves.toBe(
+      "failed",
+    );
+    expect(await registries(colleague)).toEqual([]);
+    expect(await appApi()).toMatchObject({ state: "refused", refusal: "endpoint_invalid" });
+
+    // Withdrawn while the skill endpoint is gone: not listed after the next refresh.
+    served.appApi = api;
+    await expect(refreshResourceCatalog(resource.id, { fetcher: skillsDown })).resolves.toBe(
+      "failed",
+    );
+    expect(await registries(colleague)).toHaveLength(1);
+    delete served.appApi;
+    served.skillsEndpoint = false;
+    await expect(refresh()).resolves.toBe("failed");
+    expect(await registries(colleague)).toEqual([]);
+    expect(await appApi()).toMatchObject({ state: "absent" });
+  });
+
+  it("stores nothing of a failing refresh read before the resource was changed", async () => {
+    served.appApi = api;
+    await expect(refresh()).resolves.toBe("succeeded");
+    await switches({ skillDiscoveryEnabled: true });
+    served.skillsEndpoint = true;
+    served.appApi = { ...api, scope: intranetScope, adminScope: null };
+    const changedMeanwhile = intercepting({
+      [skillsEndpoint]: async () => {
+        await db.downstreamResource.update({
+          where: { id: resource.id },
+          data: { version: { increment: 1 } },
+        });
+        return new Response(null, { status: 503 });
+      },
+    });
+    await expect(refreshResourceCatalog(resource.id, { fetcher: changedMeanwhile })).resolves.toBe(
+      "failed",
+    );
+    expect(await storedCatalog()).toMatchObject({
+      lastFailureCategory: "catalog_unavailable",
+      appApiScope: salesScope,
+    });
+  });
+
+  /** Saves the resource as an administrator does, with these switches. */
+  const save = async (changes: { enabled?: boolean; appDiscoveryEnabled?: boolean }) => {
+    const current = await getResource(resource.id);
+    return updateResource(
+      {
+        id: current.id,
+        name: current.name,
+        authorizationServer: current.authorizationServer,
+        downstreamClientId: current.downstreamClientId,
+        enabled: current.enabled,
+        skillDiscoveryEnabled: current.skillDiscoveryEnabled,
+        agentDiscoveryEnabled: current.agentDiscoveryEnabled,
+        appDiscoveryEnabled: current.appDiscoveryEnabled,
+        scopeIds: current.scopeIds,
+        requestPrefixes: [`${origin}/api`],
+        expectedVersion: current.version,
+        ...changes,
+      },
+      { id: admin.id, email: admin.email, requestId: `app-test-${randomUUID()}` },
+    );
+  };
+
+  it("does not list a resource switched off and on again until its metadata was read again", async () => {
+    served.appApi = api;
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await registries(colleague)).toHaveLength(1);
+
+    // Apps are the only switch, so no refresh runs while it is off: the switch clears the API.
+    const off = await save({ appDiscoveryEnabled: false });
+    expect(off.catalogStatus?.appApi).toBeNull();
+    expect(appApiListLabel(null, false).label).toBe("Off");
+    expect(await storedCatalog()).toMatchObject({
+      appApiEndpoint: null,
+      appApiScope: null,
+      appApiAdminScope: null,
+      appApiGit: null,
+      appApiGitCredentials: null,
+      appApiRefusal: null,
+      appApiCheckedAt: null,
+    });
+    const on = await save({ appDiscoveryEnabled: true });
+    expect(on.catalogStatus?.appApi).toMatchObject({ state: "pending" });
+    expect(appApiListLabel(on.catalogStatus!.appApi, true).label).toBe("Pending");
+    expect(await registries(colleague)).toEqual([]);
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect(await registries(colleague)).toHaveLength(1);
+
+    // Disabling the resource is the same.
+    await save({ enabled: false });
+    await save({ enabled: true });
+    expect(await appApi()).toMatchObject({ state: "pending" });
+    expect(await registries(colleague)).toEqual([]);
+    await expect(refresh()).resolves.toBe("succeeded");
+
+    // Other changes keep it listed.
+    await save({});
+    const renamed = await getResource(resource.id);
+    await updateResource(
+      {
+        id: renamed.id,
+        name: "App catalog test",
+        authorizationServer: renamed.authorizationServer,
+        downstreamClientId: `${renamed.downstreamClientId}-2`,
+        enabled: true,
+        skillDiscoveryEnabled: false,
+        agentDiscoveryEnabled: false,
+        appDiscoveryEnabled: true,
+        scopeIds: renamed.scopeIds,
+        requestPrefixes: [`${origin}/api`],
+        expectedVersion: renamed.version,
+      },
+      { id: admin.id, email: admin.email, requestId: `app-test-${randomUUID()}` },
+    );
+    expect(await registries(colleague)).toHaveLength(1);
+
+    // So does IaC, which writes through the same mutation.
+    const current = await getResource(resource.id);
+    await db.$transaction((tx) =>
+      mutateResource(
+        tx,
+        {
+          action: "update",
+          id: current.id,
+          expectedVersion: current.version,
+          name: current.name,
+          authorizationServer: current.authorizationServer,
+          downstreamClientId: current.downstreamClientId,
+          enabled: true,
+          skillDiscoveryEnabled: false,
+          agentDiscoveryEnabled: false,
+          appDiscoveryEnabled: false,
+          scopeKeys: current.scopeKeys,
+          requestPrefixes: current.requestPrefixes,
+        },
+        { type: "machine", id: by, requestId: `app-test-${randomUUID()}`, source: "weldall_up" },
+      ),
+    );
+    expect((await storedCatalog()).appApiEndpoint).toBeNull();
+    await switches({ appDiscoveryEnabled: true });
+    expect(await registries(colleague)).toEqual([]);
+  });
+
+  it("logs when a resource becomes a registry, names another API or stops naming one", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const info = vi.spyOn(logger, "info");
+    const registryLogs = () =>
+      [...warn.mock.calls, ...info.mock.calls]
+        .map(([fields]) => fields as Record<string, unknown>)
+        .filter((fields) => String(fields.event).startsWith("app_registry."));
+    try {
+      delete served.appApi;
+      await expect(refresh()).resolves.toBe("succeeded");
+      served.appApi = api;
+      warn.mockClear();
+      info.mockClear();
+      await expect(refresh()).resolves.toBe("succeeded");
+      expect(registryLogs()).toEqual([
+        {
+          event: "app_registry.accepted",
+          publisherId: resource.id,
+          publisherKey: key,
+          resourceVersion: expect.any(Number),
+          ...api,
+        },
+      ]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ event: "app_registry.accepted" }),
+        `Resource ${key} is now listed for clients as an app registry`,
+      );
+
+      // Read again unchanged: nothing to log.
+      warn.mockClear();
+      info.mockClear();
+      await expect(refresh()).resolves.toBe("succeeded");
+      expect(registryLogs()).toEqual([]);
+
+      // Another scope, while the skill side fails: logged with what it was before.
+      await switches({ skillDiscoveryEnabled: true });
+      served.skillsEndpoint = true;
+      served.appApi = { ...api, scope: intranetScope, adminScope: null };
+      await expect(refreshResourceCatalog(resource.id, { fetcher: skillsDown })).resolves.toBe(
+        "failed",
+      );
+      expect(registryLogs()).toEqual([
+        expect.objectContaining({
+          event: "app_registry.changed",
+          publisherKey: key,
+          endpoint: api.endpoint,
+          scope: intranetScope,
+          adminScope: null,
+          previous: api,
+        }),
+      ]);
+
+      warn.mockClear();
+      info.mockClear();
+      served.appApi = { ...api, endpoint: "https://elsewhere.example.com/api/apps" };
+      await expect(refresh()).resolves.toBe("succeeded");
+      expect(registryLogs()).toEqual([
+        expect.objectContaining({
+          event: "app_registry.withdrawn",
+          publisherKey: key,
+          refusal: "endpoint_invalid",
+          previous: { ...api, scope: intranetScope, adminScope: null },
+        }),
+      ]);
+    } finally {
+      warn.mockRestore();
+      info.mockRestore();
+    }
   });
 });

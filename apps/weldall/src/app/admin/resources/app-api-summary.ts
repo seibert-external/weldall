@@ -69,3 +69,36 @@ export function appApiSummary(status: AppApiStatus): {
       };
   }
 }
+
+/** Icon and color of each tone, as the resource page and the resource list show them. */
+export const appApiTones = {
+  success: { icon: "success", color: "success" },
+  warning: { icon: "warning", color: "warning" },
+  error: { icon: "error", color: "error" },
+  info: { icon: "info", color: "accent" },
+} as const;
+
+/**
+ * The resource list's "App registry" cell: whether clients are told of the resource as a place to
+ * create apps and publish code to, so an administrator sees at a glance which resources are.
+ * `switchedOn`: the resource and its app discovery are on; a null status then means nothing was
+ * read yet.
+ */
+export function appApiListLabel(
+  status: AppApiStatus | null,
+  switchedOn: boolean,
+): { tone: "success" | "error" | "info"; label: string } {
+  if (!switchedOn) return { tone: "info", label: "Off" };
+  switch (status?.state ?? "pending") {
+    case "accepted":
+      return { tone: "success", label: "Listed for clients" };
+    case "expired":
+      return { tone: "error", label: "Not listed: metadata too old" };
+    case "refused":
+      return { tone: "error", label: "Not listed: refused" };
+    case "absent":
+      return { tone: "info", label: "None" };
+    default:
+      return { tone: "info", label: "Pending" };
+  }
+}

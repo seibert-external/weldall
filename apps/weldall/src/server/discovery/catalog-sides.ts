@@ -287,14 +287,27 @@ export interface CatalogSide<K extends CatalogSideKind, Item> {
   metadata?(metadata: Record<string, unknown>, endpoint: (value: string) => string): CatalogUpdate;
   /**
    * Values the side takes from the metadata apart from its items: stored whenever the metadata was
-   * read with the side switched on, whether the items could be read or not, and never failing the
-   * side (a value that does not pass is stored as refused). `now` is when the refresh started.
+   * read with the side switched on, whatever happens afterwards to the skill side (no skill
+   * endpoint, a skill catalog that cannot be read), to the other sides or to its own items, and
+   * never failing the side (a value that does not pass is stored as refused). `now` is when the
+   * refresh started. When the metadata cannot be read at all, the stored values stay as they were.
    */
   settings?(
     metadata: Record<string, unknown>,
     registration: SideRegistration,
     now: Date,
   ): CatalogUpdate;
+  /** The catalog columns `settingsChanged` reads of the row as it was before. */
+  settingsSelect?: Record<string, true>;
+  /**
+   * Called after `settings` were stored, with the row's columns of `settingsSelect` as they were
+   * before and the update that replaced them: where the side records a change that matters.
+   */
+  settingsChanged?(
+    before: Record<string, unknown>,
+    after: CatalogUpdate,
+    resource: { id: string; key: string; version: number },
+  ): void;
   /** What `metadata` and `settings` store, cleared while the side is switched off. */
   clearedMetadata?: CatalogUpdate;
   /** Removes every stored item of the catalog. */

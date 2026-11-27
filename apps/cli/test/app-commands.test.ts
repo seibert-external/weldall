@@ -262,8 +262,63 @@ describe("weldall app list and confirm", () => {
     mocks.answers = { [FIRST]: [notFound], [SECOND]: [notFound] };
     expect(JSON.parse(await run(["app", "confirm", "app_9", "--json"]))).toMatchObject({
       outcome: "error",
-      error: { code: "not_found", message: expect.stringContaining("first, second") },
+      error: {
+        code: "not_found",
+        message: expect.stringContaining("Registry first (first), Registry second (second)"),
+        details: { registries: "first, second" },
+      },
     });
+  });
+
+  it("stops when a registry cannot answer, instead of confirming at another that claims the id", async () => {
+    mocks.registries = [
+      registryOf("first", FIRST, ["registry:publish"]),
+      registryOf("second", SECOND, ["registry:publish"]),
+    ];
+    mocks.answers = {
+      [FIRST]: [{ status: 500, body: { error: "internal_error" } }],
+      [SECOND]: [{ status: 200, body: { app: visitors } }],
+    };
+    expect(JSON.parse(await run(["app", "confirm", "app_1", "--json"]))).toMatchObject({
+      outcome: "error",
+      error: {
+        code: "internal_error",
+        message: expect.stringContaining("at Registry first (first) failed"),
+        hint: expect.stringContaining("--registry"),
+        details: { registry: "first" },
+      },
+    });
+    expect(mocks.requests.map(({ origin, method, path }) => `${origin} ${method} ${path}`)).toEqual(
+      [`${FIRST} GET /api/apps/app_1`],
+    );
+  });
+
+  it("asks for --registry when several registries claim the id", async () => {
+    mocks.registries = [
+      registryOf("first", FIRST, ["registry:publish"]),
+      registryOf("second", SECOND, ["registry:publish"]),
+    ];
+    mocks.answers = {
+      [FIRST]: [{ status: 200, body: { app: visitors } }],
+      [SECOND]: [{ status: 200, body: { app: visitors } }],
+    };
+    expect(JSON.parse(await run(["app", "confirm", "app_1", "--json"]))).toMatchObject({
+      outcome: "error",
+      error: { code: "registry_ambiguous", details: { registries: "first, second" } },
+    });
+    expect(mocks.requests.some(({ method }) => method === "POST")).toBe(false);
+  });
+
+  it("names every listed registry when the person may use none of several", async () => {
+    mocks.registries = [registryOf("first", FIRST, []), registryOf("second", SECOND, [])];
+    expect(JSON.parse(await run(["app", "list", "--json"]))).toMatchObject({
+      outcome: "error",
+      error: {
+        code: "scope_missing",
+        message: expect.stringContaining("Registry first (first), Registry second (second)"),
+      },
+    });
+    expect(mocks.requests).toEqual([]);
   });
 
   it("reports someone else's or an unknown app as JSON error with exit code 1", async () => {

@@ -361,6 +361,78 @@ describe("publish interface", () => {
     await expect(api.readStatus("app1")).rejects.toMatchObject({ code: "registry_unsupported" });
   });
 
+  it("accepts only clean relative protected paths: `.` would replace the whole local side", async () => {
+    const statusWith = (protectedPaths: unknown) => ({
+      status: 200,
+      body: {
+        app: { id: "app1", name: "x" },
+        pullRequest: null,
+        links: { preview: null, live: null },
+        publish: { protectedPaths, commitIdentity: null },
+      },
+    });
+    const good = [".github/workflows", "weldall-app.yml", "a/b.c/d"];
+    const bad = [
+      ["."],
+      [".."],
+      [""],
+      ["./x"],
+      ["a/../b"],
+      ["a//b"],
+      ["a/"],
+      ["/etc"],
+      ["a\0b"],
+      ["x".repeat(501)],
+      Array.from({ length: 51 }, (_, index) => `p${index}`),
+    ];
+    const answers = [statusWith(good), ...bad.map(statusWith)];
+    const api = registryApi(async () => answers.shift()!);
+    expect((await api.readStatus("app1")).publish.protectedPaths).toEqual(good);
+    for (const paths of bad)
+      await expect(
+        api.readStatus("app1"),
+        JSON.stringify(paths).slice(0, 40),
+      ).rejects.toMatchObject({
+        code: "registry_unsupported",
+        message: expect.stringContaining("publish.protectedPaths"),
+      });
+  });
+
+  it("refuses a pull request number or link the folder could not record, when the answer is read", async () => {
+    const opened = (pullRequest: Record<string, unknown>) => ({
+      status: 200,
+      body: {
+        created: true,
+        pullRequest: {
+          number: 7,
+          webUrl: "https://github.example/acme/app/pull/7",
+          headBranch: "weldall/publish-1",
+          ...pullRequest,
+        },
+      },
+    });
+    const bad = [
+      { number: 0 },
+      { number: -3 },
+      { number: 12_345_678_901 },
+      { webUrl: "http://github.example/acme/app/pull/7" },
+      { webUrl: "https://user:secret@github.example/x" },
+      { webUrl: "https://github.example/\nx" },
+    ];
+    const answers = [opened({}), ...bad.map(opened)];
+    const api = registryApi(async () => answers.shift()!);
+    const input = { head: "weldall/publish-1", title: "t", body: "" };
+    expect((await api.openPullRequest("app1", input)).pullRequest.number).toBe(7);
+    for (const pullRequest of bad)
+      await expect(
+        api.openPullRequest("app1", input),
+        JSON.stringify(pullRequest),
+      ).rejects.toMatchObject({
+        code: "registry_unsupported",
+        message: expect.stringMatching(/unexpected answer \(pullRequest\.(number|webUrl)\)/),
+      });
+  });
+
   it("gives app creation more time than the usual request, and reports a timeout as one", async () => {
     const timeouts: number[] = [];
     // What the direct client throws when the request's deadline passes (see registry-access.test.ts

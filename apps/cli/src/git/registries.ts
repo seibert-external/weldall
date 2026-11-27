@@ -340,6 +340,9 @@ function unfit(registry: Registry, need: RegistryNeed): { code: string; message:
   return null;
 }
 
+/** Whether `registry` offers what `need` takes (permissions not checked here). */
+export const fitsNeed = (registry: Registry, need: RegistryNeed) => unfit(registry, need) === null;
+
 /** Whether the person holds the permission `need` takes at `registry`, as Weldall lists it. */
 export const allowedFor = (registry: Registry, need: RegistryNeed) =>
   needsAdmin(need)
@@ -354,17 +357,81 @@ const notFitting = (reasons: ReadonlyArray<{ code: string; message: string }>) =
 const ADMINISTRATION_HINT =
   "Apps of this registry cannot be administered through Weldall; ask your Weldall administrator.";
 
+/** How many registries Weldall lists, including those the CLI refuses to use. */
+export const listedCount = (found: FoundRegistries) =>
+  found.registries.length + found.rejected.length;
+
+/** One registry as a line of a choice: key, name, origin and what the person may do there. */
+function choiceLine(registry: Registry, need: RegistryNeed) {
+  const reason = unfit(registry, need);
+  const state = reason
+    ? reason.code === "administration_not_offered"
+      ? "it does not offer administration of its apps"
+      : "it does not publish changes yet"
+    : allowedFor(registry, need)
+      ? `you may use it for ${activity(need)}`
+      : `you lack its permission ${printable(scopeFor(registry, need)!)}`;
+  return `${printable(registry.key, 200)}: ${printable(registry.name, 200)} at ${registry.origin} (${state})`;
+}
+
 /**
- * Picks the registry for `need`: the one `key` names, or else the only one that fits and that the
- * person may use for it. Never picks one of several: refuses with a clear reason when none or
- * several fit, or when the person lacks the permission.
+ * `registry_ambiguous` when Weldall lists more than one registry and none was named: every listed
+ * registry with its key, name, origin and whether the person may use it, and the ones the CLI
+ * refuses with their reason. The CLI never chooses among several on its own: a resource that
+ * announces itself as a registry with a widely held permission would otherwise receive the new
+ * apps of everyone who lacks the permission of the organisation's real registry.
+ */
+export function registryChoiceRequired(found: FoundRegistries, need: RegistryNeed) {
+  const lines = [
+    ...found.registries.map((registry) => choiceLine(registry, need)),
+    ...found.rejected.map(
+      ({ key, reason }) =>
+        `${printable(key, 120)}: not used, it does not match its registration (${reason})`,
+    ),
+  ];
+  return new PublishError(
+    "registry_ambiguous",
+    `Weldall lists ${listedCount(found)} registries for apps, so name the one to use with --registry: ${lines.join("; ")}.`,
+    {
+      hint: "Add `--registry <key>`; ask the person which registry the app belongs to. Where you lack a registry's permission, ask your Weldall administrator for it.",
+      details: { registries: found.registries.map(({ key }) => key).join(", ") },
+    },
+  );
+}
+
+/** `scope_missing` when the person may use none of `registries` for `need`. */
+export function permissionMissingEverywhere(registries: readonly Registry[], need: RegistryNeed) {
+  if (registries.length === 1) return permissionMissing(registries[0]!, need);
+  return new PublishError(
+    "scope_missing",
+    `You lack the permission for ${activity(need)} at every registry Weldall lists (${registries.map(describeRegistry).join(", ")}).`,
+    {
+      hint: `Ask your Weldall administrator for one of: ${registries.map((candidate) => printable(scopeFor(candidate, need)!)).join(", ")}.`,
+    },
+  );
+}
+
+function permissionMissing(registry: Registry, need: RegistryNeed) {
+  const missing = printable(scopeFor(registry, need)!);
+  return new PublishError(
+    "scope_missing",
+    `You lack the permission ${missing} for ${activity(need)} at ${describeRegistry(registry)}.`,
+    { hint: `Ask your Weldall administrator for ${missing}.` },
+  );
+}
+
+/**
+ * Picks the registry for `need`: the one `key` names, or else the only registry Weldall lists
+ * (counting the ones the CLI refuses), when it fits and the person may use it. Never picks one of
+ * several, not even the only one the person may use: with more than one listed, `--registry` is
+ * required and the error lists them all (`registryChoiceRequired`). Refuses with a clear reason
+ * when the named or only one does not fit or the person lacks its permission.
  */
 export function selectRegistry(
   found: FoundRegistries,
   { key, need }: { key?: string | undefined; need: RegistryNeed },
 ): Registry {
   const { registries } = found;
-  const fitting = registries.filter((registry) => unfit(registry, need) === null);
   const available = registries.map(({ key: name }) => printable(name)).join(", ");
   let registry: Registry;
   if (key !== undefined) {
@@ -395,29 +462,12 @@ export function selectRegistry(
         }${rejectedNote(found)}`,
         { hint: ADMIN_HINT },
       );
-    if (!fitting.length) throw notFitting(registries.map((candidate) => unfit(candidate, need)!));
-    const allowed = fitting.filter((candidate) => allowedFor(candidate, need));
-    if (allowed.length === 1) return allowed[0]!;
-    if (allowed.length > 1)
-      throw ambiguousRegistries("Several registries for apps are set up in Weldall", allowed);
-    registry = fitting[0]!;
-    if (fitting.length > 1)
-      throw new PublishError(
-        "scope_missing",
-        `You lack the permission for ${activity(need)} at every registry set up in Weldall (${fitting.map(describeRegistry).join(", ")}).`,
-        {
-          hint: `Ask your Weldall administrator for one of: ${fitting.map((candidate) => printable(scopeFor(candidate, need)!)).join(", ")}.`,
-        },
-      );
+    if (listedCount(found) > 1) throw registryChoiceRequired(found, need);
+    registry = registries[0]!;
+    const reason = unfit(registry, need);
+    if (reason) throw notFitting([reason]);
   }
-  if (!allowedFor(registry, need)) {
-    const missing = printable(scopeFor(registry, need)!);
-    throw new PublishError(
-      "scope_missing",
-      `You lack the permission ${missing} for ${activity(need)} at ${describeRegistry(registry)}.`,
-      { hint: `Ask your Weldall administrator for ${missing}.` },
-    );
-  }
+  if (!allowedFor(registry, need)) throw permissionMissing(registry, need);
   return registry;
 }
 

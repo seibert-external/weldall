@@ -65,9 +65,42 @@ export class Folder {
     readonly configEntries: readonly ConfigEntry[] = [],
   ) {}
 
-  /** Directory for publish's own files inside `.git`. */
-  get stateDirectory() {
+  /** Where publish keeps its own files: `weldall` inside the git directory. */
+  get stateDirectoryPath() {
     return join(this.gitDirectory, "weldall");
+  }
+
+  /**
+   * The state directory, checked to be a real directory (never a link: the lock, the conflict
+   * resolution and the private index would otherwise be written and removed wherever it points).
+   * `create` makes it when missing; without it a missing directory is null.
+   */
+  async stateDirectory(create: true): Promise<string>;
+  async stateDirectory(create: false): Promise<string | null>;
+  async stateDirectory(create: boolean): Promise<string | null> {
+    const path = this.stateDirectoryPath;
+    let stats = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (!stats) {
+      if (!create) return null;
+      // Not recursive: the git directory exists, and nothing below it is created through a link.
+      await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+      stats = await lstat(path);
+    }
+    if (!stats.isDirectory())
+      throw new PublishError(
+        "state_directory_unsafe",
+        `${path} is not a plain folder (it is a link or another kind of file). Weldall keeps its publish lock and conflict resolutions there and does not write through a link, so it stops here. Nothing was published and nothing in the folder changed. If you did not create it yourself, something working in this folder (for example an AI agent) did.`,
+        {
+          hint: `Remove ${path} (only the link, not what it points to), then try again.`,
+          details: { path },
+        },
+      );
+    return path;
   }
 
   private async identity(): Promise<NodeJS.ProcessEnv> {
@@ -82,8 +115,7 @@ export class Folder {
    * read the working tree or name objects only by hash.
    */
   private async withIndex<T>(work: (env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
-    await mkdir(this.stateDirectory, { recursive: true });
-    const index = join(this.stateDirectory, `index-${randomBytes(6).toString("hex")}`);
+    const index = join(await this.stateDirectory(true), `index-${randomBytes(6).toString("hex")}`);
     try {
       return await work({ GIT_INDEX_FILE: index });
     } finally {
