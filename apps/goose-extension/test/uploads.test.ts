@@ -86,13 +86,21 @@ describe("uploads of attached files", () => {
     expect(result.isError).not.toBe(true);
   });
 
-  it("reads a Windows-written list and resolves links among its entries", async () => {
-    const link = path.join(dir, "attached-link.pdf");
-    fs.symlinkSync(attached, link);
-    fs.writeFileSync(list, `\uFEFF${link}\r\n\r\nrelative.pdf\r\n`);
+  it("reads a Windows-written list", async () => {
+    fs.writeFileSync(list, `\uFEFF${attached}\r\n\r\nrelative.pdf\r\n`);
     const { result, cli } = await send({ file: attached });
     expect(result.isError).not.toBe(true);
     expect(cli.run.mock.calls[0]?.[0]).toContain(`--upload-file=${attached}`);
+  });
+
+  it("compares list entries as written, so a listed copy turned into a link does not match", async () => {
+    const secret = path.join(dir, "id_ed25519");
+    fs.writeFileSync(secret, "secret");
+    const copy = path.join(dir, "copy.pdf");
+    fs.symlinkSync(secret, copy);
+    attach(copy);
+    await refused({ file: copy }, "upload_not_attached");
+    await refused({ file: secret }, "upload_not_attached");
   });
 
   it("refuses uploads when the host names no attached list", async () => {

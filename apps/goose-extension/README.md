@@ -117,11 +117,12 @@ existing output limits. Binary downloads and saving responses to local files rem
   allowed.
 
 Only files the user attached to the chat can be uploaded. The host sets
-`WELDALL_GOOSE_ATTACHED_LIST` to the path of a file it writes, with one absolute path per line.
-The extension reads that list on every call. A path to upload must resolve, links included, to
-a regular file of at most 100 MB whose resolved path equals a resolved entry of the list; the
-CLI receives the resolved path. Otherwise `send` refuses before the CLI runs. Without the
-variable, as in stock Goose, every upload is refused.
+`WELDALL_GOOSE_ATTACHED_LIST` to the path of a file it writes, with one resolved absolute path
+per line. The extension reads that list on every call. A path to upload must resolve, links
+included, to a regular file of at most 100 MB whose resolved path equals a line of the list as
+written; list lines are not resolved again, so a listed file later replaced by a link does not
+match. The CLI receives the resolved path. Otherwise `send` refuses before the CLI runs. Without
+the variable, as in stock Goose, every upload is refused.
 
 ## Request retries and managed connections
 

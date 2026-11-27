@@ -365,7 +365,7 @@ async function preflightConnection(
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 // The host (the Weldall desktop client) writes the files the user attached to the chat,
-// one absolute path per line, and names that list in this variable. Read on every call,
+// one resolved absolute path per line, and names that list in this variable. Read on every call,
 // so a file attached mid-session is allowed and one removed is not.
 export const ATTACHED_LIST_ENV = "WELDALL_GOOSE_ATTACHED_LIST";
 
@@ -391,12 +391,10 @@ export function attachedFile(value: string): string {
   } catch {
     throw new ExtensionError("upload_not_attached");
   }
-  const attached = new Set(
-    entries
-      .filter((entry) => path.isAbsolute(entry))
-      .map(resolved)
-      .filter(Boolean),
-  );
+  // Entries are compared as written, not resolved again: the host writes each one
+  // already resolved, and a sandboxed command that can write the attached copy could
+  // otherwise turn it into a link to a secret that would then match itself.
+  const attached = new Set(entries.filter((entry) => path.isAbsolute(entry)));
   const real = resolved(value);
   if (real === undefined || !attached.has(real)) throw new ExtensionError("upload_not_attached");
   const stat = fs.statSync(real, { throwIfNoEntry: false });
