@@ -230,12 +230,14 @@ Das Log der neuen Revision zeigt nur die neuen Migrationen, dann die Initialisie
 
 Das vorige Image allein zu starten, genügt nicht. Die ältere Version startet ohne Warnung und meldet `No pending migrations to apply.`, während die Datenbank das Schema der neueren Version behält. Die Folgen erklärt [Docker-Images](../docker/#upgrades-und-rollbacks).
 
-Stelle das Backup aus Schritt 9 wieder her und starte dann das vorige Image:
+Starte zuerst das vorige Image, stelle dann das Backup aus Schritt 9 wieder her und starte den Dienst danach neu. In umgekehrter Reihenfolge kann Cloud Run nach dem Restore die neuere Revision noch einmal starten, und deren Start wendet die neuen Migrationen erneut auf die wiederhergestellte Datenbank an. Das vorige Image kann das nicht.
 
 ```sh
-gcloud sql backups restore BACKUP_ID --restore-instance weldall-db --backup-instance weldall-db
 gcloud run deploy weldall --region "$REGION" \
   --image "docker.io/seibertgroup/weldall:${WELDALL_VERSION}"
+gcloud sql backups restore BACKUP_ID --restore-instance weldall-db --backup-instance weldall-db
+# Neu starten, damit der Dienst sich mit der wiederhergestellten Datenbank verbindet
+gcloud run services update weldall --region "$REGION" --update-labels "restarted=$(date +%s)"
 ```
 
 - Die Wiederherstellung ersetzt die gesamte Instanz durch den Stand des Backups. Anmeldungen, Änderungen in der Administration und Audit-Einträge nach dem Backup gehen verloren.
