@@ -36,6 +36,10 @@ const publicSectionDesigns = {
     light: toPair(corporateGradients.teal.light),
     dark: toPair(corporateGradients.teal.dark),
   },
+  apps: {
+    light: toPair(corporateGradients.lilac.light),
+    dark: toPair(corporateGradients.lilac.dark),
+  },
   statistics: {
     light: toPair(corporateGradients.lake.light),
     dark: toPair(corporateGradients.lake.dark),
@@ -57,12 +61,15 @@ export function DirectoryUserMenu({
   isAdmin,
   canViewStatistics,
   showAgents = false,
+  showApps = false,
 }: {
   email: string;
   isAdmin: boolean;
   canViewStatistics: boolean;
   /** A resource publishes shared agents (`agentsOffered`): the Agents tab is shown. */
   showAgents?: boolean;
+  /** A resource publishes apps (`appsOffered`): the Apps tab is shown. */
+  showApps?: boolean;
 }) {
   const pathname = usePathname();
   const { mode } = useThemeMode();
@@ -197,6 +204,19 @@ export function DirectoryUserMenu({
             setItemRef={setItemRef}
           />
         ) : null}
+        {showApps ? (
+          <DirectoryNavLink
+            href="/apps"
+            label="Apps"
+            icon={<AppIcon />}
+            section="apps"
+            isActive={activeSection === "apps"}
+            isHighlighted={highlightedSection === "apps"}
+            gradient={publicSectionDesigns.apps[mode]}
+            onPreview={setHoveredSection}
+            setItemRef={setItemRef}
+          />
+        ) : null}
         <DirectoryNavLink
           href="/resources"
           label="Resources"
@@ -280,6 +300,8 @@ function getActiveSection(pathname: string): SectionKey | null {
   }
   if (pathname === "/agents" || pathname.startsWith("/agents/") || pathname.startsWith("/agent/"))
     return "agents";
+  if (pathname === "/apps" || pathname.startsWith("/apps/") || pathname.startsWith("/app/"))
+    return "apps";
   if (pathname === "/resources" || pathname.startsWith("/resources/")) return "resources";
   if (pathname === "/scopes" || pathname.startsWith("/scopes/")) return "scopes";
   if (pathname === "/statistics" || pathname.startsWith("/statistics/")) return "statistics";
@@ -385,6 +407,16 @@ function AgentIcon(props: IconProps) {
       <path d="M6 6h12v9H6z" />
       <path d="M9.5 10h.01M14.5 10h.01" />
       <path d="M4 19c1.5-2 4.5-3 8-3s6.5 1 8 3" />
+    </IconBase>
+  );
+}
+
+function AppIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 5h16v14H4z" />
+      <path d="M4 9h16" />
+      <path d="M7 7h.01M10 7h.01" />
     </IconBase>
   );
 }

@@ -131,6 +131,8 @@ const resourceSnapshot = z
     skillDiscoveryEnabled: z.boolean(),
     // Absent in events written before agent discovery existed.
     agentDiscoveryEnabled: z.boolean().optional(),
+    // Absent in events written before app discovery existed.
+    appDiscoveryEnabled: z.boolean().optional(),
     ownerId: z.string().min(1).max(320),
     version: z.number().int().positive(),
   })

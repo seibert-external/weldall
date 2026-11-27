@@ -444,6 +444,7 @@ export async function loadPlanningState({
         skillDiscoveryEnabled: item.skillDiscoveryEnabled,
         // Only when on, as in the canonical manifest (`contracts.ts`).
         ...(item.agentDiscoveryEnabled ? { agentDiscoveryEnabled: true as const } : {}),
+        ...(item.appDiscoveryEnabled ? { appDiscoveryEnabled: true as const } : {}),
         requestPrefixes: item.requestPrefixes.map((entry) => entry.urlPrefix).sort(),
         scopes: item.scopes.map((entry) => entry.scope.key).sort(),
       },

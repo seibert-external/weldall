@@ -4,6 +4,7 @@ import { isAdminEmail } from "@/server/admin/service";
 import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { agentsOffered } from "@/server/agents/service";
+import { appsOffered } from "@/server/apps/service";
 import { canViewStatistics } from "@/server/statistics/access";
 import {
   STATISTICS_INTERVAL_COOKIE,
@@ -27,10 +28,11 @@ export default async function StatisticsPage({
   ]);
   if (!session?.user.email) redirect("/login");
 
-  const [isAdmin, canSeeStatistics, showAgents, params, cookieStore] = await Promise.all([
+  const [isAdmin, canSeeStatistics, showAgents, showApps, params, cookieStore] = await Promise.all([
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
     agentsOffered(),
+    appsOffered(),
     searchParams,
     cookies(),
   ]);
@@ -49,6 +51,7 @@ export default async function StatisticsPage({
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
           showAgents={showAgents}
+          showApps={showApps}
         />
       </DirectoryHeader>
       <main className="public-page-main">

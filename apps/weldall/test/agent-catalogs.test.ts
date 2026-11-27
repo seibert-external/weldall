@@ -3,7 +3,7 @@ import { decodeJwt, decodeProtectedHeader } from "jose";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@weldall/db";
 import { generateEs256KeyPair } from "@weldall/sdk";
-import { agentReloadFailureDetail } from "../src/app/admin/resources/agent-reload.js";
+import { sideReloadFailureDetail } from "../src/app/admin/resources/catalog-reload.js";
 import { getResource, updateResource } from "../src/server/admin/service.js";
 import { parseAgentCatalogPage } from "../src/server/agents/discovery.js";
 import {
@@ -111,6 +111,8 @@ const page = (agents: unknown[], nextCursor?: string) => ({
   ...(nextCursor === undefined ? {} : { nextCursor }),
 });
 const refresh = () => refreshResourceCatalog(resource.id, { fetcher });
+const agentReloadFailureDetail = (dto: Parameters<typeof sideReloadFailureDetail>[0]) =>
+  sideReloadFailureDetail(dto, ["agents"]);
 const storedAgents = () =>
   db.discoveredAgent.findMany({
     where: { catalog: { resourceId: resource.id } },

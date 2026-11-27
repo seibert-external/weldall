@@ -5,6 +5,7 @@ import { auth } from "@/server/auth/auth";
 import { getEffectiveCliLogoUrls } from "@/server/branding";
 import { listDirectoryResources } from "@/server/directory/search";
 import { agentsOffered } from "@/server/agents/service";
+import { appsOffered } from "@/server/apps/service";
 import { canViewStatistics } from "@/server/statistics/access";
 import { DirectoryHeader } from "../_components/directory-header";
 import { ResourceDirectoryTable } from "../_components/directory-table";
@@ -23,11 +24,12 @@ export default async function ResourcesPage({
   ]);
   if (!session?.user.email) redirect("/login");
 
-  const [resources, isAdmin, canSeeStatistics, showAgents, params] = await Promise.all([
+  const [resources, isAdmin, canSeeStatistics, showAgents, showApps, params] = await Promise.all([
     listDirectoryResources(),
     isAdminEmail(session.user.email),
     canViewStatistics(session.user.email),
     agentsOffered(),
+    appsOffered(),
     searchParams,
   ]);
   const selectedKey = typeof params.resource === "string" ? params.resource : undefined;
@@ -40,6 +42,7 @@ export default async function ResourcesPage({
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
           showAgents={showAgents}
+          showApps={showApps}
         />
       </DirectoryHeader>
       <main className="public-page-main">

@@ -302,6 +302,7 @@ function validatePrimitive({
       "enabled",
       "skillDiscoveryEnabled",
       "agentDiscoveryEnabled",
+      "appDiscoveryEnabled",
       "requestPrefixes",
       "scopes",
     ],
@@ -326,6 +327,7 @@ function validatePrimitive({
       ![
         "skillDiscoveryEnabled",
         "agentDiscoveryEnabled",
+        "appDiscoveryEnabled",
         "publicKeys",
         "meta",
         "lastUpdatedAt",
@@ -417,6 +419,9 @@ function validatePrimitive({
       typeof object.agentDiscoveryEnabled !== "boolean"
     )
       throw new CliError(`${section}.agentDiscoveryEnabled must be boolean`);
+    // The same for app discovery.
+    if (object.appDiscoveryEnabled !== undefined && typeof object.appDiscoveryEnabled !== "boolean")
+      throw new CliError(`${section}.appDiscoveryEnabled must be boolean`);
     if (
       canonicalHttpsUrl(
         validateText({ field: "resourceIdentifier", max: 2000 }),
@@ -654,13 +659,17 @@ export function canonicalServerManifest(manifest: Record<string, any>) {
         ]),
     ),
     scopes: canonicalRecords("scopes", (value) => value),
-    resources: canonicalRecords("resources", ({ agentDiscoveryEnabled, ...value }) => ({
-      ...value,
-      ...(agentDiscoveryEnabled ? { agentDiscoveryEnabled: true } : {}),
-      skillDiscoveryEnabled: value.skillDiscoveryEnabled ?? false,
-      requestPrefixes: canonicalSet(value.requestPrefixes),
-      scopes: canonicalSet(value.scopes),
-    })),
+    resources: canonicalRecords(
+      "resources",
+      ({ agentDiscoveryEnabled, appDiscoveryEnabled, ...value }) => ({
+        ...value,
+        ...(agentDiscoveryEnabled ? { agentDiscoveryEnabled: true } : {}),
+        ...(appDiscoveryEnabled ? { appDiscoveryEnabled: true } : {}),
+        skillDiscoveryEnabled: value.skillDiscoveryEnabled ?? false,
+        requestPrefixes: canonicalSet(value.requestPrefixes),
+        scopes: canonicalSet(value.scopes),
+      }),
+    ),
     skills: canonicalRecords("skills", ({ mcpDependencies, ...value }) => ({
       ...value,
       ...(mcpDependencies?.length

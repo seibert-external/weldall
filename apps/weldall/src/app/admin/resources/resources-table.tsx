@@ -170,6 +170,29 @@ export function ResourcesTable() {
           );
         },
       },
+      {
+        // Read with the skills and agents, but fails on its own like the agent side.
+        accessorKey: "appDiscoveryEnabled",
+        header: "App discovery",
+        size: 240,
+        minSize: 140,
+        maxSize: 240,
+        enableSorting: false,
+        cell: ({ row, getValue }) => {
+          const state = getValue<boolean>()
+            ? (row.original.catalogStatus?.apps?.state ?? "pending")
+            : "disabled";
+          const status = discoveryStatuses[state];
+          return (
+            <HStack gap={2} vAlign="center">
+              <Text type="body">
+                {status.label} ({row.original.catalogStatus?.appCount ?? 0})
+              </Text>
+              <Icon icon={status.icon} color={status.color} size="sm" />
+            </HStack>
+          );
+        },
+      },
     ],
     [],
   );

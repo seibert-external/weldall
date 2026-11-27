@@ -1083,7 +1083,11 @@ describe("IaC database transaction contracts", () => {
       name: `${prefix}-replacement`,
       issuer: "https://weldall.example.com",
     };
-    const resource = (identifier: string, agentDiscoveryEnabled?: boolean) =>
+    const resource = (
+      identifier: string,
+      agentDiscoveryEnabled?: boolean,
+      appDiscoveryEnabled?: boolean,
+    ) =>
       parseDesiredState({
         apiVersion: "weldall.dev/v1",
         workspace,
@@ -1097,6 +1101,7 @@ describe("IaC database transaction contracts", () => {
             enabled: true,
             skillDiscoveryEnabled: false,
             ...(agentDiscoveryEnabled === undefined ? {} : { agentDiscoveryEnabled }),
+            ...(appDiscoveryEnabled === undefined ? {} : { appDiscoveryEnabled }),
             requestPrefixes: [identifier],
             scopes: [],
           },
@@ -1146,6 +1151,28 @@ describe("IaC database transaction contracts", () => {
     expect(await agentState()).toMatchObject({
       agentDiscoveryEnabled: false,
       version: switchedOn.version + 1,
+    });
+
+    // App discovery the same way, independent of agent discovery.
+    const appState = () =>
+      db.downstreamResource.findUniqueOrThrow({
+        where: { key: `${prefix}-api` },
+        select: { appDiscoveryEnabled: true, agentDiscoveryEnabled: true, version: true },
+      });
+    const off = await appState();
+    expect(off).toMatchObject({ appDiscoveryEnabled: false });
+    await apply(resource(newIdentifier, undefined, true));
+    expect(await appState()).toMatchObject({
+      appDiscoveryEnabled: true,
+      agentDiscoveryEnabled: false,
+      version: off.version + 1,
+    });
+    const appReplan = await planIac(resource(newIdentifier, false, true));
+    expect(appReplan.actions.filter((action) => action.action !== "noop")).toEqual([]);
+    await apply(resource(newIdentifier));
+    expect(await appState()).toMatchObject({
+      appDiscoveryEnabled: false,
+      version: off.version + 2,
     });
   });
 

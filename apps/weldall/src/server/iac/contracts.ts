@@ -138,6 +138,7 @@ export const desiredStateSchema = z
             enabled: z.boolean(),
             skillDiscoveryEnabled: z.boolean().default(false),
             agentDiscoveryEnabled: z.boolean().optional(),
+            appDiscoveryEnabled: z.boolean().optional(),
             requestPrefixes: z
               .array(canonicalUrl(normalizeRequestPrefix))
               .min(1)
@@ -146,14 +147,14 @@ export const desiredStateSchema = z
             scopes: stringSet,
           })
           .strict()
-          // The canonical form carries the field only when it is on. A default would change the
-          // digest of every manifest without it, and clients that predate agent discovery compute
-          // that digest themselves.
-          .transform(({ agentDiscoveryEnabled, ...resource }) =>
-            agentDiscoveryEnabled
-              ? { ...resource, agentDiscoveryEnabled: true as const }
-              : resource,
-          ),
+          // The canonical form carries these fields only when they are on. A default would change
+          // the digest of every manifest without them, and clients that predate agent or app
+          // discovery compute that digest themselves.
+          .transform(({ agentDiscoveryEnabled, appDiscoveryEnabled, ...resource }) => ({
+            ...resource,
+            ...(agentDiscoveryEnabled ? { agentDiscoveryEnabled: true as const } : {}),
+            ...(appDiscoveryEnabled ? { appDiscoveryEnabled: true as const } : {}),
+          })),
       )
       .default({}),
     skills: z

@@ -69,6 +69,7 @@ import {
   updateGroupProvider,
 } from "../group-providers/service";
 import { listDiscoveredAgents } from "../agents/service";
+import { listDiscoveredApps } from "../apps/service";
 import { refreshResourceCatalog } from "../skills/catalogs";
 import { errorForLog, logger } from "../observability/logger";
 import {
@@ -311,6 +312,11 @@ export const appRouter = trpc.router({
         .input(z.object({ ...pageInput, source: z.string().min(1).max(191).optional() }).strict())
         .query(({ input }) => listDiscoveredAgents(input)),
     }),
+    apps: trpc.router({
+      list: adminProcedure
+        .input(z.object({ ...pageInput, source: z.string().min(1).max(191).optional() }).strict())
+        .query(({ input }) => listDiscoveredApps(input)),
+    }),
     users: trpc.router({
       list: adminProcedure
         .input(
@@ -502,6 +508,7 @@ export const appRouter = trpc.router({
               enabled: z.boolean(),
               skillDiscoveryEnabled: z.boolean(),
               agentDiscoveryEnabled: z.boolean(),
+              appDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
             })
@@ -519,6 +526,7 @@ export const appRouter = trpc.router({
               enabled: z.boolean(),
               skillDiscoveryEnabled: z.boolean(),
               agentDiscoveryEnabled: z.boolean(),
+              appDiscoveryEnabled: z.boolean(),
               scopeIds: z.array(z.string().min(1).max(191)).max(100),
               requestPrefixes: z.array(z.string().max(2_000)).min(1).max(100),
               expectedVersion: z.number().int().positive(),

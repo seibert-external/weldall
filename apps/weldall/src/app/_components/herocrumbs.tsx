@@ -41,7 +41,8 @@ type AdminRoute =
   | "login-providers"
   | "users"
   | "skills"
-  | "agents";
+  | "agents"
+  | "apps";
 export const adminSectionDesigns = {
   connectors: {
     title: "Connectors",
@@ -113,6 +114,11 @@ export const adminSectionDesigns = {
     light: toPair(corporateGradients.pineApple.light),
     dark: toPair(corporateGradients.pineApple.dark),
   },
+  apps: {
+    title: "Apps",
+    light: toPair(corporateGradients.pineApple.light),
+    dark: toPair(corporateGradients.pineApple.dark),
+  },
 } as const;
 
 const ActionsContext = createContext<HTMLDivElement | null>(null);
@@ -136,6 +142,7 @@ export function AdminPageChrome({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/admin/users")) return "users";
     if (pathname.startsWith("/admin/skills")) return "skills";
     if (pathname.startsWith("/admin/agents")) return "agents";
+    if (pathname.startsWith("/admin/apps")) return "apps";
     return "scopes";
   }, [pathname]);
 

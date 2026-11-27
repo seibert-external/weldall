@@ -18,6 +18,7 @@ import { refreshDueCatalogs } from "@/server/skills/catalogs";
 import { getSkillRetrievalSummaryBySlug } from "@/server/skills/retrieval-metrics";
 import { getVisibleSkill } from "@/server/skills/service";
 import { agentsOffered } from "@/server/agents/service";
+import { appsOffered } from "@/server/apps/service";
 import { canViewStatistics } from "@/server/statistics/access";
 
 export const dynamic = "force-dynamic";
@@ -33,13 +34,15 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
 
   after(() => refreshDueCatalogs());
   const retrievalSummaryPromise = getSkillRetrievalSummaryBySlug(slug).catch(() => null);
-  const [skill, isAdmin, canSeeStatistics, showAgents, retrievalSummary] = await Promise.all([
-    getVisibleSkill(session.user.email, slug),
-    isAdminEmail(session.user.email),
-    canViewStatistics(session.user.email),
-    agentsOffered(),
-    retrievalSummaryPromise,
-  ]);
+  const [skill, isAdmin, canSeeStatistics, showAgents, showApps, retrievalSummary] =
+    await Promise.all([
+      getVisibleSkill(session.user.email, slug),
+      isAdminEmail(session.user.email),
+      canViewStatistics(session.user.email),
+      agentsOffered(),
+      appsOffered(),
+      retrievalSummaryPromise,
+    ]);
   if (!skill) notFound();
 
   return (
@@ -50,6 +53,7 @@ export default async function SkillPage({ params }: { params: Promise<{ slug: st
           isAdmin={isAdmin}
           canViewStatistics={canSeeStatistics}
           showAgents={showAgents}
+          showApps={showApps}
         />
       </DirectoryHeader>
       <main className="skill-detail-main">
