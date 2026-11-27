@@ -21,6 +21,7 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
 import { listing } from "@/lib/listing";
+import { appApiSummary } from "./app-api-summary";
 import { failedSides, reloadedKinds, sideReloadFailureDetail } from "./catalog-reload";
 
 const catalogStatuses = {
@@ -30,6 +31,13 @@ const catalogStatuses = {
   expired: { icon: "error", color: "error", label: "Expired" },
   pending: { icon: "info", color: "accent", label: "Pending" },
   disabled: { icon: "info", color: "accent", label: "Disabled" },
+} as const;
+
+const appApiTones = {
+  success: { icon: "success", color: "success" },
+  warning: { icon: "warning", color: "warning" },
+  error: { icon: "error", color: "error" },
+  info: { icon: "info", color: "accent" },
 } as const;
 
 const formatTime = (value: string | null, missing = "never") =>
@@ -353,6 +361,26 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 </Fragment>
               );
             })}
+            {current.catalogStatus.appApi
+              ? (() => {
+                  const summary = appApiSummary(current.catalogStatus.appApi);
+                  return (
+                    <>
+                      <HStack gap={2} vAlign="center">
+                        <Icon
+                          icon={appApiTones[summary.tone].icon}
+                          color={appApiTones[summary.tone].color}
+                          size="sm"
+                        />
+                        <Text type="body">{summary.title}</Text>
+                      </HStack>
+                      <Text color="secondary" type="body">
+                        {summary.detail}
+                      </Text>
+                    </>
+                  );
+                })()
+              : null}
           </div>
         ) : null}
         {scopeOptionsQuery.error ? (

@@ -1,4 +1,10 @@
-import { db, Prisma, SUBJECT_SCOPES_CHECK_SCOPE_KEY } from "@weldall/db";
+import {
+  APP_HOST_SCOPE_KEY,
+  db,
+  LOGIN_SCOPE_KEY,
+  Prisma,
+  SUBJECT_SCOPES_CHECK_SCOPE_KEY,
+} from "@weldall/db";
 import type { ResourceRegistryEntry } from "@weldall/sdk";
 import { z } from "zod";
 import { cacheProviderAvatar } from "../avatars";
@@ -212,6 +218,32 @@ export class SubjectScopeCheckError extends Error {
   }
 }
 
+/**
+ * Scopes a machine may check for a person: those supported by one of its enabled allowed
+ * resources. An app host's machine client (one holding `weldall:app-host`, e.g. the registry's)
+ * with at least one enabled allowed resource may also check the login permission `weldall:login`:
+ * it acts for people with its own long-lived Git host secret, and the short-lived git credentials
+ * it issues cannot be revoked, so it must stop serving a person who lost the login permission,
+ * even when its resource does not list `weldall:login`. Other machine clients may check
+ * `weldall:login` only for a resource that supports it.
+ */
+function subjectCheckQueryableScopes(machine: {
+  allowedResources: readonly { resource: { scopes: readonly { scope: { key: string } }[] } }[];
+  /** The machine's allowed scopes, filtered to `weldall:app-host`. */
+  appHostScopes: readonly unknown[];
+}): Set<string> {
+  const { allowedResources, appHostScopes } = machine;
+  return new Set([
+    ...allowedResources.flatMap(({ resource }) => resource.scopes.map(({ scope }) => scope.key)),
+    ...(allowedResources.length && appHostScopes.length ? [LOGIN_SCOPE_KEY] : []),
+  ]);
+}
+
+const appHostScopeSelection = {
+  where: { scope: { key: APP_HOST_SCOPE_KEY } },
+  select: { scopeId: true },
+} as const;
+
 export async function checkSubjectScopesForMachine(input: {
   clientId: string;
   keyId: string;
@@ -223,6 +255,7 @@ export async function checkSubjectScopesForMachine(input: {
   const machine = await db.machineClient.findUnique({
     where: { clientId: input.clientId },
     include: {
+      allowedScopes: appHostScopeSelection,
       allowedResources: {
         where: { resource: { enabled: true } },
         include: {
@@ -238,11 +271,10 @@ export async function checkSubjectScopesForMachine(input: {
       },
     },
   });
-  const queryableScopes = new Set(
-    machine?.allowedResources.flatMap(({ resource }) =>
-      resource.scopes.map(({ scope }) => scope.key),
-    ) ?? [],
-  );
+  const queryableScopes = subjectCheckQueryableScopes({
+    allowedResources: machine?.allowedResources ?? [],
+    appHostScopes: machine?.allowedScopes ?? [],
+  });
   if (
     !machine?.enabled ||
     machine.deactivatedAt ||
@@ -294,6 +326,7 @@ export async function checkSubjectScopesForMachine(input: {
           allowedScopes: { some: { scope: { key: SUBJECT_SCOPES_CHECK_SCOPE_KEY } } },
         },
         select: {
+          allowedScopes: appHostScopeSelection,
           allowedResources: {
             where: { resource: { enabled: true } },
             select: {
@@ -310,11 +343,10 @@ export async function checkSubjectScopesForMachine(input: {
         },
       }),
     ]);
-    const stillQueryable = new Set(
-      authorizedMachine?.allowedResources.flatMap(({ resource }) =>
-        resource.scopes.map(({ scope }) => scope.key),
-      ) ?? [],
-    );
+    const stillQueryable = subjectCheckQueryableScopes({
+      allowedResources: authorizedMachine?.allowedResources ?? [],
+      appHostScopes: authorizedMachine?.allowedScopes ?? [],
+    });
     if (!authorizedMachine || requestedScopes.some((scope) => !stillQueryable.has(scope))) {
       throw new SubjectScopeCheckError("FORBIDDEN");
     }

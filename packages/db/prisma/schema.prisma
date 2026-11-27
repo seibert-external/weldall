@@ -227,6 +227,19 @@ model DiscoveredSkillCatalog {
   appsLastFailureCategory       String?
   appsLastFailureAt             DateTime?
   appsSkippedCount              Int                @default(0)
+  /// Where people's clients publish apps at the resource (the "registry"), from the resource's
+  /// metadata (`weldall_apps_api`) while app discovery is on: the apps API, the scope to ask for,
+  /// the optional administration scope, Git route and Git credential endpoint. Stored only when it
+  /// passed Weldall's checks against the resource's registration (`apps/discovery.ts`), whatever
+  /// happened to the apps themselves; otherwise these are null and `appApiRefusal` says why.
+  /// `appApiCheckedAt` is when the metadata was last read with app discovery on.
+  appApiEndpoint                String?
+  appApiScope                   String?
+  appApiAdminScope              String?
+  appApiGit                     String?
+  appApiGitCredentials          String?
+  appApiRefusal                 String?
+  appApiCheckedAt               DateTime?
   lastAttemptAt                 DateTime?
   lastSuccessfulRefreshAt       DateTime?
   nextRefreshAt                 DateTime           @default(now())

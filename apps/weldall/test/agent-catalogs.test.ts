@@ -345,6 +345,13 @@ describe("agent discovery", () => {
     // Weldall's own permissions are never offered for sharing.
     expect((await listVisibleAgents(admin)).shareableScopes).toEqual([]);
 
+    // Keys Weldall does not know are ignored and not passed on.
+    served.agentApi = { ...api, later: true };
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect((await listVisibleAgents(colleague)).registries).toEqual([
+      { key, name: "Agent catalog test", ...api, allowed: true },
+    ]);
+
     // A permission that is not the resource's own is not passed on.
     served.agentApi = { ...api, scope: intranetScope };
     await expect(refresh()).resolves.toBe("succeeded");

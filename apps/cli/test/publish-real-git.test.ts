@@ -1,0 +1,1353 @@
+import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { publishApp, type PublishOptions } from "../src/publish/publish.js";
+import { readAppStatus } from "../src/publish/status.js";
+import type { PublishError } from "../src/publish/errors.js";
+import { publishJson } from "../src/publish/report.js";
+import {
+  BOT_IDENTITY,
+  fakeWeldallUnavailable,
+  GIT,
+  REGISTRY_KEY,
+  startFakeWeldall,
+  writeTree,
+  type FakeWeldall,
+} from "./fixtures/fake-registry.js";
+
+/**
+ * The publish cases (first publish, later publishes, the way back from the repository, conflicts,
+ * interrupted runs) with the real `/usr/bin/git`, through an imitation of the git proxy and fake
+ * Weldall endpoints.
+ */
+
+const reason = fakeWeldallUnavailable();
+const lines = (count: number, change: Record<number, string> = {}) =>
+  Array.from({ length: count }, (_, index) => change[index + 1] ?? `line ${index + 1}`).join("\n") +
+  "\n";
+const png = (fill: number) => Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, fill, fill, 0, 1, 2]);
+const TEMPLATE = {
+  "README.md": "# Template\n\nIntro\n",
+  "src/app.ts": "export const app = 1;\n",
+  "src/notes.ts": lines(10),
+  "src/legacy.ts": "export const legacy = true;\n",
+  "src/a.ts": "a\n",
+  "src/b.ts": "b\n",
+  "src/c.ts": "c\n",
+  "src/d.ts": "d\n",
+  ".github/workflows/ci.yml": "name: ci\n",
+  ".env.example": "API_KEY=\n",
+  ".npmrc": "auto-install-peers=true\n",
+  ".gitignore": "node_modules/\n",
+  "logo.png": png(1),
+};
+// Built at runtime so no credential-shaped literal sits in the source.
+const fakeGitHubToken = ["ghp", "_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"].join("");
+
+describe.skipIf(reason !== null)(
+  `publish with real git${reason ? ` (skipped: ${reason})` : ""}`,
+  { timeout: 120_000 },
+  () => {
+    let fake: FakeWeldall;
+    let counter = 0;
+
+    beforeAll(async () => {
+      fake = await startFakeWeldall();
+      await fake.addTemplate("react", TEMPLATE);
+    }, 60_000);
+    afterAll(async () => {
+      await fake?.stop();
+    });
+
+    const publish = (directory: string, options: Partial<PublishOptions> = {}) =>
+      publishApp({
+        directory,
+        registries: fake.registries,
+        git: GIT,
+        environment: fake.publishEnvironment(),
+        privateGitRoot: join(fake.root, "private-git"),
+        app: { name: options.app?.name ?? "unused", description: "Tests publishing" },
+        ...options,
+      });
+    /** A new folder from the template, published once (PR #n with `changes`). */
+    async function published(
+      changes: Record<string, string | Buffer | null> = { "src/app.ts": "export const app = 2;\n" },
+    ) {
+      counter += 1;
+      const name = `app${counter}`;
+      const folder = await fake.createFolder(name, "react", TEMPLATE);
+      await writeTree(folder, changes);
+      const first = await publish(folder, { app: { name, description: "Tests" } });
+      expect(first.outcome).toBe("published");
+      return {
+        folder,
+        name,
+        first,
+        bare: [...fake.apps.values()].find((app) => app.name === name)!.bare,
+      };
+    }
+    const inFolder = (folder: string, args: string[]) => fake.must(args, folder);
+    const status = (folder: string) => inFolder(folder, ["status", "--porcelain"]);
+    const changedOnBranch = async (bare: string, branch: string) =>
+      (await fake.must(["diff-tree", "-r", "--name-status", "--no-renames", "main", branch], bare))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.replace("\t", " "));
+    const show = (bare: string, revision: string) => fake.must(["show", revision], bare);
+
+    it("first publish: creates the repository, pushes only the changes against the template, opens the pull request", async () => {
+      counter += 1;
+      const name = `app${counter}`;
+      const folder = await fake.createFolder(name, "react", TEMPLATE);
+      // A committed change, an uncommitted change and a new untracked file.
+      await writeTree(folder, { "src/app.ts": "export const app = 2;\n" });
+      await inFolder(folder, ["commit", "-qam", "my change"]);
+      // Over 1 MiB: Apple Git's chunked push breaks unless http.postBuffer is in effect.
+      await writeTree(folder, {
+        "README.md": "# Expenses\n\nIntro\n",
+        "src/new.ts": "new\n",
+        "assets/photo.bin": randomBytes(3 * 1024 * 1024),
+      });
+      const before = await inFolder(folder, ["rev-list", "--count", "HEAD"]);
+
+      const result = await publish(folder, { app: { name, description: "Tests" } });
+
+      expect(result).toMatchObject({
+        outcome: "published",
+        app: {
+          id: expect.any(String),
+          name,
+          repositoryUrl: `https://github.example/acme/app-${name}`,
+          created: true,
+        },
+        pullRequest: { number: expect.any(Number), created: true },
+        conflict: null,
+        refused: null,
+        links: { preview: expect.stringContaining("https://preview.example/"), live: null },
+      });
+      expect(result.files).toEqual([
+        { path: "README.md", change: "modified" },
+        { path: "assets/photo.bin", change: "added" },
+        { path: "src/app.ts", change: "modified" },
+        { path: "src/new.ts", change: "added" },
+      ]);
+      expect(JSON.stringify(result)).not.toContain("wgc_");
+      expect(result.warnings).toEqual([]);
+      const app = fake.apps.get(result.app!.id)!;
+      const branch = result.pullRequest!.branch;
+      expect(branch).toMatch(/^weldall\/publish-/);
+      expect(await changedOnBranch(app.bare, branch)).toEqual([
+        "M README.md",
+        "A assets/photo.bin",
+        "M src/app.ts",
+        "A src/new.ts",
+      ]);
+      // One commit on top of the repository's state, attributed to the bot, with the trailer.
+      const commit = await fake.must(
+        ["log", "-1", "--format=%P%n%an <%ae>%n%cn <%ce>%n%B", branch],
+        app.bare,
+      );
+      const [parent, author, committer, ...message] = commit.split("\n");
+      expect(parent).toBe(await fake.branchHead(app.bare, "main"));
+      expect(author).toBe(`${BOT_IDENTITY.name} <${BOT_IDENTITY.email}>`);
+      expect(committer).toBe(author);
+      expect(message.join("\n")).toContain(`Weldall-App: ${result.app!.id}`);
+      expect(result.commit).toBe(await fake.branchHead(app.bare, branch));
+
+      // The folder took over the result: base = pushed commit, clean, history kept.
+      expect(await inFolder(folder, ["rev-parse", "refs/weldall/base"])).toBe(result.commit);
+      expect(await inFolder(folder, ["rev-parse", "HEAD^{tree}"])).toBe(
+        await fake.must(["rev-parse", `${branch}^{tree}`], app.bare),
+      );
+      expect(await status(folder)).toBe("");
+      expect(Number(await inFolder(folder, ["rev-list", "--count", "HEAD"]))).toBeGreaterThan(
+        Number(before),
+      );
+      expect(await inFolder(folder, ["config", "weldall.prBranch"])).toBe(branch);
+      expect(await inFolder(folder, ["config", "remote.weldall.url"])).toBe(
+        `${fake.origin}/git/acme/app-${name}.git`,
+      );
+    });
+
+    describe("creating the app", () => {
+      const noWait = { sleep: async () => undefined };
+      const fresh = async () => {
+        counter += 1;
+        const name = `app${counter}`;
+        const folder = await fake.createFolder(name, "react", TEMPLATE);
+        await writeTree(folder, { "src/app.ts": "export const app = 2;\n" });
+        return { name, folder };
+      };
+      const appsNamed = (name: string) =>
+        [...fake.apps.values()].filter((app) => app.name === name);
+
+      it("sends what the app is, who it is shared with and its link", async () => {
+        const { name, folder } = await fresh();
+        const result = await publish(folder, {
+          app: {
+            name,
+            description: "Submit and track travel expense claims",
+            scopes: ["sales:member", "sales:lead"],
+            url: "https://travel.example.com/",
+          },
+        });
+        expect(result).toMatchObject({ outcome: "published", app: { created: true } });
+        expect(fake.created.at(-1)).toEqual({
+          template: "react",
+          name,
+          description: "Submit and track travel expense claims",
+          scopes: ["sales:member", "sales:lead"],
+          url: "https://travel.example.com/",
+        });
+        expect(appsNamed(name)[0]).toMatchObject({ scopes: ["sales:member", "sales:lead"] });
+      });
+
+      it("is repeat-safe: after a lost answer the same command continues with the same app", async () => {
+        const { name, folder } = await fresh();
+        // The registry finished the creation, but every answer was lost (and repeated twice).
+        for (let index = 0; index < 3; index += 1)
+          fake.queueAnswer({
+            method: "POST",
+            path: /^\/api\/apps$/,
+            status: 503,
+            body: { error: "registry_unavailable", error_description: "Database down." },
+            afterHandling: true,
+          });
+        const options = { ...noWait, app: { name, description: "Tests" } };
+        await expect(publish(folder, options)).rejects.toMatchObject({
+          code: "registry_unavailable",
+          hint: expect.stringContaining("run the same command again"),
+        });
+        // Nothing recorded in the folder, nothing pushed.
+        await expect(inFolder(folder, ["config", "weldall.appId"])).rejects.toThrow();
+        expect(await inFolder(folder, ["for-each-ref", "refs/weldall"])).toBe("");
+        expect(appsNamed(name)).toHaveLength(1);
+
+        const repeated = await publish(folder, options);
+        expect(repeated).toMatchObject({
+          outcome: "published",
+          app: { id: appsNamed(name)[0]!.id, created: false },
+          pullRequest: { created: true },
+        });
+        expect(appsNamed(name)).toHaveLength(1);
+        expect(fake.created.filter((body) => body.name === name)).toHaveLength(4);
+      });
+
+      it("repeats by itself while the registry is still preparing the repository", async () => {
+        const { name, folder } = await fresh();
+        fake.queueAnswer({
+          method: "POST",
+          path: /^\/api\/apps$/,
+          status: 504,
+          body: { error: "repository_not_ready", error_description: "Copying the template." },
+        });
+        const result = await publish(folder, { ...noWait, app: { name, description: "Tests" } });
+        expect(result).toMatchObject({ outcome: "published", app: { created: true } });
+      });
+
+      it("stops with what an administrator must do, changes nothing, and continues once fixed", async () => {
+        const { name, folder } = await fresh();
+        fake.queueAnswer({
+          method: "POST",
+          path: /^\/api\/apps$/,
+          status: 409,
+          body: {
+            error: "reviewer_team_access_missing",
+            error_description: "Give the team reviewers write access to acme/app-x.",
+          },
+        });
+        const options = { ...noWait, app: { name, description: "Tests" } };
+        const error = (await publish(folder, options).catch(
+          (caught: unknown) => caught,
+        )) as PublishError;
+        expect(error).toMatchObject({
+          code: "reviewer_team_access_missing",
+          message: expect.stringContaining("an administrator must give it access"),
+          hint: expect.stringContaining("run the same command again to finish"),
+        });
+        expect(JSON.parse(publishJson(error)).error.code).toBe("reviewer_team_access_missing");
+        await expect(inFolder(folder, ["config", "weldall.appId"])).rejects.toThrow();
+        expect((await publish(folder, options)).outcome).toBe("published");
+      });
+
+      it("takes over the registry's weldall-app.yml without publishing it back", async () => {
+        const { name, folder } = await fresh();
+        fake.addMarkerFile(true);
+        try {
+          const result = await publish(folder, { app: { name, description: "Tests" } });
+          expect(result.outcome).toBe("published");
+          expect(result.folder.updated).toContain("weldall-app.yml");
+          expect(result.files.map(({ path }) => path)).not.toContain("weldall-app.yml");
+          expect(await readFile(join(folder, "weldall-app.yml"), "utf8")).toContain(
+            `name: ${name}`,
+          );
+        } finally {
+          fake.addMarkerFile(false);
+        }
+      });
+    });
+
+    it("waits once when the git route is rate-limited, and says to wait when it stays so", async () => {
+      const { folder } = await published();
+      await writeTree(folder, { "src/a.ts": "a again\n" });
+      const waits: number[] = [];
+      fake.limitGitRequests(429);
+      const result = await publish(folder, { sleep: async (ms) => waits.push(ms) });
+      expect(result.outcome).toBe("published");
+      expect(waits).toEqual([5_000]);
+
+      await writeTree(folder, { "src/a.ts": "a once more\n" });
+      fake.limitGitRequests(503, 503);
+      await expect(publish(folder, { sleep: async () => undefined })).rejects.toMatchObject({
+        code: "git_route_busy",
+        hint: expect.stringContaining("Wait a minute"),
+      });
+    });
+
+    it("reads the status of the folder's pull request, or of an app id without a folder", async () => {
+      const { folder, first } = await published();
+      const options = {
+        registries: fake.registries,
+        git: GIT,
+        environment: fake.publishEnvironment(),
+      };
+
+      const status = await readAppStatus({ ...options, directory: folder });
+
+      expect(status).toEqual({
+        outcome: "status",
+        app: { id: first.app!.id, name: first.app!.name },
+        pullRequest: expect.objectContaining({
+          number: first.pullRequest!.number,
+          state: "open",
+          headBranch: first.pullRequest!.branch,
+          reviews: [],
+          checks: [],
+        }),
+        links: { preview: expect.stringContaining("https://preview.example/"), live: null },
+        warnings: [],
+      });
+      expect(
+        await readAppStatus({ ...options, directory: "/nonexistent", appId: first.app!.id }),
+      ).toEqual(status);
+      const fresh = await fake.createFolder(`unpublished${++counter}`, "react", TEMPLATE);
+      await expect(readAppStatus({ ...options, directory: fresh })).rejects.toMatchObject({
+        code: "not_published",
+        hint: expect.stringContaining("weldall app publish"),
+      });
+    });
+
+    it("later publish after a squash merge: a new branch and pull request with only the new changes", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await writeTree(folder, { "src/notes.ts": lines(10, { 4: "four" }) });
+
+      const second = await publish(folder);
+
+      expect(second.outcome).toBe("published");
+      expect(second.pullRequest).toMatchObject({ created: true });
+      expect(second.pullRequest!.number).not.toBe(first.pullRequest!.number);
+      expect(second.pullRequest!.branch).not.toBe(first.pullRequest!.branch);
+      expect(await changedOnBranch(bare, second.pullRequest!.branch)).toEqual(["M src/notes.ts"]);
+    });
+
+    it("keeps a reviewer's change in the open pull request, also in a file the person changes in other lines", async () => {
+      const { folder, bare, first } = await published({
+        "src/notes.ts": lines(10, { 9: "mine 9" }),
+      });
+      const branch = first.pullRequest!.branch;
+      const reviewer = await fake.commitFiles(
+        bare,
+        branch,
+        { "src/notes.ts": lines(10, { 2: "reviewer 2", 9: "mine 9" }) },
+        "Review fix",
+      );
+      await writeTree(folder, { "src/notes.ts": lines(10, { 7: "mine 7", 9: "mine 9" }) });
+      const pullCount = fake.pulls.length;
+
+      const second = await publish(folder);
+
+      // Same branch, fast-forward onto the reviewer's commit, no second pull request.
+      expect(second.outcome).toBe("published");
+      expect(second.pullRequest).toMatchObject({
+        branch,
+        created: false,
+        number: first.pullRequest!.number,
+      });
+      expect(fake.pulls).toHaveLength(pullCount);
+      expect(await fake.must(["rev-parse", `${second.commit}^`], bare)).toBe(reviewer);
+      expect(await show(bare, `${branch}:src/notes.ts`)).toBe(
+        lines(10, { 2: "reviewer 2", 7: "mine 7", 9: "mine 9" }).trimEnd(),
+      );
+      expect(await readFile(join(folder, "src/notes.ts"), "utf8")).toBe(
+        lines(10, { 2: "reviewer 2", 7: "mine 7", 9: "mine 9" }),
+      );
+
+      // After the squash merge the reviewer's line stays and only the next change is published.
+      await fake.squashMerge(first.pullRequest!.number);
+      await writeTree(folder, {
+        "src/notes.ts": lines(10, { 2: "reviewer 2", 5: "mine 5", 7: "mine 7", 9: "mine 9" }),
+      });
+      const third = await publish(folder);
+      expect(third.outcome).toBe("published");
+      expect(third.conflict).toBeNull();
+      expect(
+        await fake.must(["diff", "main", third.pullRequest!.branch, "--", "src/notes.ts"], bare),
+      ).toMatch(/-line 5\n\+mine 5/);
+    });
+
+    it("keeps foreign commits on the default branch out of the pull request and brings them into the folder", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await fake.commitFiles(bare, "main", { Dockerfile: "FROM node\n" }, "Foreign change");
+      await writeTree(folder, { "src/app.ts": "export const app = 3;\n" });
+
+      const second = await publish(folder);
+
+      expect(await changedOnBranch(bare, second.pullRequest!.branch)).toEqual(["M src/app.ts"]);
+      expect(second.folder.updated).toContain("Dockerfile");
+      expect(await readFile(join(folder, "Dockerfile"), "utf8")).toBe("FROM node\n");
+    });
+
+    it("stops on a text conflict without publishing or touching the folder, and publishes after the resolution", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await fake.commitFiles(bare, "main", { "README.md": "# Template\n\nTheirs\n" }, "Theirs");
+      await writeTree(folder, { "README.md": "# Template\n\nMine\n" });
+      const pushes = fake.pushes.length;
+      const head = await inFolder(folder, ["rev-parse", "HEAD"]);
+
+      const stopped = await publish(folder);
+
+      expect(stopped.outcome).toBe("conflict");
+      expect(stopped.conflict).toEqual({
+        written: false,
+        files: [
+          expect.objectContaining({
+            path: "README.md",
+            kind: "content",
+            choices: ["folder", "local", "repo"],
+          }),
+        ],
+      });
+      expect(fake.pushes).toHaveLength(pushes);
+      expect(await inFolder(folder, ["rev-parse", "HEAD"])).toBe(head);
+      expect(await readFile(join(folder, "README.md"), "utf8")).toBe("# Template\n\nMine\n");
+
+      const written = await publish(folder, { resolve: true });
+      expect(written.conflict?.written).toBe(true);
+      expect(await readFile(join(folder, "README.md"), "utf8")).toMatch(
+        /<<<<<<< refs\/weldall\/local\nMine\n=======\nTheirs\n>>>>>>> refs\/weldall\/repo/,
+      );
+      await expect(publish(folder, { decisions: { "README.md": "folder" } })).rejects.toMatchObject(
+        {
+          code: "conflict_markers_left",
+        },
+      );
+
+      await writeTree(folder, { "README.md": "# Template\n\nMine and theirs\n" });
+      const resolved = await publish(folder, { decisions: { "README.md": "folder" } });
+      expect(resolved.outcome).toBe("published");
+      expect(resolved.notices.map(({ code }) => code)).toContain("conflict_resolved");
+      expect(await show(bare, `${resolved.pullRequest!.branch}:README.md`)).toBe(
+        "# Template\n\nMine and theirs",
+      );
+      expect(await status(folder)).toBe("");
+    });
+
+    it("needs an explicit decision for binary and modify/delete conflicts", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await fake.commitFiles(bare, "main", { "logo.png": png(7), "src/legacy.ts": null }, "Theirs");
+      await writeTree(folder, {
+        "logo.png": png(9),
+        "src/legacy.ts": "export const legacy = false;\n",
+      });
+
+      const written = await publish(folder, { resolve: true });
+      expect(written.conflict?.files).toEqual([
+        expect.objectContaining({ path: "logo.png", kind: "binary", choices: ["local", "repo"] }),
+        expect.objectContaining({
+          path: "src/legacy.ts",
+          kind: "modify-delete",
+          choices: ["local", "repo"],
+        }),
+      ]);
+
+      // No markers to look for: without a decision per file nothing is published.
+      const undecided = await publish(folder);
+      expect(undecided.outcome).toBe("conflict");
+      expect(undecided.conflict?.files.map(({ decided }) => decided)).toEqual([false, false]);
+      const partly = await publish(folder, { decisions: { "logo.png": "repo" } });
+      expect(partly.conflict?.files.map(({ decided }) => decided)).toEqual([true, false]);
+      await expect(
+        publish(folder, { decisions: { "logo.png": "folder", "src/legacy.ts": "repo" } }),
+      ).rejects.toMatchObject({ code: "invalid_decision" });
+
+      const resolved = await publish(folder, {
+        decisions: { "logo.png": "repo", "src/legacy.ts": "local" },
+      });
+      expect(resolved.outcome).toBe("published");
+      const branch = resolved.pullRequest!.branch;
+      expect(await changedOnBranch(bare, branch)).toEqual(["A src/legacy.ts"]);
+      expect(await readFile(join(folder, "logo.png"))).toEqual(png(7));
+    });
+
+    it("merges again from the old base when the resolution was discarded, so no repository change is reverted", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await fake.commitFiles(
+        bare,
+        "main",
+        { "README.md": "# Template\n\nTheirs\n", "docs/guide.md": "guide\n" },
+        "Theirs",
+      );
+      await writeTree(folder, { "README.md": "# Template\n\nMine\n" });
+      await publish(folder, { resolve: true });
+      expect(await readFile(join(folder, "docs/guide.md"), "utf8")).toBe("guide\n");
+
+      // The agent throws the merge result away instead of resolving it.
+      await inFolder(folder, ["checkout", "--", "."]);
+      await inFolder(folder, ["clean", "-fdq"]);
+      const pushes = fake.pushes.length;
+      const again = await publish(folder, { decisions: { "README.md": "folder" } });
+
+      expect(again.outcome).toBe("conflict");
+      expect(again.notices).toEqual([
+        expect.objectContaining({ code: "resolution_discarded", paths: ["docs/guide.md"] }),
+      ]);
+      expect(fake.pushes).toHaveLength(pushes);
+
+      await publish(folder, { resolve: true });
+      await writeTree(folder, { "README.md": "# Template\n\nBoth\n" });
+      const resolved = await publish(folder, { decisions: { "README.md": "folder" } });
+      expect(resolved.outcome).toBe("published");
+      expect(await changedOnBranch(bare, resolved.pullRequest!.branch)).toEqual(["M README.md"]);
+    });
+
+    it("opens the pull request on the next run when it failed after the push", async () => {
+      counter += 1;
+      const name = `app${counter}`;
+      const folder = await fake.createFolder(name, "react", TEMPLATE);
+      await writeTree(folder, { "src/app.ts": "export const app = 4;\n" });
+      fake.failNextPullRequest();
+      const failure = await publish(folder, { app: { name, description: "Tests" } }).catch(
+        (error: unknown) => error,
+      );
+      const branch = await inFolder(folder, ["config", "weldall.prBranch"]);
+      expect(failure).toMatchObject({
+        code: "pull_request_not_opened",
+        message: expect.stringContaining(`was pushed to branch ${branch}`),
+        details: {
+          commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+          branch,
+          cause: "upstream_unavailable",
+        },
+      });
+      expect(JSON.parse(publishJson(failure as PublishError)).error).toMatchObject({
+        code: "pull_request_not_opened",
+        details: { branch, cause: "upstream_unavailable" },
+      });
+      const pushes = fake.pushes.length;
+
+      const retry = await publish(folder);
+
+      expect(retry).toMatchObject({
+        outcome: "published",
+        commit: null,
+        pullRequest: { branch, created: true },
+      });
+      expect(fake.pushes).toHaveLength(pushes);
+    });
+
+    it("offers the changes of a pull request closed without merging again", async () => {
+      const { folder, bare, first } = await published({ "src/app.ts": "export const app = 5;\n" });
+      fake.close(first.pullRequest!.number);
+
+      const again = await publish(folder);
+
+      expect(again.outcome).toBe("published");
+      expect(again.notices.map(({ code }) => code)).toEqual(["pull_request_closed"]);
+      expect(again.pullRequest!.branch).not.toBe(first.pullRequest!.branch);
+      expect(await changedOnBranch(bare, again.pullRequest!.branch)).toEqual(["M src/app.ts"]);
+    });
+
+    it("falls back to the pull request's base when it was merged before the last push landed", async () => {
+      const { folder, bare, first } = await published({ "src/a.ts": "a changed\n" });
+      const branch = first.pullRequest!.branch;
+      await writeTree(folder, { "src/b.ts": "b changed\n" });
+      fake.mergeBeforeNextPush(branch);
+      const raced = await publish(folder);
+      expect(raced.outcome).toBe("published");
+      expect(raced.pullRequest?.branch).toBe(branch);
+
+      const next = await publish(folder);
+
+      expect(next.notices.map(({ code }) => code)).toEqual(["merged_without_last_publish"]);
+      expect(next.outcome).toBe("published");
+      expect(await changedOnBranch(bare, next.pullRequest!.branch)).toEqual(["M src/b.ts"]);
+    });
+
+    it("leaves base and folder alone when the proxy refuses a push to a closed pull request, then retries cleanly", async () => {
+      const { folder, bare, first } = await published({ "src/a.ts": "a changed\n" });
+      const branch = first.pullRequest!.branch;
+      await writeTree(folder, { "src/b.ts": "b changed\n" });
+      const base = await inFolder(folder, ["rev-parse", "refs/weldall/base"]);
+      const head = await inFolder(folder, ["rev-parse", "HEAD"]);
+      fake.closeBeforeNextPush(branch);
+
+      const refusal = await publish(folder).catch((error: unknown) => error);
+      expect(refusal, String(refusal)).toMatchObject({ code: "pull_request_closed" });
+      expect(await inFolder(folder, ["rev-parse", "refs/weldall/base"])).toBe(base);
+      expect(await inFolder(folder, ["rev-parse", "HEAD"])).toBe(head);
+      expect(await readFile(join(folder, "src/b.ts"), "utf8")).toBe("b changed\n");
+
+      const retry = await publish(folder);
+      expect(retry.outcome).toBe("published");
+      expect(await changedOnBranch(bare, retry.pullRequest!.branch)).toEqual([
+        "M src/a.ts",
+        "M src/b.ts",
+      ]);
+    });
+
+    it("publishes workflow files from the repository and names the local changes that were not published", async () => {
+      counter += 1;
+      const name = `app${counter}`;
+      // The folder came from an older template; the repository has the newer workflow.
+      const folder = await fake.createFolder(name, "react", TEMPLATE);
+      await fake.updateTemplate("react", { ".github/workflows/ci.yml": "name: ci v2\n" });
+      await writeTree(folder, {
+        ".github/workflows/ci.yml": "name: mine\n",
+        "src/app.ts": "export const app = 9;\n",
+      });
+
+      const result = await publish(folder, { app: { name, description: "Tests" } });
+      await fake.updateTemplate("react", { ".github/workflows/ci.yml": "name: ci\n" });
+
+      expect(result.outcome).toBe("published");
+      expect(result.notices).toEqual([
+        expect.objectContaining({
+          code: "protected_files_not_published",
+          paths: [".github/workflows/ci.yml"],
+        }),
+      ]);
+      const bare = fake.apps.get(result.app!.id)!.bare;
+      expect(await changedOnBranch(bare, result.pullRequest!.branch)).toEqual(["M src/app.ts"]);
+      expect(await readFile(join(folder, ".github/workflows/ci.yml"), "utf8")).toBe(
+        "name: ci v2\n",
+      );
+      expect(await inFolder(folder, ["show", "HEAD~1:.github/workflows/ci.yml"])).toBe(
+        "name: mine",
+      );
+    });
+
+    it("refuses files that look like secrets or dumps, lists them, and publishes nothing", async () => {
+      const { folder } = await published();
+      await writeTree(folder, {
+        ".env": "API_KEY=real\n",
+        ".env.example": "API_KEY=\nOTHER=\n",
+        "deploy/id_rsa": "key\n",
+        "src/config.ts": `export const token = "${fakeGitHubToken}";\n`,
+        "data/export.sqlite": "SQLite format 3",
+      });
+      const pushes = fake.pushes.length;
+
+      const refused = await publish(folder);
+
+      expect(refused.outcome).toBe("refused");
+      expect(refused.refused?.map(({ path }) => path)).toEqual([
+        ".env",
+        "data/export.sqlite",
+        "deploy/id_rsa",
+        "src/config.ts",
+      ]);
+      expect(fake.pushes).toHaveLength(pushes);
+      expect(await readFile(join(folder, ".env"), "utf8")).toBe("API_KEY=real\n");
+
+      await writeTree(folder, {
+        ".gitignore": "node_modules/\n.env\ndata/\n",
+        "deploy/id_rsa": null,
+        "src/config.ts": "export const token = process.env.TOKEN;\n",
+      });
+      const accepted = await publish(folder);
+      expect(accepted.outcome).toBe("published");
+      expect(accepted.files.map(({ path }) => path)).toEqual([
+        ".env.example",
+        ".gitignore",
+        "src/config.ts",
+      ]);
+    });
+
+    it("stops with a clear error when the base ref is lost, without guessing", async () => {
+      const { folder } = await published();
+      await inFolder(folder, ["update-ref", "-d", "refs/weldall/base"]);
+      await writeTree(folder, { "src/app.ts": "export const app = 7;\n" });
+      const pushes = fake.pushes.length;
+
+      await expect(publish(folder)).rejects.toMatchObject({ code: "base_missing" });
+      expect(fake.pushes).toHaveLength(pushes);
+    });
+
+    it("handles deletions and renames on both sides and says what the repository removed", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await fake.commitFiles(
+        bare,
+        "main",
+        { "src/c.ts": null, "src/d.ts": null, "src/d2.ts": "d\n" },
+        "Theirs",
+      );
+      await inFolder(folder, ["rm", "-q", "src/a.ts"]);
+      await inFolder(folder, ["mv", "src/b.ts", "src/b2.ts"]);
+
+      const result = await publish(folder);
+
+      expect(result.outcome).toBe("published");
+      expect(await changedOnBranch(bare, result.pullRequest!.branch)).toEqual([
+        "D src/a.ts",
+        "D src/b.ts",
+        "A src/b2.ts",
+      ]);
+      expect(result.notices).toEqual([
+        expect.objectContaining({ code: "removed_by_repository", paths: ["src/c.ts", "src/d.ts"] }),
+      ]);
+      expect(result.folder).toEqual({ updated: ["src/d2.ts"], removed: ["src/c.ts", "src/d.ts"] });
+    });
+
+    it("syncs the repository's state into the folder without publishing", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await fake.commitFiles(
+        bare,
+        "main",
+        { "src/app.ts": null, Dockerfile: "FROM node\n" },
+        "Revert and add",
+      );
+      await writeTree(folder, { "src/local.ts": "unpublished\n" });
+      const pushes = fake.pushes.length;
+
+      const synced = await publish(folder, { syncOnly: true });
+
+      expect(synced.outcome).toBe("synced");
+      expect(fake.pushes).toHaveLength(pushes);
+      expect(synced.notices).toEqual([
+        expect.objectContaining({ code: "removed_by_repository", paths: ["src/app.ts"] }),
+      ]);
+      expect(await inFolder(folder, ["rev-parse", "refs/weldall/base"])).toBe(
+        await fake.branchHead(bare, "main"),
+      );
+      expect(await readFile(join(folder, "src/local.ts"), "utf8")).toBe("unpublished\n");
+      expect(await readFile(join(folder, "Dockerfile"), "utf8")).toBe("FROM node\n");
+      expect(
+        await inFolder(folder, ["config", "--get", "weldall.prBranch"]).catch(() => null),
+      ).toBeNull();
+    });
+
+    it("refuses to start without the template agreement or next to a foreign remote", async () => {
+      counter += 1;
+      const name = `app${counter}`;
+      const folder = await fake.createFolder(name, "react", TEMPLATE);
+      const apps = fake.apps.size;
+
+      await inFolder(folder, ["config", "--unset", "weldall.templateCommit"]);
+      await expect(publish(folder, { app: { name, description: "Tests" } })).rejects.toMatchObject({
+        code: "template_missing",
+        message: expect.stringContaining("weldall.templateCommit"),
+      });
+      await inFolder(folder, [
+        "config",
+        "weldall.templateCommit",
+        await inFolder(folder, ["rev-list", "--max-parents=0", "HEAD"]),
+      ]);
+
+      await inFolder(folder, ["remote", "add", "weldall", "https://example.invalid/other.git"]);
+      await expect(publish(folder, { app: { name, description: "Tests" } })).rejects.toMatchObject({
+        code: "remote_conflict",
+      });
+      expect(await inFolder(folder, ["config", "remote.weldall.url"])).toBe(
+        "https://example.invalid/other.git",
+      );
+      expect(fake.apps.size).toBe(apps);
+      await inFolder(folder, ["remote", "remove", "weldall"]);
+
+      await expect(publish(folder, { syncOnly: true })).rejects.toMatchObject({
+        code: "not_published",
+      });
+    });
+
+    describe("the registry comes from Weldall and its own metadata, never from the folder", () => {
+      const otherOrigin = "https://127.0.0.1:1";
+      const statusOf = (directory: string) =>
+        readAppStatus({
+          registries: fake.registries,
+          git: GIT,
+          environment: fake.publishEnvironment(),
+          directory,
+        });
+      /** Points the folder's recorded git URL (and its remote) somewhere else, as an agent could. */
+      async function pointFolderAt(folder: string, remoteUrl: string) {
+        await inFolder(folder, ["config", "weldall.remoteUrl", remoteUrl]);
+        await inFolder(folder, ["config", "remote.weldall.url", remoteUrl]);
+      }
+      /** Another registry Weldall lists, which the CLI can reach. */
+      const otherRegistry = (granted?: string[]) => {
+        fake.serveApiAt(otherOrigin);
+        return fake.registryResource("registry-other", otherOrigin, granted);
+      };
+      afterEach(() => {
+        fake.setResources([fake.registryResource()]);
+        fake.unserveApiAt(otherOrigin);
+        fake.listRegistries("changes");
+        fake.patchListing({});
+      });
+
+      it("first publish records the registry chosen from Weldall's list and its git URL", async () => {
+        const { folder, name } = await published();
+        expect(await inFolder(folder, ["config", "weldall.registry"])).toBe(REGISTRY_KEY);
+        expect(await inFolder(folder, ["config", "weldall.remoteUrl"])).toBe(
+          `${fake.origin}/git/acme/app-${name}.git`,
+        );
+        expect(fake.credentialRequests.at(-1)).toEqual({
+          path: `git/acme/app-${name}.git`,
+          access: "write",
+        });
+        expect(new Set(fake.apiRequests.map(({ origin }) => origin))).toEqual(
+          new Set([fake.origin]),
+        );
+        // Found in Weldall's list: the default branch is not recorded, a fetch takes HEAD.
+        await expect(inFolder(folder, ["config", "weldall.defaultBranch"])).rejects.toThrow();
+      });
+
+      it("refuses a stored git URL on a host that is no registered resource, and sends it nothing", async () => {
+        const { folder, name } = await published();
+        await writeTree(folder, { "src/app.ts": "export const app = 'elsewhere';\n" });
+        const requests = fake.apiRequests.length;
+        const credentials = fake.credentialRequests.length;
+        await pointFolderAt(folder, `https://unregistered.example/git/acme/app-${name}.git`);
+
+        for (const run of [
+          () => publish(folder),
+          () => publish(folder, { syncOnly: true }),
+          () => statusOf(folder),
+        ])
+          await expect(run()).rejects.toMatchObject({
+            code: "remote_untrusted",
+            message: expect.stringContaining("unregistered.example"),
+          });
+        expect(fake.apiRequests.length).toBe(requests);
+        expect(fake.credentialRequests.length).toBe(credentials);
+        // The helper refuses it too, for git run by hand in the folder.
+        const fetched = await fake.git(["fetch", "weldall"], folder, {
+          env: {
+            ...fake.publishEnvironment(),
+            GIT_TERMINAL_PROMPT: "0",
+            GIT_ASKPASS: "",
+            [`GIT_CONFIG_COUNT`]: "3",
+            GIT_CONFIG_KEY_0: "credential.https://unregistered.example/git/.helper",
+            GIT_CONFIG_VALUE_0: "!weldall git-credential",
+            GIT_CONFIG_KEY_1: "credential.https://unregistered.example/git/.useHttpPath",
+            GIT_CONFIG_VALUE_1: "true",
+            GIT_CONFIG_KEY_2: "http.sslVerify",
+            GIT_CONFIG_VALUE_2: "false",
+          },
+        });
+        expect(fetched.code).not.toBe(0);
+        expect(fake.credentialRequests.length).toBe(credentials);
+      });
+
+      it("refuses a stored git URL of another registry, and a recorded key of another one", async () => {
+        const { folder, name } = await published();
+        fake.setResources([fake.registryResource(), otherRegistry()]);
+        const requests = fake.apiRequests.length;
+        await pointFolderAt(folder, `${otherOrigin}/git/acme/app-${name}.git`);
+        await expect(publish(folder)).rejects.toMatchObject({
+          code: "remote_untrusted",
+          message: expect.stringContaining('another registry ("registry-other"'),
+        });
+        await pointFolderAt(folder, `${fake.origin}/git/acme/app-${name}.git`);
+        await inFolder(folder, ["config", "weldall.registry", "registry-other"]);
+        await expect(publish(folder)).rejects.toMatchObject({ code: "remote_untrusted" });
+        await expect(statusOf(folder)).rejects.toMatchObject({ code: "remote_untrusted" });
+        await inFolder(folder, ["config", "weldall.registry", "not registered"]);
+        await expect(publish(folder)).rejects.toMatchObject({ code: "state_invalid" });
+        await inFolder(folder, ["config", "weldall.registry", "unknown-app"]);
+        await expect(publish(folder)).rejects.toMatchObject({ code: "registry_unknown" });
+        await inFolder(folder, ["config", "weldall.registry", REGISTRY_KEY]);
+        await expect(
+          publish(folder, { app: { registry: "registry-other" } }),
+        ).rejects.toMatchObject({ code: "registry_mismatch" });
+        expect(fake.apiRequests.length).toBe(requests);
+        expect((await publish(folder)).outcome).toBe("nothing_to_publish");
+      });
+
+      it("refuses a stored git URL outside the registry's /git/ route", async () => {
+        const { folder, name } = await published();
+        for (const remoteUrl of [
+          `${fake.origin}/api/apps.git`,
+          `${fake.origin}/git/acme/app-${name}.git/../../api/x.git`,
+          `${fake.origin}/other/git/acme/app-${name}.git`,
+          `${fake.origin}/git/github/acme/app-${name}.git`,
+          `http://${new URL(fake.origin).host}/git/acme/app-${name}.git`,
+        ]) {
+          await pointFolderAt(folder, remoteUrl);
+          await expect(publish(folder), remoteUrl).rejects.toMatchObject({
+            code: "remote_untrusted",
+          });
+        }
+      });
+
+      it("refuses a folder whose registry moved, and names the new address", async () => {
+        const { folder, name } = await published();
+        fake.serveApiAt(otherOrigin);
+        fake.setResources([fake.registryResource(REGISTRY_KEY, otherOrigin)]);
+        const error = await publish(folder).catch((caught: unknown) => caught);
+        expect(error).toMatchObject({
+          code: "remote_untrusted",
+          hint: expect.stringContaining(`${otherOrigin}/git/acme/app-${name}.git`),
+        });
+        // The helper no longer answers for the old address either.
+        const fetched = await fake.git(["fetch", "weldall"], folder, {
+          env: { ...fake.publishEnvironment(), GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
+        });
+        expect(fetched.code).not.toBe(0);
+        expect(fetched.stderr).toContain("is not a registry Weldall lists for you");
+      });
+
+      it("refuses a registry Weldall lists with a git route or API elsewhere", async () => {
+        counter += 1;
+        const name = `app${counter}`;
+        const folder = await fake.createFolder(name, "react", TEMPLATE);
+        for (const patch of [
+          { git: `${otherOrigin}/git/` },
+          { gitCredentials: `${otherOrigin}/api/git-credentials` },
+          { endpoint: `${otherOrigin}/api/apps` },
+        ]) {
+          fake.patchListing(patch);
+          await expect(
+            publish(folder, { app: { name, description: "Tests" } }),
+            JSON.stringify(patch),
+          ).rejects.toMatchObject({
+            code: "publishing_not_set_up",
+            message: expect.stringContaining(`${REGISTRY_KEY}: its`),
+          });
+        }
+        expect(fake.created.filter((body) => body.name === name)).toEqual([]);
+        await expect(inFolder(folder, ["config", "weldall.appId"])).rejects.toThrow();
+      });
+
+      it("refuses a repository name the registry answers that leaves its git route", async () => {
+        counter += 1;
+        const name = `app${counter}`;
+        const folder = await fake.createFolder(name, "react", TEMPLATE);
+        fake.queueAnswer({
+          method: "POST",
+          path: /^\/api\/apps$/,
+          status: 200,
+          body: {
+            created: true,
+            app: {
+              id: "app_00000000000000000099",
+              name,
+              description: "Tests",
+              scopes: [],
+              url: null,
+              repository: { name: "../../api/x", url: "https://github.example/x" },
+              template: "react",
+              revision: 1,
+              createdAt: "2026-11-01T10:00:00.000Z",
+              updatedAt: "2026-11-01T10:00:00.000Z",
+              confirmedAt: null,
+              expiresAt: "2027-02-01T10:00:00.000Z",
+              state: "active",
+              removedAt: null,
+              removedReason: null,
+            },
+          },
+        });
+        await expect(
+          publish(folder, { app: { name, description: "Tests" } }),
+        ).rejects.toMatchObject({ code: "remote_untrusted" });
+        await expect(inFolder(folder, ["config", "weldall.appId"])).rejects.toThrow();
+      });
+
+      it("chooses the only registry the person may publish to, and asks to name one of several", async () => {
+        counter += 1;
+        const name = `app${counter}`;
+        const folder = await fake.createFolder(name, "react", TEMPLATE);
+        await writeTree(folder, { "src/app.ts": "export const app = 2;\n" });
+        fake.setResources([fake.registryResource(), otherRegistry([])]);
+        expect((await publish(folder, { app: { name, description: "Tests" } })).outcome).toBe(
+          "published",
+        );
+
+        fake.setResources([fake.registryResource(), otherRegistry()]);
+        const second = await fake.createFolder(`${name}b`, "react", TEMPLATE);
+        await writeTree(second, { "src/app.ts": "export const app = 2;\n" });
+        await expect(
+          publish(second, { app: { name: `${name}b`, description: "Tests" } }),
+        ).rejects.toMatchObject({
+          code: "registry_ambiguous",
+          details: { registries: `${REGISTRY_KEY}, registry-other` },
+        });
+        await expect(
+          publish(second, { app: { name: `${name}b`, description: "Tests", registry: "nope" } }),
+        ).rejects.toMatchObject({ code: "registry_unknown" });
+        expect(
+          (
+            await publish(second, {
+              app: { name: `${name}b`, description: "Tests", registry: REGISTRY_KEY },
+            })
+          ).outcome,
+        ).toBe("published");
+
+        fake.setResources([fake.registryResource(REGISTRY_KEY, fake.origin, [])]);
+        const third = await fake.createFolder(`${name}c`, "react", TEMPLATE);
+        await expect(
+          publish(third, { app: { name: `${name}c`, description: "Tests" } }),
+        ).rejects.toMatchObject({
+          code: "scope_missing",
+          message: expect.stringContaining("registry:publish"),
+        });
+      });
+
+      it("reads the status of an app id while another registry cannot be reached", async () => {
+        const { first } = await published();
+        // Listed by Weldall, but unreachable: asked, and not in the way.
+        fake.setResources([
+          fake.registryResource(),
+          fake.registryResource("registry-other", otherOrigin),
+        ]);
+        const status = await readAppStatus({
+          registries: fake.registries,
+          directory: "/nonexistent",
+          appId: first.app!.id,
+        });
+        expect(status.app.id).toBe(first.app!.id);
+        expect(fake.apiRequests.at(-1)).toMatchObject({
+          origin: fake.origin,
+          path: `/api/apps/${first.app!.id}/status`,
+        });
+      });
+
+      it("says when the registry keeps apps but does not publish changes", async () => {
+        const { folder } = await published();
+        fake.listRegistries("apps");
+        for (const run of [() => publish(folder), () => statusOf(folder)])
+          await expect(run()).rejects.toMatchObject({
+            code: "publishing_not_configured",
+            message: expect.stringContaining("does not publish changes to them yet"),
+          });
+      });
+    });
+
+    it("fails clearly against a Weldall server without a registry, and against an older registry", async () => {
+      counter += 1;
+      const name = `app${counter}`;
+      const folder = await fake.createFolder(name, "react", TEMPLATE);
+      fake.useOldServer(true);
+      try {
+        await expect(
+          publish(folder, { app: { name, description: "Tests" } }),
+        ).rejects.toMatchObject({
+          code: "publishing_not_set_up",
+        });
+        await expect(
+          readAppStatus({
+            registries: fake.registries,
+            directory: "/x",
+            appId: "app1",
+          }),
+        ).rejects.toMatchObject({ code: "publishing_not_set_up" });
+      } finally {
+        fake.useOldServer(false);
+      }
+      for (const listing of ["none", "absent"] as const) {
+        fake.listRegistries(listing);
+        try {
+          await expect(
+            publish(folder, { app: { name, description: "Tests" } }),
+          ).rejects.toMatchObject({
+            code: "publishing_not_set_up",
+          });
+        } finally {
+          fake.listRegistries("changes");
+        }
+      }
+      // The registry's own metadata announces an apps API all along; the CLI never read it.
+      expect(fake.metadataReads).toEqual([]);
+      fake.useOldRegistry(true);
+      try {
+        await expect(
+          publish(folder, { app: { name, description: "Tests" } }),
+        ).rejects.toMatchObject({
+          code: "registry_unsupported",
+        });
+      } finally {
+        fake.useOldRegistry(false);
+      }
+      expect(await inFolder(folder, ["config", "--get-regexp", "^weldall\\."])).not.toContain(
+        "appid",
+      );
+    });
+
+    // Regressions found by attacking the built command (review of step 3f).
+
+    it("keeps edits made while the push runs and publishes them next time", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await writeTree(folder, { "src/a.ts": "a v2\n" });
+      await fake.beforeGit(
+        "push --porcelain",
+        "printf 'a v3\\n' > src/a.ts\nprintf 'new\\n' > src/new.ts",
+      );
+
+      const raced = await publish(folder, { git: fake.gitWrapper });
+
+      expect(raced.outcome).toBe("published");
+      expect(raced.notices.map(({ code }) => code)).toEqual(["edited_during_publish"]);
+      expect(await readFile(join(folder, "src/a.ts"), "utf8")).toBe("a v3\n");
+      expect(await readFile(join(folder, "src/new.ts"), "utf8")).toBe("new\n");
+      expect(await show(bare, `${raced.pullRequest!.branch}:src/a.ts`)).toBe("a v2");
+
+      const next = await publish(folder);
+      expect(next.outcome).toBe("published");
+      expect(next.conflict).toBeNull();
+      expect(await show(bare, `${next.pullRequest!.branch}:src/a.ts`)).toBe("a v3");
+      expect(await show(bare, `${next.pullRequest!.branch}:src/new.ts`)).toBe("new");
+    });
+
+    it("does not overwrite edits that conflict with what the publish brought in", async () => {
+      const { folder, bare, first } = await published();
+      await fake.commitFiles(
+        bare,
+        first.pullRequest!.branch,
+        { "src/b.ts": "b reviewer\n" },
+        "Review",
+      );
+      await writeTree(folder, { "src/a.ts": "a v2\n" });
+      await fake.beforeGit("push --porcelain", "printf 'b mine\\n' > src/b.ts");
+
+      const raced = await publish(folder, { git: fake.gitWrapper });
+
+      expect(raced.outcome).toBe("published");
+      expect(raced.notices.map(({ code }) => code)).toEqual(["folder_not_updated"]);
+      expect(await readFile(join(folder, "src/b.ts"), "utf8")).toBe("b mine\n");
+      expect(await readFile(join(folder, "src/a.ts"), "utf8")).toBe("a v2\n");
+    });
+
+    it("recovers a first publish that was killed while recording the app", async () => {
+      counter += 1;
+      const name = `app${counter}`;
+      const folder = await fake.createFolder(name, "react", TEMPLATE);
+      await writeTree(folder, { "src/app.ts": "export const app = 2;\n" });
+      // Killed after the app was created and its registry recorded, before its git URL.
+      await fake.killGit("--end-of-options weldall.remoteUrl https://");
+      await expect(
+        publish(folder, { git: fake.gitWrapper, app: { name, description: "Tests" } }),
+      ).rejects.toBeDefined();
+      expect(await inFolder(folder, ["config", "weldall.registry"])).toBe(REGISTRY_KEY);
+      await expect(inFolder(folder, ["config", "weldall.appId"])).rejects.toThrow();
+
+      await expect(publish(folder, { app: {} })).rejects.toMatchObject({
+        code: "app_details_missing",
+        message: expect.stringContaining("stopped before it recorded the app"),
+        hint: expect.stringContaining("same --name"),
+      });
+      const again = await publish(folder, { app: { name, description: "Tests" } });
+      expect(again).toMatchObject({ outcome: "published", app: { created: false } });
+      expect(await inFolder(folder, ["config", "weldall.appId"])).toBe(again.app!.id);
+      expect(fake.created.filter((body) => body.name === name)).toHaveLength(2);
+      expect([...fake.apps.values()].filter((app) => app.name === name)).toHaveLength(1);
+    });
+
+    it("reuses the recorded branch when a run was killed right after its push", async () => {
+      const { folder, bare, first } = await published();
+      await fake.squashMerge(first.pullRequest!.number);
+      await writeTree(folder, { "src/a.ts": "a v2\n" });
+      await fake.killGit("push --porcelain", "after");
+      await expect(publish(folder, { git: fake.gitWrapper })).rejects.toBeDefined();
+      const branch = await inFolder(folder, ["config", "weldall.prBranch"]);
+      const heads = await fake.must(["for-each-ref", "--format=%(refname)", "refs/heads"], bare);
+
+      const retry = await publish(folder);
+
+      expect(retry).toMatchObject({ outcome: "published", pullRequest: { branch, created: true } });
+      expect(await fake.must(["for-each-ref", "--format=%(refname)", "refs/heads"], bare)).toBe(
+        heads,
+      );
+    });
+
+    it("restarts cleanly when a run was killed while writing the conflict", async () => {
+      const { folder, bare, first } = await published();
+      await fake.commitFiles(
+        bare,
+        first.pullRequest!.branch,
+        { "README.md": "# Template\n\nTheirs\n", "src/b.ts": "b reviewer\n" },
+        "Review",
+      );
+      await writeTree(folder, { "README.md": "# Template\n\nMine\n" });
+      await fake.killGit("read-tree -m -u");
+      await expect(publish(folder, { git: fake.gitWrapper, resolve: true })).rejects.toBeDefined();
+
+      const again = await publish(folder);
+      expect(again.outcome).toBe("conflict");
+      expect(again.notices.map(({ code }) => code)).toEqual(["resolution_discarded"]);
+      const written = await publish(folder, { resolve: true });
+      expect(written.conflict?.written).toBe(true);
+      expect(await readFile(join(folder, "README.md"), "utf8")).toContain("<<<<<<<");
+    });
+
+    it("treats the lock of a run that no longer exists as stale", async () => {
+      const { folder } = await published();
+      await writeFile(join(folder, ".git/weldall/publish.lock"), "999999\n");
+      await writeTree(folder, { "src/a.ts": "after a crash\n" });
+      expect((await publish(folder)).outcome).toBe("published");
+    });
+
+    it("refuses nested git repositories instead of publishing an empty reference", async () => {
+      const { folder } = await published();
+      await mkdir(join(folder, "web"));
+      await fake.must(["init", "-q", "-b", "main"], join(folder, "web"));
+      await writeTree(join(folder, "web"), { "index.html": "<h1>work</h1>\n" });
+      await fake.must(["add", "-A"], join(folder, "web"));
+      await fake.must(["commit", "-qm", "init"], join(folder, "web"));
+      const refused = await publish(folder);
+      expect(refused.outcome).toBe("refused");
+      expect(refused.refused).toEqual([
+        { path: "web", reason: expect.stringContaining("own git repository") },
+      ]);
+
+      await mkdir(join(folder, "empty"));
+      await fake.must(["init", "-q"], join(folder, "empty"));
+      await writeTree(join(folder, "empty"), { "x.txt": "x\n" });
+      await expect(publish(folder)).rejects.toMatchObject({
+        code: "nested_repository",
+        message: expect.stringContaining("empty/"),
+      });
+    });
+
+    it("stops before copying a huge untracked folder into git", async () => {
+      const { folder } = await published();
+      const chunk = randomBytes(4 * 1024 * 1024);
+      for (let index = 0; index < 26; index += 1)
+        await writeTree(folder, { [`.venv/lib/pkg${index}.so`]: chunk });
+      const objects = await inFolder(folder, ["count-objects"]);
+
+      await expect(publish(folder)).rejects.toMatchObject({
+        code: "too_large",
+        message: expect.stringContaining(".venv/ (104 MB)"),
+      });
+      expect(await inFolder(folder, ["count-objects"])).toBe(objects);
+    });
+
+    it("lets a changed template file with a refused name through and still scans its content", async () => {
+      const { folder } = await published();
+      await writeTree(folder, { ".npmrc": "auto-install-peers=true\nshamefully-hoist=true\n" });
+      expect((await publish(folder)).outcome).toBe("published");
+      await writeTree(folder, {
+        ".npmrc": `//registry.npmjs.org/:_authToken=${fakeGitHubToken}\n`,
+      });
+      expect((await publish(folder)).refused).toEqual([
+        { path: ".npmrc", reason: expect.stringContaining("GitHub token") },
+      ]);
+    });
+
+    it("refuses symbolic links to absolute paths and outside the folder", async () => {
+      const { folder } = await published();
+      await symlink("/etc/hosts", join(folder, "hosts-link"));
+      await symlink("../../outside.txt", join(folder, "src/up-link"));
+      await symlink("app.ts", join(folder, "src/app-link.ts"));
+      const refused = await publish(folder);
+      expect(refused.refused?.map(({ path }) => path)).toEqual(["hosts-link", "src/up-link"]);
+    });
+
+    it("decides file/directory conflicts only with the repository's version", async () => {
+      const { folder, bare, first } = await published();
+      await fake.commitFiles(
+        bare,
+        first.pullRequest!.branch,
+        { "docs/x.md": "repo dir\n" },
+        "Review",
+      );
+      await writeTree(folder, { docs: "local file\n" });
+      const written = await publish(folder, { resolve: true });
+      const files = written.conflict!.files;
+      expect(files.map(({ path, choices }) => [path, choices])).toEqual([
+        ["docs", ["repo"]],
+        ["docs~refs_weldall_local", ["repo"]],
+      ]);
+      await expect(
+        publish(folder, { decisions: { docs: "folder", "docs~refs_weldall_local": "repo" } }),
+      ).rejects.toMatchObject({ code: "invalid_decision" });
+      // The agent keeps the local content under a new name, then takes the repository's side.
+      await rename(join(folder, "docs~refs_weldall_local"), join(folder, "docs-notes.txt"));
+      const resolved = await publish(folder, {
+        decisions: { docs: "repo", "docs~refs_weldall_local": "repo" },
+      });
+      expect(resolved.outcome).toBe("published");
+      const tree = await fake.must(
+        ["ls-tree", "-r", "--name-only", resolved.pullRequest!.branch],
+        bare,
+      );
+      expect(tree).toContain("docs/x.md");
+      expect(tree).toContain("docs-notes.txt");
+      expect(tree).not.toContain("~refs_weldall");
+    });
+
+    it("ignores GIT_DIR and GIT_WORK_TREE that point at another repository", async () => {
+      const { folder } = await published();
+      const other = join(fake.root, `other-${counter}`);
+      await mkdir(other);
+      await fake.must(["init", "-q"], other);
+      const before = await readFile(join(other, ".git/config"), "utf8");
+      await writeTree(folder, { "src/a.ts": "with GIT_DIR set\n" });
+      const result = await publish(folder, {
+        environment: {
+          ...fake.publishEnvironment(),
+          GIT_DIR: join(other, ".git"),
+          GIT_WORK_TREE: other,
+        },
+      });
+      expect(result.outcome).toBe("published");
+      expect(await readFile(join(other, ".git/config"), "utf8")).toBe(before);
+      expect(existsSync(join(other, ".git/refs/weldall"))).toBe(false);
+    });
+
+    it.each(["closed", "squash-merged"] as const)(
+      "keeps the base when the takeover was refused and the pull request is then %s",
+      async (ending) => {
+        const { folder, bare, first } = await published();
+        await fake.squashMerge(first.pullRequest!.number);
+        await fake.commitFiles(
+          bare,
+          "main",
+          { "src/b.ts": "b foreign\n", "src/notes.ts": lines(10, { 9: "foreign 9" }) },
+          "Foreign",
+        );
+        await writeTree(folder, { "src/a.ts": "a v2\n" });
+        await fake.beforeGit("push --porcelain", "printf 'b typed\\n' > src/b.ts");
+        const refused = await publish(folder, { git: fake.gitWrapper });
+        expect(refused.notices.map(({ code }) => code)).toEqual(["folder_not_updated"]);
+        if (ending === "closed") fake.close(refused.pullRequest!.number);
+        else await fake.squashMerge(refused.pullRequest!.number);
+
+        const next = await publish(folder);
+
+        // No silent revert of the foreign lines: the person's b.ts edit conflicts with them.
+        expect(next.outcome).toBe("conflict");
+        expect(next.conflict!.files.map(({ path }) => path)).toEqual(["src/b.ts"]);
+        await writeTree(folder, { "src/b.ts": "b foreign\n" });
+        const after = await publish(folder);
+        expect(after.outcome).toBe(ending === "closed" ? "published" : "nothing_to_publish");
+        if (after.pullRequest && after.commit) {
+          const branch = after.pullRequest.branch;
+          expect(await show(bare, `${branch}:src/notes.ts`)).toContain("foreign 9");
+          expect(await show(bare, `${branch}:src/b.ts`)).toBe("b foreign");
+        }
+        expect(await readFile(join(folder, "src/notes.ts"), "utf8")).toContain("foreign 9");
+      },
+    );
+  },
+);

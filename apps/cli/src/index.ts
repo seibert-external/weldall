@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --use-system-ca
 import { mcpCommand } from "./mcp-commands.js";
 import { discoveryCommand } from "./discovery-command.js";
+import { appCommand, gitCredentialCommand } from "./app-commands.js";
 import { cli } from "gunshi";
 import packageJson from "../package.json" with { type: "json" };
 import {
@@ -114,6 +115,8 @@ export async function runCli(argv = process.argv.slice(2)) {
         mcp: mcpCommand,
         discover: discoveryCommand,
         connectors: connectorsCommand,
+        app: appCommand,
+        "git-credential": gitCredentialCommand,
         ...iacSubCommands(isIacMachineConfigured()),
       },
       renderHeader: async (context) => {

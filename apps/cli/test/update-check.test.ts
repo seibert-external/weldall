@@ -154,6 +154,12 @@ describe("shouldRunUpdateCheck", () => {
     expect(shouldRunUpdateCheck(["request", "--json={}"])).toBe(false);
     expect(shouldRunUpdateCheck(["status"])).toBe(true);
   });
+
+  it("keeps the credential helper's stderr free of notices, and the app commands as before", () => {
+    expect(shouldRunUpdateCheck(["git-credential", "get"])).toBe(false);
+    expect(shouldRunUpdateCheck(["app", "publish"])).toBe(true);
+    expect(shouldRunUpdateCheck(["app", "publish", "--json"])).toBe(false);
+  });
 });
 
 describe("UpdateCheckStore", () => {

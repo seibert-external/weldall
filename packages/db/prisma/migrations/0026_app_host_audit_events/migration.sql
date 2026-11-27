@@ -1,0 +1,28 @@
+-- Add the audit event types a resource reports through the app host API
+-- (`/api/app-host/v1/audit-events`); not representable in Prisma's schema.
+ALTER TABLE "AuditEvent" DROP CONSTRAINT "AuditEvent_event_type";
+ALTER TABLE "AuditEvent" ADD CONSTRAINT "AuditEvent_event_type" CHECK (
+  "eventType" IN (
+    'login.installation.completed', 'login.provider.saved', 'id_jag.issued',
+    'id_jag.denied', 'id_jag.failed', 'machine_client.created',
+    'machine_client.updated', 'machine_client.deactivated', 'machine_client.deleted',
+    'machine_key.registered', 'machine_key.revoked', 'machine_access.replaced',
+    'machine_token.issued', 'machine_token.denied', 'machine_token.failed',
+    'user_scopes.created', 'user_scopes.replaced', 'user_scopes.deleted',
+    'resource_scopes.created', 'resource_scopes.replaced', 'resource_scopes.deleted',
+    'cli_settings.updated', 'client_policy.updated', 'skill.created', 'skill.updated',
+    'skill.deleted', 'group_provider.created', 'group_provider.updated',
+    'group_provider.deleted', 'group_provider.tested', 'group_scopes.created',
+    'group_scopes.replaced', 'group_scopes.deleted', 'iac.plan.generated',
+    'iac.apply.succeeded', 'iac.apply.denied', 'iac.apply.failed',
+    'iac.object.imported', 'iac.object.unmanaged', 'iac.state.moved',
+    'connector.configuration', 'connector.lifecycle', 'connector.request',
+    'git_repository.created', 'git_repository.registered', 'git_repository.denied',
+    'git_repository.failed', 'app_owner.assigned',
+    'git_push.forwarded', 'git_push.completed', 'git_push.denied', 'git_push.failed',
+    'git_fetch.completed', 'git_fetch.denied', 'git_fetch.failed',
+    'git_pull_request.opened', 'git_pull_request.denied', 'git_pull_request.failed',
+    'git_credential.issued', 'git_credential.denied', 'git_credential.failed',
+    'git_host.checked', 'app_confirmation.succeeded', 'app_confirmation.denied'
+  )
+);

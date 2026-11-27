@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import {
+  APP_HOST_SCOPE_KEY,
   db,
   ensureSystemScopes,
   isMachineOnlySystemScope,
@@ -23,6 +24,16 @@ describe("built-in system scope provisioning", () => {
       description: "View org-wide Weldall usage statistics.",
     });
     expect(isMachineOnlySystemScope(STATISTICS_SCOPE_KEY)).toBe(false);
+  });
+
+  it("defines weldall:app-host as a machine-only system scope", () => {
+    expect(APP_HOST_SCOPE_KEY).toBe("weldall:app-host");
+    expect(SYSTEM_SCOPE_DEFINITIONS).toContainEqual({
+      id: "scope-weldall-app-host",
+      key: APP_HOST_SCOPE_KEY,
+      description: "Report Git and app registry audit events for an allowed resource.",
+    });
+    expect(isMachineOnlySystemScope(APP_HOST_SCOPE_KEY)).toBe(true);
   });
 
   it("creates missing system scopes and reruns without granting login", async () => {

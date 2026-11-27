@@ -55,7 +55,7 @@ export class PrimitiveMutationError extends Error {
 }
 
 const resourceInclude = {
-  scopes: { include: { scope: { select: { id: true, key: true } } } },
+  scopes: { include: { scope: { select: { id: true, key: true, isSystem: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
   discoveredCatalog: {
     include: { _count: { select: { skills: true, agents: true, apps: true } } },

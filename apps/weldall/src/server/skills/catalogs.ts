@@ -70,6 +70,8 @@ export interface CatalogRefreshSource {
   skillDiscoveryEnabled: boolean;
   agentDiscoveryEnabled: boolean;
   appDiscoveryEnabled: boolean;
+  /** The resource's own scopes, which a side checks values from the metadata against. */
+  scopes: ReadonlyArray<{ scope: { key: string; isSystem: boolean } }>;
 }
 
 /** Every side besides the skills, in `CATALOG_SIDE_KINDS` order. */
@@ -178,11 +180,14 @@ const sideTarget = (
 const fetchMetadata = async (
   source: CatalogRefreshSource,
   fetcher: typeof fetch,
+  now: Date,
 ): Promise<{
   metadataUrl: string;
   catalogEndpoint: string | null;
   /** By side; a side that is switched off has none. */
   targets: Partial<Record<CatalogSideKind, SideTarget>>;
+  /** What a side switched on takes from the metadata apart from its items (`settings`). */
+  settings: Partial<Record<CatalogSideKind, Prisma.DiscoveredSkillCatalogUpdateManyMutationInput>>;
 }> => {
   const metadataUrl = deriveMetadataUrl(source.resourceIdentifier);
   let response: Response;
@@ -225,10 +230,19 @@ const fetchMetadata = async (
     throw new CatalogRefreshError("metadata_invalid");
   }
   const targets: Partial<Record<CatalogSideKind, SideTarget>> = {};
+  const settings: Partial<
+    Record<CatalogSideKind, Prisma.DiscoveredSkillCatalogUpdateManyMutationInput>
+  > = {};
+  const registration = {
+    resourceIdentifier: source.resourceIdentifier,
+    scopes: source.scopes.map(({ scope }) => scope),
+  };
   for (const side of SIDES)
-    if (sideOn(source, side.kind))
+    if (sideOn(source, side.kind)) {
       targets[side.kind] = sideTarget(side, metadata, source.resourceIdentifier);
-  return { metadataUrl, catalogEndpoint, targets };
+      if (side.settings) settings[side.kind] = side.settings(metadata, registration, now);
+    }
+  return { metadataUrl, catalogEndpoint, targets, settings };
 };
 
 const fetchCatalog = async (
@@ -497,7 +511,11 @@ export async function refreshCatalog(
   const elapsedMs = () => Math.max(0, Math.round(performance.now() - started));
   const readBudgetMs = Math.min(options.readBudgetMs ?? READ_BUDGET_MS, READ_BUDGET_MS);
   try {
-    const { metadataUrl, catalogEndpoint, targets } = await fetchMetadata(source, fetcher);
+    const { metadataUrl, catalogEndpoint, targets, settings } = await fetchMetadata(
+      source,
+      fetcher,
+      attemptedAt,
+    );
     const catalog = catalogEndpoint
       ? await fetchCatalog(source, catalogEndpoint, fetcher, attemptedAt)
       : null;
@@ -603,9 +621,11 @@ export async function refreshCatalog(
           catalogEndpoint,
           ...Object.assign(
             {},
-            ...outcomes.map(({ side, outcome }) =>
-              sideUpdate(side, outcome, source.version, attemptedAt),
-            ),
+            ...outcomes.map(({ side, outcome }) => ({
+              ...sideUpdate(side, outcome, source.version, attemptedAt),
+              // Stored with the side switched on, whether its items were read or not.
+              ...(outcome === null ? {} : settings[side.kind]),
+            })),
           ),
           lastAttemptAt: attemptedAt,
           ...(failedAsWhole
@@ -807,6 +827,7 @@ const refreshSourceSelect = {
   skillDiscoveryEnabled: true,
   agentDiscoveryEnabled: true,
   appDiscoveryEnabled: true,
+  scopes: { select: { scope: { select: { key: true, isSystem: true } } } },
 } as const satisfies Prisma.DownstreamResourceSelect;
 
 export async function refreshDueCatalogs(
