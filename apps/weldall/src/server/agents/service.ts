@@ -58,7 +58,10 @@ export interface AgentRegistry {
   allowed: boolean;
 }
 
-/** A permission the person holds and can therefore share an agent with. */
+/**
+ * A permission the person holds and can therefore share an agent with. A registry's own
+ * permission (`AgentRegistry.scope`) is left out.
+ */
 export interface ShareableScope {
   key: string;
   description: string;
@@ -182,7 +185,11 @@ export async function listVisibleAgents(user: {
       ),
     warnings,
     registries,
-    shareableScopes,
+    // The permission to keep agents at a registry says who may use the registry, not a group of
+    // colleagues: it is not offered for sharing.
+    shareableScopes: shareableScopes.filter(
+      ({ key }) => !registries.some((registry) => registry.scope === key),
+    ),
   };
 }
 

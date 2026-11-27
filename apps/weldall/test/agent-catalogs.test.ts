@@ -325,9 +325,20 @@ describe("agent discovery", () => {
     expect(allowed.registries).toEqual([
       { key, name: "Agent catalog test", ...api, allowed: true },
     ]);
-    expect(allowed.shareableScopes).toEqual([
-      { key: salesScope, description: "Agent catalog test" },
+    // The permission to use the registry is not a group to share with.
+    expect(allowed.shareableScopes).toEqual([]);
+    const team = await db.emailScopeGrant.create({
+      data: {
+        id: randomUUID(),
+        createdBy: by,
+        scope: { connect: { id: scopeIds[intranetScope]! } },
+        assignment: { connect: { normalizedEmail: colleague.email } },
+      },
+    });
+    expect((await listVisibleAgents(colleague)).shareableScopes).toEqual([
+      { key: intranetScope, description: "Agent catalog test" },
     ]);
+    await db.emailScopeGrant.delete({ where: { id: team.id } });
     const other = await listVisibleAgents(owner);
     expect(other.registries).toMatchObject([{ key, allowed: false }]);
     expect(other.shareableScopes).toEqual([]);
