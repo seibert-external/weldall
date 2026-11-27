@@ -71,7 +71,7 @@ The response contains a DPoP-bound access token and no refresh token. Request a 
 
 ## Check a user's current scopes
 
-A backend that must re-evaluate a persistent local credential can request the machine-only `weldall:subject-scopes-check` scope for the Weldall API. Assign that system scope and the backend's own resource to its machine client. Weldall only permits checks for scopes supported by one of the machine's allowed resources.
+A backend that must re-evaluate a persistent local credential can request the machine-only `weldall:subject-scopes-check` scope for the Weldall API. Assign that system scope and the backend's own resource to its machine client. Weldall only permits checks for scopes supported by one of the machine's allowed resources. A machine client that also holds `weldall:app-host` (see [below](#report-audit-events-for-a-resource)) and has at least one enabled allowed resource may also check `weldall:login` when its resource does not support it, so a resource that acts for people with its own credentials can stop serving a person who may no longer use Weldall. Any other machine checks `weldall:login` only when one of its allowed resources supports it.
 
 Use the opaque `sub` captured from a previously verified Weldall user token, never an email address:
 
@@ -106,6 +106,41 @@ const response = await fetch(endpoint, {
 ```
 
 A successful response contains sorted `granted` and `missing` arrays plus `evaluatedAt`. Responses are marked `no-store`; a caller may apply its own short cache. Weldall returns `503 temporarily_unavailable` rather than reporting an authoritative missing scope when a relevant group provider cannot be evaluated.
+
+## Report audit events for a resource
+
+Some resources act on people's behalf in other systems. An app host, for example a registry that creates apps as repositories at your organisation's Git host and forwards people's pushes there, does so with its own long-lived Git host credential. So that Weldall's audit log still shows who did what, such a resource reports these actions to Weldall with its machine client.
+
+Assign the machine-only system scope `weldall:app-host` and the resource itself to the resource's machine client. Request the token for the Weldall API (`${issuer}/api`) with the scope `weldall:app-host` and send each event to `POST /api/app-host/v1/audit-events`, signed with a fresh DPoP proof as in the check above. Every report names the resource identifier of the resource it is about; Weldall accepts it only when the machine client is allowed for that resource and the resource is enabled, and answers `403 invalid_target` otherwise.
+
+```json
+{
+  "resource": "https://registry.example.com/api",
+  "eventId": "0f3c4f0e-6a1b-4c1e-9d55-6b2f3c0d9a10",
+  "eventType": "git_push.forwarded",
+  "subject": "user-1",
+  "appId": "app_0123456789abcdef0123",
+  "repository": { "owner": "acme-apps", "name": "app-expenses" },
+  "details": {
+    "refUpdates": [
+      {
+        "ref": "refs/heads/weldall/publish-1",
+        "oldCommit": "0000000000000000000000000000000000000000",
+        "newCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "refUpdateCount": 1,
+    "credentialId": "c2f6b1d0-3e4a-4b7c-9f21-8d5e6a7b9c01"
+  }
+}
+```
+
+- `subject` is the Weldall user ID (`sub`) of the person who acted, never an email address. An unknown or unverified person is `404 unknown_subject`. Rejections may have `subject: null`; the machine client is then recorded as the actor.
+- `appId` is the resource's own ID for the app; Weldall keeps no app records and stores it as reported, together with the repository. The resource decides who may act on an app.
+- The event types are `git_repository.created`, `git_repository.registered` (an administrator registered an existing repository as someone's app), `app_owner.assigned` (an administrator assigned or changed an app's owner), `git_push.forwarded` (before the push is forwarded), `git_push.completed`, `git_fetch.completed`, `git_pull_request.opened`, `git_credential.issued`, `git_host.checked` (the set-up checklist ran) and `app_confirmation.succeeded`, plus `.denied` and `.failed` rejections of repositories, pushes, fetches, pull requests and git credentials and `app_confirmation.denied`. A rejection carries a `reason` and optionally a `reasonCode`. Each event type has its own fixed `details`; a body that does not match is `400 invalid_request`.
+- `eventId` (16 to 128 characters of letters, digits, `.`, `_`, `:` and `-`) is chosen by the resource and reused on every retry of the same report. A new entry is answered with `201`, a repeated identical report with `200` and `duplicate: true`, and a different report under an `eventId` already used with `409 event_id_conflict`. Only a `2xx` answer with `accepted: true` means the entry is stored, so a resource that must not act without an audit entry (such as forwarding a push) acts only after that answer.
+
+A report body may be at most 64,000 bytes, and each free text in it (a `reason`, a ref, branch or template name) at most 8,000 characters. Weldall redacts credentials from free text, replaces control characters and invalid Unicode in it, and cuts it before storing it: reasons to 500 characters, ref and branch names to 255 and template names to 100, ending in `…[truncated]`. A long name therefore never makes a report fail. IDs, repository names and commit IDs are checked against their format instead and stored unchanged. The entries appear under **Audit logs** with the resource as their subject and the machine client as their client.
 
 ## Protect the receiving service
 

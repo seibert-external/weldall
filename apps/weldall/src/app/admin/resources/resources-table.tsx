@@ -19,6 +19,7 @@ import { ManagementBadge } from "@/components/admin/management-badge";
 import type { ResourceDto } from "@/server/admin/service";
 import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
+import { appApiListLabel, appApiTones } from "./app-api-summary";
 import {
   isInteractiveTableTarget,
   OverflowFade,
@@ -189,6 +190,27 @@ export function ResourcesTable() {
                 {status.label} ({row.original.catalogStatus?.appCount ?? 0})
               </Text>
               <Icon icon={status.icon} color={status.color} size="sm" />
+            </HStack>
+          );
+        },
+      },
+      {
+        // A fact of its own: whether clients are told to create apps and publish code here.
+        id: "appRegistry",
+        header: "App registry",
+        size: 240,
+        minSize: 140,
+        maxSize: 280,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const { tone, label } = appApiListLabel(
+            row.original.catalogStatus?.appApi ?? null,
+            row.original.enabled && row.original.appDiscoveryEnabled,
+          );
+          return (
+            <HStack gap={2} vAlign="center">
+              <Text type="body">{label}</Text>
+              <Icon icon={appApiTones[tone].icon} color={appApiTones[tone].color} size="sm" />
             </HStack>
           );
         },

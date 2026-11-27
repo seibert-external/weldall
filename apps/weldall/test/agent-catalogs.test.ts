@@ -345,6 +345,13 @@ describe("agent discovery", () => {
     // Weldall's own permissions are never offered for sharing.
     expect((await listVisibleAgents(admin)).shareableScopes).toEqual([]);
 
+    // Keys Weldall does not know are ignored and not passed on.
+    served.agentApi = { ...api, later: true };
+    await expect(refresh()).resolves.toBe("succeeded");
+    expect((await listVisibleAgents(colleague)).registries).toEqual([
+      { key, name: "Agent catalog test", ...api, allowed: true },
+    ]);
+
     // A permission that is not the resource's own is not passed on.
     served.agentApi = { ...api, scope: intranetScope };
     await expect(refresh()).resolves.toBe("succeeded");
@@ -811,7 +818,13 @@ describe("agent discovery", () => {
   });
 
   it("hides the agents after the switch was off until they are read again", async () => {
+    // With an agents API: the registry goes with the agents, so it is hidden as they are.
+    await db.resourceScope.create({
+      data: { resourceId: resource.id, scopeId: scopeIds[salesScope]! },
+    });
+    served.agentApi = { endpoint: `${origin}/api/agents`, scope: salesScope };
     await expect(refresh()).resolves.toBe("succeeded");
+    expect((await listVisibleAgents(colleague)).registries).toMatchObject([{ key }]);
     const actor = { id: admin.id, email: admin.email, requestId: `agent-test-${id}` };
     const save = (
       current: Awaited<ReturnType<typeof getResource>>,
@@ -841,13 +854,16 @@ describe("agent discovery", () => {
       catalogStatus: { state: "disabled", agentCount: 0, agents: null },
     });
     expect((await listVisibleAgents(owner)).items).toEqual([]);
-    // Switched on again before any refresh: the copy is from before the change and stays hidden.
+    expect((await listVisibleAgents(colleague)).registries).toEqual([]);
+    // Switched on again before any refresh: the copy is from before the change and stays hidden,
+    // and so does the agents API read with it, although no refresh ran in between.
     const on = await save(off, true);
     expect(on).toMatchObject({
       version: fresh.version + 2,
       catalogStatus: { state: "expired", agents: { state: "expired" } },
     });
     expect((await listVisibleAgents(owner)).items).toEqual([]);
+    expect((await listVisibleAgents(colleague)).registries).toEqual([]);
     expect((await listVisibleAgents(admin)).warnings).toContainEqual({
       source: key,
       code: "catalog_expired",
@@ -867,6 +883,8 @@ describe("agent discovery", () => {
     await expect(refresh()).resolves.toBe("succeeded");
     expect((await getResource(resource.id)).catalogStatus).toMatchObject({ state: "fresh" });
     expect((await listVisibleAgents(owner)).items).toHaveLength(1);
+    expect((await listVisibleAgents(colleague)).registries).toMatchObject([{ key }]);
+    await db.resourceScope.deleteMany({ where: { resourceId: resource.id } });
   });
 
   it("hides agents of a stale catalog and of a resource with discovery switched off", async () => {

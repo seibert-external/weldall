@@ -12,6 +12,7 @@ import {
   type CatalogSideWarning,
   type SideStatusColumns,
 } from "../discovery/catalog-sides";
+import { checkAppApi, storedAppApi, type AppApi, type AppApiRefusal } from "./discovery";
 
 /**
  * The apps a person may see: discovered apps (`discovery.ts`) they own, or for which they hold any
@@ -51,11 +52,119 @@ export interface VisibleApp {
 }
 
 /** Shown to administrators only. */
-export type AppWarning = CatalogSideWarning<"apps">;
+export type AppWarning =
+  | CatalogSideWarning<"apps">
+  | {
+      source: string;
+      /** The resource names an apps API that Weldall refused; clients are not told of it. */
+      code: "apps_api_refused";
+      refusal: AppApiRefusal;
+    };
+
+/**
+ * A resource people's clients publish apps through. Listed for every signed-in person;
+ * `allowed`/`adminAllowed` say whether this person holds the scope (`appApiStatus` says when one is
+ * listed).
+ */
+export interface AppRegistry extends AppApi {
+  key: string;
+  name: string;
+  /** The resource identifier a client requests a token for. */
+  resource: string;
+  allowed: boolean;
+  /** False when the registry names no administration scope. */
+  adminAllowed: boolean;
+}
 
 export interface VisibleAppsEnvelope {
   items: VisibleApp[];
   warnings: AppWarning[];
+  registries: AppRegistry[];
+}
+
+/**
+ * How long a checked apps API is passed on after the metadata was last read, as long as discovered
+ * items are shown after their last refresh (`MAX_STALE_MS` in `skills/catalogs.ts`).
+ */
+const APP_API_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * A resource's apps API as clients are told of it (`accepted`), or why they are not:
+ * - `refused`: it failed `checkAppApi`, when it was read or against the resource as it is now;
+ * - `absent`: the resource names none; `pending`: the metadata was not read with app discovery on;
+ * - `expired`: the metadata was last read more than a day ago.
+ *
+ * Unlike the apps, it does not depend on the state of the app list or on the resource version it was
+ * read for: the apps API is checked again against the current registration every time it is read,
+ * so a registry without any app, or one whose app list cannot be read, is still listed, and so is
+ * one right after an administrator changed the resource (unless the change makes it fail).
+ */
+export interface AppApiStatus {
+  state: "accepted" | "refused" | "absent" | "pending" | "expired";
+  /** The apps API as stored; null unless it passed the checks when it was read. */
+  api: AppApi | null;
+  refusal: AppApiRefusal | null;
+  checkedAt: string | null;
+}
+
+export interface AppApiColumns {
+  appApiEndpoint: string | null;
+  appApiScope: string | null;
+  appApiAdminScope: string | null;
+  appApiGit: string | null;
+  appApiGitCredentials: string | null;
+  appApiRefusal: string | null;
+  appApiCheckedAt: Date | null;
+}
+
+/** The catalog columns `appApiStatus` reads. */
+export const appApiSelect = {
+  appApiEndpoint: true,
+  appApiScope: true,
+  appApiAdminScope: true,
+  appApiGit: true,
+  appApiGitCredentials: true,
+  appApiRefusal: true,
+  appApiCheckedAt: true,
+} as const satisfies Record<keyof AppApiColumns, true>;
+
+/** Null while app discovery (or the resource) is off. */
+export function appApiStatus(
+  resource: {
+    enabled: boolean;
+    appDiscoveryEnabled: boolean;
+    resourceIdentifier: string;
+    scopes: ReadonlyArray<{ scope: { key: string; isSystem: boolean } }>;
+  },
+  catalog: AppApiColumns | null,
+  now: Date = new Date(),
+): AppApiStatus | null {
+  if (!resource.enabled || !resource.appDiscoveryEnabled) return null;
+  const checkedAt = catalog?.appApiCheckedAt ?? null;
+  const at = checkedAt?.toISOString() ?? null;
+  if (!catalog || !checkedAt) return { state: "pending", api: null, refusal: null, checkedAt: at };
+  const stored = storedAppApi(catalog);
+  if (!stored)
+    return catalog.appApiRefusal
+      ? {
+          state: "refused",
+          api: null,
+          refusal: catalog.appApiRefusal as AppApiRefusal,
+          checkedAt: at,
+        }
+      : { state: "absent", api: null, refusal: null, checkedAt: at };
+  const checked = checkAppApi(stored, {
+    resourceIdentifier: resource.resourceIdentifier,
+    scopes: resource.scopes.map(({ scope }) => scope),
+  });
+  if (!checked || "refusal" in checked)
+    return { state: "refused", api: null, refusal: checked?.refusal ?? "malformed", checkedAt: at };
+  return {
+    state: checkedAt.getTime() + APP_API_MAX_AGE_MS <= now.getTime() ? "expired" : "accepted",
+    api: checked.api,
+    refusal: null,
+    checkedAt: at,
+  };
 }
 
 /**
@@ -96,12 +205,15 @@ export async function listVisibleApps(user: {
     select: {
       key: true,
       name: true,
+      resourceIdentifier: true,
       version: true,
       enabled: true,
       appDiscoveryEnabled: true,
+      scopes: { select: { scope: { select: { key: true, isSystem: true } } } },
       discoveredCatalog: {
         select: {
           ...appCatalogStatusSelect,
+          ...appApiSelect,
           apps: {
             where: { OR: [{ ownerId: user.id }, { scopes: { hasSome: opening } }] },
             orderBy: [{ name: "asc" }, { canonicalId: "asc" }],
@@ -112,6 +224,7 @@ export async function listVisibleApps(user: {
   });
   const canViewCatalogIssues = grants.has(ADMIN_SCOPE_KEY);
   const warnings: AppWarning[] = [];
+  const registries: AppRegistry[] = [];
   const visible: Array<{
     resource: (typeof resources)[number];
     app: NonNullable<(typeof resources)[number]["discoveredCatalog"]>["apps"][number];
@@ -126,6 +239,19 @@ export async function listVisibleApps(user: {
       canViewCatalogIssues,
     );
     warnings.push(...issues);
+    // The apps API has its own freshness (`appApiStatus`): it is listed whether or not the apps are.
+    const api = appApiStatus(resource, catalog, now);
+    if (api?.state === "accepted" && api.api)
+      registries.push({
+        key: resource.key,
+        name: resource.name,
+        resource: resource.resourceIdentifier,
+        ...api.api,
+        allowed: grants.has(api.api.scope),
+        adminAllowed: api.api.adminScope !== null && grants.has(api.api.adminScope),
+      });
+    else if (api?.state === "refused" && api.refusal && canViewCatalogIssues)
+      warnings.push({ source: resource.key, code: "apps_api_refused", refusal: api.refusal });
     if (!catalog || !shown) continue;
     for (const app of catalog.apps) visible.push({ resource, app });
   }
@@ -156,6 +282,7 @@ export async function listVisibleApps(user: {
         (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
       ),
     warnings,
+    registries,
   };
 }
 

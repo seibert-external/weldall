@@ -21,6 +21,7 @@ import { useTRPC } from "@/trpc/react";
 import { HerocrumbsActions } from "../../_components/herocrumbs";
 import { useOperationToast } from "../../_components/use-operation-toast";
 import { listing } from "@/lib/listing";
+import { appApiSummary, appApiTones } from "./app-api-summary";
 import { failedSides, reloadedKinds, sideReloadFailureDetail } from "./catalog-reload";
 
 const catalogStatuses = {
@@ -353,6 +354,26 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
                 </Fragment>
               );
             })}
+            {current.catalogStatus.appApi
+              ? (() => {
+                  const summary = appApiSummary(current.catalogStatus.appApi);
+                  return (
+                    <>
+                      <HStack gap={2} vAlign="center">
+                        <Icon
+                          icon={appApiTones[summary.tone].icon}
+                          color={appApiTones[summary.tone].color}
+                          size="sm"
+                        />
+                        <Text type="body">{summary.title}</Text>
+                      </HStack>
+                      <Text color="secondary" type="body">
+                        {summary.detail}
+                      </Text>
+                    </>
+                  );
+                })()
+              : null}
           </div>
         ) : null}
         {scopeOptionsQuery.error ? (
@@ -542,7 +563,7 @@ export function ResourceDetail({ resourceId }: { resourceId: string | null }) {
             <form.Field name="appDiscoveryEnabled">
               {(field) => (
                 <Switch
-                  description="Trust this resource to publish the apps it knows of, such as repositories in your Git host, and to say who owns each app and which permissions open it. A person sees an app they own or hold one of its permissions for; administrators see every app under Apps. Weldall only reads apps and changes nothing at the resource."
+                  description="Trust this resource to publish the apps it knows of, such as repositories in your Git host, and to say who owns each app and which permissions open it. A person sees an app they own or hold one of its permissions for; administrators see every app under Apps. Weldall only reads apps and changes nothing at the resource. This switch also lets the resource announce an API through which people create apps and publish their code to it (an app registry): Weldall then tells every signed-in client about it, and clients offer to publish people's app folders there. Switch it on only for a resource your organization trusts with people's app folders and code."
                   label="Discover apps from this resource"
                   labelPosition="start"
                   labelSpacing="spread"

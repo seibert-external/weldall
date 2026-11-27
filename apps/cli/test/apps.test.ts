@@ -84,6 +84,32 @@ describe("app list", () => {
     expect(parseAppList(list)).toEqual(list);
   });
 
+  it("accepts the answer with the registries newer servers list, and without them", async () => {
+    const registries = [
+      {
+        key: "registry",
+        name: "Registry",
+        resource: "https://registry.example.com/api",
+        endpoint: "https://registry.example.com/api/apps",
+        scope: "registry:publish",
+        allowed: true,
+        adminScope: null,
+        adminAllowed: false,
+        git: "https://registry.example.com/git/",
+        gitCredentials: "https://registry.example.com/api/git-credentials",
+      },
+    ];
+    for (const body of [
+      { items: [app], warnings: [], registries },
+      { items: [app], warnings: [], registries: [] },
+      { items: [app], warnings: [] },
+    ]) {
+      expect(parseAppList(body).items).toEqual([app]);
+      serve(() => Response.json(body));
+      await expect(listApps(config)).resolves.toMatchObject({ items: [app], warnings: [] });
+    }
+  });
+
   it.each([
     ["no object", []],
     ["no items", { ...empty, items: undefined }],
@@ -199,5 +225,17 @@ describe("app list output", () => {
     expect(
       formatAppWarning({ source: "registry\u001b[2J", code: "catalog_expired\u001b]0;x\u0007" }),
     ).toBe("Apps from registry\uFFFD[2J: catalog_expired\uFFFD]0;x\uFFFD");
+  });
+
+  it("names why Weldall refused a resource's apps API, sanitised, and parses the extra field", () => {
+    const warning = {
+      source: "registry",
+      code: "apps_api_refused",
+      refusal: "git_invalid\u001b[2J",
+    };
+    expect(parseAppList({ items: [], warnings: [warning] }).warnings).toEqual([warning]);
+    expect(formatAppWarning(warning)).toBe(
+      "Apps from registry: apps_api_refused (git_invalid\uFFFD[2J)",
+    );
   });
 });

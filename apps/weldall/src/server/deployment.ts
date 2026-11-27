@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { db, ensureSystemScopes } from "@weldall/db";
+import { clearedAppApi } from "./apps/app-api-columns";
 import { decryptProviderToken } from "./group-providers/credentials";
 import { WELDALL_RESOURCE } from "./oauth/constants";
 import { readConnectorSecrets } from "./connectors/configuration";
@@ -71,11 +72,18 @@ export async function prepareProductionDatabase(prisma: PrismaClient = db): Prom
       update: {},
     });
     if (WELDALL_RESOURCE !== LOCAL_WELDALL_RESOURCE) {
+      const localResources = [
+        LOCAL_EXPENSES_RESOURCE,
+        "https://development-skills.seibert.localdev/api",
+      ];
+      // Disabled resources are no app registries, also once they are enabled again.
+      await tx.discoveredSkillCatalog.updateMany({
+        where: { resource: { resourceIdentifier: { in: localResources } } },
+        data: clearedAppApi,
+      });
       await tx.downstreamResource.updateMany({
         where: {
-          resourceIdentifier: {
-            in: [LOCAL_EXPENSES_RESOURCE, "https://development-skills.seibert.localdev/api"],
-          },
+          resourceIdentifier: { in: localResources },
           enabled: true,
         },
         data: {

@@ -7,7 +7,12 @@ import {
 } from "@weldall/sdk";
 import { z } from "zod";
 import { agentCatalogStatus, type AgentCatalogStatus } from "../agents/service";
-import { appCatalogStatus, type AppCatalogStatus } from "../apps/service";
+import {
+  appApiStatus,
+  appCatalogStatus,
+  type AppApiStatus,
+  type AppCatalogStatus,
+} from "../apps/service";
 import { leastHealthy } from "../discovery/catalog-sides";
 import { parseCliLogoUrl } from "../branding";
 import { listAuditEvents, prismaAuditWriter, type AuditEventType } from "../audit/service";
@@ -41,7 +46,7 @@ export const MAX_PAGE_SIZE = 200;
 const resourceKeyPattern = /^[a-z0-9._-]+$/;
 const emailSchema = z.string().email().max(320);
 const resourceInclude = {
-  scopes: { include: { scope: { select: { id: true, key: true } } } },
+  scopes: { include: { scope: { select: { id: true, key: true, isSystem: true } } } },
   requestPrefixes: { orderBy: { urlPrefix: "asc" as const } },
   discoveredCatalog: {
     include: { _count: { select: { skills: true, agents: true, apps: true } } },
@@ -225,6 +230,11 @@ export interface ResourceDto {
      */
     agents: AgentCatalogStatus | null;
     apps: AppCatalogStatus | null;
+    /**
+     * The apps API the resource names (`weldall_apps_api`) and whether clients are told of it as a
+     * registry; null with app discovery off.
+     */
+    appApi: AppApiStatus | null;
   } | null;
   version: number;
   scopeIds: string[];
@@ -1263,7 +1273,7 @@ function serializeResource(resource: {
   createdAt: Date;
   updatedAt: Date;
   createdBy: string;
-  scopes: { scope: { id: string; key: string } }[];
+  scopes: { scope: { id: string; key: string; isSystem: boolean } }[];
   requestPrefixes: { urlPrefix: string }[];
   discoveredCatalog: {
     lastAttemptAt: Date | null;
@@ -1284,6 +1294,13 @@ function serializeResource(resource: {
     appsLastFailureCategory: string | null;
     appsLastFailureAt: Date | null;
     appsSkippedCount: number;
+    appApiEndpoint: string | null;
+    appApiScope: string | null;
+    appApiAdminScope: string | null;
+    appApiGit: string | null;
+    appApiGitCredentials: string | null;
+    appApiRefusal: string | null;
+    appApiCheckedAt: Date | null;
     _count: { skills: number; agents: number; apps: number };
   } | null;
   iacBinding?: {
@@ -1345,6 +1362,7 @@ function serializeResource(resource: {
           lastFailureAt: catalog.lastFailureAt?.toISOString() ?? null,
           agents: agentStatus,
           apps: appStatus,
+          appApi: appApiStatus(resource, catalog, now),
         }
       : null,
     version: resource.version,

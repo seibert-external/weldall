@@ -71,7 +71,7 @@ Nach Ablauf des DPoP-gebundenen Access Tokens fordert der Service ein neues Toke
 
 ## Aktuelle Benutzer-Scopes prüfen
 
-Ein Backend, das eine langlebige lokale Berechtigung erneut prüfen muss, kann für die Weldall API den Machine-only-Scope `weldall:subject-scopes-check` anfordern. Dafür werden dem Machine Client dieser System-Scope und die eigene Ressource des Backends zugewiesen. Weldall erlaubt nur Abfragen für Scopes, die mindestens einer freigegebenen Ressource des Machine Clients zugeordnet sind.
+Ein Backend, das eine langlebige lokale Berechtigung erneut prüfen muss, kann für die Weldall API den Machine-only-Scope `weldall:subject-scopes-check` anfordern. Dafür werden dem Machine Client dieser System-Scope und die eigene Ressource des Backends zugewiesen. Weldall erlaubt nur Abfragen für Scopes, die mindestens einer freigegebenen Ressource des Machine Clients zugeordnet sind. Ein Machine Client, der zusätzlich `weldall:app-host` hält (siehe [unten](#audit-ereignisse-einer-ressource-melden)) und mindestens eine aktivierte freigegebene Ressource hat, darf außerdem `weldall:login` prüfen, auch wenn seine Ressource diesen Scope nicht führt. So kann eine Ressource, die mit eigenen Zugangsdaten für Personen handelt, aufhören, eine Person zu bedienen, die Weldall nicht mehr nutzen darf. Jeder andere Machine Client prüft `weldall:login` nur, wenn eine seiner freigegebenen Ressourcen den Scope führt.
 
 Als Benutzerkennung wird ausschließlich der opake `sub` aus einem zuvor verifizierten Weldall-Benutzertoken verwendet, niemals eine E-Mail-Adresse:
 
@@ -106,6 +106,41 @@ const response = await fetch(endpoint, {
 ```
 
 Eine erfolgreiche Antwort enthält sortierte Arrays `granted` und `missing` sowie `evaluatedAt`. Die Antwort ist mit `no-store` markiert; der Aufrufer kann selbst kurzzeitig cachen. Wenn ein relevanter Gruppen-Provider nicht ausgewertet werden kann, liefert Weldall `503 temporarily_unavailable`, statt einen Scope fälschlich als sicher fehlend zu melden.
+
+## Audit-Ereignisse einer Ressource melden
+
+Manche Ressourcen handeln im Auftrag von Personen in anderen Systemen. Ein App-Host, zum Beispiel eine Registry, die Apps als Repositories beim Git-Host der Organisation anlegt und Pushes dorthin weiterleitet, tut das mit einer eigenen, langlebigen Git-Host-Berechtigung. Damit das Audit-Log von Weldall trotzdem zeigt, wer was getan hat, meldet eine solche Ressource diese Aktionen mit ihrem Machine Client an Weldall.
+
+Dem Machine Client der Ressource werden der Machine-only-System-Scope `weldall:app-host` und die Ressource selbst zugewiesen. Das Token wird für die Weldall API (`${issuer}/api`) mit dem Scope `weldall:app-host` angefordert; jedes Ereignis geht an `POST /api/app-host/v1/audit-events`, signiert mit einem frischen DPoP-Proof wie bei der Prüfung oben. Jede Meldung nennt den Ressourcen-Identifier der Ressource, um die es geht; Weldall nimmt sie nur an, wenn der Machine Client für diese Ressource freigegeben und die Ressource aktiviert ist, und antwortet sonst mit `403 invalid_target`.
+
+```json
+{
+  "resource": "https://registry.example.com/api",
+  "eventId": "0f3c4f0e-6a1b-4c1e-9d55-6b2f3c0d9a10",
+  "eventType": "git_push.forwarded",
+  "subject": "user-1",
+  "appId": "app_0123456789abcdef0123",
+  "repository": { "owner": "acme-apps", "name": "app-expenses" },
+  "details": {
+    "refUpdates": [
+      {
+        "ref": "refs/heads/weldall/publish-1",
+        "oldCommit": "0000000000000000000000000000000000000000",
+        "newCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "refUpdateCount": 1,
+    "credentialId": "c2f6b1d0-3e4a-4b7c-9f21-8d5e6a7b9c01"
+  }
+}
+```
+
+- `subject` ist die Weldall-Benutzerkennung (`sub`) der handelnden Person, niemals eine E-Mail-Adresse. Eine unbekannte oder nicht verifizierte Person ergibt `404 unknown_subject`. Ablehnungen dürfen `subject: null` haben; dann wird der Machine Client als Akteur eingetragen.
+- `appId` ist die eigene Kennung der Ressource für die App; Weldall führt keine App-Datensätze und speichert sie wie gemeldet, zusammen mit dem Repository. Wer an einer App handeln darf, entscheidet die Ressource.
+- Die Ereignistypen sind `git_repository.created`, `git_repository.registered` (ein Administrator hat ein bestehendes Repository als App einer Person registriert), `app_owner.assigned` (ein Administrator hat die verantwortliche Person einer App zugewiesen oder geändert), `git_push.forwarded` (bevor der Push weitergeleitet wird), `git_push.completed`, `git_fetch.completed`, `git_pull_request.opened`, `git_credential.issued`, `git_host.checked` (die Einrichtungs-Checkliste lief) und `app_confirmation.succeeded`, dazu Ablehnungen `.denied` und `.failed` für Repositories, Pushes, Fetches, Pull Requests und Git-Zugangsdaten sowie `app_confirmation.denied`. Eine Ablehnung enthält einen `reason` und optional einen `reasonCode`. Jeder Ereignistyp hat feste eigene `details`; ein Body, der nicht passt, ergibt `400 invalid_request`.
+- `eventId` (16 bis 128 Zeichen aus Buchstaben, Ziffern, `.`, `_`, `:` und `-`) wählt die Ressource und verwendet sie bei jeder Wiederholung derselben Meldung erneut. Ein neuer Eintrag wird mit `201` beantwortet, eine wiederholte identische Meldung mit `200` und `duplicate: true`, eine andere Meldung unter einer bereits verwendeten `eventId` mit `409 event_id_conflict`. Nur eine `2xx`-Antwort mit `accepted: true` bedeutet, dass der Eintrag gespeichert ist; eine Ressource, die ohne Audit-Eintrag nicht handeln darf (etwa einen Push weiterleiten), handelt erst nach dieser Antwort.
+
+Ein Meldungs-Body darf höchstens 64.000 Byte groß sein, jeder freie Text darin (ein `reason`, ein Ref-, Branch- oder Template-Name) höchstens 8.000 Zeichen lang. Weldall entfernt Zugangsdaten aus freiem Text, ersetzt Steuerzeichen und ungültiges Unicode darin und kürzt ihn, bevor es ihn speichert: Begründungen auf 500 Zeichen, Ref- und Branch-Namen auf 255 und Template-Namen auf 100, jeweils mit `…[truncated]` am Ende. Ein langer Name lässt eine Meldung daher nie scheitern. Kennungen, Repository-Namen und Commit-IDs werden dagegen gegen ihr Format geprüft und unverändert gespeichert. Die Einträge erscheinen unter **Audit logs** mit der Ressource als Subjekt und dem Machine Client als Client.
 
 ## Ziel-API absichern
 

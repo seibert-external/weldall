@@ -11,6 +11,7 @@ import {
 } from "../../lib/audit";
 import { requestIdentifiers } from "../observability/http";
 import { CLIENT_POLICY_FIELDS } from "../policy/client-policy";
+import { gitMetadataSchemas } from "./git-metadata";
 
 export { AUDIT_EVENT_TYPES } from "../../lib/audit";
 export type { AuditEventDto, AuditEventType } from "../../lib/audit";
@@ -377,6 +378,7 @@ const metadataSchemas = {
   "iac.object.imported": iacMetadata,
   "iac.object.unmanaged": iacMetadata,
   "iac.state.moved": iacMetadata,
+  ...gitMetadataSchemas,
 } satisfies Record<AuditEventType, z.ZodType>;
 
 const auditInputSchema = z
@@ -443,31 +445,65 @@ export interface AuditWriter {
   write(event: AuditEventInput, transaction?: Prisma.TransactionClient): Promise<void>;
 }
 
+/**
+ * The metadata exactly as {@link prismaAuditWriter} stores it: validated and normalised by the
+ * event type's schema. Throws when it does not fit the schema. Only schemas redact, and only free
+ * text: the Git event schemas (`./git-metadata.ts`) redact credentials in reasons and ref, branch
+ * and template names. Identifiers are never redacted, and the metadata of the other event types
+ * (written by Weldall itself from validated or administrator-configured values) is stored as given.
+ */
+export function normalizeAuditMetadata(eventType: AuditEventType, metadata: unknown): unknown {
+  return metadataSchemas[eventType].parse(metadata);
+}
+
 export const prismaAuditWriter: AuditWriter = {
   async write(input, transaction) {
     const event = auditInputSchema.parse(input);
-    const metadata = metadataSchemas[event.eventType].parse(event.metadata);
-    const client = transaction ?? db;
-    await client.auditEvent.create({
-      data: {
-        schemaVersion: AUDIT_SCHEMA_VERSION,
-        eventType: event.eventType,
-        actorType: event.actorType,
-        actorId: event.actorId,
-        ...(event.actorEmail ? { actorEmail: event.actorEmail.trim().toLowerCase() } : {}),
-        ...(event.clientId ? { clientId: event.clientId } : {}),
-        requestId: event.requestId,
-        ...(event.correlationId ? { correlationId: event.correlationId } : {}),
-        ...(event.deduplicationKey ? { deduplicationKey: event.deduplicationKey } : {}),
-        outcome: event.outcome,
-        ...(event.reasonCode ? { reasonCode: event.reasonCode } : {}),
-        ...(event.subjectType ? { subjectType: event.subjectType } : {}),
-        ...(event.subjectId ? { subjectId: event.subjectId } : {}),
-        metadata: metadata as Prisma.InputJsonObject,
-      },
-    });
+    await createAuditEvent(
+      event,
+      normalizeAuditMetadata(event.eventType, event.metadata),
+      transaction,
+    );
   },
 };
+
+/**
+ * Stores `input` like {@link prismaAuditWriter}, for a caller that has already normalised its
+ * metadata with {@link normalizeAuditMetadata}: `metadata` is stored as given.
+ */
+export async function writeNormalizedAuditEvent(
+  input: AuditEventInput,
+  metadata: unknown,
+  transaction?: Prisma.TransactionClient,
+): Promise<void> {
+  await createAuditEvent(auditInputSchema.parse(input), metadata, transaction);
+}
+
+async function createAuditEvent(
+  event: z.output<typeof auditInputSchema>,
+  metadata: unknown,
+  transaction?: Prisma.TransactionClient,
+): Promise<void> {
+  const client = transaction ?? db;
+  await client.auditEvent.create({
+    data: {
+      schemaVersion: AUDIT_SCHEMA_VERSION,
+      eventType: event.eventType,
+      actorType: event.actorType,
+      actorId: event.actorId,
+      ...(event.actorEmail ? { actorEmail: event.actorEmail.trim().toLowerCase() } : {}),
+      ...(event.clientId ? { clientId: event.clientId } : {}),
+      requestId: event.requestId,
+      ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+      ...(event.deduplicationKey ? { deduplicationKey: event.deduplicationKey } : {}),
+      outcome: event.outcome,
+      ...(event.reasonCode ? { reasonCode: event.reasonCode } : {}),
+      ...(event.subjectType ? { subjectType: event.subjectType } : {}),
+      ...(event.subjectId ? { subjectId: event.subjectId } : {}),
+      metadata: metadata as Prisma.InputJsonObject,
+    },
+  });
+}
 
 export async function listAuditEvents(input: {
   page: number;

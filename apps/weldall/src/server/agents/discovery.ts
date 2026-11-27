@@ -95,7 +95,8 @@ export function parseAgentCatalogPage(
   return { agents: items, ...page };
 }
 
-const agentApiSchema = z.strictObject({
+/** Keys Weldall does not know are ignored (and not passed on), so a registry can add some. */
+const agentApiSchema = z.object({
   endpoint: z.string().max(2_000),
   scope: z.string().max(200).regex(GLOBAL_SCOPE),
 });

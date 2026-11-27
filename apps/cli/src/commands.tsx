@@ -1335,11 +1335,16 @@ export const formatAppEntry = (app: AppSummary) => {
 };
 
 export const formatAppWarning = (warning: AppWarning) =>
-  `Apps from ${terminalText(warning.source)}: ${terminalText(warning.code)}`;
+  `Apps from ${terminalText(warning.source)}: ${terminalText(warning.code)}${
+    typeof warning.refusal === "string" && warning.refusal
+      ? ` (${terminalText(warning.refusal.slice(0, 200))})`
+      : ""
+  }`;
 
 export const appsCommand = define({
   name: "apps",
-  description: "List apps you own or that are shared with a permission you hold",
+  description:
+    "List apps you own or that are shared with a permission you hold (`weldall app` creates and publishes your own)",
   args: { json: jsonArgument },
   examples: "weldall apps\nweldall apps --json",
   run: async (context) => {

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Logger, type ISettingsParam } from "tslog";
+import { CREDENTIAL_PATTERNS, redactCredentials } from "./redaction";
 
 export interface LogContext extends Record<string, unknown> {
   requestId?: string;
@@ -25,6 +26,7 @@ const sensitiveValuePatterns = [
   /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
   /\b(?:https?|postgres(?:ql)?):\/\/[^:\s/@]+:[^@\s/]+@/gi,
+  ...CREDENTIAL_PATTERNS,
 ];
 
 export function resolveLogLevel(value = process.env.LOG_LEVEL): LogLevelName {
@@ -126,6 +128,6 @@ export function errorForLog(error: unknown, depth = 0): Record<string, unknown> 
 function redactSensitiveValues(value: string): string {
   return sensitiveValuePatterns.reduce(
     (redacted, pattern) => redacted.replace(pattern, "[***]"),
-    value,
+    redactCredentials(value),
   );
 }
