@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import {
@@ -140,9 +142,51 @@ const requiredScopes = z
   .min(1)
   .max(32)
   .describe("Exact provider permissions required by the loaded skill for this operation.");
+const uploadPath = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((value) => path.isAbsolute(value), "Use the absolute path of an attached file.");
+// The CLI splits a part at its first "=" and reads a value starting with "@" as a file.
+const formName = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[^=\u0000-\u001f\u007f]+$/);
+const formPart = z.union([
+  z.strictObject({
+    name: formName,
+    value: z
+      .string()
+      .max(16_000)
+      .refine((value) => !value.startsWith("@"), "Give a file as file, not as an @ value."),
+  }),
+  z.strictObject({
+    name: formName,
+    file: uploadPath,
+    type: z
+      .string()
+      .max(256)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/)
+      .optional(),
+  }),
+]);
 const requestBody = {
   json: z.json().optional(),
   text: z.string().max(16_000).optional(),
+  file: uploadPath
+    .optional()
+    .describe(
+      "Absolute path of a file the user attached to this chat, sent as the whole body (--upload-file/-T). Give its Content-Type in headers; without one it is sent as application/octet-stream.",
+    ),
+  form: z
+    .array(formPart)
+    .min(1)
+    .max(32)
+    .optional()
+    .describe(
+      "multipart/form-data parts (--form/-F): {name, value} for name=value, {name, file, type} for name=@path;type=MIME. file is the absolute path of a file the user attached to this chat; type defaults to application/octet-stream. No Content-Type header with form.",
+    ),
 };
 const sendSchema = z.strictObject({
   ...requestFields,
@@ -157,7 +201,7 @@ const jsonWire = z
   .unknown()
   .optional()
   .describe(
-    "JSON request body: object, array, string, number, boolean or null. Mutually exclusive with text.",
+    "JSON request body: object, array, string, number, boolean or null. Mutually exclusive with text, file and form.",
   );
 const sendWireSchema = sendSchema.extend({ json: jsonWire });
 const sendInputSchema = {
@@ -218,7 +262,7 @@ const definitions = [
     name: "send",
     title: "POST or write through Weldall",
     description:
-      'Use instead of shell for a skill\'s weldall request --method/-X POST, PUT, PATCH or DELETE. For an operation with side effects, proceed only when the loaded skill explicitly supports that write and the user authorized it; a read/search/list/lookup/review skill never authorizes a write. A skill may explicitly document POST as a read-only, repeatable transport such as a query or batch of inner reads; that does not require write confirmation. For a managed connection, pass the exact provider permissions from the skill as requiredScopes; the extension checks the live READY connection and its grantedScopes before the request. Preserve URL and method. Map --connection to connection or --scope/-s to scope (exactly one), --header/-H to headers, --json/-j to a JSON value in json or --data/-d to text (at most one body). Set responseMode to "text" only for a documented textual response whose content type is not handled automatically, including multipart/mixed. Files, uploads and binary downloads remain unsupported. This tool is never automatically retried, including after timeout, cancellation or ambiguous failure.',
+      'Use instead of shell for a skill\'s weldall request --method/-X POST, PUT, PATCH or DELETE. For an operation with side effects, proceed only when the loaded skill explicitly supports that write and the user authorized it; a read/search/list/lookup/review skill never authorizes a write. A skill may explicitly document POST as a read-only, repeatable transport such as a query or batch of inner reads; that does not require write confirmation. For a managed connection, pass the exact provider permissions from the skill as requiredScopes; the extension checks the live READY connection and its grantedScopes before the request. Preserve URL and method. Map --connection to connection or --scope/-s to scope (exactly one), --header/-H to headers, --json/-j to a JSON value in json, --data/-d to text, --upload-file/-T to file and repeated --form/-F to form (at most one body). Only a file the user attached to this chat can be uploaded; never guess or ask for another path, and relay a refusal in plain language. Set responseMode to "text" only for a documented textual response whose content type is not handled automatically, including multipart/mixed. Binary downloads and saving responses to files remain unsupported. This tool is never automatically retried, including after timeout, cancellation or ambiguous failure.',
     schema: sendSchema,
   },
 ] as const;
@@ -318,6 +362,45 @@ async function preflightConnection(
     throw new ExtensionError("permission_missing");
 }
 
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+// The host (the Weldall desktop client) writes the files the user attached to the chat,
+// one absolute path per line, and names that list in this variable. Read on every call,
+// so a file attached mid-session is allowed and one removed is not.
+export const ATTACHED_LIST_ENV = "WELDALL_GOOSE_ATTACHED_LIST";
+
+const resolved = (value: string) => {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return undefined;
+  }
+};
+
+// The CLI receives the resolved path, so a link cannot lead past the check.
+export function attachedFile(value: string): string {
+  const list = process.env[ATTACHED_LIST_ENV];
+  if (!list) throw new ExtensionError("upload_unavailable");
+  let entries: string[];
+  try {
+    entries = fs.readFileSync(list, "utf8").split(/\r?\n/);
+  } catch {
+    throw new ExtensionError("upload_not_attached");
+  }
+  const attached = new Set(
+    entries
+      .filter((entry) => path.isAbsolute(entry))
+      .map(resolved)
+      .filter(Boolean),
+  );
+  const real = resolved(value);
+  if (real === undefined || !attached.has(real)) throw new ExtensionError("upload_not_attached");
+  const stat = fs.statSync(real);
+  if (!stat.isFile()) throw new ExtensionError("upload_not_file");
+  if (stat.size > MAX_UPLOAD_BYTES) throw new ExtensionError("upload_too_large");
+  return real;
+}
+
 export function requestArguments(
   args: z.infer<typeof getSchema> | z.infer<typeof sendSchema>,
 ): string[] {
@@ -330,10 +413,21 @@ export function requestArguments(
     argv.push(`--scope=${scope}`);
   for (const header of args.headers ?? []) argv.push(`--header=${header}`);
   if ("method" in args) {
-    if (args.json !== undefined && args.text !== undefined)
+    const { json, text, file, form } = args;
+    if ([json, text, file, form].filter((body) => body !== undefined).length > 1)
       throw new ExtensionError("invalid_request");
-    if (args.json !== undefined) argv.push(`--json=${JSON.stringify(args.json)}`);
-    if (args.text !== undefined) argv.push(`--data=${args.text}`);
+    if (form !== undefined && args.headers?.some((value) => /^\s*content-type\s*:/i.test(value)))
+      throw new ExtensionError("invalid_request");
+    if (json !== undefined) argv.push(`--json=${JSON.stringify(json)}`);
+    if (text !== undefined) argv.push(`--data=${text}`);
+    if (file !== undefined) argv.push(`--upload-file=${attachedFile(file)}`);
+    for (const part of form ?? [])
+      argv.push(
+        "value" in part
+          ? `--form=${part.name}=${part.value}`
+          : // Always name the type, so a ";type=" inside the path is never taken for it.
+            `--form=${part.name}=@${attachedFile(part.file)};type=${part.type ?? "application/octet-stream"}`,
+      );
   }
   if (args.responseMode !== undefined) argv.push("--output=-");
   argv.push(args.url);
@@ -362,11 +456,13 @@ export async function callTool(
     }
     if (name === "send") {
       const args = sendSchema.parse(input);
-      if (args.connection !== undefined) {
-        if (args.requiredScopes === undefined) throw new ExtensionError("required_scopes_missing");
+      if (args.connection !== undefined && args.requiredScopes === undefined)
+        throw new ExtensionError("required_scopes_missing");
+      // Refuse an upload before any CLI call, the connection preflight included.
+      const argv = requestArguments(args);
+      if (args.connection !== undefined && args.requiredScopes !== undefined)
         await preflightConnection(cli, args.connection, args.requiredScopes, signal);
-      }
-      const body = await cli.run(requestArguments(args), signal, REQUEST_TIMEOUT);
+      const body = await cli.run(argv, signal, REQUEST_TIMEOUT);
       return result({ body }, body);
     }
     if (name === "read_skill_document") {

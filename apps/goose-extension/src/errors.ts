@@ -27,6 +27,14 @@ export const messages = {
   mcp_rebind:
     "This MCP connector is already bound to a different connection. Start a new session to change accounts.",
   busy: "Too many concurrent operations. Wait for the current operations to finish.",
+  upload_unavailable:
+    'Not uploaded. Tell the user: "Uploading files needs the Weldall desktop client."',
+  upload_not_attached:
+    'Not uploaded. Tell the user: "Only a file you attach to this chat can be uploaded. Attach it with the paperclip and ask again."',
+  upload_not_file:
+    'Not uploaded. Tell the user: "Only a single file can be uploaded, not a folder."',
+  upload_too_large:
+    'Not uploaded. Tell the user: "The file is larger than 100 MB, the upload limit."',
 } as const;
 export type ErrorCode = keyof typeof messages;
 export class ExtensionError extends Error {

@@ -208,7 +208,6 @@ describe("fixed tool adapters", () => {
       "send",
       { url: "https://example.com", scope: "write", method: "POST", json: {}, text: "duplicate" },
     ],
-    ["send", { url: "https://example.com", scope: "write", method: "POST", file: "/secret" }],
   ])("rejects invalid %s input before executing", async (name, args) => {
     const cli = runner({});
     const result = await callTool(cli, name as string, args);
